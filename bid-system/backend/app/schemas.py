@@ -1,0 +1,596 @@
+﻿from pydantic import BaseModel, ConfigDict, EmailStr
+from typing import Optional, List
+from datetime import datetime, date
+
+
+# -- 공통 --------------------------------------------------
+
+class ApiResponse(BaseModel):
+    success: bool = True
+    data: Optional[object] = None
+    message: str = "OK"
+
+
+# -- 인증 --------------------------------------------------
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_name: str
+    role: str
+
+
+class UserCreate(BaseModel):
+    email: str
+    password: str
+    name: str
+    role: str = "viewer"
+    department: Optional[str] = None
+
+
+class UserOut(BaseModel):
+    id: int
+    email: str
+    name: Optional[str]
+    role: str
+    department: Optional[str]
+    is_active: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# -- 입찰 --------------------------------------------------
+
+class BidResultOut(BaseModel):
+    id: int
+    competitor_id: int
+    competitor_name: str
+    bid_amount: int
+    bid_rate: float
+    rank: int
+    is_winner: bool
+    assessment_rate: Optional[float]
+
+    class Config:
+        from_attributes = True
+
+
+class BidSummary(BaseModel):
+    id: int
+    announcement_no: str
+    title: str
+    agency_name: str
+    industry_name: Optional[str]
+    region_name: Optional[str]
+    base_amount: int
+    notice_date: Optional[date] = None
+    bid_open_date: Optional[datetime]
+    status: str
+    winner_rate: Optional[float] = None
+    competitor_count: Optional[int] = None
+    source: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class BidDetail(BidSummary):
+    min_bid_rate: Optional[float]
+    estimated_price: Optional[int] = None
+    a_value: Optional[int]
+    construction_period: Optional[int]
+    region_restriction: bool
+    ntce_url: Optional[str] = None
+    # 신규 필드
+    construction_site: Optional[str] = None
+    contract_method: Optional[str] = None
+    bid_method: Optional[str] = None
+    eligible_regions: Optional[str] = None
+    industry_limit: Optional[str] = None
+    bid_close_date: Optional[datetime] = None
+    contact_name: Optional[str] = None
+    contact_tel: Optional[str] = None
+    results: List[BidResultOut] = []
+
+    class Config:
+        from_attributes = True
+
+
+class BidCreate(BaseModel):
+    announcement_no: str
+    title: str
+    agency_id: int
+    industry_id: Optional[int] = None
+    region_id: Optional[int] = None
+    base_amount: int
+    min_bid_rate: Optional[float] = None
+    a_value: Optional[int] = None
+    bid_open_date: Optional[datetime] = None
+    construction_period: Optional[int] = None
+    region_restriction: bool = False
+
+
+class BidResultCreate(BaseModel):
+    competitor_name: str
+    bid_amount: int
+    bid_rate: float
+    rank: int
+    is_winner: bool = False
+
+
+class BidListParams(BaseModel):
+    agency_id: Optional[int] = None
+    industry_id: Optional[int] = None
+    region_id: Optional[int] = None
+    status: Optional[str] = None
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+    keyword: Optional[str] = None
+    page: int = 1
+    size: int = 20
+
+
+# -- 추천 --------------------------------------------------
+
+class RecommendRequest(BaseModel):
+    industry_id: int
+    region_id: int
+    agency_id: int
+    base_amount: int
+    a_value: Optional[int] = None
+    construction_period: Optional[int] = None
+    known_competitor_ids: List[int] = []
+    our_planned_rate: Optional[float] = None
+
+
+class RateRange(BaseModel):
+    safe_lower: float
+    lower: float
+    center: float
+    upper: float
+    safe_upper: float
+
+
+class WinProbabilities(BaseModel):
+    at_lower: float
+    at_center: float
+    at_upper: float
+
+
+class ExplanationFactor(BaseModel):
+    feature: str
+    label: str
+    value: object
+    shap_value: float
+    direction: str  # "positive" | "negative"
+
+
+class Explanation(BaseModel):
+    top_factors: List[ExplanationFactor]
+    narrative_ko: str
+    base_rate: float
+    model_version: str
+    data_count: int
+
+
+class RiskInfo(BaseModel):
+    level: str   # LOW | MEDIUM | HIGH
+    factors: List[str]
+    score: float
+
+
+class SimilarCase(BaseModel):
+    bid_id: int
+    title: str
+    agency_name: str
+    base_amount: int
+    bid_open_date: Optional[datetime]
+    winner_rate: Optional[float]
+    competitor_count: int
+    similarity_score: float
+
+
+class RecommendResponse(BaseModel):
+    rate_range: RateRange
+    win_probabilities: WinProbabilities
+    risk: RiskInfo
+    explanation: Explanation
+    similar_cases: List[SimilarCase]
+
+
+# -- 경쟁사 --------------------------------------------------
+
+class CompetitorSummary(BaseModel):
+    id: int
+    name: str
+    total_bids: int
+    win_count: int
+    win_rate: float
+    avg_bid_rate: float
+    aggression_score: float
+    risk_level: str
+
+    class Config:
+        from_attributes = True
+
+
+class CompetitorDetail(CompetitorSummary):
+    std_bid_rate: float
+    p25_rate: float
+    p75_rate: float
+    consistency_score: float
+    frequent_rivals: List[dict] = []
+    monthly_trend: List[dict] = []
+
+
+class CompetitorTimelinePoint(BaseModel):
+    year: int
+    month: int
+    bid_count: int
+    win_count: int
+    avg_rate: float
+
+
+# -- 통계 --------------------------------------------------
+
+class OverviewStats(BaseModel):
+    total_bids: int
+    total_competitors: int
+    avg_win_rate: float
+    avg_bid_rate: float
+    avg_competitor_count: float
+    monthly_trend: List[dict]
+
+
+class AgencyStats(BaseModel):
+    agency_id: int
+    agency_name: str
+    bid_count: int
+    avg_rate: float
+    avg_competitor_count: float
+    our_win_rate: Optional[float]
+
+
+class IndustryStats(BaseModel):
+    industry_id: int
+    industry_name: str
+    bid_count: int
+    avg_rate: float
+    avg_competitor_count: float
+
+
+class HeatmapCell(BaseModel):
+    x_label: str
+    y_label: str
+    value: float
+    count: int
+
+
+# -- 키워드 --------------------------------------------------
+
+class WatchKeywordCreate(BaseModel):
+    keyword: str
+    kw_type: str = "general"
+    note: Optional[str] = None
+
+
+class WatchKeywordUpdate(BaseModel):
+    keyword: Optional[str] = None
+    kw_type: Optional[str] = None
+    is_active: Optional[bool] = None
+    note: Optional[str] = None
+
+
+class WatchKeywordOut(BaseModel):
+    id: int
+    keyword: str
+    kw_type: str
+    is_active: bool
+    note: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+# -- 하이브리드 추천 v2 --------------------------------------------------
+
+class RecommendV2Request(BaseModel):
+    agency_id:             int
+    industry_id:           int
+    region_id:             int
+    base_amount:           int
+    min_bid_rate:          float = 0.87745
+    bid_open_date:         Optional[datetime] = None
+    a_value:               Optional[int] = None
+    construction_period:   Optional[int] = None
+    known_competitor_ids:  List[int] = []
+
+
+class StrategyOption(BaseModel):
+    rate:     float
+    target:   str
+    risk:     str
+    note:     str
+    win_prob: Optional[float] = None
+    avg_rank: Optional[float] = None
+
+
+class StrategySet(BaseModel):
+    aggressive:        StrategyOption
+    balanced:          StrategyOption
+    conservative:      StrategyOption
+    avoid_competition: StrategyOption
+
+
+class SrateRange(BaseModel):
+    p10:    float
+    lower:  float
+    center: float
+    upper:  float
+    p90:    float
+
+
+class EstimatedPriceInfo(BaseModel):
+    srate_range:            SrateRange
+    estimated_price_range:  dict
+    confidence:             float
+    used_model:             bool
+    sample_count:           int
+
+
+class WinProbV2(BaseModel):
+    at_aggressive:        float
+    at_balanced:          float = 0.0
+    at_conservative:      float
+    at_avoid_competition: float = 0.0
+
+
+class CompetitionInfo(BaseModel):
+    score:                float
+    pressure:             float
+    hhi:                  float
+    expected_competitors: int
+    floor_rate:           float
+    aggressive_ratio:     float
+    recent_winner_min:    float
+
+
+class RiskV2(BaseModel):
+    level:   str
+    score:   float
+    factors: List[str]
+
+
+class ExplanationV2(BaseModel):
+    top_factors:   List[ExplanationFactor]
+    narrative_ko:  str
+    model_version: str
+    data_count:    int
+    base_rate:     float
+
+
+
+class SimulationResult(BaseModel):
+    n_sim:          int
+    floor_rate_pct: float
+    srate_p10:      float
+    srate_p25:      float
+    srate_median:   float
+    srate_p75:      float
+    srate_p90:      float
+    floor_abs_p50:  float
+
+class RecommendV2Response(BaseModel):
+    rate_range:       RateRange
+    strategies:       StrategySet
+    estimated_price:  EstimatedPriceInfo
+    win_probabilities: WinProbV2
+    risk:             RiskV2
+    competition:      CompetitionInfo
+    ensemble_weights: dict
+    explanation:      ExplanationV2
+    similar_cases:    List[SimilarCase]
+    market_trend:     dict
+    simulation:       Optional[SimulationResult] = None
+
+
+# -- 투찰 이력 --------------------------------------------------
+
+class MyBidRecordCreate(BaseModel):
+    title: str
+    agency_name: Optional[str] = None
+    bid_date: Optional[date] = None
+    base_amount: Optional[int] = 0
+    submitted_rate: float
+    recommendation_rate: Optional[float] = None
+    bid_id: Optional[int] = None
+    note: Optional[str] = None
+
+class MyBidRecordUpdate(BaseModel):
+    result: Optional[str] = None        # pending/won/lost
+    actual_winner_rate: Optional[float] = None
+    note: Optional[str] = None
+    submitted_rate: Optional[float] = None
+
+class MyBidRecordOut(BaseModel):
+    id: int
+    bid_id: Optional[int]
+    title: str
+    agency_name: Optional[str]
+    bid_date: Optional[date]
+    base_amount: int
+    submitted_rate: float
+    recommendation_rate: Optional[float]
+    result: str
+    actual_winner_rate: Optional[float]
+    note: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ── 사정율 분포 ──────────────────────────
+class SrateDistributionBin(BaseModel):
+    rate_pct: float
+    count: int
+
+class SrateDistributionResponse(BaseModel):
+    bins: list[SrateDistributionBin]
+    mode: Optional[float]
+    p25: Optional[float]
+    p50: Optional[float]
+    p75: Optional[float]
+    mean: Optional[float]
+    std: Optional[float]
+    sample_count: int
+
+# ── 기관 분석 ────────────────────────────
+class AgencySummary(BaseModel):
+    id: int
+    name: str
+    type: Optional[str]
+    region_name: Optional[str]
+    bid_count: int
+
+class AgencyListResponse(BaseModel):
+    items: list[AgencySummary]
+    total: int
+
+class AgencyMonthlyTrend(BaseModel):
+    year_month: str
+    bid_count: int
+    win_rate: Optional[float]
+    avg_srate: Optional[float]
+
+class AgencySrateDistribution(BaseModel):
+    bins: list[SrateDistributionBin]
+    mode: Optional[float]
+    p25: Optional[float]
+    p50: Optional[float]
+    p75: Optional[float]
+    mean: Optional[float]
+
+class AgencyTopWinner(BaseModel):
+    competitor_name: str
+    win_count: int
+    avg_bid_rate: Optional[float]
+
+class AgencyAmountBucket(BaseModel):
+    bucket_label: str
+    count: int
+    avg_win_rate: Optional[float]
+
+class AgencyAnalysisSummary(BaseModel):
+    name: str
+    total_bids: int
+    avg_win_rate: Optional[float]
+    avg_srate: Optional[float]
+    dominant_industry: Optional[str]
+
+class AgencyAnalysisResponse(BaseModel):
+    summary: AgencyAnalysisSummary
+    monthly_trend: list[AgencyMonthlyTrend]
+    srate_distribution: AgencySrateDistribution
+    top_winners: list[AgencyTopWinner]
+    amount_distribution: list[AgencyAmountBucket]
+
+# ── 경쟁사 투찰성향 ──────────────────────
+class CompetitorRadar(BaseModel):
+    aggression: float
+    consistency: float
+    concentration: float
+    risk: float
+    activity: float
+
+class CompetitorAmountPattern(BaseModel):
+    bucket: str
+    bid_count: int
+    win_count: int
+    avg_rate: Optional[float]
+    win_rate: Optional[float]
+
+class CompetitorRecentTrend(BaseModel):
+    direction: str  # aggressive | stable | defensive
+    change_pct: Optional[float]
+
+class CompetitorPatternResponse(BaseModel):
+    radar: CompetitorRadar
+    amount_pattern: list[CompetitorAmountPattern]
+    recent_trend: CompetitorRecentTrend
+
+class CompetitorCompareItem(BaseModel):
+    id: int
+    name: str
+    radar: CompetitorRadar
+    monthly_trend: list[dict]
+
+class CompetitorCompareResponse(BaseModel):
+    competitors: list[CompetitorCompareItem]
+
+# ── 수집 로그 ────────────────────────────
+class CollectionLogOut(BaseModel):
+    id: int
+    collect_type: str
+    collected_at: datetime
+    success_count: int
+    fail_count: int
+    duration_sec: Optional[float]
+    error_summary: Optional[str]
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+# ── 북마크 ───────────────────────────────
+class BookmarkResponse(BaseModel):
+    bid_id: int
+    user_id: int
+    note: Optional[str]
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+# ── My입찰 분석 ──────────────────────────
+class MyBidScatterPoint(BaseModel):
+    submitted_rate: float
+    recommendation_rate: Optional[float]
+    result: str
+    bid_date: str
+
+class MyBidMonthlyAccuracy(BaseModel):
+    year_month: str
+    mae: Optional[float]
+    win_count: int
+    total: int
+
+class MyBidAccuracyStats(BaseModel):
+    avg_error: Optional[float]
+    median_error: Optional[float]
+    accuracy_1pct: Optional[float]  # ±1% 적중률
+    accuracy_3pct: Optional[float]  # ±3% 적중률
+    total_records: int
+
+class MyBidAnalysisResponse(BaseModel):
+    accuracy_stats: MyBidAccuracyStats
+    rate_scatter: list[MyBidScatterPoint]
+    monthly_accuracy: list[MyBidMonthlyAccuracy]
+
+# ── 대시보드 KPI 변화율 ───────────────────
+class OverviewStatsWithChange(BaseModel):
+    # 기존 OverviewStats 필드들 + 변화율
+    total_bids: int
+    total_competitors: int
+    avg_win_rate: Optional[float]
+    avg_bid_rate: Optional[float]
+    avg_competitor_count: Optional[float]
+    monthly_trend: list[dict]
+    win_rate_change_pct: Optional[float]
+    bid_count_change_pct: Optional[float]
+    avg_competitors_change: Optional[float]
+

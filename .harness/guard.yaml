@@ -1,0 +1,29 @@
+# .harness/guard.yaml — 프로젝트별 guard_paths.py 룰 설정
+#
+# 이 파일은 선택 사항입니다. 존재하면 guard_paths.py가 읽어 룰을 override합니다.
+# profile.json의 "guard" 섹션도 동일한 효과를 가집니다. (guard.yaml이 우선)
+#
+# 가능한 설정:
+#
+# disable_rules:          # 끌 룰 ID 목록
+#   - gitignore           # .gitignore 수정 경고 비활성화
+#   - lockfile            # lockfile 직접 편집 경고 비활성화
+#   - dockerfile          # Dockerfile/docker-compose 경고 비활성화
+#   - ci_workflow         # CI 워크플로 변경 경고 비활성화
+#   - migration_file      # 마이그레이션 파일 수정 경고 비활성화
+#   - synced_release_note # synced release-note 수정 경고 비활성화
+#   # 주의: 아래 Tier 1 룰은 비활성화를 권장하지 않습니다
+#   # - git_internal      # .git/ 보호
+#   # - env_secret        # .env 시크릿 보호
+#   # - secret_file       # 인증/키 파일 보호
+#   # - completed_run     # 완료 run 보호
+#   # - foreign_run       # 타인 run 보호
+#   # - shared_state      # 공유 상태 파일 보호
+#   # - docs_no_edit      # A2M_NO_DOCS_EDIT 시 docs 보호
+#
+# whitelist_paths:        # 모든 룰을 우회할 경로 목록 (ROOT 상대경로)
+#   - scripts/generated/  # 생성 스크립트 출력 디렉토리
+#   - infra/terraform/    # Terraform 설정 (의도적 Dockerfile 수정)
+
+disable_rules: []
+whitelist_paths: []

@@ -1,0 +1,340 @@
+﻿import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { Search, ChevronLeft, ChevronRight, Trophy } from 'lucide-react'
+import {
+  RadarChart, Radar, PolarGrid, PolarAngleAxis,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+} from 'recharts'
+import { competitorsApi } from '@/api'
+import type { Competitor } from '@/types'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '@/components/ui/select'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle
+} from '@/components/ui/dialog'
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
+} from '@/components/ui/table'
+
+interface RivalItem { competitor_id: number; name: string; co_occurrence: number }
+interface TrendItem { year: number; month: number; bid_count: number; win_count: number; avg_rate: number | null }
+interface WinRecord {
+  result_id: number; bid_id: number; title: string; agency_name: string
+  base_amount: number; bid_open_date: string | null
+  bid_amount: number; bid_rate: number | null; rank: number
+}
+
+export default function CompetitorPage() {
+  const [keyword, setKeyword] = useState('')
+  const [search, setSearch]   = useState('')
+  const [page, setPage]       = useState(1)
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [riskFilter, setRiskFilter] = useState('all')
+  const [winsModalOpen, setWinsModalOpen] = useState(false)
+  const SIZE = 15
+
+  const { data: list, isLoading } = useQuery<{ items: Competitor[]; total: number }>({
+    queryKey: ['competitors', search, page, riskFilter],
+    queryFn: () => competitorsApi.list({
+      keyword: search || undefined,
+      page,
+      size: SIZE,
+      risk_level: riskFilter === 'all' ? undefined : riskFilter,
+    }),
+  })
+
+  const { data: detail } = useQuery<Competitor>({
+    queryKey: ['competitor', selectedId],
+    queryFn: () => competitorsApi.detail(selectedId!),
+    enabled: !!selectedId,
+  })
+
+  const { data: winHistory = [] } = useQuery<WinRecord[]>({
+    queryKey: ['competitor-wins', selectedId],
+    queryFn: () => competitorsApi.wins(selectedId!),
+    enabled: !!selectedId && (detail?.win_count ?? 0) > 0,
+  })
+
+  const totalPages = list ? Math.ceil(list.total / SIZE) : 1
+
+  const riskVariant = (r: string): 'destructive' | 'warning' | 'success' | 'secondary' =>
+    r === 'HIGH' ? 'destructive' : r === 'MEDIUM' ? 'warning' : r === 'LOW' ? 'success' : 'secondary'
+
+  const radarData = detail ? [
+    { subject: '공격성', value: detail.aggression_score  * 10 },
+    { subject: '일관성', value: detail.consistency_score * 10 },
+    { subject: '낙찰률', value: detail.win_rate          * 100 },
+    { subject: '활동량', value: Math.min(detail.total_bids / 2, 100) },
+    { subject: '안전성', value: Math.max(0, 100 - detail.aggression_score * 10) },
+  ] : []
+
+  const trendData = (detail?.monthly_trend as TrendItem[] ?? []).map((d) => ({
+    label:  `${d.year}-${String(d.month).padStart(2,'0')}`,
+    입찰수: d.bid_count,
+    수주수: d.win_count,
+    평균율: d.avg_rate ? +(d.avg_rate * 100).toFixed(2) : null,
+  }))
+
+  function handleSearch() { setSearch(keyword); setPage(1) }
+  function handleSelect(id: number) { setSelectedId(id); setWinsModalOpen(false) }
+
+  const fmtAmt = (v: number) => `${(v / 1e8).toFixed(2)}억`
+  const fmtDate = (v: string | null) => v ? new Date(v).toLocaleDateString('ko-KR') : '-'
+
+  const avgRate  = winHistory.length > 0 ? winHistory.reduce((s, w) => s + (w.bid_rate ?? 0), 0) / winHistory.length : 0
+  const maxRate  = winHistory.length > 0 ? Math.max(...winHistory.map((w) => w.bid_rate ?? 0)) : 0
+  const minRate  = winHistory.length > 0 ? Math.min(...winHistory.map((w) => w.bid_rate ?? 0)) : 0
+
+  return (
+    <div className="p-6 space-y-4">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">경쟁사 분석</h1>
+        <p className="text-muted-foreground text-sm mt-1">업체별 입찰 패턴 및 리스크 분석</p>
+      </div>
+
+      {/* 리스크 기준 안내 */}
+      <Card>
+        <CardContent className="py-3 px-4">
+          <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+            <span><Badge variant="destructive" className="mr-1">HIGH</Badge> 리스크 점수 6+ (공격적·고수주율)</span>
+            <span><Badge variant="warning" className="mr-1">MEDIUM</Badge> 점수 3~6</span>
+            <span><Badge variant="success" className="mr-1">LOW</Badge> 점수 3 미만 (보수적·저수주율)</span>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="flex gap-5">
+        {/* 목록 패널 */}
+        <div className="w-80 shrink-0 space-y-2">
+          <Select value={riskFilter} onValueChange={(v) => { setRiskFilter(v); setPage(1) }}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">전체</SelectItem>
+              <SelectItem value="HIGH">HIGH</SelectItem>
+              <SelectItem value="MEDIUM">MEDIUM</SelectItem>
+              <SelectItem value="LOW">LOW</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSearch() }}
+                placeholder="업체명 검색..."
+                className="pl-8"
+              />
+            </div>
+            <Button onClick={handleSearch} size="sm">검색</Button>
+          </div>
+
+          <Card className="overflow-hidden">
+            {isLoading ? (
+              <div className="p-4 space-y-2">
+                {Array.from({length: 4}).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+              </div>
+            ) : (
+              <div className="divide-y">
+                {(list?.items ?? []).map((c) => (
+                  <div key={c.id}
+                    className={cn('p-3 cursor-pointer hover:bg-accent transition-colors',
+                      selectedId === c.id && 'bg-accent border-l-2 border-l-primary')}
+                    onClick={() => handleSelect(c.id)}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium truncate">{c.name}</span>
+                      <Badge variant={riskVariant(c.risk_level)} className="shrink-0 ml-1 text-[10px] px-1.5 py-0">
+                        {c.risk_level}
+                      </Badge>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      수주 {c.win_count}건 · 수주율 {(c.win_rate * 100).toFixed(1)}% · 평균 {(c.avg_bid_rate * 100).toFixed(2)}%
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center justify-between px-3 py-2 border-t bg-muted/30">
+              <Button variant="outline" size="icon" className="h-7 w-7"
+                onClick={() => setPage((p) => Math.max(1,p-1))} disabled={page===1}>
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </Button>
+              <span className="text-xs text-muted-foreground">{page}/{totalPages} ({list?.total ?? 0}개사)</span>
+              <Button variant="outline" size="icon" className="h-7 w-7"
+                onClick={() => setPage((p) => Math.min(totalPages,p+1))} disabled={page>=totalPages}>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </Card>
+        </div>
+
+        {/* 상세 패널 */}
+        {detail ? (
+          <div className="flex-1 space-y-4">
+            {/* 기본 지표 */}
+            <Card>
+              <CardContent className="pt-5">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h2 className="text-lg font-bold">{detail.name}</h2>
+                    <Badge variant={riskVariant(detail.risk_level)} className="mt-1">
+                      리스크 {detail.risk_level}
+                    </Badge>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <Metric label="총 입찰" value={detail.total_bids + '건'} />
+                  {detail.win_count >= 1 ? (
+                    <button
+                      onClick={() => setWinsModalOpen(true)}
+                      className="bg-muted/50 rounded-md p-2.5 w-full text-left hover:bg-yellow-50 transition-colors border border-transparent hover:border-yellow-200"
+                    >
+                      <div className="text-xs text-muted-foreground">수주 건수</div>
+                      <div className="text-sm font-bold mt-0.5 text-yellow-600 flex items-center gap-1">
+                        {detail.win_count}건 <Trophy className="h-3 w-3" />
+                      </div>
+                    </button>
+                  ) : (
+                    <Metric label="수주 건수" value={detail.win_count + '건'} />
+                  )}
+                  <Metric label="수주율"      value={(detail.win_rate * 100).toFixed(1) + '%'} />
+                  <Metric label="평균 투찰률" value={(detail.avg_bid_rate * 100).toFixed(2) + '%'} />
+                  <Metric label="공격성 점수" value={detail.aggression_score + '/10'} />
+                  <Metric label="일관성 점수" value={(detail.consistency_score ?? 0).toFixed(1) + '/10'} />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* 레이더 + 자주 함께 */}
+            <div className="grid grid-cols-2 gap-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">행동 패턴 레이더</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <RadarChart data={radarData}>
+                      <PolarGrid />
+                      <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11 }} />
+                      <Radar dataKey="value" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.3} />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">자주 함께 참여하는 업체</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-1.5">
+                  {(detail.frequent_rivals as RivalItem[] ?? []).slice(0, 7).map((r) => (
+                    <div key={r.competitor_id} className="flex items-center justify-between">
+                      <span className="text-sm truncate">{r.name}</span>
+                      <Badge variant="secondary" className="shrink-0 ml-2">{r.co_occurrence}회</Badge>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* 월별 추이 */}
+            {trendData.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">월별 활동 추이</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <LineChart data={trendData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                      <XAxis dataKey="label" tick={{ fontSize: 10 }} interval={2} />
+                      <YAxis yAxisId="l" tick={{ fontSize: 11 }} />
+                      <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 11 }} unit="%" />
+                      <Tooltip />
+                      <Line yAxisId="l" type="monotone" dataKey="입찰수" stroke="hsl(var(--muted-foreground))" strokeWidth={1} dot={false} />
+                      <Line yAxisId="r" type="monotone" dataKey="평균율" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-muted-foreground">
+            목록에서 업체를 선택하세요
+          </div>
+        )}
+      </div>
+
+      {/* 수주 이력 Dialog */}
+      <Dialog open={winsModalOpen} onOpenChange={setWinsModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trophy className="h-4 w-4 text-yellow-500" />
+              {detail?.name} — 수주 이력 ({detail?.win_count}건)
+            </DialogTitle>
+          </DialogHeader>
+          <div className="overflow-y-auto flex-1">
+            {winHistory.length === 0 ? (
+              <div className="p-10 text-center text-muted-foreground">불러오는 중...</div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>개찰일</TableHead>
+                    <TableHead>수주 사업명</TableHead>
+                    <TableHead>발주기관</TableHead>
+                    <TableHead className="text-right">기초금액</TableHead>
+                    <TableHead className="text-center">투찰률</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {winHistory.map((w) => (
+                    <TableRow key={w.result_id} className="hover:bg-yellow-50/50">
+                      <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{fmtDate(w.bid_open_date)}</TableCell>
+                      <TableCell className="max-w-[220px]">
+                        <span className="block font-medium truncate text-xs" title={w.title}>{w.title}</span>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-xs">{w.agency_name}</TableCell>
+                      <TableCell className="text-right whitespace-nowrap text-xs">{fmtAmt(w.base_amount)}</TableCell>
+                      <TableCell className="text-center">
+                        <span className="font-mono font-bold text-primary text-sm">
+                          {w.bid_rate ? (w.bid_rate * 100).toFixed(2) + '%' : '-'}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+          {winHistory.length > 0 && (
+            <div className="border-t pt-3 flex gap-6 text-xs text-muted-foreground">
+              <span>평균 투찰률 <strong className="text-primary text-sm">{(avgRate * 100).toFixed(2)}%</strong></span>
+              <span>최고 <strong className="text-green-600">{(maxRate * 100).toFixed(2)}%</strong></span>
+              <span>최저 <strong className="text-destructive">{(minRate * 100).toFixed(2)}%</strong></span>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-muted/50 rounded-md p-2.5">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-sm font-bold mt-0.5">{value}</div>
+    </div>
+  )
+}

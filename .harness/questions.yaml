@@ -1,0 +1,969 @@
+schema_version: 1
+
+# 단일 출처(SOT) — a2m_docs.md에서 옵션 매트릭스를 직접 기술하지 않고 이 파일을 참조한다.
+# ask_questions.py 인터프리터가 이 파일을 읽어 컨텍스트에 맞는 옵션만 사용자에게 제시한다.
+
+questions:
+
+  # ──────────────────────────────────────────
+  # 그룹 0: 기반 정보
+  # ──────────────────────────────────────────
+
+  - id: q0a
+    title: 프로젝트 단계
+    required: true
+    type: choice
+    options:
+      - { value: prototype, label: "prototype — 빠른 검증·데모 목적. docs 4종" }
+      - { value: mvp,       label: "mvp — 실사용자 대상 출시. docs 11종" }
+      - { value: production, label: "production — 운영 목표. docs 12종" }
+    affects:
+      - "profile.json.stage"
+    notes: "이후 모든 질문의 깊이·필수 여부·docs 분량이 이 값에 따라 달라진다."
+
+  - id: q0b
+    title: 참고 프로젝트
+    required: false
+    type: free_text
+    affects:
+      - "references.json"
+    notes: "git URL 또는 로컬 절대 경로. 없으면 공백 또는 '없음'."
+
+  - id: q0c
+    title: 프로젝트 유형
+    required: true
+    type: choice
+    options:
+      - { value: b2c_consumer, label: "B2C 소비자 서비스" }
+      - { value: b2b_internal, label: "B2B 또는 사내 도구" }
+      - { value: financial,    label: "금융·결제·핀테크" }
+      - { value: healthcare,   label: "의료·헬스케어" }
+      - { value: data_heavy,   label: "데이터 파이프라인·분석" }
+      - { value: infra_tool,   label: "인프라·DevOps 도구" }
+      - { value: mobile_first, label: "모바일 우선 서비스" }
+      - { value: gov,          label: "공공·정부" }
+      - { value: open_source,  label: "오픈소스 라이브러리·프레임워크" }
+    affects:
+      - "profile.json.project_type"
+    notes: |
+      financial/healthcare 선택 시: personas.yaml의 security persona 가중치가 자동 상향된다.
+      data_heavy 선택 시: q10(DB 스키마)에서 샤딩 질문이 강제된다.
+
+  # ──────────────────────────────────────────
+  # 그룹 1-2: 프로젝트 정의
+  # ──────────────────────────────────────────
+
+  - id: q1
+    title: 프로젝트 개요
+    required: true
+    type: composite
+    fields:
+      - { id: project_name, prompt: "프로젝트 이름", default: "" }
+      - { id: summary,      prompt: "한 줄 소개 (누가 / 어떤 문제 해결)", default: "" }
+    affects:
+      - "profile.json.project_name"
+      - "PRD.md / 프로젝트 개요"
+
+  - id: q2
+    title: 사용자·유스케이스·MVP 범위
+    required: true
+    type: composite
+    fields:
+      - { id: personas,  prompt: "주요 사용자 그룹 (페르소나)", default: "" }
+      - { id: features,  prompt: "핵심 기능 3~5가지", default: "" }
+      - { id: out_scope, prompt: "이번 버전에서 제외할 기능 (없으면 공백)", default: "" }
+    affects:
+      - "PRD.md / 사용자 페르소나"
+      - "PRD.md / 핵심 기능"
+      - "PRD.md / 이번 버전 범위"
+
+  # ──────────────────────────────────────────
+  # 그룹 3: 기술 스택
+  # ──────────────────────────────────────────
+
+  - id: q3
+    title: 기술 스택
+    required: true
+    type: composite
+    fields:
+      - { id: backend,          prompt: "Backend 프레임워크 (없으면 '없음')", default: "spring-boot-3" }
+      - { id: frontend,         prompt: "Frontend (없으면 '없음')", default: "react-18" }
+      - { id: db,               prompt: "주 DBMS", default: "postgresql" }
+      - { id: language_version, prompt: "언어 버전 (예: Java 21, Node 22)", default: "" }
+      - { id: deploy,           prompt: "배포 대상 (docker / k8s / lambda / paas / onprem)", default: "docker" }
+    affects:
+      - "profile.json.tech"
+      - "ADR.md / ADR-001"
+      - "ARCHITECTURE.md"
+
+  - id: q3_5
+    title: 백엔드 아키텍처 스타일
+    required: true
+    depends_on: q3
+    type: choice_with_followups
+    options:
+      - { value: monolith,          label: "단일 모놀리스 — 하나의 빌드/배포 단위" }
+      - { value: modular_monolith,  label: "모듈러 모놀리스 — 하나의 빌드, 도메인 모듈 분리" }
+      - { value: msa,               label: "MSA — 여러 빌드/배포 단위, 서비스 간 통신" }
+      - { value: baas,              label: "백엔드 없음 (BaaS / Edge functions / Serverless)" }
+    follow_ups:
+      msa:
+        - id: msa_services
+          type: list
+          prompt: "서비스 이름 목록 (예: auth-service, post-service, gateway)"
+        - id: msa_comm
+          type: choice
+          prompt: "서비스 간 통신"
+          options:
+            - { value: rest,    label: "REST" }
+            - { value: grpc,    label: "gRPC" }
+            - { value: kafka,   label: "Kafka" }
+            - { value: rabbit,  label: "RabbitMQ" }
+            - { value: mixed,   label: "혼합" }
+        - id: msa_gateway
+          type: choice
+          prompt: "API Gateway"
+          options:
+            - { value: spring_cloud, label: "Spring Cloud Gateway" }
+            - { value: nginx,        label: "Nginx" }
+            - { value: kong,         label: "Kong" }
+            - { value: none,         label: "없음" }
+        - id: msa_discovery
+          type: choice
+          prompt: "서비스 디스커버리"
+          options:
+            - { value: eureka,       label: "Eureka" }
+            - { value: consul,       label: "Consul" }
+            - { value: k8s_service,  label: "k8s service" }
+            - { value: none,         label: "없음" }
+        - id: msa_tx
+          type: choice
+          prompt: "분산 트랜잭션 전략"
+          options:
+            - { value: saga,          label: "Saga 패턴" }
+            - { value: eventual,      label: "최종 일관성" }
+            - { value: avoid_design,  label: "트랜잭션 회피 설계" }
+      modular_monolith:
+        - id: mm_modules
+          type: list
+          prompt: "모듈 경계 목록 (예: auth, post, user, notification)"
+        - id: mm_dep_rule
+          type: free_text
+          prompt: "모듈 간 의존 방향 규칙 (예: 상위→하위, 단방향 금지)"
+    affects:
+      - "profile.json.architecture.style"
+      - "profile.json.architecture.services"
+      - "ARCHITECTURE.md"
+      - "ADR.md"
+      - "PROJECT_STRUCTURE.md"
+
+  - id: q3_6
+    title: 패키지/모듈 명명
+    required: true
+    depends_on: q3
+    type: composite
+    fields:
+      - { id: backend_pkg,  prompt: "Backend 최상위 패키지 (예: com.acme.board)", default: "" }
+      - { id: frontend_pkg, prompt: "Frontend npm scope/이름 (예: @acme/board-web)", default: "" }
+    affects:
+      - "CODING_CONVENTION.md / 패키지 명명 규칙"
+
+  - id: q3_7
+    title: 프론트엔드 라우팅·번들·렌더링
+    required: true
+    depends_on: q3
+    skip_if: { q3.frontend: ["없음", "none", ""] }
+    type: composite
+    fields:
+      - id: router
+        prompt: "라우터"
+        options:
+          - { value: tanstack_router,    label: "TanStack Router" }
+          - { value: react_router,       label: "React Router" }
+          - { value: nextjs_app_router,  label: "Next.js App Router" }
+          - { value: nextjs_pages_router, label: "Next.js Pages Router" }
+          - { value: remix,              label: "Remix" }
+          - { value: vue_router,         label: "Vue Router" }
+          - { value: sveltekit,          label: "SvelteKit" }
+      - id: bundler
+        prompt: "번들러"
+        options:
+          - { value: vite,       label: "Vite" }
+          - { value: nextjs_bundler, label: "Next.js 내장" }
+          - { value: webpack,    label: "Webpack" }
+          - { value: turbopack,  label: "Turbopack" }
+      - id: rendering
+        prompt: "렌더링 방식"
+        options:
+          - { value: csr,    label: "CSR" }
+          - { value: ssr,    label: "SSR" }
+          - { value: ssg,    label: "SSG" }
+          - { value: isr,    label: "ISR" }
+          - { value: hybrid, label: "Hybrid" }
+      - id: server_data
+        prompt: "서버 데이터 라이브러리"
+        options:
+          - { value: tanstack_query, label: "TanStack Query" }
+          - { value: swr,            label: "SWR" }
+          - { value: rtk_query,      label: "RTK Query" }
+          - { value: apollo,         label: "Apollo (GraphQL)" }
+          - { value: trpc,           label: "tRPC" }
+      - id: form
+        prompt: "폼 라이브러리"
+        options:
+          - { value: react_hook_form, label: "react-hook-form" }
+          - { value: formik,          label: "formik" }
+          - { value: native,          label: "직접 / 프레임워크 내장" }
+    affects:
+      - "profile.json.architecture.frontend_router"
+      - "PROJECT_STRUCTURE.md / src/routes 트리"
+      - "CODING_CONVENTION.md"
+
+  # ──────────────────────────────────────────
+  # 그룹 4: 리포 구성
+  # ──────────────────────────────────────────
+
+  - id: q4
+    title: 리포 구성
+    required: true
+    depends_on: q3_5
+    type: choice_matrix
+    matrix:
+      - when: { q3_5: monolith }
+        options:
+          - { value: monorepo,   label: "모노레포 (backend/ + frontend/)", default: true, recommended_when: always }
+          - { value: multirepo,  label: "멀티레포" }
+      - when: { q3_5: modular_monolith }
+        options:
+          - { value: monorepo,   label: "모노레포 — 사실상 필수 (backend/modules/{domain}/, frontend/src/features/{domain}/)", default: true, locked: true }
+      - when: { q3_5: msa }
+        options:
+          - { value: multirepo,  label: "멀티레포 (서비스별 별도 저장소)" }
+          - { value: nx_mono,    label: "Nx·Turborepo 모노레포 (services/, apps/, libs/)", default: true, recommended_when: always }
+          - { value: hybrid,     label: "Hybrid (공유 lib는 모노, 서비스는 멀티)" }
+      - when: { q3_5: baas }
+        options:
+          - { value: single_fe,  label: "frontend 단일 리포 (web/)", default: true, locked: true }
+    affects:
+      - "profile.json.architecture.repo_layout"
+      - "PROJECT_STRUCTURE.md"
+      - "ARCHITECTURE.md"
+
+  # ──────────────────────────────────────────
+  # 그룹 5: 인증
+  # ──────────────────────────────────────────
+
+  - id: q5
+    title: 인증 방식
+    required: true
+    depends_on: [q3_5]
+    type: choice_with_followups
+    options:
+      - { value: session, label: "세션 기반 (서버 세션 + 쿠키) — 모놀리스에 자연스러움", recommended_when: { q3_5: [monolith, modular_monolith] } }
+      - { value: jwt,     label: "JWT (Access + Refresh) — MSA/SPA에 자연스러움", recommended_when: { q3_5: msa } }
+      - { value: social,  label: "소셜 로그인 (OAuth2 / OIDC) — 외부 IdP 위임" }
+      - { value: mixed,   label: "두 가지 이상 혼합" }
+      - { value: none,    label: "없음 (별도 요구 없음)" }
+    follow_ups_when_stage_gte: mvp
+    follow_ups:
+      jwt:
+        - id: jwt_access_ttl
+          type: free_text
+          prompt: "Access Token TTL (예: 15m)"
+          default: "15m"
+        - id: jwt_refresh_ttl
+          type: free_text
+          prompt: "Refresh Token TTL (예: 7d)"
+          default: "7d"
+        - id: jwt_rotation
+          type: bool
+          prompt: "Refresh Token 로테이션 사용 여부"
+          default: true
+        - id: jwt_revocation
+          type: bool
+          prompt: "블랙리스트/Revocation List 사용 여부"
+          default: false
+    follow_ups_shared:
+      - id: tfa
+        type: choice
+        prompt: "2FA 정책"
+        options:
+          - { value: none,    label: "없음" }
+          - { value: totp,    label: "TOTP (Google Authenticator)" }
+          - { value: sms,     label: "SMS" }
+          - { value: email,   label: "Email OTP" }
+          - { value: webauthn, label: "WebAuthn (Passkey)" }
+      - id: magic_link
+        type: bool
+        prompt: "Magic link 사용 여부"
+        default: false
+      - id: pw_policy
+        type: composite
+        prompt: "비밀번호 정책"
+        fields:
+          - { id: min_length,   prompt: "최소 길이", default: "8" }
+          - { id: complexity,   prompt: "복잡도 (예: 영문+숫자+특수문자)", default: "" }
+          - { id: expiry_days,  prompt: "만료 기간(일, 없으면 0)", default: "0" }
+          - { id: no_reuse,     prompt: "재사용 금지 횟수 (없으면 0)", default: "0" }
+    affects:
+      - "SECURITY.md / 인증"
+      - "SECURITY.md / 비밀번호 정책"
+      - "SECURITY.md / 토큰 정책"
+      - "profile.json.tech.auth"
+
+  - id: q5b
+    title: 외부 인증 제공자 (OIDC/OAuth2)
+    required: false
+    required_if: { q5: [social, mixed] }
+    skip_if: { q5: [session, jwt, none] }
+    depends_on: q5
+    type: multi_choice
+    options:
+      - { value: google,    label: "Google" }
+      - { value: apple,     label: "Apple" }
+      - { value: github,    label: "GitHub" }
+      - { value: microsoft, label: "Microsoft" }
+      - { value: kakao,     label: "카카오" }
+      - { value: naver,     label: "네이버" }
+      - { value: toss,      label: "토스" }
+      - { value: payco,     label: "NHN PAYCO" }
+      - { value: saml,      label: "SAML (기업 SSO)" }
+      - { value: ldap,      label: "LDAP / Active Directory" }
+      - { value: keycloak,  label: "Keycloak (자체 IdP)" }
+      - { value: okta,      label: "Okta" }
+      - { value: auth0,     label: "Auth0" }
+      - { value: cognito,   label: "AWS Cognito" }
+    follow_ups:
+      all:
+        - id: pkce
+          type: bool
+          prompt: "PKCE 사용 여부 (SPA/모바일이면 필수 권장)"
+          default: true
+    affects:
+      - "SECURITY.md / OIDC 제공자"
+      - "ADR.md"
+
+  # ──────────────────────────────────────────
+  # 그룹 6: 코딩 컨벤션
+  # ──────────────────────────────────────────
+
+  - id: q6a
+    title: 코딩 스타일 가이드
+    required: true
+    depends_on: [q3]
+    type: choice_matrix
+    matrix:
+      - when: { "q3.backend": "spring-boot-3" }
+        language: backend
+        options:
+          - { value: google_java,       label: "Google Java Style Guide" }
+          - { value: oracle_conventions, label: "Oracle Code Conventions" }
+          - { value: custom_java,       label: "자체 정의" }
+      - when: { "q3.backend": "spring-boot-3-kotlin" }
+        language: backend
+        options:
+          - { value: ktlint_default, label: "ktlint 기본" }
+          - { value: detekt_custom,  label: "Detekt + 자체" }
+          - { value: custom_kotlin,  label: "자체" }
+      - when: { "q3.backend": "nestjs" }
+        language: backend
+        options:
+          - { value: airbnb_ts,          label: "Airbnb TypeScript" }
+          - { value: standard_js,        label: "StandardJS" }
+          - { value: prettier_eslint,    label: "Prettier + ESLint recommended" }
+          - { value: biome,              label: "Biome 기본" }
+          - { value: custom_ts_be,       label: "자체" }
+      - when: { "q3.backend": ["fastapi", "django"] }
+        language: backend
+        options:
+          - { value: pep8_black,  label: "PEP 8 + Black" }
+          - { value: ruff,        label: "Ruff (All-in-one)" }
+          - { value: custom_py,   label: "자체" }
+      - when: { "q3.backend": ["gin", "echo", "fiber"] }
+        language: backend
+        options:
+          - { value: gofmt_golangci, label: "gofmt + golangci-lint (사실상 표준)", default: true, locked: true }
+      - when: { "q3.backend": "aspnet" }
+        language: backend
+        options:
+          - { value: editorconfig_roslyn, label: ".editorconfig + Roslyn analyzer" }
+          - { value: custom_csharp,       label: "자체" }
+      - when: { "q3.backend": ["actix", "axum"] }
+        language: backend
+        options:
+          - { value: rustfmt_clippy, label: "rustfmt + clippy (사실상 표준)", default: true, locked: true }
+      - when: { "q3.frontend": ["react-18", "nextjs", "remix"] }
+        language: frontend
+        options:
+          - { value: airbnb_js,           label: "Airbnb JS/TS Style" }
+          - { value: standard_js_fe,      label: "StandardJS" }
+          - { value: prettier_eslint_fe,  label: "Prettier + ESLint recommended" }
+          - { value: biome_fe,            label: "Biome (단일 도구)" }
+          - { value: custom_fe,           label: "자체" }
+      - when: { "q3.frontend": ["vue3", "nuxt"] }
+        language: frontend
+        options:
+          - { value: vue_official, label: "Vue 공식 스타일 가이드 + Prettier" }
+          - { value: biome_vue,    label: "Biome" }
+          - { value: custom_vue,   label: "자체" }
+      - when: { "q3.frontend": ["svelte", "sveltekit"] }
+        language: frontend
+        options:
+          - { value: svelte_official, label: "Svelte 공식 + Prettier" }
+          - { value: biome_svelte,    label: "Biome" }
+          - { value: custom_svelte,   label: "자체" }
+    affects:
+      - "CODING_CONVENTION.md / 스타일 가이드"
+
+  - id: q6b
+    title: 린터·포매터·자동화
+    required: false
+    depends_on: [q6a, q3]
+    type: choice_matrix
+    notes: "q6a와 함께 자동 권장됨. AI가 최적 도구를 먼저 제시하고 사용자가 수정 가능."
+    matrix:
+      - when: { "q3.backend": "spring-boot-3" }
+        language: backend
+        options:
+          - { value: spotless_checkstyle, label: "Spotless + Checkstyle", default: true }
+          - { value: spotless_spotbugs,   label: "Spotless + SpotBugs + PMD" }
+          - { value: custom_jvm,          label: "자체" }
+      - when: { "q3.backend": "spring-boot-3-kotlin" }
+        language: backend
+        options:
+          - { value: ktlint_detekt, label: "ktlint + Detekt", default: true }
+      - when: { "q3.backend": "nestjs" }
+        language: backend
+        options:
+          - { value: eslint_prettier_be, label: "ESLint + Prettier", default: true }
+          - { value: biome_be,           label: "Biome (단일)" }
+      - when: { "q3.backend": ["fastapi", "django"] }
+        language: backend
+        options:
+          - { value: black_ruff, label: "Black + Ruff", default: true }
+          - { value: flake8_isort, label: "Flake8 + isort" }
+      - when: { "q3.backend": ["gin", "echo", "fiber"] }
+        language: backend
+        options:
+          - { value: golangci_lint, label: "golangci-lint", default: true, locked: true }
+      - when: { "q3.backend": "aspnet" }
+        language: backend
+        options:
+          - { value: dotnet_format, label: "dotnet format", default: true }
+      - when: { "q3.frontend": ["react-18", "nextjs", "remix", "vue3", "nuxt", "svelte", "sveltekit"] }
+        language: frontend
+        options:
+          - { value: eslint_prettier_fe, label: "ESLint + Prettier", default: true }
+          - { value: biome_only,         label: "Biome (단일 도구)" }
+          - { value: dprint,             label: "dprint" }
+    follow_ups:
+      all:
+        - id: precommit_hook
+          type: choice
+          prompt: "Pre-commit hook"
+          options:
+            - { value: husky_lint_staged, label: "lint-staged + husky (권장, JS 프로젝트)", recommended_when: { "q3.frontend": ["react-18", "nextjs", "remix", "vue3", "svelte"] } }
+            - { value: precommit_py,      label: "pre-commit (Python 프로젝트)", recommended_when: { "q3.backend": ["fastapi", "django"] } }
+            - { value: lefthook,          label: "lefthook (Go / Polyglot)" }
+            - { value: none,              label: "사용 안 함" }
+    affects:
+      - "CODING_CONVENTION.md / 자동화"
+
+  - id: q6c
+    title: Git·협업 컨벤션
+    required: true
+    type: composite
+    fields:
+      - id: commit_msg
+        prompt: "커밋 메시지 형식"
+        options:
+          - { value: conventional, label: "Conventional Commits (권장)", default: true }
+          - { value: gitmoji,      label: "Gitmoji" }
+          - { value: angular,      label: "Angular" }
+          - { value: custom,       label: "자체 정의" }
+          - { value: free,         label: "자유" }
+      - id: branch_naming
+        prompt: "브랜치 명명 규칙"
+        options:
+          - { value: harness_default, label: "feat/<task>-<runId> (하네스 기본·권장)", default: true }
+          - { value: git_flow,        label: "git-flow (feature/, release/, hotfix/)" }
+          - { value: github_flow,     label: "GitHub Flow (feature/<name>)" }
+          - { value: custom,          label: "자체 정의" }
+      - id: merge_policy
+        prompt: "머지 정책"
+        options:
+          - { value: squash, label: "squash merge (권장)", default: true }
+          - { value: rebase, label: "rebase" }
+          - { value: merge,  label: "merge commit" }
+      - id: review_policy
+        prompt: "PR/MR 리뷰 정책"
+        options:
+          - { value: one_reviewer, label: "최소 1명", default: true }
+          - { value: two_codeowners, label: "2명 + CODEOWNERS" }
+          - { value: any,           label: "임의" }
+    affects:
+      - "CODING_CONVENTION.md / Git·협업 컨벤션"
+
+  # ──────────────────────────────────────────
+  # 그룹 7: UI 디자인
+  # ──────────────────────────────────────────
+
+  - id: q7a
+    title: 테마 정책
+    required: true
+    depends_on: q3
+    skip_if: { "q3.frontend": ["없음", "none", ""] }
+    type: choice
+    options:
+      - { value: light_only,   label: "라이트 모드만" }
+      - { value: dark_only,    label: "다크 모드만" }
+      - { value: both_manual,  label: "둘 다 지원 — 사용자 수동 토글" }
+      - { value: both_system,  label: "둘 다 지원 — 시스템 따름(prefers-color-scheme) + 사용자 override", default: true }
+    affects:
+      - "UI_GUIDE.md / 테마"
+
+  - id: q7b
+    title: 컴포넌트 시스템·디자인 토큰
+    required: true
+    depends_on: [q3_7, q3]
+    skip_if: { "q3.frontend": ["없음", "none", ""] }
+    type: choice_matrix
+    matrix:
+      - when: { "q3_7.router": ["tanstack_router", "react_router", "remix"] }
+        options:
+          - { value: shadcn_radix_tw, label: "shadcn/ui + Radix + Tailwind", default: true }
+          - { value: mantine,         label: "Mantine" }
+          - { value: chakra,          label: "Chakra UI" }
+          - { value: mui,             label: "MUI (Material UI)" }
+          - { value: ant_design,      label: "Ant Design" }
+          - { value: headless_ui,     label: "Headless UI (무스타일)" }
+          - { value: custom_react,    label: "자체" }
+      - when: { "q3_7.router": ["nextjs_app_router", "nextjs_pages_router"] }
+        options:
+          - { value: shadcn_radix_tw, label: "shadcn/ui + Radix + Tailwind", default: true }
+          - { value: mantine,         label: "Mantine" }
+          - { value: mui,             label: "MUI" }
+          - { value: next_ui,         label: "Next UI" }
+          - { value: custom_next,     label: "자체" }
+      - when: { "q3_7.router": ["vue_router"] }
+        options:
+          - { value: element_plus, label: "Element Plus" }
+          - { value: naive_ui,     label: "Naive UI" }
+          - { value: vuetify,      label: "Vuetify" }
+          - { value: prime_vue,    label: "PrimeVue" }
+          - { value: headless_vue, label: "Headless UI Vue" }
+          - { value: custom_vue,   label: "자체" }
+      - when: { "q3_7.router": ["sveltekit"] }
+        options:
+          - { value: shadcn_svelte, label: "shadcn-svelte" }
+          - { value: skeleton,      label: "Skeleton" }
+          - { value: carbon,        label: "Carbon" }
+          - { value: custom_svelte, label: "자체" }
+    follow_ups:
+      all:
+        - id: tailwind
+          type: bool
+          prompt: "Tailwind CSS 사용 여부"
+          default: true
+        - id: design_token
+          type: choice
+          prompt: "디자인 토큰 관리"
+          options:
+            - { value: style_dictionary, label: "Style Dictionary" }
+            - { value: tw_config,        label: "Tailwind config 기반", default: true }
+            - { value: custom_json,      label: "자체 JSON" }
+            - { value: none,             label: "없음" }
+        - id: css_in_js
+          type: choice
+          prompt: "CSS-in-JS"
+          options:
+            - { value: emotion,          label: "Emotion" }
+            - { value: styled_components, label: "styled-components" }
+            - { value: none,             label: "사용 안 함", default: true }
+    affects:
+      - "UI_GUIDE.md / 컴포넌트 시스템"
+      - "UI_GUIDE.md / 디자인 토큰"
+
+  - id: q7c
+    title: UI 톤 (산업·톤·컬러)
+    required: false
+    depends_on: [q0c]
+    skip_if: { "q3.frontend": ["없음", "none", ""] }
+    type: composite
+    fields:
+      - id: industry
+        prompt: "산업 분류"
+        options:
+          - { value: b2b_tool,    label: "업무/B2B 도구", recommended_when: { q0c: b2b_internal } }
+          - { value: b2c_service, label: "컨슈머/B2C 서비스", recommended_when: { q0c: b2c_consumer } }
+          - { value: data_admin,  label: "데이터·관리툴", recommended_when: { q0c: data_heavy } }
+          - { value: game_ent,    label: "게임·엔터" }
+          - { value: fintech,     label: "핀테크·보안", recommended_when: { q0c: financial } }
+          - { value: health,      label: "헬스·의료", recommended_when: { q0c: healthcare } }
+          - { value: gov,         label: "공공·정부", recommended_when: { q0c: gov } }
+      - id: tone_keywords
+        prompt: "톤 키워드 (복수 선택)"
+        multi_select: true
+        options:
+          - { value: formal_trust, label: "공식적·신뢰감" }
+          - { value: friendly,     label: "친근·일상" }
+          - { value: minimal,      label: "미니멀·여백" }
+          - { value: data_dense,   label: "데이터 밀도" }
+          - { value: casual,       label: "유머·캐주얼", warning_if: { q0c: [financial, healthcare, gov] } }
+      - id: color_tone
+        prompt: "컬러 톤"
+        options:
+          - { value: neutral_gray,  label: "중립 회색 강조" }
+          - { value: single_brand,  label: "단일 브랜드 강조색" }
+          - { value: pastel,        label: "파스텔·소프트" }
+          - { value: vivid,         label: "비비드·강렬" }
+    affects:
+      - "UI_GUIDE.md / 디자인 원칙"
+
+  - id: q7d
+    title: 폼팩터·반응형
+    required: true
+    depends_on: [q3_7]
+    skip_if: { "q3.frontend": ["없음", "none", ""] }
+    type: choice
+    options:
+      - { value: desktop_first, label: "데스크탑 우선 + 반응형 (대시보드·관리툴)", recommended_when: { q0c: [b2b_internal, data_heavy] } }
+      - { value: mobile_first,  label: "모바일 우선 + 반응형 (소비자 서비스)", recommended_when: { q0c: [b2c_consumer, mobile_first] } }
+      - { value: split_ui,      label: "데스크탑·모바일 분리 UI (별도 라우트)" }
+      - { value: native,        label: "모바일 네이티브/하이브리드 (React Native / Flutter / Capacitor / PWA)" }
+    notes: "native 옵션은 q3_7에서 해당 기술 선택 시에만 제시한다."
+    affects:
+      - "UI_GUIDE.md / 폼팩터"
+
+  - id: q7e
+    title: 접근성·국제화
+    required: false
+    required_if: { q0a: [mvp, production] }
+    depends_on: [q0a, q3]
+    skip_if: { "q3.frontend": ["없음", "none", ""] }
+    type: composite
+    fields:
+      - id: wcag_level
+        prompt: "접근성 목표"
+        options:
+          - { value: none,     label: "미정의", locked_when: { q0a: production } }
+          - { value: wcag_aa,  label: "WCAG AA", default: true }
+          - { value: wcag_aaa, label: "WCAG AAA", recommended_when: { q0c: [gov, financial] } }
+      - id: i18n
+        prompt: "국제화"
+        options:
+          - { value: ko_only,  label: "한국어 단일" }
+          - { value: en_only,  label: "영어 단일" }
+          - { value: multi,    label: "다국어 (목록 입력)" }
+      - id: i18n_lib
+        prompt: "다국어 라이브러리 (i18n 선택 시)"
+        required_if: { i18n: multi }
+        options:
+          - { value: react_i18next, label: "react-i18next", recommended_when: { "q3_7.router": ["tanstack_router", "react_router", "remix"] } }
+          - { value: next_intl,     label: "next-intl", recommended_when: { "q3_7.router": ["nextjs_app_router", "nextjs_pages_router"] } }
+          - { value: vue_i18n,      label: "vue-i18n", recommended_when: { "q3_7.router": vue_router } }
+          - { value: formatjs,      label: "formatjs (ICU 형식)" }
+      - id: rtl
+        prompt: "RTL(아랍어·히브리어) 지원 여부"
+        type: bool
+        default: false
+    affects:
+      - "UI_GUIDE.md / 접근성"
+      - "UI_GUIDE.md / 국제화"
+
+  # ──────────────────────────────────────────
+  # 그룹 8: 메뉴/화면
+  # ──────────────────────────────────────────
+
+  - id: q8
+    title: 메뉴/화면 구성
+    required: false
+    required_if: { q0a: [mvp, production] }
+    depends_on: [q3_7]
+    skip_if: { "q3.frontend": ["없음", "none", ""] }
+    type: composite
+    fields:
+      - id: sitemap
+        prompt: "메뉴 계층 구조 (메뉴 → 화면 → 핵심 기능·권한 열거)"
+        default: ""
+      - id: path_param_style
+        prompt: "경로 파라미터 패턴"
+        options:
+          - { value: colon,   label: "/posts/:id (React Router / Express 스타일)" }
+          - { value: bracket, label: "/posts/[id] (Next.js 스타일)" }
+          - { value: curly,   label: "/posts/{id} (OpenAPI 스타일)" }
+      - id: nested_route
+        prompt: "중첩 라우트 사용 여부 (레이아웃 + 자식 라우트)"
+        type: bool
+        default: true
+      - id: qs_policy
+        prompt: "Query string 정책 (검색·필터·페이지네이션 위치)"
+        options:
+          - { value: query_string, label: "query string (?page=1&q=text)", default: true }
+          - { value: path_param,   label: "path param (/posts/page/1)" }
+          - { value: mixed,        label: "혼합 (필터=query, ID=path)" }
+      - id: modal_route
+        prompt: "Modal/Drawer 라우트 처리"
+        options:
+          - { value: url_reflect, label: "URL 반영 (/posts/123/comments)" }
+          - { value: state_only,  label: "상태만 (URL 변경 없음)", default: true }
+    affects:
+      - "SCREEN_MAP.md"
+      - "PROJECT_STRUCTURE.md / src/routes 트리"
+
+  # ──────────────────────────────────────────
+  # 그룹 9: 테스트
+  # ──────────────────────────────────────────
+
+  - id: q9
+    title: 테스트 전략
+    required: true
+    depends_on: [q3, q3_5, q0a]
+    type: composite
+    fields:
+      - id: pyramid_ratio
+        prompt: "테스트 피라미드 비율 (Unit / Integration / E2E)"
+        default: "70 / 20 / 10"
+      - id: coverage_target
+        prompt: "커버리지 목표"
+        options:
+          - { value: none, label: "없음", recommended_when: { q0a: prototype } }
+          - { value: "60", label: "60%", recommended_when: { q0a: mvp } }
+          - { value: "80", label: "80%", recommended_when: { q0a: production } }
+      - id: backend_mock
+        prompt: "Backend 모킹 도구"
+        options_matrix:
+          - when: { "q3.backend": "spring-boot-3" }
+            options:
+              - { value: mockito,          label: "Mockito" }
+              - { value: mockk,            label: "MockK (Kotlin)" }
+              - { value: testcontainers,   label: "TestContainers", default: true }
+              - { value: wiremock,         label: "WireMock" }
+          - when: { "q3.backend": "nestjs" }
+            options:
+              - { value: jest_mock, label: "Jest mock" }
+              - { value: vitest,    label: "Vitest" }
+              - { value: msw_be,    label: "MSW" }
+              - { value: supertest,  label: "Supertest" }
+          - when: { "q3.backend": ["fastapi", "django"] }
+            options:
+              - { value: pytest_mock, label: "pytest-mock" }
+              - { value: responses,   label: "responses" }
+              - { value: vcr,         label: "VCR.py" }
+          - when: { "q3.backend": ["gin", "echo"] }
+            options:
+              - { value: testify, label: "testify" }
+              - { value: gomock,  label: "gomock" }
+      - id: frontend_mock
+        prompt: "Frontend 테스트·모킹 도구"
+        skip_if: { "q3.frontend": ["없음", "none", ""] }
+        options_matrix:
+          - when: { "q3.frontend": ["react-18", "nextjs", "remix"] }
+            options:
+              - { value: msw_fe,    label: "MSW (Mock Service Worker)", default: true }
+              - { value: vitest_rtl, label: "Vitest + RTL" }
+              - { value: playwright, label: "Playwright E2E" }
+          - when: { "q3.frontend": ["vue3", "nuxt"] }
+            options:
+              - { value: vitest_vue, label: "Vitest + Vue Test Utils" }
+              - { value: playwright, label: "Playwright E2E" }
+          - when: { "q3.frontend": ["svelte", "sveltekit"] }
+            options:
+              - { value: vitest_svelte, label: "Vitest" }
+              - { value: playwright,    label: "Playwright E2E" }
+      - id: test_data
+        prompt: "테스트 데이터 전략"
+        options:
+          - { value: faker,    label: "Faker (랜덤 데이터)" }
+          - { value: fixture,  label: "고정 Fixture" }
+          - { value: snapshot, label: "Snapshot" }
+          - { value: builder,  label: "빌더 패턴" }
+      - id: contract_test
+        prompt: "Contract test (Pact)"
+        required_if: { q3_5: msa }
+        type: bool
+        default: false
+        notes: "MSA 시 강력 권장. q3_5=msa이면 기본값 true."
+    affects:
+      - "TESTING.md"
+
+  # ──────────────────────────────────────────
+  # 그룹 10: DB 스키마
+  # ──────────────────────────────────────────
+
+  - id: q10
+    title: DB 스키마 구성
+    required: false
+    required_if: { q0a: [mvp, production] }
+    depends_on: [q3, q0c]
+    type: composite
+    fields:
+      - id: dbms
+        prompt: "DBMS 확인 (q3 참조)"
+        default: ""
+      - id: migration_tool
+        prompt: "마이그레이션 도구"
+        options:
+          - { value: flyway,    label: "Flyway", recommended_when: { "q3.backend": "spring-boot-3" } }
+          - { value: liquibase, label: "Liquibase" }
+          - { value: alembic,   label: "Alembic", recommended_when: { "q3.backend": ["fastapi", "django"] } }
+          - { value: prisma,    label: "Prisma", recommended_when: { "q3.backend": "nestjs" } }
+          - { value: none,      label: "없음" }
+      - id: entities
+        prompt: "주요 테이블·엔티티 목록 (이름과 주요 속성)"
+        default: ""
+      - id: db_roles
+        prompt: "DB 역할 분리"
+        multi_select: true
+        options:
+          - { value: single,      label: "단일 DB", default: true }
+          - { value: read_replica, label: "운영 + Read Replica" }
+          - { value: redis_cache, label: "운영 + Redis 캐시" }
+          - { value: elastic,     label: "운영 + OpenSearch·ElasticSearch" }
+      - id: read_replica_policy
+        prompt: "Read Replica 일관성 정책 (read_replica 선택 시)"
+        required_if: { db_roles: read_replica }
+        options:
+          - { value: eventual,         label: "최종 일관성 허용" }
+          - { value: read_after_write, label: "read-after-write 보장 필요" }
+      - id: sharding
+        prompt: "샤딩"
+        required_if: { q0c: data_heavy }
+        options:
+          - { value: none,       label: "없음", default: true }
+          - { value: horizontal, label: "Horizontal 샤딩 (샤드 키 입력 필요)" }
+      - id: shard_key
+        prompt: "샤드 키 (sharding=horizontal 시)"
+        required_if: { sharding: horizontal }
+        type: free_text
+        default: ""
+      - id: audit_timestamps
+        prompt: "Audit timestamps (created_at / updated_at 자동 생성)"
+        type: bool
+        default: true
+      - id: audit_actor
+        prompt: "작성자 기록 (created_by / updated_by)"
+        type: bool
+        default: false
+      - id: soft_delete
+        prompt: "soft delete (deleted_at 컬럼 사용)"
+        type: bool
+        default: false
+      - id: optimistic_lock
+        prompt: "낙관적 락 (version 컬럼)"
+        type: bool
+        default: false
+    affects:
+      - "SCHEMA.md / DB 구성"
+      - "SCHEMA.md / 공통 컬럼 정책"
+
+  # ──────────────────────────────────────────
+  # 그룹 11: Docker Compose
+  # ──────────────────────────────────────────
+
+  - id: q11
+    title: 로컬 실행 환경 (Docker Compose)
+    required: false
+    depends_on: [q3, q10]
+    type: multi_choice
+    options:
+      - { value: postgresql,  label: "PostgreSQL" }
+      - { value: mysql,       label: "MySQL / MariaDB" }
+      - { value: mongodb,     label: "MongoDB" }
+      - { value: redis,       label: "Redis" }
+      - { value: memcached,   label: "Memcached" }
+      - { value: kafka,       label: "Kafka (+KRaft)" }
+      - { value: rabbitmq,    label: "RabbitMQ" }
+      - { value: nats,        label: "NATS" }
+      - { value: opensearch,  label: "OpenSearch" }
+      - { value: elastic,     label: "ElasticSearch" }
+      - { value: meilisearch, label: "Meilisearch" }
+      - { value: minio,       label: "MinIO (S3 호환)" }
+      - { value: localstack,  label: "LocalStack (AWS 에뮬레이터)" }
+      - { value: mailhog,     label: "MailHog / MailPit (메일 캡처)" }
+      - { value: prometheus_grafana, label: "Prometheus + Grafana" }
+      - { value: jaeger,      label: "Jaeger (분산 트레이싱)" }
+      - { value: none,        label: "생성 안 함" }
+    notes: "q10에서 이미 선택된 DBMS는 자동 포함으로 표시. 추가 선택만 받는다."
+    affects:
+      - "docker-compose.yml"
+      - ".env.example"
+      - "DEPLOYMENT.md / 로컬 기동"
+
+  # ──────────────────────────────────────────
+  # 그룹 12: 배포
+  # ──────────────────────────────────────────
+
+  - id: q12
+    title: 배포 형태
+    required: false
+    required_if: { q0a: production }
+    depends_on: [q3, q0a]
+    type: choice_with_followups
+    options:
+      - { value: docker_image,   label: "Docker 이미지 (registry push → k8s/ECS/Cloud Run)" }
+      - { value: jar_war,        label: "Jar/War 직접 배포 (SCP/Ansible)" }
+      - { value: serverless,     label: "Serverless (AWS Lambda, Cloud Functions)" }
+      - { value: paas,           label: "PaaS (Fly.io, Railway, Heroku)" }
+      - { value: static_api,     label: "정적 호스팅 + 분리 API (Vercel/Netlify + 별도 API)" }
+      - { value: onprem,         label: "사내 온프레미스 + 자체 스크립트" }
+    follow_ups:
+      docker_image:
+        - id: base_image
+          type: choice
+          prompt: "Docker 베이스 이미지"
+          options:
+            - { value: distroless, label: "distroless (가장 작음·보안 강화)", default: true }
+            - { value: alpine,     label: "alpine" }
+            - { value: debian_slim, label: "debian-slim" }
+            - { value: ubuntu,     label: "ubuntu" }
+        - id: multi_stage
+          type: bool
+          prompt: "멀티스테이지 빌드 사용"
+          default: true
+        - id: registry
+          type: choice
+          prompt: "컨테이너 이미지 레지스트리"
+          options:
+            - { value: dockerhub, label: "DockerHub" }
+            - { value: ghcr,      label: "GitHub Container Registry (GHCR)" }
+            - { value: gitlab_reg, label: "GitLab Registry" }
+            - { value: ecr,       label: "AWS ECR" }
+            - { value: acr,       label: "Azure ACR" }
+            - { value: private,   label: "사설 레지스트리" }
+        - id: tag_policy
+          type: choice
+          prompt: "이미지 태깅 정책"
+          options:
+            - { value: semver,   label: "semver (v1.2.3)" }
+            - { value: git_sha,  label: "git-sha (짧은 커밋 해시)" }
+            - { value: branch,   label: "branch 이름" }
+            - { value: latest,   label: "latest (비권장)" }
+        - id: build_tool
+          type: choice
+          prompt: "빌드 도구"
+          options:
+            - { value: dockerfile, label: "Dockerfile (표준)", default: true }
+            - { value: jib,        label: "Jib (JVM, Docker 데몬 불필요)" }
+            - { value: buildpacks,  label: "Cloud Native Buildpacks" }
+            - { value: ko,          label: "ko (Go 전용)" }
+    affects:
+      - "DEPLOYMENT.md"
+      - "Dockerfile"
+      - ".dockerignore"
+
+  # ──────────────────────────────────────────
+  # 그룹 13: MCP
+  # ──────────────────────────────────────────
+
+  - id: q13
+    title: MCP 추가 안내
+    required: false
+    type: choice
+    options:
+      - { value: gitlab,     label: "GitLab/GitHub API (MR/PR 자동화)" }
+      - { value: db_mcp,     label: "DB 스키마 조회 (postgres MCP)" }
+      - { value: playwright, label: "E2E 테스트 자동화 (playwright MCP)" }
+      - { value: none,       label: "필요 없음" }
+    notes: "세부 MCP 설정은 /a2m_mcp 명령 사용."
+    affects: []

@@ -1,0 +1,140 @@
+# =============================================================================
+# HARNESS
+# =============================================================================
+
+# 실행 로그 — 추적 불필요
+.harness/phases/**/step*-stdout.log
+.harness/phases/**/step*-review.json
+.harness/phases/**/.guardrail_hash
+
+# 외부 참조 레포 클론본 (등록 메타만 추적, summary.md는 팀 공유)
+.harness/references/
+!.harness/references/*/summary.md
+
+# 캐시 / 임시 파일
+.harness/*.cache
+.harness/tmp/
+
+# Python 바이트코드
+.harness/scripts/__pycache__/
+.harness/scripts/*.pyc
+.harness/scripts/*.pyo
+
+# =============================================================================
+# SECRETS & ENV
+# =============================================================================
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# =============================================================================
+# JAVA / SPRING BOOT
+# =============================================================================
+
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# Gradle
+.gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+gradle-app.setting
+!gradle-wrapper.jar
+!gradle-wrapper.properties
+
+# Spring Boot executable jar
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# Spring Boot devtools restart trigger
+.spring-boot-devtools.properties
+
+# Log files
+*.log
+logs/
+spring.log
+
+# =============================================================================
+# NODE / REACT / NEXT.JS
+# =============================================================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Next.js
+.next/
+out/
+next-env.d.ts
+.vercel
+
+# Vite
+dist/
+dist-ssr/
+
+# Build artifacts
+build/
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# =============================================================================
+# IDE / EDITOR
+# =============================================================================
+
+# IntelliJ IDEA / WebStorm
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# VS Code / Cursor (프로젝트별 설정만 제외 — .vscode/settings.json은 공유 가능)
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+
+# Eclipse
+.classpath
+.project
+.settings/
+.factorypath
+
+# =============================================================================
+# OS
+# =============================================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# =============================================================================
+# TEST / COVERAGE
+# =============================================================================
+coverage/
+*.lcov
+.nyc_output/
+htmlcov/
+.coverage
+*.cover
+
+# =============================================================================
+# DOCKER (선택적)
+# =============================================================================
+# docker-compose.override.yml
+.harness/phases/*/*/step*-stdout.log

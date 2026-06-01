@@ -1,0 +1,12 @@
+{
+  "_comment": "외부 참고 프로젝트 목록. python3 scripts/references.py add <url-or-path> 명령으로 추가합니다.",
+  "references": [
+    {
+      "name": "infose_info21c",
+      "source": "https://infose.info21c.net/",
+      "type": "web",
+      "purpose": "공공조달 입찰정보 전문 플랫폼 — 20년 데이터 기반. 주요 기능: 입찰/낙찰정보 조회, 파워분석(발주처 심층분석·사정율 빈도분석·투찰성향 분석), 투찰금액 예측, 낙찰율 분석, 난이도계수 산출, 업체별 투찰성향 추적. 경쟁사 서비스 UI·기능 벤치마크 용도.",
+      "added_at": "2026-06-01T10:00:00+09:00"
+    }
+  ]
+}

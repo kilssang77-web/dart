@@ -1,0 +1,13 @@
+{
+  "runs": [
+    {
+      "task": "enhance-ux",
+      "runId": "2026-06-01_10-56-11",
+      "branch": "feat/enhance-ux-2026-06-01_10-56-11",
+      "stage": "prototype",
+      "author": "kil0410@a2m.co.kr",
+      "status": "in_progress",
+      "created_at": "2026-06-01T10:56:11+09:00"
+    }
+  ]
+}

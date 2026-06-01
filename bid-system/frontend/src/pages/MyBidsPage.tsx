@@ -1,0 +1,349 @@
+import { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Plus, CheckCircle2, XCircle, Clock, Trash2, Edit2 } from 'lucide-react'
+import { myBidsApi } from '@/api'
+import type { MyBidRecord } from '@/types'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
+} from '@/components/ui/table'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '@/components/ui/select'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+
+type ResultType = 'pending' | 'won' | 'lost'
+
+function ResultBadge({ result }: { result: ResultType }) {
+  if (result === 'won')
+    return <Badge variant="default" className="bg-emerald-500 text-white gap-1"><CheckCircle2 className="h-3 w-3" />낙찰</Badge>
+  if (result === 'lost')
+    return <Badge variant="destructive" className="gap-1"><XCircle className="h-3 w-3" />미낙찰</Badge>
+  return <Badge variant="outline" className="gap-1 text-muted-foreground"><Clock className="h-3 w-3" />결과대기</Badge>
+}
+
+function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
+  return (
+    <Card>
+      <CardContent className="pt-4">
+        <p className="text-xs text-muted-foreground mb-1">{label}</p>
+        <p className="text-2xl font-bold font-mono">{value}</p>
+        {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
+      </CardContent>
+    </Card>
+  )
+}
+
+const emptyForm = {
+  title: '', agency_name: '', bid_date: '', base_amount: '',
+  submitted_rate: '', recommendation_rate: '', note: '',
+}
+
+export default function MyBidsPage() {
+  const qc = useQueryClient()
+  const [resultFilter, setResultFilter] = useState('all')
+  const [showAdd, setShowAdd] = useState(false)
+  const [editRecord, setEditRecord] = useState<MyBidRecord | null>(null)
+  const [form, setForm] = useState({ ...emptyForm })
+  const [updateForm, setUpdateForm] = useState({ result: 'pending', actual_winner_rate: '', note: '' })
+
+  const { data: stats } = useQuery({
+    queryKey: ['my-bids-stats'],
+    queryFn: myBidsApi.stats,
+  })
+
+  const { data: records = [], isLoading } = useQuery<MyBidRecord[]>({
+    queryKey: ['my-bids', resultFilter],
+    queryFn: () => myBidsApi.list({ result: resultFilter === 'all' ? undefined : resultFilter }),
+  })
+
+  const createMut = useMutation({
+    mutationFn: myBidsApi.create,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-bids'] })
+      qc.invalidateQueries({ queryKey: ['my-bids-stats'] })
+      setShowAdd(false)
+      setForm({ ...emptyForm })
+    },
+  })
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: Parameters<typeof myBidsApi.update>[1] }) =>
+      myBidsApi.update(id, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-bids'] })
+      qc.invalidateQueries({ queryKey: ['my-bids-stats'] })
+      setEditRecord(null)
+    },
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: myBidsApi.remove,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-bids'] })
+      qc.invalidateQueries({ queryKey: ['my-bids-stats'] })
+    },
+  })
+
+  function handleCreate() {
+    if (!form.title || !form.submitted_rate) return
+    createMut.mutate({
+      title: form.title,
+      agency_name: form.agency_name || undefined,
+      bid_date: form.bid_date || undefined,
+      base_amount: form.base_amount ? parseInt(form.base_amount) : undefined,
+      submitted_rate: parseFloat(form.submitted_rate) / 100,
+      recommendation_rate: form.recommendation_rate ? parseFloat(form.recommendation_rate) / 100 : undefined,
+      note: form.note || undefined,
+    })
+  }
+
+  function handleUpdate() {
+    if (!editRecord) return
+    updateMut.mutate({
+      id: editRecord.id,
+      body: {
+        result: updateForm.result as ResultType,
+        actual_winner_rate: updateForm.actual_winner_rate
+          ? parseFloat(updateForm.actual_winner_rate) / 100 : undefined,
+        note: updateForm.note || undefined,
+      },
+    })
+  }
+
+  function openEdit(rec: MyBidRecord) {
+    setEditRecord(rec)
+    setUpdateForm({
+      result: rec.result,
+      actual_winner_rate: rec.actual_winner_rate ? (rec.actual_winner_rate * 100).toFixed(4) : '',
+      note: rec.note || '',
+    })
+  }
+
+  const pct = (v?: number | null) => v != null ? `${(v * 100).toFixed(4)}%` : '-'
+
+  return (
+    <div className="p-6 space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">투찰 이력</h1>
+          <p className="text-muted-foreground text-sm mt-1">자사 투찰 기록 및 낙찰률 추적</p>
+        </div>
+        <Button onClick={() => setShowAdd(true)} className="gap-2">
+          <Plus className="h-4 w-4" />
+          이력 추가
+        </Button>
+      </div>
+
+      {/* 통계 카드 */}
+      {stats && (
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+          <StatCard label="총 참여" value={stats.total} />
+          <StatCard label="낙찰" value={stats.won} sub={`${(stats.win_rate * 100).toFixed(1)}%`} />
+          <StatCard label="미낙찰" value={stats.lost} />
+          <StatCard label="결과대기" value={stats.pending} />
+          <StatCard
+            label="평균 투찰률"
+            value={stats.avg_submitted_rate != null ? `${(stats.avg_submitted_rate * 100).toFixed(4)}%` : '-'}
+          />
+          <StatCard
+            label="AI 추천 대비 오차"
+            value={stats.avg_rate_diff_from_rec != null
+              ? `±${(stats.avg_rate_diff_from_rec * 100).toFixed(4)}%` : '-'}
+            sub="AI 추천과의 평균 차이"
+          />
+        </div>
+      )}
+
+      {/* 필터 */}
+      <div className="flex gap-2 items-center">
+        <Select value={resultFilter} onValueChange={setResultFilter}>
+          <SelectTrigger className="w-32">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">전체</SelectItem>
+            <SelectItem value="won">낙찰</SelectItem>
+            <SelectItem value="lost">미낙찰</SelectItem>
+            <SelectItem value="pending">결과대기</SelectItem>
+          </SelectContent>
+        </Select>
+        <span className="text-sm text-muted-foreground">{records.length}건</span>
+      </div>
+
+      {/* 테이블 */}
+      <Card>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>공고명</TableHead>
+              <TableHead>발주기관</TableHead>
+              <TableHead>투찰일</TableHead>
+              <TableHead className="text-right">기초금액</TableHead>
+              <TableHead className="text-right">투찰률</TableHead>
+              <TableHead className="text-right">AI 추천률</TableHead>
+              <TableHead className="text-right">낙찰률</TableHead>
+              <TableHead className="text-center">결과</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">불러오는 중...</TableCell>
+              </TableRow>
+            ) : records.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">
+                  투찰 이력이 없습니다. 이력 추가 버튼으로 등록하세요.
+                </TableCell>
+              </TableRow>
+            ) : (
+              records.map((rec) => (
+                <TableRow key={rec.id}>
+                  <TableCell className="max-w-xs truncate font-medium">{rec.title}</TableCell>
+                  <TableCell className="whitespace-nowrap text-muted-foreground">{rec.agency_name || '-'}</TableCell>
+                  <TableCell className="whitespace-nowrap text-muted-foreground">
+                    {rec.bid_date ? new Date(rec.bid_date).toLocaleDateString('ko-KR') : '-'}
+                  </TableCell>
+                  <TableCell className="text-right whitespace-nowrap">
+                    {rec.base_amount ? `${(rec.base_amount / 1e8).toFixed(1)}억` : '-'}
+                  </TableCell>
+                  <TableCell className="text-right font-mono font-semibold">{pct(rec.submitted_rate)}</TableCell>
+                  <TableCell className={cn(
+                    "text-right font-mono text-sm",
+                    rec.recommendation_rate != null ? "text-primary" : "text-muted-foreground"
+                  )}>
+                    {pct(rec.recommendation_rate)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-sm text-muted-foreground">
+                    {pct(rec.actual_winner_rate)}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <ResultBadge result={rec.result as ResultType} />
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex gap-1 justify-end">
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(rec)}>
+                        <Edit2 className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                        onClick={() => { if (confirm('삭제하시겠습니까?')) deleteMut.mutate(rec.id) }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </Card>
+
+      {/* 이력 추가 다이얼로그 */}
+      <Dialog open={showAdd} onOpenChange={setShowAdd}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>투찰 이력 추가</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <Label className="text-xs mb-1">공고명 *</Label>
+              <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="공고명 입력" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs mb-1">발주기관</Label>
+                <Input value={form.agency_name} onChange={(e) => setForm((f) => ({ ...f, agency_name: e.target.value }))} placeholder="발주기관명" />
+              </div>
+              <div>
+                <Label className="text-xs mb-1">투찰일</Label>
+                <Input type="date" value={form.bid_date} onChange={(e) => setForm((f) => ({ ...f, bid_date: e.target.value }))} />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs mb-1">기초금액 (원)</Label>
+              <Input type="number" value={form.base_amount} onChange={(e) => setForm((f) => ({ ...f, base_amount: e.target.value }))} placeholder="예: 500000000" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs mb-1">투찰률 (%) *</Label>
+                <Input type="number" step="0.0001" value={form.submitted_rate}
+                  onChange={(e) => setForm((f) => ({ ...f, submitted_rate: e.target.value }))}
+                  placeholder="예: 87.93" />
+              </div>
+              <div>
+                <Label className="text-xs mb-1">AI 추천률 (%)</Label>
+                <Input type="number" step="0.0001" value={form.recommendation_rate}
+                  onChange={(e) => setForm((f) => ({ ...f, recommendation_rate: e.target.value }))}
+                  placeholder="예: 87.95" />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs mb-1">메모</Label>
+              <Input value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="메모 (선택)" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAdd(false)}>취소</Button>
+            <Button onClick={handleCreate} disabled={!form.title || !form.submitted_rate || createMut.isPending}>
+              {createMut.isPending ? '저장 중...' : '저장'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 결과 수정 다이얼로그 */}
+      <Dialog open={!!editRecord} onOpenChange={(o) => !o && setEditRecord(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>결과 입력</DialogTitle>
+          </DialogHeader>
+          {editRecord && (
+            <div className="space-y-3 py-2">
+              <p className="text-sm font-medium truncate">{editRecord.title}</p>
+              <div>
+                <Label className="text-xs mb-1">결과</Label>
+                <Select value={updateForm.result} onValueChange={(v) => setUpdateForm((f) => ({ ...f, result: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">결과대기</SelectItem>
+                    <SelectItem value="won">낙찰</SelectItem>
+                    <SelectItem value="lost">미낙찰</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs mb-1">실제 낙찰률 (%)</Label>
+                <Input type="number" step="0.0001" value={updateForm.actual_winner_rate}
+                  onChange={(e) => setUpdateForm((f) => ({ ...f, actual_winner_rate: e.target.value }))}
+                  placeholder="예: 87.93" />
+              </div>
+              <div>
+                <Label className="text-xs mb-1">메모</Label>
+                <Input value={updateForm.note}
+                  onChange={(e) => setUpdateForm((f) => ({ ...f, note: e.target.value }))}
+                  placeholder="메모 (선택)" />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditRecord(null)}>취소</Button>
+            <Button onClick={handleUpdate} disabled={updateMut.isPending}>
+              {updateMut.isPending ? '저장 중...' : '저장'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}

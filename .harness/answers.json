@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "answered_by": "",
+  "answered_at": "2026-06-01T01:05:08.159526+00:00",
+  "answers": {
+    "q0a": "prototype",
+    "q0c": "b2b_internal",
+    "q1": {
+      "project_name": "bid-system",
+      "summary": "입찰업체 담당자가 나라장터 입찰에서 엑셀 루틴처럼 하던 자동 추천을 AI가 대신해주는 서비스"
+    },
+    "q2": {
+      "personas": "입찰 담당자",
+      "features": "1. 입단가 추천 (Monte Carlo 시뮬레이션 기반 복수예가 낙찰 확률 + 4전략 추천)\n2. 입찰 공고 목록 조회 (나라장터 OpenAPI 연동)\n3. 낙찰 이력 관리 (My입찰)\n4. 경쟁사 분석 + 대시보드",
+      "out_scope": "모바일 앱, 소셜 로그인, 실시간 알림"
+    },
+    "q3": {
+      "backend": "fastapi",
+      "frontend": "react-18",
+      "db": "postgresql",
+      "language_version": "Python 3.12, Node 22",
+      "deploy": "docker"
+    },
+    "q3_5": "monolith",
+    "q3_6": {
+      "backend_pkg": "app",
+      "frontend_pkg": "bid-analysis-frontend"
+    },
+    "q3_7": {
+      "router": "react_router",
+      "bundler": "vite",
+      "rendering": "csr",
+      "server_data": "tanstack_query",
+      "form": "native"
+    },
+    "q4": "monorepo",
+    "q5": "jwt",
+    "q6a": {
+      "backend": "ruff",
+      "frontend": "prettier_eslint_fe"
+    },
+    "q6c": {
+      "commit_msg": "conventional",
+      "branch_naming": "harness_default",
+      "merge_policy": "squash",
+      "review_policy": "one_reviewer"
+    },
+    "q7a": "light_only",
+    "q7b": {
+      "component_system": "shadcn_radix_tailwind",
+      "tailwind": true,
+      "css_in_js": "none"
+    },
+    "q7c": {
+      "industry": "업무/B2B 도구",
+      "tone": "공식적·신뢰감,데이터 밀도",
+      "color": "중립 회색 강조"
+    },
+    "q7d": "desktop_first",
+    "q9": {
+      "pyramid_ratio": "70 / 20 / 10",
+      "coverage_target": "none",
+      "backend_mock": "pytest_mock",
+      "frontend_mock": "vitest_rtl",
+      "test_data": "fixture",
+      "contract_test": false
+    }
+  }
+}
