@@ -11,7 +11,7 @@
       "name": "AI 추천 UI 시각화 강화",
       "status": "completed",
       "started_at": "2026-06-01T12:35:09+0900",
-      "completed_at": "2026-06-01T13:30:00+0900",
+      "completed_at": "2026-06-01T12:58:14+0900",
       "summary": "WinProbGauge·StrategyCompareChart·SrateRangeViz·RiskCard 신규 컴포넌트 + RecommendPage 2-column 레이아웃·기관명 자동완성·금액 천단위·최근이력 개선"
     },
     {
