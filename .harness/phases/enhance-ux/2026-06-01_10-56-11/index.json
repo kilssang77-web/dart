@@ -17,7 +17,10 @@
     {
       "step": 2,
       "name": "UX 종합 개선 (북마크·My입찰 분석·대시보드)",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-01T12:58:14+0900",
+      "completed_at": "2026-06-01T14:30:00+0900",
+      "summary": "BidBookmark API 엔드포인트(POST/DELETE/GET) + MyBidAnalysis API + BidsPage 북마크 토글·필터탭 + MyBidsPage 정확도분석탭(산점도·MAE차트) + DashboardPage KPI 변화율 화살표"
     },
     {
       "step": 3,

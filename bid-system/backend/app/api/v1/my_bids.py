@@ -5,7 +5,8 @@ from typing import List, Optional
 
 from ...database import get_db
 from ...models import MyBidRecord, User
-from ...schemas import MyBidRecordCreate, MyBidRecordUpdate, MyBidRecordOut
+from ...schemas import MyBidRecordCreate, MyBidRecordUpdate, MyBidRecordOut, MyBidAnalysisResponse
+from ...services import MyBidAnalysisService
 from ...common.security import get_current_user
 
 router = APIRouter(prefix="/my-bids", tags=["투찰이력"])
@@ -25,6 +26,14 @@ def list_my_bids(
     total = q.count()
     items = q.order_by(MyBidRecord.created_at.desc()).offset((page - 1) * size).limit(size).all()
     return items
+
+
+@router.get("/analysis", response_model=MyBidAnalysisResponse)
+def my_bid_analysis(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return MyBidAnalysisService(db).analyze(user.id)
 
 
 @router.get("/stats")

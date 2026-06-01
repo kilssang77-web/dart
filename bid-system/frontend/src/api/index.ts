@@ -1,5 +1,5 @@
 ﻿import { api } from './client'
-import type { MetaData, RecommendResult, OverviewStats, Competitor, WatchKeyword, SystemStatus, AdminUser, RegionStat, IndustryStat, ClusterResult, ModelInfo, IndustryFilterItem } from '../types'
+import type { MetaData, RecommendResult, OverviewStats, Competitor, WatchKeyword, SystemStatus, AdminUser, RegionStat, IndustryStat, ClusterResult, ModelInfo, IndustryFilterItem, MyBidAnalysis, OverviewStatsWithChange } from '../types'
 
 type KeywordUpdateBody = Partial<Pick<WatchKeyword, 'keyword' | 'kw_type' | 'is_active' | 'note'>>
 
@@ -35,6 +35,12 @@ export const bidsApi = {
     api.get(`/bids/keyword-matches`).then((r) => r.data),
   meta: (): Promise<MetaData> =>
     api.get('/bids/meta').then((r) => r.data),
+  bookmarks: (params?: { page?: number; size?: number }) =>
+    api.get('/bids/bookmarks', { params }).then((r) => r.data),
+  addBookmark: (id: number) =>
+    api.post(`/bids/${id}/bookmark`).then((r) => r.data),
+  removeBookmark: (id: number) =>
+    api.delete(`/bids/${id}/bookmark`).then((r) => r.data),
 }
 
 // -- 추천 --------------------------------------------------
@@ -75,7 +81,7 @@ export const competitorsApi = {
 // -- 통계 --------------------------------------------------
 
 export const statsApi = {
-  overview: (months = 12): Promise<OverviewStats> =>
+  overview: (months = 12): Promise<OverviewStatsWithChange> =>
     api.get('/stats/overview', { params: { months } }).then((r) => r.data),
   agencies: (months = 12) =>
     api.get('/stats/agencies', { params: { months } }).then((r) => r.data),
@@ -131,6 +137,8 @@ export const myBidsApi = {
   list: (params?: { result?: string; page?: number; size?: number }) =>
     api.get('/my-bids', { params }).then((r) => r.data),
   stats: () => api.get('/my-bids/stats').then((r) => r.data),
+  analysis: (): Promise<MyBidAnalysis> =>
+    api.get('/my-bids/analysis').then((r) => r.data),
   create: (body: {
     title: string; agency_name?: string; bid_date?: string
     base_amount?: number; submitted_rate: number; recommendation_rate?: number; note?: string; bid_id?: number

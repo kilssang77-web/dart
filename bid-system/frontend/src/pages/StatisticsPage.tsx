@@ -5,7 +5,7 @@ import {
   LineChart, Line, PieChart, Pie, Cell, ScatterChart, Scatter, Legend
 } from 'recharts'
 import { statsApi } from '@/api'
-import type { OverviewStats, RegionStat, IndustryStat, ClusterResult, ModelInfo } from '@/types'
+import type { OverviewStatsWithChange, RegionStat, IndustryStat, ClusterResult, ModelInfo } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -31,7 +31,7 @@ export default function StatisticsPage() {
   const [months, setMonths] = useState(12)
   const selectedLabel = `최근 ${months}개월`
 
-  const { data: overview, isLoading: ovLoading } = useQuery<OverviewStats>({
+  const { data: overview, isLoading: ovLoading } = useQuery<OverviewStatsWithChange>({
     queryKey: ['stats-overview', months], queryFn: () => statsApi.overview(months),
     enabled: tab === 'overview', staleTime: 30_000,
   })
@@ -126,7 +126,7 @@ export default function StatisticsPage() {
                   { label: `총 입찰 (${selectedLabel})`, value: overview.total_bids.toLocaleString() + '건' },
                   { label: '전체 경쟁사 수', value: overview.total_competitors.toLocaleString() + '개사' },
                   { label: '평균 낙찰률', value: overview.avg_win_rate ? (overview.avg_win_rate * 100).toFixed(2) + '%' : '-' },
-                  { label: '평균 경쟁사', value: overview.avg_competitor_count.toFixed(1) + '개사' },
+                  { label: '평균 경쟁사', value: (overview.avg_competitor_count ?? 0).toFixed(1) + '개사' },
                 ].map(({ label, value }) => (
                   <Card key={label}><CardContent className="pt-4 pb-4">
                     <div className="text-xs text-muted-foreground mb-1">{label}</div>

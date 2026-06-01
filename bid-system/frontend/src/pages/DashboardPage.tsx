@@ -1,10 +1,12 @@
-﻿import { useQuery } from '@tanstack/react-query'
+﻿import React from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer
 } from 'recharts'
-import { FileText, Users, TrendingUp, Activity } from 'lucide-react'
+import { FileText, Users, TrendingUp, Activity, ArrowUp, ArrowDown } from 'lucide-react'
 import { statsApi } from '@/api'
+import type { OverviewStatsWithChange } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 
@@ -12,19 +14,39 @@ interface AgencyStat {
   agency_id: number; agency_name: string
   bid_count: number; avg_rate: number | null; avg_competitor_count: number | null
 }
-interface TrendPoint {
-  year: number; month: number; bid_count: number; avg_rate: number | null
+
+interface StatCardDef {
+  key: keyof OverviewStatsWithChange
+  label: string
+  unit: string
+  icon: React.ComponentType<{ className?: string }>
+  color: string
+  changeKey: keyof OverviewStatsWithChange | null
+  higherIsBetter: boolean
+  pct?: boolean
 }
 
-const STAT_CARDS = [
-  { key: 'total_bids',            label: '전체 입찰',   unit: '건',  icon: FileText,   color: 'text-blue-600' },
-  { key: 'total_competitors',     label: '등록 경쟁사', unit: '개사', icon: Users,      color: 'text-purple-600' },
-  { key: 'avg_win_rate',          label: '평균 낙찰률', unit: '%',   icon: TrendingUp, color: 'text-green-600', pct: true },
-  { key: 'avg_competitor_count',  label: '평균 경쟁강도',unit: '개사', icon: Activity,   color: 'text-orange-600' },
+const STAT_CARDS: StatCardDef[] = [
+  { key: 'total_bids',           label: '전체 입찰',    unit: '건',  icon: FileText,   color: 'text-blue-600',   changeKey: 'bid_count_change_pct',    higherIsBetter: true },
+  { key: 'total_competitors',    label: '등록 경쟁사',  unit: '개사', icon: Users,      color: 'text-purple-600', changeKey: null,                       higherIsBetter: true },
+  { key: 'avg_win_rate',         label: '평균 낙찰률',  unit: '%',   icon: TrendingUp, color: 'text-green-600',  changeKey: 'win_rate_change_pct',      higherIsBetter: true, pct: true },
+  { key: 'avg_competitor_count', label: '평균 경쟁강도', unit: '개사', icon: Activity,   color: 'text-orange-600', changeKey: 'avg_competitors_change',   higherIsBetter: false },
 ]
 
+function ChangeBadge({ value, higherIsBetter }: { value: number | null | undefined; higherIsBetter: boolean }) {
+  if (value == null) return null
+  const up = value > 0
+  const isGood = higherIsBetter ? up : !up
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-xs font-semibold ${isGood ? 'text-green-600' : 'text-red-500'}`}>
+      {up ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+      {Math.abs(value).toFixed(1)}%
+    </span>
+  )
+}
+
 export default function DashboardPage() {
-  const { data: overview, isLoading } = useQuery({
+  const { data: overview, isLoading } = useQuery<OverviewStatsWithChange>({
     queryKey: ['overview'],
     queryFn: () => statsApi.overview(24),
   })
@@ -33,7 +55,7 @@ export default function DashboardPage() {
     queryFn: () => statsApi.agencies(12),
   })
 
-  const trend = ((overview?.monthly_trend as TrendPoint[]) ?? []).map((d) => ({
+  const trend = (overview?.monthly_trend ?? []).map((d) => ({
     label:  `${d.year}-${String(d.month).padStart(2, '0')}`,
     건수:   d.bid_count,
     낙찰률: d.avg_rate ? +(d.avg_rate * 100).toFixed(2) : null,
@@ -49,8 +71,8 @@ export default function DashboardPage() {
 
       {/* 통계 카드 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {STAT_CARDS.map(({ key, label, unit, icon: Icon, color, pct }) => {
-          const raw = (overview as Record<string, unknown> | undefined)?.[key] as number | undefined
+        {STAT_CARDS.map(({ key, label, unit, icon: Icon, color, changeKey, higherIsBetter, pct }) => {
+          const raw = overview?.[key as keyof OverviewStatsWithChange] as number | null | undefined
           const display = raw == null
             ? '-'
             : pct
@@ -58,6 +80,7 @@ export default function DashboardPage() {
               : key === 'avg_competitor_count'
                 ? raw.toFixed(1) + unit
                 : raw.toLocaleString() + unit
+          const changeVal = changeKey ? overview?.[changeKey as keyof OverviewStatsWithChange] as number | null | undefined : null
           return (
             <Card key={key}>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -67,7 +90,14 @@ export default function DashboardPage() {
               <CardContent>
                 {isLoading
                   ? <Skeleton className="h-8 w-24" />
-                  : <p className="text-2xl font-bold">{display}</p>
+                  : (
+                    <div className="flex items-end gap-2">
+                      <p className="text-2xl font-bold">{display}</p>
+                      <div className="mb-0.5">
+                        <ChangeBadge value={changeVal} higherIsBetter={higherIsBetter} />
+                      </div>
+                    </div>
+                  )
                 }
               </CardContent>
             </Card>

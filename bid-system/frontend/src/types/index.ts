@@ -343,3 +343,51 @@ export interface MyBidStats {
   avg_rate_diff_from_rec: number | null
 }
 
+export interface BookmarkItem {
+  id: number
+  bid_id: number
+  user_id: number
+  note: string | null
+  created_at: string
+}
+
+export interface MyBidScatterPoint {
+  submitted_rate: number
+  recommendation_rate: number | null
+  result: string
+  bid_date: string
+}
+
+export interface MyBidMonthlyAccuracy {
+  year_month: string
+  mae: number | null
+  win_count: number
+  total: number
+}
+
+export interface MyBidAccuracyStats {
+  avg_error: number | null
+  median_error: number | null
+  accuracy_1pct: number | null
+  accuracy_3pct: number | null
+  total_records: number
+}
+
+export interface MyBidAnalysis {
+  accuracy_stats: MyBidAccuracyStats
+  rate_scatter: MyBidScatterPoint[]
+  monthly_accuracy: MyBidMonthlyAccuracy[]
+}
+
+export interface OverviewStatsWithChange {
+  total_bids: number
+  total_competitors: number
+  avg_win_rate: number | null
+  avg_bid_rate: number | null
+  avg_competitor_count: number | null
+  monthly_trend: { year: number; month: number; bid_count: number; avg_rate: number | null }[]
+  win_rate_change_pct: number | null
+  bid_count_change_pct: number | null
+  avg_competitors_change: number | null
+}
+

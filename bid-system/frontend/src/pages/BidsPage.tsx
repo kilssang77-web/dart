@@ -1,7 +1,7 @@
 ﻿import { useState, useRef, useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Search, ChevronLeft, ChevronRight, X, Building2 } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, X, Building2, Star } from 'lucide-react'
 import { bidsApi } from '@/api'
 import type { Bid, MetaData } from '@/types'
 import { cn } from '@/lib/utils'
@@ -21,6 +21,7 @@ const SIZE_OPTIONS = [20, 50, 100]
 
 export default function BidsPage() {
   const navigate = useNavigate()
+  const qc = useQueryClient()
   const [searchParams] = useSearchParams()
   const initKeyword = searchParams.get('keyword') ?? ''
   const [keyword, setKeyword]       = useState(initKeyword)
@@ -32,6 +33,7 @@ export default function BidsPage() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [sortBy, setSortBy]         = useState('notice_date')
   const [pageSize, setPageSize]     = useState(20)
+  const [bookmarkOnly, setBookmarkOnly] = useState(false)
   const agencyRef = useRef<HTMLDivElement>(null)
   const [regionId, setRegionId]     = useState<number | null>(null)
 
@@ -40,6 +42,12 @@ export default function BidsPage() {
     queryFn: bidsApi.meta,
     staleTime: 300_000,
   })
+
+  const { data: bookmarkData } = useQuery<{ items: { bid_id: number }[]; total: number }>({
+    queryKey: ['bookmarks'],
+    queryFn: () => bidsApi.bookmarks({ size: 1000 }),
+  })
+  const bookmarkedIds = new Set((bookmarkData?.items ?? []).map((b) => b.bid_id))
 
   const { data, isLoading } = useQuery<{ items: Bid[]; total: number; page: number; size: number }>({
     queryKey: ['bids', search, page, statusFilter, sortBy, agencyId, regionId, pageSize],
@@ -53,6 +61,38 @@ export default function BidsPage() {
       region_id: regionId ?? undefined,
     }),
   })
+
+  const addBookmark = useMutation({
+    mutationFn: (id: number) => bidsApi.addBookmark(id),
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: ['bookmarks'] })
+      const prev = qc.getQueryData<{ items: { bid_id: number }[]; total: number }>(['bookmarks'])
+      qc.setQueryData(['bookmarks'], (old: { items: { bid_id: number }[]; total: number } | undefined) =>
+        old ? { ...old, items: [...old.items, { bid_id: id }] } : old
+      )
+      return { prev }
+    },
+    onError: (_e, _id, ctx) => qc.setQueryData(['bookmarks'], ctx?.prev),
+  })
+
+  const removeBookmark = useMutation({
+    mutationFn: (id: number) => bidsApi.removeBookmark(id),
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: ['bookmarks'] })
+      const prev = qc.getQueryData(['bookmarks'])
+      qc.setQueryData(['bookmarks'], (old: { items: { bid_id: number }[]; total: number } | undefined) =>
+        old ? { ...old, items: old.items.filter((b) => b.bid_id !== id) } : old
+      )
+      return { prev }
+    },
+    onError: (_e, _id, ctx) => qc.setQueryData(['bookmarks'], ctx?.prev),
+  })
+
+  function toggleBookmark(e: React.MouseEvent, bidId: number) {
+    e.stopPropagation()
+    if (bookmarkedIds.has(bidId)) removeBookmark.mutate(bidId)
+    else addBookmark.mutate(bidId)
+  }
 
   const totalPages = data ? Math.ceil(data.total / pageSize) : 1
   const filteredAgencies = agencyInput.length >= 1
@@ -83,6 +123,26 @@ export default function BidsPage() {
         <p className="text-muted-foreground text-sm mt-1">
           전체 {data?.total?.toLocaleString() ?? 0}건
         </p>
+      </div>
+
+      {/* 북마크 탭 */}
+      <div className="flex gap-1">
+        <Button
+          variant={!bookmarkOnly ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => { setBookmarkOnly(false); setPage(1) }}
+        >
+          전체
+        </Button>
+        <Button
+          variant={bookmarkOnly ? 'default' : 'outline'}
+          size="sm"
+          className="gap-1.5"
+          onClick={() => { setBookmarkOnly(true); setPage(1) }}
+        >
+          <Star className="h-3.5 w-3.5" />
+          북마크 {bookmarkedIds.size > 0 && `(${bookmarkedIds.size})`}
+        </Button>
       </div>
 
       {/* 필터 바 */}
@@ -194,6 +254,7 @@ export default function BidsPage() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-8" />
               <TableHead>공고명</TableHead>
               <TableHead>발주기관</TableHead>
               <TableHead>지역</TableHead>
@@ -208,24 +269,36 @@ export default function BidsPage() {
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
-                  {Array.from({ length: 8 }).map((_, j) => (
+                  {Array.from({ length: 9 }).map((_, j) => (
                     <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                   ))}
                 </TableRow>
               ))
             ) : !data?.items?.length ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center text-muted-foreground py-10">
+                <TableCell colSpan={9} className="text-center text-muted-foreground py-10">
                   데이터가 없습니다.
                 </TableCell>
               </TableRow>
             ) : (
-              data.items.map((bid: Bid) => (
+              data.items
+                .filter((bid) => !bookmarkOnly || bookmarkedIds.has(bid.id))
+                .map((bid: Bid) => (
                 <TableRow
                   key={bid.id}
                   className="cursor-pointer"
                   onClick={() => navigate(`/bids/${bid.id}`)}
                 >
+                  <TableCell onClick={(e) => toggleBookmark(e, bid.id)} className="cursor-pointer">
+                    <Star
+                      className={cn(
+                        'h-4 w-4 transition-colors',
+                        bookmarkedIds.has(bid.id)
+                          ? 'fill-yellow-400 text-yellow-400'
+                          : 'text-muted-foreground hover:text-yellow-400'
+                      )}
+                    />
+                  </TableCell>
                   <TableCell className="max-w-xs">
                     <div className="flex items-center gap-2">
                       <span className="truncate font-medium text-primary">{bid.title}</span>
