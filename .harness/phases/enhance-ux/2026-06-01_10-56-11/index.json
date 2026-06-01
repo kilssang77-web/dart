@@ -6,11 +6,36 @@
   "author": "kil0410@a2m.co.kr",
   "created_at": "2026-06-01T10:56:11+09:00",
   "steps": [
-    { "step": 1, "name": "AI 추천 UI 시각화 강화", "status": "pending" },
-    { "step": 2, "name": "UX 종합 개선 (북마크·My입찰 분석·대시보드)", "status": "pending" },
-    { "step": 3, "name": "사정율 빈도분석 강화", "status": "pending" },
-    { "step": 4, "name": "발주처 심층분석 페이지", "status": "pending" },
-    { "step": 5, "name": "경쟁사 투찰성향 분석 강화", "status": "pending" },
-    { "step": 6, "name": "공고 수집 안정성 + 확장", "status": "pending" }
+    {
+      "step": 1,
+      "name": "AI 추천 UI 시각화 강화",
+      "status": "pending",
+      "started_at": "2026-06-01T12:35:09+0900"
+    },
+    {
+      "step": 2,
+      "name": "UX 종합 개선 (북마크·My입찰 분석·대시보드)",
+      "status": "pending"
+    },
+    {
+      "step": 3,
+      "name": "사정율 빈도분석 강화",
+      "status": "pending"
+    },
+    {
+      "step": 4,
+      "name": "발주처 심층분석 페이지",
+      "status": "pending"
+    },
+    {
+      "step": 5,
+      "name": "경쟁사 투찰성향 분석 강화",
+      "status": "pending"
+    },
+    {
+      "step": 6,
+      "name": "공고 수집 안정성 + 확장",
+      "status": "pending"
+    }
   ]
 }
