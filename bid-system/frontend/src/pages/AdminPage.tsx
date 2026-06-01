@@ -54,6 +54,13 @@ export default function AdminPage() {
     queryKey: ['admin-industry-filters'], queryFn: adminApi.industryFilters, enabled: tab === 'industries',
   })
 
+
+  const { data: collectionLogs = [] } = useQuery({
+    queryKey: ['admin-collection-logs'],
+    queryFn: () => adminApi.collectionLogs(7),
+    enabled: tab === 'system',
+    refetchInterval: 60000,
+  })
   if (checkedIds === null && industryFilters.length > 0) {
     setCheckedIds(new Set(industryFilters.filter((i) => i.is_active).map((i) => i.industry_id)))
   }
@@ -217,6 +224,44 @@ export default function AdminPage() {
               </div>
             </>
           ) : null}
+
+              {collectionLogs.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">수집 이력 (최근 7일)</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>수집 유형</TableHead>
+                          <TableHead>수집 시각</TableHead>
+                          <TableHead className="text-center">성공</TableHead>
+                          <TableHead className="text-center">실패</TableHead>
+                          <TableHead className="text-right">소요(초)</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {collectionLogs.map((log: { id: number; collect_type: string; collected_at: string; success_count: number; fail_count: number; duration_sec: number | null }) => (
+                          <TableRow key={log.id}>
+                            <TableCell>
+                              <Badge variant={log.collect_type === 'notice_cnstwk' ? 'info' : log.collect_type === 'notice_servc' ? 'secondary' : 'outline'} className="text-[10px] px-1.5">
+                                {log.collect_type}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                              {new Date(log.collected_at).toLocaleString('ko-KR')}
+                            </TableCell>
+                            <TableCell className="text-center text-green-600 font-bold">{log.success_count}</TableCell>
+                            <TableCell className="text-center text-destructive">{log.fail_count}</TableCell>
+                            <TableCell className="text-right text-xs">{log.duration_sec?.toFixed(1) ?? '-'}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              )}
         </TabsContent>
 
         <TabsContent value="users" className="space-y-4 mt-4">

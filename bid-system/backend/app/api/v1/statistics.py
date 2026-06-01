@@ -78,6 +78,17 @@ def cluster_analysis(
     return svc.cluster_analysis(db, industry_id=industry_id, months=months, k=k)
 
 
+@router.get("/srate-distribution")
+def srate_distribution(
+    agency_id:   Optional[int] = Query(None),
+    industry_id: Optional[int] = Query(None),
+    months: int = Query(24, ge=1, le=60),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    return svc.srate_distribution_detail(db, agency_id=agency_id, industry_id=industry_id, months=months)
+
+
 @router.get("/model-info")
 def model_info(
     months: int = Query(12, ge=1, le=60),

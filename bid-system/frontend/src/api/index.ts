@@ -1,5 +1,5 @@
 ﻿import { api } from './client'
-import type { MetaData, RecommendResult, OverviewStats, Competitor, WatchKeyword, SystemStatus, AdminUser, RegionStat, IndustryStat, ClusterResult, ModelInfo, IndustryFilterItem, MyBidAnalysis, OverviewStatsWithChange } from '../types'
+import type { MetaData, RecommendResult, Competitor, WatchKeyword, SystemStatus, AdminUser, RegionStat, IndustryStat, ClusterResult, ModelInfo, IndustryFilterItem, MyBidAnalysis, OverviewStatsWithChange } from '../types'
 
 type KeywordUpdateBody = Partial<Pick<WatchKeyword, 'keyword' | 'kw_type' | 'is_active' | 'note'>>
 
@@ -76,6 +76,10 @@ export const competitorsApi = {
     api.get(`/competitors/${id}/timeline`, { params: { months } }).then((r) => r.data),
   wins: (id: number, limit = 50) =>
     api.get(`/competitors/${id}/wins`, { params: { limit } }).then((r) => r.data),
+  pattern: (id: number) =>
+    api.get(`/competitors/${id}/pattern`).then((r) => r.data),
+  compare: (ids: number[]) =>
+    api.get('/competitors/compare', { params: { ids: ids.join(',') } }).then((r) => r.data),
 }
 
 // -- 통계 --------------------------------------------------
@@ -91,6 +95,8 @@ export const statsApi = {
     api.get('/stats/industries', { params: { months } }).then((r) => r.data),
   rateDistribution: (params?: { industry_id?: number; months?: number }) =>
     api.get('/stats/rate-distribution', { params }).then((r) => r.data),
+  srateDistribution: (params?: { agency_id?: number; industry_id?: number; months?: number }) =>
+    api.get('/stats/srate-distribution', { params }).then((r) => r.data),
   heatmap: (months = 24) =>
     api.get('/stats/heatmap', { params: { months } }).then((r) => r.data),
   cluster: (params?: { industry_id?: number; months?: number; k?: number }): Promise<ClusterResult> =>
@@ -129,6 +135,8 @@ export const adminApi = {
     api.get('/admin/industries').then((r) => r.data),
   updateIndustryFilters: (active_ids: number[]) =>
     api.put('/admin/industries/filters', { active_ids }).then((r) => r.data),
+  collectionLogs: (days = 7) =>
+    api.get('/admin/collection-logs', { params: { days } }).then((r) => r.data),
 }
 
 // -- 투찰 이력 --------------------------------------------------
@@ -148,3 +156,11 @@ export const myBidsApi = {
   remove: (id: number) => api.delete(`/my-bids/${id}`).then((r) => r.data),
 }
 
+// -- 발주기관 --------------------------------------------------
+
+export const agenciesApi = {
+  list: (params?: { q?: string; page?: number; size?: number }) =>
+    api.get('/agencies', { params }).then((r) => r.data),
+  analysis: (id: number) =>
+    api.get(`/agencies/${id}/analysis`).then((r) => r.data),
+}

@@ -25,22 +25,32 @@
     {
       "step": 3,
       "name": "사정율 빈도분석 강화",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-01T14:30:00+0900",
+      "completed_at": "2026-06-01T15:10:00+0900",
+      "summary": "GET /stats/srate-distribution 엔드포인트 + StatisticsPage '사정율 분포' 탭 (발주기관·공종 필터, 히스토그램 BarChart, 평균·최빈·표준편차·표본수 KPI 카드)"
     },
     {
       "step": 4,
       "name": "발주처 심층분석 페이지",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-01T14:30:00+0900",
+      "completed_at": "2026-06-01T15:10:00+0900",
+      "summary": "agencies.py 라우터 신규 (GET /agencies, GET /agencies/{id}/analysis) + router.py 등록 + frontend agenciesApi 추가"
     },
     {
       "step": 5,
       "name": "경쟁사 투찰성향 분석 강화",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-01T14:30:00+0900",
+      "completed_at": "2026-06-01T15:10:00+0900",
+      "summary": "GET /competitors/{id}/pattern + GET /competitors/compare 엔드포인트 + CompetitorPage '투찰성향' 탭 (RadarChart 5축, BarChart 금액대별) + 체크박스 2개사 비교 기능"
     },
     {
       "step": 6,
       "name": "공고 수집 안정성 + 확장",
-      "status": "pending"
+      "status": "skipped",
+      "note": "collector 서브시스템 미존재 (prototype 단계) — MVP 단계에서 구현 예정"
     }
   ]
 }

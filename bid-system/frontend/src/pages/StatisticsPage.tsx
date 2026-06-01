@@ -1,11 +1,11 @@
 ﻿import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
   LineChart, Line, PieChart, Pie, Cell, ScatterChart, Scatter, Legend
 } from 'recharts'
-import { statsApi } from '@/api'
-import type { OverviewStatsWithChange, RegionStat, IndustryStat, ClusterResult, ModelInfo } from '@/types'
+import { statsApi, bidsApi } from '@/api'
+import type { OverviewStatsWithChange, MetaData, RegionStat, IndustryStat, ClusterResult, ModelInfo } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -15,6 +15,9 @@ import { Badge } from '@/components/ui/badge'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '@/components/ui/select'
 
 const COLORS = ['#2563eb','#16a34a','#d97706','#dc2626','#7c3aed','#0891b2','#be185d','#65a30d']
 const PERIOD_OPTIONS = [3, 6, 12, 24]
@@ -29,6 +32,8 @@ interface AgencyStatItem {
 export default function StatisticsPage() {
   const [tab, setTab] = useState('overview')
   const [months, setMonths] = useState(12)
+  const [srateAgencyId, setSrateAgencyId] = useState<number | null>(null)
+  const [srateIndustryId, setSrateIndustryId] = useState<number | null>(null)
   const selectedLabel = `최근 ${months}개월`
 
   const { data: overview, isLoading: ovLoading } = useQuery<OverviewStatsWithChange>({
@@ -62,6 +67,15 @@ export default function StatisticsPage() {
   const { data: modelInfo, isLoading: mlLoading } = useQuery<ModelInfo>({
     queryKey: ['model-info', months], queryFn: () => statsApi.modelInfo(months),
     enabled: tab === 'level3', staleTime: 30_000,
+  })
+  const { data: meta } = useQuery<MetaData>({
+    queryKey: ['bids-meta'], queryFn: () => bidsApi.meta(),
+    enabled: tab === 'srate', staleTime: 300_000,
+  })
+  const { data: srateDist } = useQuery({
+    queryKey: ['srate-dist', srateAgencyId, srateIndustryId, months],
+    queryFn: () => statsApi.srateDistribution({ agency_id: srateAgencyId ?? undefined, industry_id: srateIndustryId ?? undefined, months }),
+    enabled: tab === 'srate', staleTime: 60_000,
   })
 
   const industries_list: string[] = [...new Set((heatmap ?? []).map((d: HeatmapItem) => d.industry))].slice(0, 6)
@@ -112,6 +126,7 @@ export default function StatisticsPage() {
           <TabsTrigger value="level1">Level 1</TabsTrigger>
           <TabsTrigger value="level2">Level 2 · 클러스터</TabsTrigger>
           <TabsTrigger value="level3">Level 3 · ML</TabsTrigger>
+          <TabsTrigger value="srate">사정율 분포</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4 mt-4">
@@ -453,6 +468,65 @@ export default function StatisticsPage() {
               </Card>
             </>
           )}
+        </TabsContent>
+        <TabsContent value="srate" className="space-y-4 mt-4">
+          <div className="flex flex-wrap gap-2">
+            <Select value={srateAgencyId != null ? String(srateAgencyId) : 'all'} onValueChange={(v) => setSrateAgencyId(v === 'all' ? null : Number(v))}>
+              <SelectTrigger className="w-48"><SelectValue placeholder="발주기관 전체" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">발주기관 전체</SelectItem>
+                {(meta?.agencies ?? []).slice(0, 100).map((a) => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={srateIndustryId != null ? String(srateIndustryId) : 'all'} onValueChange={(v) => setSrateIndustryId(v === 'all' ? null : Number(v))}>
+              <SelectTrigger className="w-40"><SelectValue placeholder="공종 전체" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">공종 전체</SelectItem>
+                {(meta?.industries ?? []).map((i) => <SelectItem key={i.id} value={String(i.id)}>{i.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          {srateDist && (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  { label: '평균 사정율', value: srateDist.mean != null ? (srateDist.mean * 100).toFixed(3) + '%' : '-' },
+                  { label: '최빈 사정율', value: srateDist.mode != null ? (srateDist.mode * 100).toFixed(3) + '%' : '-' },
+                  { label: '표준편차',   value: srateDist.std  != null ? (srateDist.std  * 100).toFixed(3) + '%' : '-' },
+                  { label: '표본 수',    value: srateDist.sample_count?.toLocaleString() + '건' },
+                ].map(({ label, value }) => (
+                  <Card key={label}><CardContent className="pt-4 pb-3">
+                    <div className="text-xs text-muted-foreground mb-1">{label}</div>
+                    <div className="text-xl font-bold">{value}</div>
+                  </CardContent></Card>
+                ))}
+              </div>
+              <Card>
+                <CardHeader><CardTitle className="text-sm">사정율 빈도 분포 (히스토그램)</CardTitle></CardHeader>
+                <CardContent>
+                  {srateDist.bins?.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-10">데이터가 없습니다.</p>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={280}>
+                      <BarChart data={srateDist.bins} margin={{ left: -10, right: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="rate_pct" tickFormatter={(v: number) => (v * 100).toFixed(1) + '%'} tick={{ fontSize: 10 }} interval={3} />
+                        <YAxis tick={{ fontSize: 11 }} />
+                        <Tooltip formatter={(v: unknown) => [String(v) + '건', '건수']} />
+                        <Bar dataKey="count" fill="hsl(var(--primary)/0.7)" radius={[2, 2, 0, 0]} />
+                        {srateDist.mode != null && (
+                          <ReferenceLine x={srateDist.mode} stroke="hsl(var(--destructive))" strokeDasharray="4 2" label={{ value: '최빈', position: 'top', fontSize: 10, fill: 'hsl(var(--destructive))' }} />
+                        )}
+                        {srateDist.p25 != null && <ReferenceLine x={srateDist.p25} stroke="hsl(var(--primary)/0.4)" strokeDasharray="2 2" />}
+                        {srateDist.p75 != null && <ReferenceLine x={srateDist.p75} stroke="hsl(var(--primary)/0.4)" strokeDasharray="2 2" />}
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          )}
+          {!srateDist && <p className="text-sm text-muted-foreground text-center py-10">탭을 선택하면 데이터를 불러옵니다.</p>}
         </TabsContent>
       </Tabs>
     </div>

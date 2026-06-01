@@ -1,9 +1,9 @@
 ﻿import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Search, ChevronLeft, ChevronRight, Trophy } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, Trophy, CheckSquare, Square } from 'lucide-react'
 import {
-  RadarChart, Radar, PolarGrid, PolarAngleAxis,
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
+  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts'
 import { competitorsApi } from '@/api'
 import type { Competitor } from '@/types'
@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select'
@@ -62,6 +63,22 @@ export default function CompetitorPage() {
     enabled: !!selectedId && (detail?.win_count ?? 0) > 0,
   })
 
+
+  const [detailTab, setDetailTab] = useState('overview')
+  const [compareIds, setCompareIds] = useState<number[]>([])
+  const [showCompare, setShowCompare] = useState(false)
+
+  const { data: pattern } = useQuery({
+    queryKey: ['competitor-pattern', selectedId],
+    queryFn: () => competitorsApi.pattern(selectedId!),
+    enabled: !!selectedId && detailTab === 'pattern',
+  })
+
+  const { data: compareData } = useQuery({
+    queryKey: ['competitor-compare', compareIds],
+    queryFn: () => competitorsApi.compare(compareIds),
+    enabled: showCompare && compareIds.length === 2,
+  })
   const totalPages = list ? Math.ceil(list.total / SIZE) : 1
 
   const riskVariant = (r: string): 'destructive' | 'warning' | 'success' | 'secondary' =>
@@ -136,6 +153,16 @@ export default function CompetitorPage() {
             </div>
             <Button onClick={handleSearch} size="sm">검색</Button>
           </div>
+          {compareIds.length === 2 && (
+            <Button size="sm" className="w-full" onClick={() => setShowCompare(true)}>
+              2개 업체 비교
+            </Button>
+          )}
+          {compareIds.length > 0 && (
+            <Button size="sm" variant="ghost" className="w-full text-xs text-muted-foreground" onClick={() => setCompareIds([])}>
+              비교 선택 해제
+            </Button>
+          )}
 
           <Card className="overflow-hidden">
             {isLoading ? (
@@ -149,6 +176,14 @@ export default function CompetitorPage() {
                     className={cn('p-3 cursor-pointer hover:bg-accent transition-colors',
                       selectedId === c.id && 'bg-accent border-l-2 border-l-primary')}
                     onClick={() => handleSelect(c.id)}>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <button
+                        className="shrink-0"
+                        onClick={(e) => { e.stopPropagation(); setCompareIds((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : prev.length < 2 ? [...prev, c.id] : prev) }}
+                      >
+                        {compareIds.includes(c.id) ? <CheckSquare className="h-3.5 w-3.5 text-primary" /> : <Square className="h-3.5 w-3.5 text-muted-foreground" />}
+                      </button>
+                    </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium truncate">{c.name}</span>
                       <Badge variant={riskVariant(c.risk_level)} className="shrink-0 ml-1 text-[10px] px-1.5 py-0">
@@ -179,6 +214,13 @@ export default function CompetitorPage() {
         {/* 상세 패널 */}
         {detail ? (
           <div className="flex-1 space-y-4">
+            <Tabs value={detailTab} onValueChange={setDetailTab}>
+              <TabsList>
+                <TabsTrigger value="overview">개요</TabsTrigger>
+                <TabsTrigger value="pattern">투찰성향</TabsTrigger>
+              </TabsList>
+
+            <TabsContent value="overview" className="space-y-4 mt-3">
             {/* 기본 지표 */}
             <Card>
               <CardContent className="pt-5">
@@ -266,6 +308,62 @@ export default function CompetitorPage() {
                 </CardContent>
               </Card>
             )}
+            </TabsContent>
+
+            <TabsContent value="pattern" className="space-y-4 mt-3">
+              {pattern ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    {['aggressive','stable','defensive'].includes(pattern.recent_trend?.direction) && (
+                      <Badge variant={pattern.recent_trend.direction === 'aggressive' ? 'destructive' : pattern.recent_trend.direction === 'defensive' ? 'success' : 'secondary'}>
+                        {pattern.recent_trend.direction === 'aggressive' ? '공격적↑' : pattern.recent_trend.direction === 'defensive' ? '방어적↓' : '안정'}
+                        {pattern.recent_trend.change_pct != null && ` (${pattern.recent_trend.change_pct > 0 ? '+' : ''}${pattern.recent_trend.change_pct.toFixed(1)}%)`}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Card>
+                      <CardHeader className="pb-2"><CardTitle className="text-sm">투찰 성향 레이더</CardTitle></CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={200}>
+                          <RadarChart data={[
+                            { subject: '공격성', value: pattern.radar.aggression },
+                            { subject: '일관성', value: pattern.radar.consistency },
+                            { subject: '집중도', value: pattern.radar.concentration },
+                            { subject: '위험도', value: pattern.radar.risk },
+                            { subject: '활동성', value: pattern.radar.activity },
+                          ]}>
+                            <PolarGrid />
+                            <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11 }} />
+                            <PolarRadiusAxis domain={[0, 10]} tick={false} />
+                            <Radar dataKey="value" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.35} />
+                          </RadarChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader className="pb-2"><CardTitle className="text-sm">금액대별 투찰 패턴</CardTitle></CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={200}>
+                          <BarChart data={pattern.amount_pattern} margin={{ left: -10 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis dataKey="bucket" tick={{ fontSize: 10 }} />
+                            <YAxis yAxisId="l" tick={{ fontSize: 11 }} />
+                            <YAxis yAxisId="r" orientation="right" unit="%" tick={{ fontSize: 11 }} />
+                            <Tooltip />
+                            <Bar yAxisId="l" dataKey="bid_count" fill="hsl(var(--primary)/0.4)" name="입찰수" />
+                            <Bar yAxisId="r" dataKey="win_rate" fill="hsl(142.1 76.2% 36.3%/0.6)" name="낙찰률" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-10">데이터를 불러오는 중...</p>
+              )}
+            </TabsContent>
+            </Tabs>
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center text-muted-foreground">

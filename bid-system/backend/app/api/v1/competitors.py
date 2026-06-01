@@ -1,10 +1,10 @@
 ﻿from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 
 from ...database import get_db
 from ...models import User
-from ...services import CompetitorService
+from ...services import CompetitorService, CompetitorPatternService
 from ...common.security import get_current_user
 
 router = APIRouter(prefix="/competitors", tags=["경쟁사"])
@@ -54,3 +54,22 @@ def competitor_wins(
     _: User = Depends(get_current_user),
 ):
     return svc.get_win_history(db, competitor_id, limit)
+
+
+@router.get("/compare")
+def compare_competitors(
+    ids: str = Query(..., description="쉼표 구분 경쟁사 ID (최대 2개)"),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    id_list = [int(i.strip()) for i in ids.split(",") if i.strip()][:2]
+    return CompetitorPatternService(db).compare(id_list)
+
+
+@router.get("/{competitor_id}/pattern")
+def competitor_pattern(
+    competitor_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    return CompetitorPatternService(db).get_pattern(competitor_id)

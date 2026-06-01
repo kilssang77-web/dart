@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from ...database import get_db
-from ...models import User, Industry, IndustryFilter
+from ...models import User, Industry, IndustryFilter, CollectionLog
+from ...schemas import CollectionLogOut
 from ...common.security import require_role, hash_password
 
 router = APIRouter(prefix="/admin", tags=["관리자"])
@@ -321,3 +322,20 @@ def system_status(db: Session = Depends(get_db), _: User = Depends(require_role(
             {"date": str(r[0]), "count": r[1]} for r in daily
         ],
     }
+
+
+@router.get("/collection-logs", response_model=list[CollectionLogOut])
+def collection_logs(
+    days: int = 7,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin")),
+):
+    from datetime import datetime, timedelta
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    return (
+        db.query(CollectionLog)
+        .filter(CollectionLog.collected_at >= cutoff)
+        .order_by(CollectionLog.collected_at.desc())
+        .limit(200)
+        .all()
+    )
