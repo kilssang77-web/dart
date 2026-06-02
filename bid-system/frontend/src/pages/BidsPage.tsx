@@ -98,12 +98,13 @@ export default function BidsPage() {
   }
 
   // 달력뷰용 해당 월 전체 데이터 (최대 200건)
-  const { data: calData } = useQuery<{ items: Bid[]; total: number }>({
+  const { data: calData, isLoading: calLoading } = useQuery<{ items: Bid[]; total: number }>({
     queryKey: ['bids-cal', calYear, calMonth],
     queryFn: () => bidsApi.list({
       date_from: `${calYear}-${String(calMonth).padStart(2,'0')}-01`,
       date_to:   `${calYear}-${String(calMonth).padStart(2,'0')}-${new Date(calYear, calMonth, 0).getDate()}`,
       size: 200,
+      sort_by: 'bid_open_date',
     }),
     enabled: viewMode === 'calendar',
     staleTime: 60_000,
@@ -114,7 +115,10 @@ export default function BidsPage() {
     for (const b of calData?.items ?? []) {
       const dateStr = b.bid_open_date ?? b.notice_date
       if (!dateStr) continue
-      const d = new Date(dateStr).getDate()
+      // KST(UTC+9) 기준 날짜로 파싱
+      const dt = new Date(dateStr)
+      const kstDate = new Date(dt.getTime() + 9 * 60 * 60 * 1000)
+      const d = kstDate.getUTCDate()
       if (!m[d]) m[d] = []
       m[d].push(b)
     }
@@ -181,7 +185,13 @@ export default function BidsPage() {
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-3">
                 <Button variant="ghost" size="sm" onClick={() => { if (calMonth === 1) { setCalYear(y=>y-1); setCalMonth(12) } else setCalMonth(m=>m-1) }}>← 이전달</Button>
-                <span className="font-semibold">{calYear}년 {calMonth}월 ({calData?.total ?? 0}건)</span>
+                <span className="font-semibold">
+                  {calYear}년 {calMonth}월{' '}
+                  {calLoading
+                    ? <span className="text-xs text-muted-foreground font-normal">불러오는 중...</span>
+                    : <span className="text-sm font-normal text-muted-foreground">({calData?.total ?? 0}건 · 개찰일 기준)</span>
+                  }
+                </span>
                 <Button variant="ghost" size="sm" onClick={() => { if (calMonth === 12) { setCalYear(y=>y+1); setCalMonth(1) } else setCalMonth(m=>m+1) }}>다음달 →</Button>
               </div>
               <div className="grid grid-cols-7 gap-1 text-center">

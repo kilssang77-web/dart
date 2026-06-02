@@ -1574,9 +1574,11 @@ class CompetitorPatternService:
                 "win_rate": round(len(wins) / len(bucket_results), 4) if bucket_results else None
             })
 
-        six_months_ago = datetime.utcnow() - timedelta(days=180)
-        recent_bids = [b for b in bids_data if b.bid_open_date and b.bid_open_date >= six_months_ago]
-        older_bids = [b for b in bids_data if b.bid_open_date and b.bid_open_date < six_months_ago]
+        from datetime import timezone as _tz
+        six_months_ago = datetime.now(_tz.utc) - timedelta(days=180)
+        def _naive(dt): return dt.replace(tzinfo=None) if dt.tzinfo else dt
+        recent_bids = [b for b in bids_data if b.bid_open_date and _naive(b.bid_open_date) >= six_months_ago.replace(tzinfo=None)]
+        older_bids = [b for b in bids_data if b.bid_open_date and _naive(b.bid_open_date) < six_months_ago.replace(tzinfo=None)]
         recent_ids = {b.id for b in recent_bids}
         older_ids = {b.id for b in older_bids}
         recent_rates = [float(r.bid_rate) for r in results if r.bid_id in recent_ids and r.bid_rate]

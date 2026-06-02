@@ -23,6 +23,16 @@ def list_competitors(
     return svc.list_competitors(db, keyword=keyword, page=page, size=size, risk_level=risk_level)
 
 
+@router.get("/compare")
+def compare_competitors(
+    ids: str = Query(..., description="쉼표 구분 경쟁사 ID (최대 2개)"),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    id_list = [int(i.strip()) for i in ids.split(",") if i.strip()][:2]
+    return CompetitorPatternService(db).compare(id_list)
+
+
 @router.get("/{competitor_id}")
 def get_competitor(
     competitor_id: int,
@@ -54,16 +64,6 @@ def competitor_wins(
     _: User = Depends(get_current_user),
 ):
     return svc.get_win_history(db, competitor_id, limit)
-
-
-@router.get("/compare")
-def compare_competitors(
-    ids: str = Query(..., description="쉼표 구분 경쟁사 ID (최대 2개)"),
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
-):
-    id_list = [int(i.strip()) for i in ids.split(",") if i.strip()][:2]
-    return CompetitorPatternService(db).compare(id_list)
 
 
 @router.get("/{competitor_id}/pattern")

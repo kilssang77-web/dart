@@ -18,7 +18,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription
 } from '@/components/ui/dialog'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
@@ -400,6 +400,99 @@ export default function CompetitorPage() {
           </div>
         )}
       </div>
+
+      {/* 2개 업체 비교 Dialog */}
+      <Dialog open={showCompare} onOpenChange={(o) => { setShowCompare(o); if (!o) setCompareIds([]) }}>
+        <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>경쟁사 투찰 패턴 비교</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              {compareData?.competitors?.map((c: { name: string }) => c.name).join(' vs ') ?? '...'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="overflow-y-auto flex-1">
+            {!compareData ? (
+              <div className="py-16 text-center text-muted-foreground text-sm">데이터를 불러오는 중...</div>
+            ) : (
+              <div className="space-y-5 p-1">
+                {/* 레이더 비교 */}
+                <div className="grid grid-cols-2 gap-4">
+                  {compareData.competitors.map((c: { id: number; name: string; radar: Record<string, number>; monthly_trend: { year_month: string; bid_count: number; win_count: number; avg_rate: number | null }[] }) => (
+                    <Card key={c.id}>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm text-center">{c.name}</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={200}>
+                          <RadarChart data={[
+                            { subject: '공격성', value: c.radar.aggression ?? 0 },
+                            { subject: '일관성', value: c.radar.consistency ?? 0 },
+                            { subject: '집중도', value: c.radar.concentration ?? 0 },
+                            { subject: '위험도', value: c.radar.risk ?? 0 },
+                            { subject: '활동성', value: c.radar.activity ?? 0 },
+                          ]}>
+                            <PolarGrid />
+                            <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11 }} />
+                            <PolarRadiusAxis domain={[0, 10]} tick={false} />
+                            <Radar dataKey="value" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.3} />
+                          </RadarChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+
+                {/* 월별 투찰 추이 비교 */}
+                {compareData.competitors.length === 2 && (() => {
+                  const c0 = compareData.competitors[0]
+                  const c1 = compareData.competitors[1]
+                  const allMonths = Array.from(new Set([
+                    ...c0.monthly_trend.map((t: { year_month: string }) => t.year_month),
+                    ...c1.monthly_trend.map((t: { year_month: string }) => t.year_month),
+                  ])).sort()
+                  const chartData = allMonths.map((ym) => {
+                    const t0 = c0.monthly_trend.find((t: { year_month: string }) => t.year_month === ym)
+                    const t1 = c1.monthly_trend.find((t: { year_month: string }) => t.year_month === ym)
+                    return {
+                      ym,
+                      [c0.name]: t0?.avg_rate != null ? +(t0.avg_rate * 100).toFixed(3) : null,
+                      [c1.name]: t1?.avg_rate != null ? +(t1.avg_rate * 100).toFixed(3) : null,
+                    }
+                  })
+                  const COMPARE_COLORS = ['hsl(var(--primary))', '#f97316']
+                  return (
+                    <Card>
+                      <CardHeader className="pb-2"><CardTitle className="text-sm">월별 평균 투찰률 추이 비교</CardTitle></CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={200}>
+                          <LineChart data={chartData}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis dataKey="ym" tick={{ fontSize: 9 }} interval={1} />
+                            <YAxis tick={{ fontSize: 10 }} unit="%" domain={['auto', 'auto']} />
+                            <Tooltip formatter={(v: number) => [v + '%', '']} />
+                            {compareData.competitors.map((c: { name: string }, i: number) => (
+                              <Line key={c.name} type="monotone" dataKey={c.name}
+                                stroke={COMPARE_COLORS[i]} strokeWidth={2} dot={false} connectNulls />
+                            ))}
+                          </LineChart>
+                        </ResponsiveContainer>
+                        <div className="flex gap-4 text-xs mt-2">
+                          {compareData.competitors.map((c: { name: string }, i: number) => (
+                            <span key={c.name} className="flex items-center gap-1">
+                              <span className="w-3 h-0.5 inline-block rounded" style={{ backgroundColor: COMPARE_COLORS[i] }} />
+                              {c.name}
+                            </span>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })()}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* 수주 이력 Dialog */}
       <Dialog open={winsModalOpen} onOpenChange={setWinsModalOpen}>
