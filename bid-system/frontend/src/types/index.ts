@@ -300,7 +300,7 @@ export interface RecommendV2Result {
   rate_range:        RateRange
   strategies:        StrategySet
   estimated_price:   EstimatedPriceInfo
-  win_probabilities: { at_aggressive: number; at_center: number; at_conservative: number }
+  win_probabilities: { at_aggressive: number; at_balanced: number; at_conservative: number; at_avoid_competition?: number }
   risk:              { level: string; score: number; factors: string[] }
   competition:       CompetitionInfo
   ensemble_weights:  { engine_a: number; engine_b: number }

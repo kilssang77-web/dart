@@ -203,7 +203,7 @@ export default function RecommendPage() {
   const strategyData: StrategyEntry[] = result
     ? [
         { name: '공격형',  winProb: result.win_probabilities.at_aggressive  * 100, rate: result.strategies.aggressive.rate,  isSelected: false },
-        { name: '균형형',  winProb: result.win_probabilities.at_center       * 100, rate: result.strategies.balanced.rate,    isSelected: true  },
+        { name: '균형형',  winProb: result.win_probabilities.at_balanced       * 100, rate: result.strategies.balanced.rate,    isSelected: true  },
         { name: '안정형',  winProb: result.win_probabilities.at_conservative * 100, rate: result.strategies.conservative.rate, isSelected: false },
         { name: '회피형',  winProb: 0,                                              rate: result.competition.floor_rate,       isSelected: false },
       ]
@@ -418,7 +418,7 @@ export default function RecommendPage() {
             <Card className="border-primary/40 bg-primary/5">
               <CardContent className="pt-5 flex flex-col items-center gap-3">
                 <WinProbGauge
-                  winProb={result.win_probabilities.at_center ?? 0}
+                  winProb={result.win_probabilities.at_balanced ?? 0}
                   label="낙찰 예상 확률 (균형전략)"
                 />
                 <div className="text-center">
@@ -468,7 +468,7 @@ export default function RecommendPage() {
               <div className="grid grid-cols-3 gap-3 mt-3 border-t pt-3">
                 {[
                   { title: '공격형', s: result.strategies.aggressive, wp: result.win_probabilities.at_aggressive },
-                  { title: '균형형 (권장)', s: result.strategies.balanced, wp: result.win_probabilities.at_center, hl: true },
+                  { title: '균형형 (권장)', s: result.strategies.balanced, wp: result.win_probabilities.at_balanced, hl: true },
                   { title: '안정형', s: result.strategies.conservative, wp: result.win_probabilities.at_conservative },
                 ].map(({ title, s, wp, hl }) => (
                   <div key={title} className={cn('rounded-md p-2.5 text-xs', hl ? 'bg-primary text-primary-foreground' : 'bg-muted/50')}>
