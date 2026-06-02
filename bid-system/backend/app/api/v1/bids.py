@@ -24,7 +24,7 @@ def list_bids(
     keyword:     Optional[str]  = Query(None),
     sort_by:     str            = Query('notice_date'),
     page: int = Query(1, ge=1),
-    size: int = Query(20, ge=1, le=100),
+    size: int = Query(20, ge=1, le=500),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):

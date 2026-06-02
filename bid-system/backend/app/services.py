@@ -71,7 +71,7 @@ class BidService:
         if region_id:   q = q.filter(Bid.region_id == region_id)
         if status:      q = q.filter(Bid.status == status)
         if date_from:   q = q.filter(Bid.bid_open_date >= date_from)
-        if date_to:     q = q.filter(Bid.bid_open_date <= date_to)
+        if date_to:     q = q.filter(Bid.bid_open_date < datetime.combine(date_to + timedelta(days=1), datetime.min.time()))
         if keyword:
             q = q.filter(Bid.title.ilike(f"%{keyword}%"))
 

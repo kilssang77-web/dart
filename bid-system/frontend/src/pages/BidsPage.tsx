@@ -115,10 +115,7 @@ export default function BidsPage() {
     for (const b of calData?.items ?? []) {
       const dateStr = b.bid_open_date ?? b.notice_date
       if (!dateStr) continue
-      // KST(UTC+9) 기준 날짜로 파싱
-      const dt = new Date(dateStr)
-      const kstDate = new Date(dt.getTime() + 9 * 60 * 60 * 1000)
-      const d = kstDate.getUTCDate()
+      const d = parseInt(dateStr.slice(8, 10), 10)
       if (!m[d]) m[d] = []
       m[d].push(b)
     }
