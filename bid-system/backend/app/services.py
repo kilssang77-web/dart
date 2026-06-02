@@ -935,32 +935,39 @@ class StatisticsService:
         return {"clusters": clusters, "total_count": len(rows)}
 
     def srate_distribution_detail(self, db: Session, agency_id=None, industry_id=None, months=24) -> dict:
+        from sqlalchemy import func as sqlfunc, cast, Float
         cutoff = datetime.now() - timedelta(days=30 * months)
-        query = db.query(BidResult.assessment_rate).join(Bid, Bid.id == BidResult.bid_id).filter(
-            BidResult.assessment_rate.isnot(None),
-            Bid.bid_open_date >= cutoff
+        # estimated_price / base_amount 로 사정율 직접 계산 (BidResult.assessment_rate는 미수집)
+        query = db.query(
+            (cast(Bid.estimated_price, Float) / cast(Bid.base_amount, Float)).label('srate')
+        ).filter(
+            Bid.estimated_price.isnot(None),
+            Bid.base_amount > 0,
+            Bid.bid_open_date >= cutoff,
         )
         if agency_id:
             query = query.filter(Bid.agency_id == agency_id)
         if industry_id:
             query = query.filter(Bid.industry_id == industry_id)
         rows = query.all()
-        values = [float(r.assessment_rate) for r in rows]
+        # 이상치 제거: 사정율 0.8 ~ 1.05 범위만 유효
+        values = [float(r.srate) for r in rows if r.srate and 0.80 <= float(r.srate) <= 1.05]
         if not values:
             return {"bins": [], "mode": None, "p25": None, "p50": None, "p75": None, "mean": None, "std": None, "sample_count": 0}
         arr = np.array(values)
-        bins_range = np.arange(80, 110, 0.5)
+        # bins: 80.0% ~ 105.0%, 0.1% 간격 (소수점 3자리)
+        bins_range = np.arange(0.800, 1.051, 0.001)
         counts, edges = np.histogram(arr, bins=bins_range)
-        bins = [{"rate_pct": float(edges[i]), "count": int(counts[i])} for i in range(len(counts))]
+        bins = [{"rate_pct": round(float(edges[i]), 4), "count": int(counts[i])} for i in range(len(counts))]
         mode_idx = int(np.argmax(counts))
         return {
             "bins": bins,
-            "mode": float(edges[mode_idx]) if counts[mode_idx] > 0 else None,
-            "p25": float(np.percentile(arr, 25)),
-            "p50": float(np.percentile(arr, 50)),
-            "p75": float(np.percentile(arr, 75)),
-            "mean": float(np.mean(arr)),
-            "std": float(np.std(arr)),
+            "mode": round(float(edges[mode_idx]), 4) if counts[mode_idx] > 0 else None,
+            "p25": round(float(np.percentile(arr, 25)), 4),
+            "p50": round(float(np.percentile(arr, 50)), 4),
+            "p75": round(float(np.percentile(arr, 75)), 4),
+            "mean": round(float(np.mean(arr)), 4),
+            "std": round(float(np.std(arr)), 4),
             "sample_count": len(values)
         }
 
