@@ -5,7 +5,7 @@ import {
   Sparkles, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp,
   Clock, Search,
 } from 'lucide-react'
-import { bidsApi, recommendApi } from '@/api'
+import { bidsApi, recommendApi, statsApi } from '@/api'
 import type { RecommendV2Result, BidDetail } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -24,8 +24,16 @@ import StrategyCompareChart, { type StrategyEntry } from '@/components/ui/Strate
 import SrateRangeViz from '@/components/ui/SrateRangeViz'
 import RiskCard from '@/components/ui/RiskCard'
 
-// --- 최근 이력 localStorage 키 ---
-const HISTORY_KEY = 'recommend_history_v2'
+// --- localStorage 키 ---
+const HISTORY_KEY  = 'recommend_history_v2'
+const PRESETS_KEY  = 'recommend_presets_v1'
+
+interface Preset { name: string; form: typeof defaultForm; agencyName: string }
+const defaultForm = { agency_id: '0', industry_id: '0', region_id: '0', base_amount: '', a_value: '', construction_period: '', min_bid_rate: '0.87745' }
+
+function loadPresets(): Preset[] {
+  try { return JSON.parse(localStorage.getItem(PRESETS_KEY) ?? '[]') } catch { return [] }
+}
 
 interface HistoryEntry {
   agency_id: string
@@ -66,6 +74,9 @@ export default function RecommendPage() {
   const [result, setResult] = useState<RecommendV2Result | null>(null)
   const [prefilled, setPrefilled] = useState(false)
   const [showDetail, setShowDetail] = useState(false)
+  const [presets, setPresets] = useState<Preset[]>(loadPresets)
+  const [presetName, setPresetName] = useState('')
+  const [showPresetSave, setShowPresetSave] = useState(false)
 
   // 기관명 자동완성
   const [agencySearch, setAgencySearch] = useState('')
@@ -101,6 +112,18 @@ export default function RecommendPage() {
     setAgencySearch(name)
     setShowAgencyList(false)
   }
+
+  // 사정율 분포 (Top 10 구간 추천용)
+  const { data: srateDist } = useQuery({
+    queryKey: ['srate-dist-recommend', form.agency_id, form.industry_id],
+    queryFn: () => statsApi.srateDistribution({
+      agency_id: Number(form.agency_id) > 0 ? Number(form.agency_id) : undefined,
+      industry_id: Number(form.industry_id) > 0 ? Number(form.industry_id) : undefined,
+      months: 24,
+    }),
+    enabled: !!result,
+    staleTime: 60_000,
+  })
 
   // 최근 이력
   const [history, setHistory] = useState<HistoryEntry[]>(loadHistory)
@@ -343,10 +366,42 @@ export default function RecommendPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <Button onClick={() => mutation.mutate()} disabled={!valid || mutation.isPending}>
               {mutation.isPending ? '분석 중... (30,000회 시뮬레이션)' : '추천 받기'}
             </Button>
+            {/* 프리셋 저장 */}
+            {valid && !showPresetSave && (
+              <Button variant="outline" size="sm" className="h-9 text-xs gap-1" onClick={() => setShowPresetSave(true)}>
+                ★ 조건 저장
+              </Button>
+            )}
+            {showPresetSave && (
+              <div className="flex items-center gap-2">
+                <Input className="h-9 w-36 text-xs" placeholder="프리셋 이름" value={presetName} onChange={(e) => setPresetName(e.target.value)} />
+                <Button size="sm" className="h-9 text-xs" onClick={() => {
+                  if (!presetName.trim()) return
+                  const p: Preset = { name: presetName.trim(), form: { ...form }, agencyName: agencySearch }
+                  const next = [p, ...presets.filter((x) => x.name !== p.name)].slice(0, 8)
+                  setPresets(next)
+                  localStorage.setItem(PRESETS_KEY, JSON.stringify(next))
+                  setPresetName(''); setShowPresetSave(false)
+                }}>저장</Button>
+                <Button size="sm" variant="ghost" className="h-9 text-xs" onClick={() => setShowPresetSave(false)}>취소</Button>
+              </div>
+            )}
+            {/* 프리셋 불러오기 */}
+            {presets.length > 0 && (
+              <Select onValueChange={(name) => {
+                const p = presets.find((x) => x.name === name); if (!p) return
+                setForm({ ...p.form }); setAgencySearch(p.agencyName)
+              }}>
+                <SelectTrigger className="h-9 w-36 text-xs"><SelectValue placeholder="프리셋 불러오기" /></SelectTrigger>
+                <SelectContent>
+                  {presets.map((p) => <SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
             {mutation.isError && (
               <p className="text-sm text-destructive">추천 오류가 발생했습니다. 잠시 후 다시 시도하세요.</p>
             )}
@@ -570,6 +625,54 @@ export default function RecommendPage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* ── 구간 추천 Top 10 ── */}
+          {srateDist?.bins && srateDist.bins.length > 0 && (() => {
+            const totalCount = srateDist.bins.reduce((s: number, b: { count: number }) => s + b.count, 0)
+            const top10 = [...srateDist.bins]
+              .sort((a: { count: number }, b: { count: number }) => b.count - a.count)
+              .slice(0, 10)
+              .map((b: { rate_pct: number; count: number }, idx: number) => ({
+                rank: idx + 1,
+                pct: (b.rate_pct * 100).toFixed(3) + '%',
+                count: b.count,
+                ratio: +((b.count / (totalCount || 1)) * 100).toFixed(1),
+                isNear: result && Math.abs(b.rate_pct - result.strategies.balanced.rate) < 0.005,
+              }))
+            return (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">과거 낙찰 집중 구간 Top 10 <span className="text-xs font-normal text-muted-foreground ml-1">(소수점 3자리 · 24개월 기준)</span></CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-12">순위</TableHead>
+                        <TableHead>사정율 구간</TableHead>
+                        <TableHead className="text-right">빈도수</TableHead>
+                        <TableHead className="text-right">비율</TableHead>
+                        <TableHead className="text-center w-20">주목</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {top10.map((row) => (
+                        <TableRow key={row.rank} className={cn(row.isNear && 'bg-primary/5 font-medium')}>
+                          <TableCell className="text-center font-mono text-muted-foreground">{row.rank}</TableCell>
+                          <TableCell className="font-mono font-semibold">{row.pct}</TableCell>
+                          <TableCell className="text-right">{row.count.toLocaleString()}건</TableCell>
+                          <TableCell className="text-right text-muted-foreground">{row.ratio}%</TableCell>
+                          <TableCell className="text-center">
+                            {row.isNear && <Badge variant="default" className="text-[10px] px-1.5 py-0">추천 근접</Badge>}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            )
+          })()}
 
           {/* ── 유사 사례 ── */}
           {result.similar_cases.length > 0 && (

@@ -364,19 +364,45 @@ export default function MyBidsPage() {
                         <XAxis dataKey="year_month" tick={{ fontSize: 10 }} />
                         <YAxis tick={{ fontSize: 11 }} unit="%" />
                         <Tooltip formatter={(v: number) => [v + '%', 'MAE']} />
-                        <Line
-                          type="monotone"
-                          dataKey="mae"
-                          stroke="hsl(var(--primary))"
-                          dot={{ r: 3 }}
-                          strokeWidth={2}
-                          connectNulls
-                        />
+                        <Line type="monotone" dataKey="mae" stroke="hsl(var(--primary))" dot={{ r: 3 }} strokeWidth={2} connectNulls />
                       </LineChart>
                     </ResponsiveContainer>
                   )}
                 </CardContent>
               </Card>
+
+              {/* 월별 진단 리포트 */}
+              {analysis.monthly_accuracy.length >= 2 && (() => {
+                const sorted = [...analysis.monthly_accuracy].sort((a, b) => a.year_month.localeCompare(b.year_month))
+                const latest = sorted[sorted.length - 1]
+                const prev   = sorted[sorted.length - 2]
+                const trend  = latest?.mae != null && prev?.mae != null ? latest.mae - prev.mae : null
+                const hitRate1 = analysis.accuracy_stats.accuracy_1pct
+                const hitRate3 = analysis.accuracy_stats.accuracy_3pct
+                const avgErr   = analysis.accuracy_stats.avg_error
+                const msgs: { type: 'good' | 'warn' | 'info'; text: string }[] = []
+                if (trend !== null) msgs.push({ type: trend < 0 ? 'good' : 'warn', text: `전월 대비 오차 ${trend < 0 ? '개선 ▼' : '증가 ▲'} ${Math.abs(trend * 100).toFixed(4)}%` })
+                if (hitRate1 != null) msgs.push({ type: hitRate1 >= 0.3 ? 'good' : 'warn', text: `±1% 적중률 ${(hitRate1*100).toFixed(1)}% — ${hitRate1 >= 0.3 ? '양호' : '개선 필요'}` })
+                if (hitRate3 != null) msgs.push({ type: hitRate3 >= 0.6 ? 'good' : 'warn', text: `±3% 적중률 ${(hitRate3*100).toFixed(1)}% — ${hitRate3 >= 0.6 ? '목표 달성' : '목표 60% 미달'}` })
+                if (avgErr != null) msgs.push({ type: 'info', text: `전체 평균 오차 ±${(avgErr*100).toFixed(4)}% (소수점 4자리 기준)` })
+                return (
+                  <Card className="border-blue-200 bg-blue-50/30">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-semibold text-blue-700">종합 진단 리포트</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {msgs.map((m, i) => (
+                        <div key={i} className={cn('flex items-start gap-2 text-sm p-2.5 rounded-md',
+                          m.type === 'good' ? 'bg-green-50 text-green-700' : m.type === 'warn' ? 'bg-orange-50 text-orange-700' : 'bg-white text-muted-foreground')}>
+                          <span className="shrink-0 font-bold">{m.type === 'good' ? '✓' : m.type === 'warn' ? '!' : 'ℹ'}</span>
+                          {m.text}
+                        </div>
+                      ))}
+                      <p className="text-[10px] text-muted-foreground pt-1">기준: 최근 {sorted.length}개월 투찰 이력</p>
+                    </CardContent>
+                  </Card>
+                )
+              })()}
             </>
           )}
           {!analysis && (

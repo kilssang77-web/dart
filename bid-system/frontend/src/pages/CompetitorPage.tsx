@@ -38,6 +38,7 @@ export default function CompetitorPage() {
   const [page, setPage]       = useState(1)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [riskFilter, setRiskFilter] = useState('all')
+  const [winnerOnly, setWinnerOnly] = useState(false)
   const [winsModalOpen, setWinsModalOpen] = useState(false)
   const SIZE = 15
 
@@ -50,6 +51,18 @@ export default function CompetitorPage() {
       risk_level: riskFilter === 'all' ? undefined : riskFilter,
     }),
   })
+
+  // 연속 낙찰 감지: 최근 trend 에서 연속 수주 개월 계산
+  function consecutiveWins(trend: TrendItem[]): number {
+    const sorted = [...trend].sort((a, b) => b.year * 12 + b.month - (a.year * 12 + a.month))
+    let cnt = 0
+    for (const t of sorted) { if (t.win_count > 0) cnt++; else break }
+    return cnt
+  }
+
+  const filteredItems = winnerOnly
+    ? (list?.items ?? []).filter((c) => c.win_rate > 0)
+    : (list?.items ?? [])
 
   const { data: detail } = useQuery<Competitor>({
     queryKey: ['competitor', selectedId],
@@ -130,15 +143,25 @@ export default function CompetitorPage() {
       <div className="flex gap-5">
         {/* 목록 패널 */}
         <div className="w-80 shrink-0 space-y-2">
-          <Select value={riskFilter} onValueChange={(v) => { setRiskFilter(v); setPage(1) }}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">전체</SelectItem>
-              <SelectItem value="HIGH">HIGH</SelectItem>
-              <SelectItem value="MEDIUM">MEDIUM</SelectItem>
-              <SelectItem value="LOW">LOW</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            <Select value={riskFilter} onValueChange={(v) => { setRiskFilter(v); setPage(1) }}>
+              <SelectTrigger className="flex-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">전체</SelectItem>
+                <SelectItem value="HIGH">HIGH</SelectItem>
+                <SelectItem value="MEDIUM">MEDIUM</SelectItem>
+                <SelectItem value="LOW">LOW</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              variant={winnerOnly ? 'default' : 'outline'}
+              className="h-9 text-xs whitespace-nowrap gap-1"
+              onClick={() => setWinnerOnly((v) => !v)}
+            >
+              <Trophy className="h-3 w-3" /> 낙찰만
+            </Button>
+          </div>
 
           <div className="flex gap-2">
             <div className="relative flex-1">
@@ -171,30 +194,36 @@ export default function CompetitorPage() {
               </div>
             ) : (
               <div className="divide-y">
-                {(list?.items ?? []).map((c) => (
-                  <div key={c.id}
-                    className={cn('p-3 cursor-pointer hover:bg-accent transition-colors',
-                      selectedId === c.id && 'bg-accent border-l-2 border-l-primary')}
-                    onClick={() => handleSelect(c.id)}>
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <button
-                        className="shrink-0"
-                        onClick={(e) => { e.stopPropagation(); setCompareIds((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : prev.length < 2 ? [...prev, c.id] : prev) }}
-                      >
-                        {compareIds.includes(c.id) ? <CheckSquare className="h-3.5 w-3.5 text-primary" /> : <Square className="h-3.5 w-3.5 text-muted-foreground" />}
-                      </button>
+                {filteredItems.map((c) => {
+                  const consec = consecutiveWins(c.monthly_trend as TrendItem[] ?? [])
+                  return (
+                    <div key={c.id}
+                      className={cn('p-3 cursor-pointer hover:bg-accent transition-colors',
+                        selectedId === c.id && 'bg-accent border-l-2 border-l-primary')}
+                      onClick={() => handleSelect(c.id)}>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <button
+                          className="shrink-0"
+                          onClick={(e) => { e.stopPropagation(); setCompareIds((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : prev.length < 2 ? [...prev, c.id] : prev) }}
+                        >
+                          {compareIds.includes(c.id) ? <CheckSquare className="h-3.5 w-3.5 text-primary" /> : <Square className="h-3.5 w-3.5 text-muted-foreground" />}
+                        </button>
+                        {consec >= 3 && (
+                          <Badge variant="destructive" className="text-[9px] px-1 py-0">연속 {consec}개월 수주</Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium truncate">{c.name}</span>
+                        <Badge variant={riskVariant(c.risk_level)} className="shrink-0 ml-1 text-[10px] px-1.5 py-0">
+                          {c.risk_level}
+                        </Badge>
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        수주 {c.win_count}건 · 수주율 {(c.win_rate * 100).toFixed(1)}% · 평균 {(c.avg_bid_rate * 100).toFixed(2)}%
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium truncate">{c.name}</span>
-                      <Badge variant={riskVariant(c.risk_level)} className="shrink-0 ml-1 text-[10px] px-1.5 py-0">
-                        {c.risk_level}
-                      </Badge>
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      수주 {c.win_count}건 · 수주율 {(c.win_rate * 100).toFixed(1)}% · 평균 {(c.avg_bid_rate * 100).toFixed(2)}%
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
             <div className="flex items-center justify-between px-3 py-2 border-t bg-muted/30">
