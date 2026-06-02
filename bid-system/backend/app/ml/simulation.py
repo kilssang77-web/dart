@@ -72,22 +72,22 @@ def monte_carlo_win_prob(
     srate_dist: np.ndarray,
     competitor_means: List[float],
     competitor_stds: List[float],
-    n_sim: int = 30_000,
+    n_sim: int = 50_000,
     rng: Optional[np.random.Generator] = None,
 ) -> dict:
     """
     Monte Carlo 낙찰확률 계산.
 
     낙찰 성공 조건:
-      1. our_bid_rate >= srate_dist[i] x floor_rate_pct  (낙찰하한 이상)
-      2. our_bid_rate <= srate_dist[i]                    (예정가격 이하)
-      3. our_bid_rate <= min(경쟁사 투찰률)               (최저가 낙찰)
+      1. our_bid_rate >= floor_rate_pct           (낙찰하한율 이상 — 기초금액 대비)
+      2. our_bid_rate <= srate_dist[i]             (예정가격 이하)
+      3. our_bid_rate <= min(경쟁사 투찰률)        (최저가 낙찰)
 
     Parameters:
-        our_bid_rate    : 우리 투찰률 (기초금액 대비, 예: 0.9120)
+        our_bid_rate    : 우리 투찰률 (기초금액 대비, 예: 0.8800)
         floor_rate_pct  : 낙찰하한율 (예: 0.87745)
-        srate_dist      : simulate_yejung() 반환 사정률 분포
-        competitor_means: 경쟁사별 평균 투찰률
+        srate_dist      : simulate_yejung() 반환 사정률 분포 (예정가격/기초금액)
+        competitor_means: 경쟁사별 평균 투찰률 (기초금액 대비)
         competitor_stds : 경쟁사별 표준편차
 
     Returns:
@@ -103,11 +103,11 @@ def monte_carlo_win_prob(
         idx    = rng.integers(0, n, size=n_sim)
         srates = srate_dist[idx]
     else:
-        srates = srate_dist
+        srates = srate_dist[:n_sim]
 
-    floor_prices = srates * floor_rate_pct
-    valid        = (our_bid_rate >= floor_prices) & (our_bid_rate <= srates)
-    valid_ratio  = float(valid.mean())
+    # 유효성: 낙찰하한율(기초금액 기준) ≤ 투찰률 ≤ 사정율
+    valid       = (our_bid_rate >= floor_rate_pct) & (our_bid_rate <= srates)
+    valid_ratio = float(valid.mean())
 
     if not competitor_means:
         return {
@@ -122,12 +122,17 @@ def monte_carlo_win_prob(
         for m, s in zip(competitor_means, competitor_stds)
     ])
 
-    comp_min = comp_bids.min(axis=1)
+    # 경쟁사 무효 입찰(낙찰하한 미만 또는 예정가격 초과) 제거
+    comp_valid = (comp_bids >= floor_rate_pct) & (comp_bids <= srates[:, None])
+    comp_bids_eff = np.where(comp_valid, comp_bids, np.inf)
+    comp_min = comp_bids_eff.min(axis=1)
+
     win_mask = valid & (our_bid_rate <= comp_min)
     win_prob = float(win_mask.mean())
 
     if valid.any():
-        ranks    = (comp_bids[valid] < our_bid_rate).sum(axis=1) + 1
+        comp_lower = (comp_bids[valid] < our_bid_rate) & comp_valid[valid]
+        ranks    = comp_lower.sum(axis=1) + 1
         avg_rank = float(ranks.mean())
     else:
         avg_rank = float(n_comp + 1)
@@ -149,16 +154,16 @@ def recommend_with_simulation(
     hard_floor: float,
     ens_center: float,
     ens_upper: float,
-    n_sim: int = 30_000,
+    n_sim: int = 50_000,
 ) -> dict:
     """
     Monte Carlo 기반 4전략 추천.
 
-    전략:
-      공격형(aggressive)          : 낙찰하한 직상 (낙찰확률 최우선)
-      균형형(balanced)            : 앙상블 중심
-      보수형(conservative)        : 앙상블 상단 (마진 우선)
-      경쟁회피형(avoid_competition): 경쟁사 군집 최솟값 아래 포지션
+    전략 (투찰률 = 투찰금액/기초금액):
+      공격형(aggressive)          : 낙찰하한율 직상 (최저 유효 투찰, 낙찰확률 최우선)
+      균형형(balanced)            : 역대 낙찰 집중 구간 (낙찰하한율 + 0.5%)
+      안정형(conservative)        : 앙상블 추천 상단 (리스크 최소)
+      경쟁회피형(avoid_competition): 경쟁사 군집 아래 포지션
 
     Returns:
         strategies        : 4전략별 {rate, win_prob, avg_rank, target, risk, note}
@@ -170,16 +175,28 @@ def recommend_with_simulation(
 
     srate_dist    = simulate_yejung(base_amount, srate_center, srate_std, n_sim, rng)
     floor_abs_p50 = float(np.percentile(srate_dist, 50)) * floor_rate_pct
-    delta         = 0.0015
 
-    rate_aggressive   = round(max(hard_floor + delta, floor_abs_p50 + delta), 4)
-    rate_balanced     = round(max(ens_center, rate_aggressive + 0.001), 4)
-    rate_conservative = round(max(ens_upper,  rate_balanced   + 0.001), 4)
+    # ── 4전략 투찰률 설계: 낙찰하한율(floor_rate_pct) 직접 기준
+    # 낙찰확률은 하한 직상에서 가장 높고, 위로 갈수록 급격히 감소하는 구조.
+    # 따라서 전략 간 간격을 좁게 유지해야 의미 있는 차별화가 됨.
 
+    # 공격형: 하한 직상 — 최고 낙찰확률 (마진 최소)
+    rate_aggressive = round(floor_rate_pct + 0.0003, 4)
+
+    # 균형형: 하한+0.15% — 낙찰확률·마진 균형 (통상 50-70% 확률)
+    rate_balanced = round(floor_rate_pct + 0.0015, 4)
+    rate_balanced = max(rate_balanced, rate_aggressive + 0.0005)
+
+    # 안정형: 하한+0.30% — 마진 우선 (통상 20-40% 확률)
+    rate_conservative = round(floor_rate_pct + 0.003, 4)
+    rate_conservative = max(rate_conservative, rate_balanced + 0.0005)
+
+    # 회피형: 경쟁사 군집(하위 25%) 아래 포지션
     if competitor_means:
-        rate_avoid = max(round(min(competitor_means) - 0.001, 4), rate_aggressive)
+        comp_p25 = float(np.percentile(competitor_means, 25))
+        rate_avoid = max(round(comp_p25 - 0.0005, 4), rate_aggressive)
     else:
-        rate_avoid = max(round(ens_center - 0.002, 4), rate_aggressive)
+        rate_avoid = rate_balanced
     rate_avoid = round(rate_avoid, 4)
 
     def _wp(rate: float) -> dict:

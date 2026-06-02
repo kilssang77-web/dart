@@ -402,7 +402,7 @@ class RecommendationService:
         elif spread > 0.02:
             score += 1
 
-        wp = result["win_probabilities"].get("at_center")
+        wp = result["win_probabilities"].get("at_balanced")
         if wp is not None and wp < 0.1:
             factors.append(f"낮은 낙찰 기대확률 ({wp:.1%})")
             score += 2
@@ -450,7 +450,7 @@ class RecommendationService:
                 rate_safe_lower=rr["safe_lower"], rate_lower=rr["lower"],
                 rate_center=rr["center"],         rate_upper=rr["upper"],
                 rate_safe_upper=rr["safe_upper"],
-                win_prob_center=wp.get("at_center"),
+                win_prob_center=wp.get("at_balanced"),
                 risk_level=risk["level"],
                 shap_values=result.get("shap_values") or {},
                 explanation_text=result["narrative_ko"],
@@ -1113,6 +1113,7 @@ class HybridRecommendService:
         # ── Step 9: 복수예가 Monte Carlo 시뮬레이션 기반 4전략
         industry_name = self._get_industry_name(db, req.industry_id)
         srate_std_val = features_a.get("agency_srate_std") or 0.012
+        expected_n = max(3, min(features_c.get("expected_competitor_count", 8), 15))
         if comp_profiles:
             comp_means = [p["avg_rate"] for p in comp_profiles]
             comp_stds  = [max(p["std_rate"], 0.003) for p in comp_profiles]
@@ -1120,6 +1121,9 @@ class HybridRecommendService:
             comp_means, comp_stds = get_market_competitor_distributions(
                 db, req.agency_id, req.industry_id, bid_date
             )
+        # 기대 경쟁업체 수에 맞게 상위 N개만 사용
+        comp_means = comp_means[:expected_n]
+        comp_stds  = comp_stds[:expected_n]
         sim_result = recommend_with_simulation(
             base_amount=req.base_amount,
             industry_name=industry_name,
