@@ -14,6 +14,7 @@ import AgencyDetailPage from '@/pages/AgencyDetailPage'
 import AgenciesPage from '@/pages/AgenciesPage'
 import MyBidsPage from '@/pages/MyBidsPage'
 import QualificationPage from '@/pages/QualificationPage'
+import JointBidPage from '@/pages/JointBidPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -46,6 +47,7 @@ export default function App() {
           <Route path="agencies/:id" element={<AgencyDetailPage />} />
           <Route path="my-bids"        element={<MyBidsPage />} />
           <Route path="qualification" element={<QualificationPage />} />
+          <Route path="joint-bid"     element={<JointBidPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

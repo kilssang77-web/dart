@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard, FileText, Sparkles, Users, BarChart2, Building2,
-  ClipboardList, LogOut, BookMarked, ShieldCheck, TrendingUp, Calculator,
+  ClipboardList, LogOut, BookMarked, ShieldCheck, TrendingUp, Calculator, Handshake,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { authApi } from '@/api'
@@ -26,6 +26,7 @@ const NAV_GROUPS = [
       { to: '/recommend',   label: 'AI 투찰률 추천', icon: Sparkles },
       { to: '/my-bids',     label: '투찰 이력',      icon: ClipboardList },
       { to: '/bids',        label: '입찰 현황',      icon: FileText },
+      { to: '/joint-bid',   label: '공동도급 탐색',  icon: Handshake },
     ],
   },
   {

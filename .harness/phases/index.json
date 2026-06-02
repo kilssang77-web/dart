@@ -6,8 +6,19 @@
       "branch": "feat/enhance-ux-2026-06-01_10-56-11",
       "stage": "prototype",
       "author": "kil0410@a2m.co.kr",
-      "status": "in_progress",
-      "created_at": "2026-06-01T10:56:11+09:00"
+      "status": "completed",
+      "created_at": "2026-06-01T10:56:11+09:00",
+      "completed_at": "2026-06-01T15:10:00+09:00"
+    },
+    {
+      "task": "renewal-ux",
+      "runId": "2026-06-02_09-41-44",
+      "branch": "feat/enhance-ux-2026-06-01_10-56-11",
+      "stage": "prototype",
+      "author": "kil0410@a2m.co.kr",
+      "status": "completed",
+      "created_at": "2026-06-02T09:41:44+09:00",
+      "completed_at": "2026-06-02T11:00:00+09:00"
     }
   ]
 }
