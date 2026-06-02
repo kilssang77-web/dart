@@ -121,7 +121,7 @@ def compute_and_store_stats(db: Session) -> int:
 
     df = pd.DataFrame(rows, columns=["agency_id","industry_id","region_id","yr","mo","srate"])
     df["srate"] = pd.to_numeric(df["srate"], errors="coerce")
-    df = df[df["srate"].between(0.90, 1.05)]   # 이상치 제거
+    df = df[df["srate"].between(0.80, 1.10)]   # 이상치 제거
 
     total = 0
 
@@ -336,9 +336,9 @@ def predict_srate(features_a: dict, base_amount: int) -> dict:
         p10   = center - std * 1.5
         p90   = center + std * 1.5
 
-    # 사정율 범위 클램핑 (현실적 범위: 0.93 ~ 1.03)
-    lower  = max(0.93, lower)
-    upper  = min(1.03, upper)
+    # 사정율 범위 클램핑 (실제 데이터 기반: 0.87 ~ 1.05)
+    lower  = max(0.87, lower)
+    upper  = min(1.05, upper)
     center = max(lower, min(upper, center))
 
     return {

@@ -506,6 +506,35 @@ export default function RecommendPage() {
                 <InfoBox label="예정가격 상단" value={`${(result.estimated_price.estimated_price_range.upper / 1e8).toFixed(2)}억`} />
                 <InfoBox label="샘플 수" value={`${result.estimated_price.sample_count}건`} />
               </div>
+              {/* 발주처별 사정율 세분화 */}
+              {srateDist && (srateDist.agency_stats || srateDist.global_stats) && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 border-t pt-3 text-xs">
+                  {srateDist.agency_stats && (
+                    <div className="bg-blue-50 rounded-lg p-2.5 border border-blue-100">
+                      <p className="font-semibold text-blue-700 mb-1">이 발주처 기준</p>
+                      <p className="text-foreground">평균 {(srateDist.agency_stats.mean * 100).toFixed(3)}%</p>
+                      <p className="text-muted-foreground">편차 ±{(srateDist.agency_stats.std * 100).toFixed(3)}%</p>
+                      <p className="text-muted-foreground">{srateDist.agency_stats.sample_count}건</p>
+                    </div>
+                  )}
+                  {srateDist.industry_stats && (
+                    <div className="bg-gray-50 rounded-lg p-2.5 border border-gray-100">
+                      <p className="font-semibold text-gray-600 mb-1">동일 공종 기준</p>
+                      <p className="text-foreground">평균 {(srateDist.industry_stats.mean * 100).toFixed(3)}%</p>
+                      <p className="text-muted-foreground">편차 ±{(srateDist.industry_stats.std * 100).toFixed(3)}%</p>
+                      <p className="text-muted-foreground">{srateDist.industry_stats.sample_count}건</p>
+                    </div>
+                  )}
+                  {srateDist.global_stats && (
+                    <div className="bg-gray-50 rounded-lg p-2.5 border border-gray-100">
+                      <p className="font-semibold text-gray-600 mb-1">전체 평균</p>
+                      <p className="text-foreground">평균 {(srateDist.global_stats.mean * 100).toFixed(3)}%</p>
+                      <p className="text-muted-foreground">편차 ±{(srateDist.global_stats.std * 100).toFixed(3)}%</p>
+                      <p className="text-muted-foreground">{srateDist.global_stats.sample_count}건</p>
+                    </div>
+                  )}
+                </div>
+              )}
               <p className="text-xs text-muted-foreground">
                 {result.estimated_price.used_model ? 'ML 모델 사용' : '규칙 기반 추정 (데이터 축적 중)'}
               </p>
@@ -642,7 +671,16 @@ export default function RecommendPage() {
             return (
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">과거 낙찰 집중 구간 Top 10 <span className="text-xs font-normal text-muted-foreground ml-1">(소수점 3자리 · 24개월 기준)</span></CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm">과거 낙찰 집중 구간 Top 10 <span className="text-xs font-normal text-muted-foreground ml-1">(소수점 3자리 · 24개월)</span></CardTitle>
+                    <span className="text-[11px] text-muted-foreground">
+                      {srateDist?.agency_stats
+                        ? `이 발주처 기준 (${srateDist.agency_stats.sample_count}건)`
+                        : srateDist?.global_stats
+                        ? `전체 기준 (${srateDist.global_stats.sample_count}건)`
+                        : ''}
+                    </span>
+                  </div>
                 </CardHeader>
                 <CardContent className="p-0">
                   <Table>

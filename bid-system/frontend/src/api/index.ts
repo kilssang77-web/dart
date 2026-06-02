@@ -95,7 +95,7 @@ export const statsApi = {
     api.get('/stats/industries', { params: { months } }).then((r) => r.data),
   rateDistribution: (params?: { industry_id?: number; months?: number }) =>
     api.get('/stats/rate-distribution', { params }).then((r) => r.data),
-  srateDistribution: (params?: { agency_id?: number; industry_id?: number; months?: number }) =>
+  srateDistribution: (params?: { agency_id?: number; industry_id?: number; months?: number }): Promise<import('../types').SrateDistributionResult> =>
     api.get('/stats/srate-distribution', { params }).then((r) => r.data),
   heatmap: (months = 24) =>
     api.get('/stats/heatmap', { params: { months } }).then((r) => r.data),

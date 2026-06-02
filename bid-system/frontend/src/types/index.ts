@@ -379,6 +379,31 @@ export interface MyBidAnalysis {
   monthly_accuracy: MyBidMonthlyAccuracy[]
 }
 
+export interface SrateStatSummary {
+  mean: number
+  std: number
+  sample_count: number
+  p25?: number
+  p50?: number
+  p75?: number
+  p10?: number
+  p90?: number
+}
+
+export interface SrateDistributionResult {
+  bins: { rate_pct: number; count: number }[]
+  mode: number | null
+  mean: number | null
+  std: number | null
+  p25: number | null
+  p50: number | null
+  p75: number | null
+  sample_count: number
+  agency_stats:   SrateStatSummary | null
+  industry_stats: SrateStatSummary | null
+  global_stats:   SrateStatSummary | null
+}
+
 export interface OverviewStatsWithChange {
   total_bids: number
   total_competitors: number
