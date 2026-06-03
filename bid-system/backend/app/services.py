@@ -985,19 +985,19 @@ class StatisticsService:
             }
 
         # ── 2. bids.estimated_price 기반 히스토그램 (상세 분포)
-        query = db.query(
-            (cast(Bid.estimated_price, Float) / cast(Bid.base_amount, Float)).label('srate')
-        ).filter(
-            Bid.estimated_price.isnot(None),
-            Bid.base_amount > 0,
-            Bid.bid_open_date >= cutoff,
-        )
-        if agency_id:
-            query = query.filter(Bid.agency_id == agency_id)
-        if industry_id:
-            query = query.filter(Bid.industry_id == industry_id)
-        rows = query.all()
-        values = [float(r.srate) for r in rows if r.srate and 0.80 <= float(r.srate) <= 1.10]
+        query = db.execute(text("""
+            SELECT b.estimated_price::float / b.base_amount AS srate
+            FROM bids b
+            WHERE b.estimated_price IS NOT NULL
+              AND b.base_amount > 0
+              AND b.bid_open_date >= :cutoff
+              -- 부가세 제외 고정비율(base×10/11≈0.9091) 공고 제거
+              AND ABS(b.estimated_price::numeric / NULLIF(b.base_amount,0) - (10.0/11.0)) > 0.002
+              AND (:agency_id  IS NULL OR b.agency_id   = :agency_id)
+              AND (:industry_id IS NULL OR b.industry_id = :industry_id)
+        """), {"cutoff": cutoff, "agency_id": agency_id, "industry_id": industry_id})
+        rows = query.fetchall()
+        values = [float(r[0]) for r in rows if r[0] and 0.80 <= float(r[0]) <= 1.05]
 
         # 히스토그램 데이터 생성 (bids 데이터 또는 stats 기반 합성)
         if values:

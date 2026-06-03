@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 MODEL_DIR = Path(os.getenv("ML_MODELS_PATH", "/app/ml_models"))
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
-GLOBAL_SRATE_DEFAULT = 0.9850   # 건설공사 전국 평균 사정율 기본값
+GLOBAL_SRATE_DEFAULT = 0.8850   # 복수예가 방식 실데이터 기반 평균 (실측 0.8813)
 
 SRATE_FEATURE_COLS = [
     "agency_srate_mean", "agency_srate_std", "agency_srate_trend", "agency_srate_n",
@@ -113,6 +113,8 @@ def compute_and_store_stats(db: Session) -> int:
         WHERE b.estimated_price IS NOT NULL
           AND b.base_amount > 0
           AND b.bid_open_date >= NOW() - INTERVAL '24 months'
+          -- 부가세 제외 고정비율(base×10/11≈0.9091) 공고 제거: 복수예가 랜덤 결과가 아님
+          AND ABS(b.estimated_price::numeric / NULLIF(b.base_amount,0) - (10.0/11.0)) > 0.002
     """)).fetchall()
 
     if not rows:
@@ -121,7 +123,7 @@ def compute_and_store_stats(db: Session) -> int:
 
     df = pd.DataFrame(rows, columns=["agency_id","industry_id","region_id","yr","mo","srate"])
     df["srate"] = pd.to_numeric(df["srate"], errors="coerce")
-    df = df[df["srate"].between(0.80, 1.10)]   # 이상치 제거
+    df = df[df["srate"].between(0.80, 1.05)]   # 이상치 제거 (복수예가 실범위)
 
     total = 0
 
@@ -226,16 +228,13 @@ def train_srate_model(db: Session) -> bool:
                ON ars_g.group_type='global'   AND ars_g.group_id IS NULL
         WHERE b.estimated_price IS NOT NULL
           AND b.base_amount > 0
+          -- 부가세 제외 고정비율(base×10/11≈0.9091) 공고 제거
+          AND ABS(b.estimated_price::numeric / NULLIF(b.base_amount,0) - (10.0/11.0)) > 0.002
     """)).fetchall()
 
     if len(rows) < 50:
         logger.warning(f"사정율 모델 학습 데이터 부족: {len(rows)}건 (최소 50건 필요)")
         return False
-
-    cols = ["agency_id","industry_id","region_id","base_amount",
-            "month_of_year","quarter","is_q4",] + SRATE_FEATURE_COLS[:-5] + \
-           ["global_srate_mean","global_srate_std",
-            "amount_log10","amount_bucket","month_of_year","quarter","is_q4","srate"]
 
     df = pd.DataFrame(rows)
     df.columns = ["agency_id","industry_id","region_id","base_amount",
@@ -246,7 +245,8 @@ def train_srate_model(db: Session) -> bool:
     df["amount_log10"]  = df["base_amount"].apply(lambda x: math.log10(max(float(x),1)))
     df["amount_bucket"] = df["base_amount"].apply(lambda x: _bucket(float(x)))
     df["srate"] = pd.to_numeric(df["srate"], errors="coerce")
-    df = df[df["srate"].between(0.90, 1.05)]
+    # 복수예가 실범위(0.80~1.05) — 기존 0.90~1.05는 복수예가 데이터를 대부분 제외했음
+    df = df[df["srate"].between(0.80, 1.05)]
 
     if len(df) < 50:
         return False
@@ -387,6 +387,7 @@ def compute_market_trend(
               AND b.industry_id = :iid
               AND b.bid_open_date BETWEEN :s AND :e
               AND b.status = 'closed'
+              AND (b.estimated_price IS NULL OR ABS(b.estimated_price::numeric / NULLIF(b.base_amount,0) - (10.0/11.0)) > 0.002)
         """), {"aid": agency_id, "iid": industry_id, "s": start, "e": end}).fetchone()
         return row
 
@@ -445,11 +446,13 @@ def compute_srate_moving_average(
           AND b.estimated_price IS NOT NULL
           AND b.base_amount > 0
           AND b.bid_open_date IS NOT NULL
+          AND ABS(b.estimated_price::numeric / NULLIF(b.base_amount,0) - (10.0/11.0)) > 0.002
         ORDER BY b.bid_open_date DESC
         LIMIT :win
     """), {"aid": agency_id, "iid": industry_id, "win": window}).fetchall()
 
-    srates = [float(r[0]) for r in rows if r[0] and 0.90 <= float(r[0]) <= 1.05]
+    # 복수예가 실범위(0.80~1.05)로 확장 — 기존 0.90 기준은 복수예가 데이터를 제외했음
+    srates = [float(r[0]) for r in rows if r[0] and 0.80 <= float(r[0]) <= 1.05]
     n = len(srates)
     if n < 3:
         return {
