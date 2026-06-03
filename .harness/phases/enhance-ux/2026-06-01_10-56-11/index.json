@@ -51,6 +51,30 @@
       "name": "공고 수집 안정성 + 확장",
       "status": "skipped",
       "note": "collector 서브시스템 미존재 (prototype 단계) — MVP 단계에서 구현 예정"
+    },
+    {
+      "step": 7,
+      "name": "낙찰확률 버그 수정 (Monte Carlo 재설계)",
+      "status": "completed",
+      "started_at": "2026-06-02T09:00:00+0900",
+      "completed_at": "2026-06-02T11:00:00+0900",
+      "summary": "경쟁사 낙찰하한율 이하 무효입찰 필터(np.inf 대체) + 전략 floor 기반 재설계(+0.03/0.15/0.30%) + predict_srate clamp 0.93→0.87로 완화 + competition.py 3-tier fallback 추가"
+    },
+    {
+      "step": 8,
+      "name": "발주처별 사정율 세분화",
+      "status": "completed",
+      "started_at": "2026-06-02T11:00:00+0900",
+      "completed_at": "2026-06-02T13:00:00+0900",
+      "summary": "srate_distribution_detail() 3-tier 통계(agency/industry/global) + assessment_rate_stats 기반 분포 합성 + RecommendPage 3-panel 사정율 비교 UI (이 발주처/동일공종/전체)"
+    },
+    {
+      "step": 9,
+      "name": "적격심사 역산 계산기",
+      "status": "completed",
+      "started_at": "2026-06-04T09:00:00+0900",
+      "completed_at": "2026-06-04T10:00:00+0900",
+      "summary": "QualificationPage 역산 탭 추가 — 비가격 고정점수 기반 최소 시공실적 역산, 최소 투찰금액(신용등급 기준), 보유실적 입력 시 통과 여부·실적 갭 표시"
     }
   ]
 }
