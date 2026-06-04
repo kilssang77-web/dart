@@ -6,9 +6,28 @@
   "author": "kil0410@a2m.co.kr",
   "started_at": "2026-06-04T11:01:01+09:00",
   "steps": [
-    { "step": 1, "name": "나라장터 Open API 클라이언트", "status": "pending" },
-    { "step": 2, "name": "공고·낙찰결과 수집 서비스", "status": "pending" },
-    { "step": 3, "name": "APScheduler 통합 + 관리자 API", "status": "pending" },
-    { "step": 4, "name": "관리자 UI — 수집 현황 패널", "status": "pending" }
-  ]
+    {
+      "step": 1,
+      "name": "나라장터 Open API 클라이언트",
+      "status": "completed",
+      "started_at": "2026-06-04T11:09:20+0900",
+      "summary": "NarajangterClient 구현 (공사·용역·물품·낙찰결과, 재시도 3회, 페이지네이션) + 12개 단위 테스트 전체 통과"
+    },
+    {
+      "step": 2,
+      "name": "공고·낙찰결과 수집 서비스",
+      "status": "pending"
+    },
+    {
+      "step": 3,
+      "name": "APScheduler 통합 + 관리자 API",
+      "status": "pending"
+    },
+    {
+      "step": 4,
+      "name": "관리자 UI — 수집 현황 패널",
+      "status": "pending"
+    }
+  ],
+  "created_at": "2026-06-04T11:09:20+0900"
 }

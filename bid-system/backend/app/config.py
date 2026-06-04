@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     first_admin_password: str = "admin1234"
     seed_demo_data: bool = True
 
-    g2b_api_key: str = ""
+    nara_api_key: str = ""
     collect_enabled: bool = False
 
     ml_models_path: str = "/app/ml_models"
