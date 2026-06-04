@@ -42,8 +42,15 @@ async def lifespan(app: FastAPI):
     except Exception as _e:
         logger.warning(f"ML 엔진 워밍업 실패 (무시): {_e}")
 
+    # APScheduler — 나라장터 수집 스케줄
+    from .collector.scheduler import create_scheduler
+    scheduler = create_scheduler()
+    scheduler.start()
+    logger.info("Scheduler started")
+
     logger.info("서버 준비 완료")
     yield
+    scheduler.shutdown(wait=False)
     logger.info("서버 종료")
 
 

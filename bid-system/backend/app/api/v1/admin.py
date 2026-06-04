@@ -1,7 +1,7 @@
 ﻿"""관리자 전용 API — 사용자 관리 + 공종 필터 + 시스템 상태 모니터링."""
 import os
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -322,6 +322,26 @@ def system_status(db: Session = Depends(get_db), _: User = Depends(require_role(
             {"date": str(r[0]), "count": r[1]} for r in daily
         ],
     }
+
+
+_TRIGGER_COLLECT_TYPES = {"all", "notices", "results"}
+
+
+@router.post("/collect/trigger")
+def trigger_collection(
+    collect_type: str = "all",
+    background_tasks: BackgroundTasks = None,
+    _: User = Depends(require_role("admin")),
+):
+    """즉시 수집 실행 — 백그라운드로 처리하고 즉시 응답 반환."""
+    if collect_type not in _TRIGGER_COLLECT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"collect_type은 {sorted(_TRIGGER_COLLECT_TYPES)} 중 하나여야 합니다.",
+        )
+    from ...collector.scheduler import run_collection_job
+    background_tasks.add_task(run_collection_job, collect_type)
+    return {"message": "수집 시작됨"}
 
 
 @router.get("/collection-logs", response_model=list[CollectionLogOut])
