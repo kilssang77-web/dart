@@ -1,6 +1,15 @@
 {
   "runs": [
     {
+      "task": "mvp-collector",
+      "runId": "2026-06-04_11-01-01",
+      "branch": "feat/mvp-collector-2026-06-04_11-01-01",
+      "stage": "mvp",
+      "author": "kil0410@a2m.co.kr",
+      "status": "pending",
+      "created_at": "2026-06-04T11:01:01+09:00"
+    },
+    {
       "task": "enhance-ux",
       "runId": "2026-06-01_10-56-11",
       "branch": "feat/enhance-ux-2026-06-01_10-56-11",

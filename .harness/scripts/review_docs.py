@@ -249,7 +249,11 @@ def _build_review_prompt(personas: list[dict], stage: str, docs_text: str) -> st
 
 def _call_claude(prompt: str) -> Optional[dict]:
     """Claude CLI를 호출하여 JSON 결과를 반환한다."""
-    cmd = ["claude", "-p", "--output-format", "text"]
+    is_windows = sys.platform == "win32"
+    if is_windows:
+        cmd = "claude -p --output-format text"
+    else:
+        cmd = ["claude", "-p", "--output-format", "text"]
     try:
         result = subprocess.run(
             cmd,
@@ -258,7 +262,8 @@ def _call_claude(prompt: str) -> Optional[dict]:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=120,
+            timeout=300,
+            shell=is_windows,
         )
         output = result.stdout.strip()
         # JSON 블록 추출

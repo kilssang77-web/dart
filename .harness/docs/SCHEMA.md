@@ -1,13 +1,8 @@
-> 이 문서는 스켈레톤입니다. 본 프로젝트에 맞게 재작성하세요.
-> 각 섹션의 `{...}` 플레이스홀더와 `<!-- 예시 -->` 마커가 달린 항목을 교체하세요.
-
 # 데이터베이스 스키마
 
 > AI 에이전트가 코드를 작성할 때 이 문서를 참조합니다.
-> 엔티티 설계, 테이블 구조, 관계, 인덱스 전략을 여기에 기록하세요.
 >
 > **관리 방침**: 이 문서는 `/a2m_improve` 중에도 마이그레이션 파일(`V{n}__...sql`)과 **동시에** 직접 수정합니다.
-> `PRD.md`, `ARCHITECTURE.md` 등 다른 docs와 달리, 이 문서는 항상 현재 DB 상태와 일치해야 합니다.
 
 ---
 
@@ -15,162 +10,268 @@
 
 | 항목 | 내용 |
 |------|------|
-| DBMS | {예: PostgreSQL 16} |
-| ORM | {예: JPA / Hibernate 6} |
-| 마이그레이션 도구 | {예: Flyway 10 / Liquibase} |
-| 파일 위치 | {예: `backend/src/main/resources/db/migration/`} |
+| DBMS | PostgreSQL 16 |
+| ORM | SQLAlchemy 2.x (비동기 미사용, 동기 Session) |
+| 마이그레이션 도구 | Alembic (또는 수동 SQL) |
+| 파일 위치 | `bid-system/backend/app/models.py` |
 
 ---
 
 ## ER 다이어그램
 
-> 이 섹션의 목적: 테이블 간 관계를 한눈에 파악할 수 있도록 한다.
-
 ```mermaid
 erDiagram
-    USER {
-        bigint id PK
+    users {
+        int id PK
         varchar email UK
-        varchar password_hash
+        varchar hashed_password
         varchar name
+        varchar role
+        varchar department
+        bool is_active
         timestamp created_at
     }
-    POST {
+    agencies {
+        int id PK
+        varchar code UK
+        varchar name
+        varchar type
+        int region_id FK
+        timestamp created_at
+    }
+    bids {
         bigint id PK
-        bigint author_id FK
+        varchar announcement_no UK
         varchar title
-        text content
+        int agency_id FK
+        int industry_id FK
+        int region_id FK
+        bigint base_amount
+        bigint estimated_price
+        bigint a_value
+        numeric min_bid_rate
+        date notice_date
+        timestamp bid_open_date
+        varchar status
         timestamp created_at
-        timestamp updated_at
     }
-    COMMENT {
+    competitors {
+        int id PK
+        varchar name
+        varchar biz_reg_no UK
+        int region_id FK
+        text[] industry_codes
+        timestamp created_at
+    }
+    bid_results {
         bigint id PK
-        bigint post_id FK
-        bigint author_id FK
-        text content
+        bigint bid_id FK
+        int competitor_id FK
+        bigint bid_amount
+        numeric bid_rate
+        int rank
+        bool is_winner
+        numeric assessment_rate
+    }
+    feature_store {
+        bigint id PK
+        bigint bid_id FK UK
+        numeric agency_avg_rate_12m
+        numeric agency_win_rate_12m
+        numeric industry_avg_rate_12m
+        numeric expected_competitor_count
+        timestamp computed_at
+    }
+    my_bid_records {
+        bigint id PK
+        bigint bid_id FK
+        int user_id FK
+        varchar title
+        numeric submitted_rate
+        numeric recommendation_rate
+        varchar result
+        numeric actual_winner_rate
         timestamp created_at
     }
+    bid_bookmarks {
+        int id PK
+        int user_id FK
+        bigint bid_id FK
+        varchar note
+    }
+    competitor_stats {
+        bigint id PK
+        int competitor_id FK
+        int period_year
+        int period_month
+        int total_bid_count
+        int win_count
+        numeric win_rate
+        numeric avg_bid_rate
+    }
 
-    USER ||--o{ POST : "작성"
-    USER ||--o{ COMMENT : "작성"
-    POST ||--o{ COMMENT : "포함"
+    agencies ||--o{ bids : "발주"
+    bids ||--o{ bid_results : "포함"
+    competitors ||--o{ bid_results : "참여"
+    competitors ||--o{ competitor_stats : "통계"
+    bids ||--|| feature_store : "피처"
+    users ||--o{ my_bid_records : "기록"
+    users ||--o{ bid_bookmarks : "북마크"
+    bids ||--o{ bid_bookmarks : "북마크됨"
 ```
-
-위 예시를 지우고 실제 ER 다이어그램으로 교체하세요. <!-- 예시 -->
-
-{실제 ER 다이어그램}
 
 ---
 
 ## 테이블 설계
 
-> 이 섹션의 목적: 각 테이블의 컬럼, 타입, 제약조건을 명세한다.
-> AI가 JPA 엔티티 코드를 작성할 때 이 정의를 기준으로 한다.
-
-### {테이블명} <!-- 예시 -->
-
-**예시 — `users` 테이블** <!-- 예시 -->
+### `users` — 시스템 사용자
 
 | 컬럼 | 타입 | NULL | 기본값 | 설명 |
 |------|------|------|--------|------|
-| `id` | `BIGINT` | NOT NULL | auto_increment | PK |
-| `email` | `VARCHAR(255)` | NOT NULL | — | 로그인 이메일, UNIQUE |
-| `password_hash` | `VARCHAR(255)` | NOT NULL | — | bcrypt 해시 |
-| `name` | `VARCHAR(100)` | NOT NULL | — | 표시 이름 |
-| `role` | `VARCHAR(20)` | NOT NULL | `'USER'` | ROLE_USER / ROLE_ADMIN |
-| `created_at` | `TIMESTAMP` | NOT NULL | `now()` | 생성일시 |
-| `updated_at` | `TIMESTAMP` | NOT NULL | `now()` | 수정일시 |
-
-**JPA 엔티티 매핑 메모:** <!-- 예시 -->
-- `role` 컬럼은 `@Enumerated(EnumType.STRING)` 사용
-- `created_at`, `updated_at`은 `@CreationTimestamp`, `@UpdateTimestamp` 사용
+| `id` | `INTEGER` | NOT NULL | auto | PK |
+| `email` | `VARCHAR(200)` | NOT NULL | — | 로그인 이메일, UNIQUE |
+| `hashed_password` | `VARCHAR(200)` | NOT NULL | — | bcrypt 해시 |
+| `name` | `VARCHAR(100)` | NULL | — | 표시 이름 |
+| `role` | `VARCHAR(20)` | NOT NULL | `'viewer'` | viewer / admin |
+| `department` | `VARCHAR(100)` | NULL | — | 부서 |
+| `is_active` | `BOOLEAN` | NOT NULL | `true` | 활성 여부 |
+| `last_login` | `TIMESTAMP TZ` | NULL | — | 마지막 로그인 |
+| `created_at` | `TIMESTAMP TZ` | NOT NULL | `now()` | 생성일시 |
 
 ---
 
-### {테이블명 2}
+### `bids` — 입찰 공고
 
-| 컬럼 | 타입 | NULL | 기본값 | 설명 |
-|------|------|------|--------|------|
-| {컬럼} | {타입} | {NULL 여부} | {기본값} | {설명} |
+| 컬럼 | 타입 | NULL | 설명 |
+|------|------|------|------|
+| `id` | `BIGINT` | NOT NULL | PK |
+| `announcement_no` | `VARCHAR(60)` | NOT NULL | 공고번호, UNIQUE |
+| `title` | `VARCHAR(500)` | NOT NULL | 공고명 |
+| `agency_id` | `INTEGER` | NOT NULL | FK → agencies |
+| `industry_id` | `INTEGER` | NULL | FK → industries |
+| `region_id` | `INTEGER` | NULL | FK → regions |
+| `base_amount` | `BIGINT` | NOT NULL | 기초금액 |
+| `estimated_price` | `BIGINT` | NULL | 예정가격 |
+| `a_value` | `BIGINT` | NULL | A값 (예가 기준) |
+| `min_bid_rate` | `NUMERIC(7,4)` | NULL | 최저 투찰률 |
+| `notice_date` | `DATE` | NULL | 공고일 |
+| `bid_open_date` | `TIMESTAMP TZ` | NULL | 개찰일시 |
+| `status` | `VARCHAR(20)` | NOT NULL | `'closed'` / `'open'` |
+| `source` | `VARCHAR(20)` | NOT NULL | `'api'` / `'manual'` |
+| `created_at` | `TIMESTAMP TZ` | NOT NULL | `now()` |
+
+---
+
+### `bid_results` — 낙찰 결과
+
+| 컬럼 | 타입 | NULL | 설명 |
+|------|------|------|------|
+| `id` | `BIGINT` | NOT NULL | PK |
+| `bid_id` | `BIGINT` | NOT NULL | FK → bids (CASCADE DELETE) |
+| `competitor_id` | `INTEGER` | NOT NULL | FK → competitors |
+| `bid_amount` | `BIGINT` | NOT NULL | 투찰금액 |
+| `bid_rate` | `NUMERIC(7,4)` | NOT NULL | 투찰률 |
+| `rank` | `SMALLINT` | NOT NULL | 순위 |
+| `is_winner` | `BOOLEAN` | NOT NULL | `false` | 낙찰 여부 |
+| `assessment_rate` | `NUMERIC(7,4)` | NULL | 사정율(예정가/기초) |
+
+**UNIQUE**: `(bid_id, competitor_id)`
+
+---
+
+### `feature_store` — ML 피처 사전 계산
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| `bid_id` | `BIGINT` | FK → bids, UNIQUE |
+| `agency_avg_rate_12m` | `NUMERIC(7,4)` | 발주처 최근 12개월 평균 사정율 |
+| `agency_win_rate_12m` | `NUMERIC(5,4)` | 발주처 최근 12개월 낙찰률 |
+| `industry_avg_rate_12m` | `NUMERIC(7,4)` | 공종 평균 사정율 |
+| `expected_competitor_count` | `SMALLINT` | 예상 경쟁사 수 |
+| `competitor_strength_score` | `NUMERIC(5,2)` | 경쟁 강도 점수 |
+| `amount_log10` | `NUMERIC(10,4)` | log10(기초금액) |
+| `computed_at` | `TIMESTAMP TZ` | 계산 시각 |
+
+---
+
+### `assessment_rate_stats` — 사정율 집계 통계
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| `group_type` | `VARCHAR(20)` | agency / industry / region / global |
+| `group_id` | `INTEGER` | NULL = global |
+| `period_year` | `SMALLINT` | 연도 |
+| `period_month` | `SMALLINT` | 월 (NULL = 연간) |
+| `sample_count` | `INTEGER` | 표본 수 |
+| `srate_mean` | `NUMERIC(7,4)` | 평균 사정율 |
+| `srate_p10~p90` | `NUMERIC(7,4)` | 백분위 |
+
+**UNIQUE**: `(group_type, group_id_safe, period_year, period_month_safe)`
+
+---
+
+### `my_bid_records` — 자사 투찰 이력
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| `bid_id` | `BIGINT` | FK → bids (NULL 허용 — 수동 등록) |
+| `user_id` | `INTEGER` | FK → users |
+| `submitted_rate` | `NUMERIC(7,4)` | 실제 투찰률 |
+| `recommendation_rate` | `NUMERIC(7,4)` | AI 추천 투찰률 (정확도 추적용) |
+| `result` | `VARCHAR(10)` | pending / won / lost |
+| `actual_winner_rate` | `NUMERIC(7,4)` | 실제 낙찰률 (결과 입력 시) |
 
 ---
 
 ## 관계 정의
 
-> 이 섹션의 목적: 테이블 간 FK 관계와 JPA 연관관계 매핑 방식을 명시한다.
-> 양방향/단방향 선택 이유, 지연 로딩 전략 등을 기록한다.
-
-| 관계 | 방식 | JPA 매핑 | 주의사항 |
-|------|------|----------|---------|
-| USER → POST | 1:N | `@OneToMany(mappedBy="author", fetch=LAZY)` | {예: 직접 조회 금지, PostRepository 사용} |
-| POST → USER | N:1 | `@ManyToOne(fetch=LAZY)` | {예: author 항상 LAZY 로딩} |
-| {관계} | {방식} | {매핑} | {주의사항} |
+| 관계 | 방식 | 주의사항 |
+|------|------|---------|
+| Agency → Bid | 1:N | `relationship("Bid", back_populates="agency")` |
+| Bid → BidResult | 1:N | `cascade="all,delete-orphan"` — 공고 삭제 시 결과 자동 삭제 |
+| Competitor → BidResult | 1:N | 경쟁사 삭제 금지 (결과 보존) |
+| Bid → FeatureStore | 1:1 | `uselist=False` |
+| User → MyBidRecord | 1:N | 사용자 삭제 시 이력 보존 (soft delete 미지원) |
 
 ---
 
 ## 인덱스 전략
 
-> 이 섹션의 목적: 성능에 영향을 주는 인덱스를 명시한다. 인덱스 추가 이유도 기록한다.
-
 | 테이블 | 컬럼 | 인덱스 종류 | 이유 |
 |--------|------|------------|------|
-| `users` | `email` | UNIQUE | 로그인 시 이메일 조회 빈번 |
-| `posts` | `author_id, created_at` | 복합 인덱스 | 사용자별 최신 게시글 목록 조회 |
-| {테이블} | {컬럼} | {종류} | {이유} |
+| `users` | `email` | UNIQUE | 로그인 시 이메일 조회 |
+| `bids` | `announcement_no` | UNIQUE | 중복 수집 방지 |
+| `bids` | `agency_id, bid_open_date` | 복합 | 발주처별 최신 공고 목록 |
+| `bids` | `status, bid_open_date` | 복합 | 진행 중 공고 필터 |
+| `bid_results` | `bid_id, competitor_id` | UNIQUE | 중복 결과 방지 |
+| `bid_results` | `competitor_id, bid_rate` | 복합 | 경쟁사별 투찰률 분석 |
+| `competitor_stats` | `competitor_id, period_year, period_month` | UNIQUE | 월별 통계 집계 |
+| `bid_bookmarks` | `user_id, bid_id` | UNIQUE | 북마크 중복 방지 |
 
 ---
 
 ## 마이그레이션 전략
 
-> 이 섹션의 목적: DB 스키마 변경 시 어떤 절차로 진행하는지 규칙을 명시한다.
-> AI가 스키마를 변경할 때 반드시 이 규칙을 따르도록 한다.
-
 ### 파일 명명 규칙
 
 ```
 V{버전}__{설명}.sql
-예: V1__create_users_table.sql
-    V2__add_posts_table.sql
-    V3__add_email_index_to_users.sql
+예: V1__initial_schema.sql
+    V2__add_assessment_rate_stats.sql
+    V3__add_bid_bookmarks.sql
 ```
-
-- 버전은 순번 정수 사용 (타임스탬프 방식도 가능: `V20260513141500__...`)
-- 설명은 snake_case, 영문 동사 시작
-- **적용된 마이그레이션 파일은 절대 수정 금지** — 수정이 필요하면 새 파일 추가
-
-### 운영 배포 절차
-
-1. PR에 마이그레이션 SQL 포함
-2. `flyway validate`로 체크섬 검증
-3. 배포 전 `flyway migrate` (자동 또는 수동)
-4. 롤백 필요 시: {예: 별도 V{n}__rollback_xxx.sql 실행 / 백업 복구}
 
 ### 금지 사항
 
-- 운영 데이터가 있는 컬럼의 직접 삭제 (먼저 코드에서 참조 제거 후 다음 배포에서 삭제)
-- NOT NULL 컬럼 추가 시 기본값 없이 추가 (배포 시 오류 발생)
-- 인덱스 이름 변경 없이 재생성 (락 발생 위험)
+- 운영 데이터가 있는 컬럼 직접 삭제 (코드 참조 제거 후 다음 배포에서 삭제)
+- NOT NULL 컬럼 추가 시 기본값 없이 추가
+- 적용된 마이그레이션 파일 수정 (새 파일로 추가)
 
 ---
 
 ## 초기 데이터 (Seed)
 
-> 이 섹션의 목적: 개발/스테이징 환경에서 사용하는 초기 데이터 로딩 방식을 기록한다.
-
 | 환경 | 방식 | 파일 위치 |
 |------|------|----------|
-| 개발 | {예: data.sql (Spring Boot auto-load)} | {예: `src/main/resources/data.sql`} |
-| 스테이징 | {예: 별도 seed 스크립트} | {예: `scripts/seed-staging.sql`} |
-| 운영 | 수동 또는 별도 마이그레이션 | — |
-
----
-
-## 주요 쿼리 패턴
-
-> 이 섹션의 목적: 성능 이슈가 발생하기 쉬운 쿼리 패턴과 권장 접근 방식을 기록한다.
-
-| 상황 | 권장 방식 | 주의 |
-|------|----------|------|
-| {예: 게시글 + 작성자 동시 조회} | {예: `@EntityGraph` 또는 fetch join} | {예: N+1 방지} |
-| {예: 대량 업데이트} | {예: `@Modifying @Query` 벌크 업데이트} | {예: 1차 캐시 주의} |
-| {상황} | {방식} | {주의} |
+| 개발 | Python seed 스크립트 | `bid-system/backend/app/seed.py` |
+| 운영 | 나라장터 API 수집 또는 CSV import | — |
