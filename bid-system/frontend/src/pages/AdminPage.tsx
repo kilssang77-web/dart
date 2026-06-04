@@ -1,8 +1,9 @@
 ﻿import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Users, ShieldCheck, Activity, Plus, Pencil, Trash2, RefreshCw, Database, Layers, Search, CheckSquare, Square, Save } from 'lucide-react'
+import { Users, ShieldCheck, Activity, Plus, Pencil, Trash2, RefreshCw, Database, Layers, Search, CheckSquare, Square, Save, ChevronDown, Loader2, Zap, Download } from 'lucide-react'
 import { adminApi, statsApi } from '@/api'
-import type { AdminUser, SystemStatus, ModelInfo, IndustryFilterItem } from '@/types'
+import type { AdminUser, SystemStatus, ModelInfo, IndustryFilterItem, CollectionLogOut } from '@/types'
+import { useAuthStore } from '@/store/auth'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -32,6 +33,7 @@ const EMPTY_FORM: UserFormState = { email: '', password: '', name: '', role: 'vi
 
 export default function AdminPage() {
   const qc = useQueryClient()
+  const user = useAuthStore((s) => s.user)
   const [tab, setTab] = useState('system')
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<number | null>(null)
@@ -40,6 +42,8 @@ export default function AdminPage() {
   const [indSearch, setIndSearch] = useState('')
   const [checkedIds, setCheckedIds] = useState<Set<number> | null>(null)
   const [indSaved, setIndSaved] = useState(false)
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [triggerMsg, setTriggerMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const { data: users = [], isLoading: usersLoading } = useQuery<AdminUser[]>({
     queryKey: ['admin-users'], queryFn: adminApi.users, enabled: tab === 'users',
@@ -55,10 +59,10 @@ export default function AdminPage() {
   })
 
 
-  const { data: collectionLogs = [] } = useQuery({
+  const { data: collectionLogs = [], refetch: refetchLogs } = useQuery<CollectionLogOut[]>({
     queryKey: ['admin-collection-logs'],
     queryFn: () => adminApi.collectionLogs(7),
-    enabled: tab === 'system',
+    enabled: tab === 'system' || tab === 'collection',
     refetchInterval: 60000,
   })
   if (checkedIds === null && industryFilters.length > 0) {
@@ -90,6 +94,18 @@ export default function AdminPage() {
       qc.invalidateQueries({ queryKey: ['stats-cluster'] })
       qc.invalidateQueries({ queryKey: ['stats-heatmap'] })
       setTimeout(() => setIndSaved(false), 3000)
+    },
+  })
+  const triggerMutation = useMutation({
+    mutationFn: (collectType: 'all' | 'notices' | 'results') => adminApi.triggerCollect(collectType),
+    onSuccess: (data) => {
+      setTriggerMsg({ type: 'success', text: data.message ?? '수집이 시작되었습니다.' })
+      qc.invalidateQueries({ queryKey: ['admin-collection-logs'] })
+      setTimeout(() => setTriggerMsg(null), 5000)
+    },
+    onError: () => {
+      setTriggerMsg({ type: 'error', text: '수집 요청에 실패했습니다.' })
+      setTimeout(() => setTriggerMsg(null), 5000)
     },
   })
 
@@ -136,6 +152,7 @@ export default function AdminPage() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="system" className="gap-1.5"><Activity className="h-3.5 w-3.5" />시스템 현황</TabsTrigger>
+          <TabsTrigger value="collection" className="gap-1.5"><Download className="h-3.5 w-3.5" />수집 현황</TabsTrigger>
           <TabsTrigger value="users" className="gap-1.5"><Users className="h-3.5 w-3.5" />사용자 관리</TabsTrigger>
           <TabsTrigger value="industries" className="gap-1.5"><Layers className="h-3.5 w-3.5" />공종 관리</TabsTrigger>
         </TabsList>
@@ -242,7 +259,7 @@ export default function AdminPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {collectionLogs.map((log: { id: number; collect_type: string; collected_at: string; success_count: number; fail_count: number; duration_sec: number | null }) => (
+                        {collectionLogs.map((log) => (
                           <TableRow key={log.id}>
                             <TableCell>
                               <Badge variant={log.collect_type === 'notice_cnstwk' ? 'info' : log.collect_type === 'notice_servc' ? 'secondary' : 'outline'} className="text-[10px] px-1.5">
@@ -262,6 +279,112 @@ export default function AdminPage() {
                   </CardContent>
                 </Card>
               )}
+        </TabsContent>
+
+        <TabsContent value="collection" className="space-y-4 mt-4">
+          {user?.role !== 'admin' ? (
+            <div className="text-center py-12 text-muted-foreground">관리자만 접근할 수 있습니다.</div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-medium">최근 수집 이력 (7일)</h2>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => refetchLogs()}>
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+                <div className="relative">
+                  <Button
+                    size="sm"
+                    onClick={() => setDropdownOpen((v) => !v)}
+                    onBlur={() => setTimeout(() => setDropdownOpen(false), 150)}
+                    disabled={triggerMutation.isPending}
+                  >
+                    {triggerMutation.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Zap className="h-3.5 w-3.5" />
+                    )}
+                    지금 수집
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </Button>
+                  {dropdownOpen && (
+                    <div className="absolute right-0 top-full mt-1 z-10 bg-background border rounded-md shadow-md py-1 w-28">
+                      {([['all', '전체'], ['notices', '공고만'], ['results', '결과만']] as const).map(([value, label]) => (
+                        <button
+                          key={value}
+                          className="w-full text-left text-sm px-3 py-1.5 hover:bg-accent transition-colors"
+                          onMouseDown={() => {
+                            setDropdownOpen(false)
+                            triggerMutation.mutate(value)
+                          }}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              {triggerMsg && (
+                <div className={cn(
+                  'text-xs px-3 py-2 rounded-md border',
+                  triggerMsg.type === 'success'
+                    ? 'text-green-700 bg-green-50 border-green-200'
+                    : 'text-destructive bg-destructive/5 border-destructive/20'
+                )}>
+                  {triggerMsg.text}
+                </div>
+              )}
+              <Card>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>수집 일시</TableHead>
+                        <TableHead>유형</TableHead>
+                        <TableHead className="text-center">성공</TableHead>
+                        <TableHead className="text-center">실패</TableHead>
+                        <TableHead className="text-right">소요시간(초)</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {collectionLogs.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                            수집 이력이 없습니다.
+                          </TableCell>
+                        </TableRow>
+                      ) : collectionLogs.map((log) => (
+                        <TableRow key={log.id}>
+                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                            {new Date(log.collected_at).toLocaleString('ko-KR')}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={log.collect_type === 'notice_cnstwk' ? 'info' : log.collect_type === 'notice_servc' ? 'secondary' : 'outline'}
+                              className="text-[10px] px-1.5"
+                            >
+                              {log.collect_type}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className={cn('text-center font-bold', log.success_count > 0 ? 'text-green-600' : 'text-muted-foreground')}>
+                            {log.success_count}
+                          </TableCell>
+                          <TableCell className={cn('text-center font-bold', log.fail_count > 0 ? 'text-destructive' : 'text-muted-foreground')}>
+                            {log.fail_count}
+                          </TableCell>
+                          <TableCell className="text-right text-xs">
+                            {log.duration_sec?.toFixed(1) ?? '-'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="users" className="space-y-4 mt-4">

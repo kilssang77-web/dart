@@ -1,5 +1,5 @@
 ﻿import { api } from './client'
-import type { MetaData, RecommendResult, Competitor, WatchKeyword, SystemStatus, AdminUser, RegionStat, IndustryStat, ClusterResult, ModelInfo, IndustryFilterItem, MyBidAnalysis, OverviewStatsWithChange } from '../types'
+import type { MetaData, RecommendResult, Competitor, WatchKeyword, SystemStatus, AdminUser, RegionStat, IndustryStat, ClusterResult, ModelInfo, IndustryFilterItem, MyBidAnalysis, OverviewStatsWithChange, CollectionLogOut } from '../types'
 
 type KeywordUpdateBody = Partial<Pick<WatchKeyword, 'keyword' | 'kw_type' | 'is_active' | 'note'>>
 
@@ -137,8 +137,10 @@ export const adminApi = {
     api.get('/admin/industries').then((r) => r.data),
   updateIndustryFilters: (active_ids: number[]) =>
     api.put('/admin/industries/filters', { active_ids }).then((r) => r.data),
-  collectionLogs: (days = 7) =>
+  collectionLogs: (days = 7): Promise<CollectionLogOut[]> =>
     api.get('/admin/collection-logs', { params: { days } }).then((r) => r.data),
+  triggerCollect: (collectType: 'all' | 'notices' | 'results'): Promise<{ message: string }> =>
+    api.post('/admin/collect/trigger', null, { params: { collect_type: collectType } }).then((r) => r.data),
 }
 
 // -- 투찰 이력 --------------------------------------------------

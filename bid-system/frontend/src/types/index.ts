@@ -451,3 +451,14 @@ export interface OverviewStatsWithChange {
   avg_competitors_change: number | null
 }
 
+export interface CollectionLogOut {
+  id: number
+  collect_type: string
+  collected_at: string
+  success_count: number
+  fail_count: number
+  duration_sec: number | null
+  error_summary: string | null
+  created_at: string
+}
+
