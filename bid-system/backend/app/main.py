@@ -18,6 +18,8 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if settings.is_default_secret:
+        logger.warning("⚠️  SECRET_KEY가 기본값입니다. 프로덕션 배포 전 .env에서 SECRET_KEY를 반드시 교체하세요!")
     logger.info("서버 시작 — DB 테이블 동기화 중...")
     try:
         Base.metadata.create_all(bind=engine)
@@ -63,9 +65,13 @@ app = FastAPI(
     redoc_url="/api/redoc",
 )
 
+_origins = (
+    ["*"] if settings.cors_origins.strip() == "*"
+    else [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

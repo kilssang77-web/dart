@@ -1,11 +1,13 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
+_DEV_SECRET = "changeme-super-secret-key-2024"
+
 
 class Settings(BaseSettings):
     database_url: str = "postgresql://biduser:bidpass123@localhost:5432/biddb"
     redis_url: str = "redis://:redispass123@localhost:6379/0"
-    secret_key: str = "changeme-super-secret-key-2024"
+    secret_key: str = _DEV_SECRET
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 480
 
@@ -16,8 +18,15 @@ class Settings(BaseSettings):
     nara_api_key: str = ""
     collect_enabled: bool = False
 
+    # CORS: "*" = 전체 허용 (개발), 프로덕션은 "https://app.example.com,https://admin.example.com"
+    cors_origins: str = "*"
+
     ml_models_path: str = "/app/ml_models"
     min_train_samples: int = 50
+
+    @property
+    def is_default_secret(self) -> bool:
+        return self.secret_key == _DEV_SECRET
 
     class Config:
         env_file = ".env"

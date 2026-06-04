@@ -219,7 +219,7 @@ def retrain_ml(
                    (SELECT COUNT(*) FROM bid_results r2 WHERE r2.bid_id = b.id)
             FROM bids b
             LEFT JOIN bid_results r ON r.bid_id = b.id AND r.is_winner = true
-            WHERE b.bid_open_date >= :cutoff AND b.status = 'closed'
+            WHERE b.bid_open_date >= :cutoff AND b.base_amount > 0
         """), {"cutoff": cutoff}).fetchall()
 
         hist_df = pd.DataFrame(hist_rows, columns=[
@@ -275,13 +275,14 @@ def retrain_ml(
 def system_status(db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
     counts = db.execute(text("""
         SELECT
-            (SELECT COUNT(*) FROM bids)                                          AS total_bids,
-            (SELECT COUNT(*) FROM bids WHERE source = 'g2b')                    AS g2b_bids,
+            (SELECT COUNT(*) FROM bids)                                              AS total_bids,
+            (SELECT COUNT(*) FROM bids WHERE source = 'g2b')                        AS g2b_bids,
             (SELECT COUNT(*) FROM bids WHERE created_at >= NOW() - INTERVAL '7 days') AS new_7d,
-            (SELECT COUNT(*) FROM bid_results)                                   AS total_results,
-            (SELECT COUNT(*) FROM competitors)                                   AS total_competitors,
-            (SELECT COUNT(*) FROM users)                                         AS total_users,
-            (SELECT COUNT(*) FROM watch_keywords WHERE is_active = true)         AS active_keywords
+            (SELECT COUNT(*) FROM bid_results)                                       AS total_results,
+            (SELECT COUNT(*) FROM competitors)                                       AS total_competitors,
+            (SELECT COUNT(*) FROM users)                                             AS total_users,
+            (SELECT COUNT(*) FROM watch_keywords WHERE is_active = true)             AS active_keywords,
+            (SELECT COUNT(*) FROM feature_store)                                     AS feature_store_count
     """)).fetchone()
 
     last_g2b = db.execute(text(
@@ -310,6 +311,7 @@ def system_status(db: Session = Depends(get_db), _: User = Depends(require_role(
             "total_competitors":  counts[4] or 0,
             "total_users":        counts[5] or 0,
             "active_keywords":    counts[6] or 0,
+            "feature_store":      counts[7] or 0,
         },
         "collector": {
             "enabled": os.getenv("COLLECT_ENABLED", "false").lower() == "true",
@@ -325,6 +327,156 @@ def system_status(db: Session = Depends(get_db), _: User = Depends(require_role(
 
 
 _TRIGGER_COLLECT_TYPES = {"all", "notices", "results"}
+
+
+@router.post("/ml/populate-features")
+def populate_feature_store(
+    background_tasks: BackgroundTasks,
+    overwrite: bool = False,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin")),
+):
+    """feature_store 일괄 계산 — 모든 closed bids에 ML 피처를 사전 계산하여 저장.
+
+    overwrite=true 이면 기존 레코드를 덮어씀 (ON CONFLICT UPDATE),
+    overwrite=false 이면 없는 것만 추가.
+    """
+    background_tasks.add_task(_run_populate_features, overwrite)
+    return {"message": "feature_store 계산 시작됨 (백그라운드)", "overwrite": overwrite}
+
+
+_FEATURE_STORE_CTE = """
+    WITH
+    bucketed AS (
+        SELECT
+            b.id,
+            b.agency_id,
+            b.industry_id,
+            COALESCE(b.region_id, 0) AS region_id,
+            b.base_amount,
+            b.bid_open_date,
+            CASE
+                WHEN b.base_amount < 100000000   THEN 1
+                WHEN b.base_amount < 500000000   THEN 2
+                WHEN b.base_amount < 1000000000  THEN 3
+                WHEN b.base_amount < 5000000000  THEN 4
+                ELSE 5
+            END AS amount_bucket,
+            wr.bid_rate  AS winner_rate,
+            cnt.comp_cnt AS competitor_count
+        FROM bids b
+        LEFT JOIN LATERAL (
+            SELECT bid_rate FROM bid_results
+            WHERE bid_id = b.id AND is_winner = true
+            LIMIT 1
+        ) wr ON true
+        LEFT JOIN (
+            SELECT bid_id, COUNT(*) AS comp_cnt
+            FROM bid_results GROUP BY bid_id
+        ) cnt ON cnt.bid_id = b.id
+        WHERE b.base_amount > 0
+    ),
+    agency_agg AS (
+        SELECT
+            agency_id,
+            AVG(winner_rate)                                              AS agency_avg_rate,
+            AVG(CASE WHEN winner_rate IS NOT NULL THEN 1.0 ELSE 0.0 END) AS agency_win_rate,
+            COUNT(*)                                                       AS agency_bid_count,
+            AVG(competitor_count)                                          AS avg_competitors
+        FROM bucketed GROUP BY agency_id
+    ),
+    region_agg AS (
+        SELECT region_id, AVG(winner_rate) AS region_avg_rate
+        FROM bucketed GROUP BY region_id
+    ),
+    industry_agg AS (
+        SELECT industry_id, AVG(winner_rate) AS industry_avg_rate
+        FROM bucketed GROUP BY industry_id
+    ),
+    similar_agg AS (
+        SELECT
+            industry_id, region_id, amount_bucket,
+            COUNT(*)            AS similar_count,
+            AVG(winner_rate)    AS similar_avg_rate,
+            STDDEV(winner_rate) AS similar_std_rate
+        FROM bucketed
+        GROUP BY industry_id, region_id, amount_bucket
+    )
+    INSERT INTO feature_store (
+        bid_id,
+        agency_avg_rate_12m, agency_win_rate_12m, agency_bid_count_12m,
+        region_avg_rate_12m, industry_avg_rate_12m,
+        expected_competitor_count, competitor_strength_score,
+        season_index, amount_log10, amount_bucket,
+        similar_bid_count, similar_avg_rate, similar_std_rate,
+        computed_at
+    )
+    SELECT
+        bk.id,
+        aa.agency_avg_rate,
+        aa.agency_win_rate,
+        aa.agency_bid_count::INT,
+        ra.region_avg_rate,
+        ia.industry_avg_rate,
+        COALESCE(aa.avg_competitors::INT, 10),
+        5.00,
+        CASE WHEN bk.bid_open_date IS NULL THEN 2
+             ELSE (EXTRACT(MONTH FROM bk.bid_open_date)::INT - 1) / 3 + 1
+        END,
+        LOG(GREATEST(bk.base_amount::NUMERIC, 1)),
+        bk.amount_bucket,
+        COALESCE(sa.similar_count::INT, 0),
+        sa.similar_avg_rate,
+        sa.similar_std_rate,
+        NOW()
+    FROM bucketed bk
+    LEFT JOIN agency_agg aa   ON aa.agency_id   = bk.agency_id
+    LEFT JOIN region_agg ra   ON ra.region_id   = bk.region_id
+    LEFT JOIN industry_agg ia ON ia.industry_id = bk.industry_id
+    LEFT JOIN similar_agg sa
+        ON  sa.industry_id   = bk.industry_id
+        AND sa.region_id     = bk.region_id
+        AND sa.amount_bucket = bk.amount_bucket
+"""
+
+_SQL_POPULATE_UPSERT = text(_FEATURE_STORE_CTE + """
+    ON CONFLICT (bid_id) DO UPDATE SET
+        agency_avg_rate_12m       = EXCLUDED.agency_avg_rate_12m,
+        agency_win_rate_12m       = EXCLUDED.agency_win_rate_12m,
+        agency_bid_count_12m      = EXCLUDED.agency_bid_count_12m,
+        region_avg_rate_12m       = EXCLUDED.region_avg_rate_12m,
+        industry_avg_rate_12m     = EXCLUDED.industry_avg_rate_12m,
+        expected_competitor_count = EXCLUDED.expected_competitor_count,
+        competitor_strength_score = EXCLUDED.competitor_strength_score,
+        season_index              = EXCLUDED.season_index,
+        amount_log10              = EXCLUDED.amount_log10,
+        amount_bucket             = EXCLUDED.amount_bucket,
+        similar_bid_count         = EXCLUDED.similar_bid_count,
+        similar_avg_rate          = EXCLUDED.similar_avg_rate,
+        similar_std_rate          = EXCLUDED.similar_std_rate,
+        computed_at               = NOW()
+""")
+
+_SQL_POPULATE_INSERT = text(_FEATURE_STORE_CTE + "    ON CONFLICT (bid_id) DO NOTHING\n")
+
+
+def _run_populate_features(overwrite: bool):
+    import logging
+    from ...database import SessionLocal
+    _log = logging.getLogger(__name__)
+    db = SessionLocal()
+    try:
+        _log.info("feature_store 일괄 계산 시작 (overwrite=%s)", overwrite)
+        sql = _SQL_POPULATE_UPSERT if overwrite else _SQL_POPULATE_INSERT
+        result = db.execute(sql)
+        db.commit()
+        inserted = result.rowcount
+        _log.info("feature_store 계산 완료: %d건 저장", inserted)
+    except Exception as exc:
+        db.rollback()
+        _log.error("feature_store 계산 오류: %s", exc, exc_info=True)
+    finally:
+        db.close()
 
 
 @router.post("/collect/trigger")
