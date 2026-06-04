@@ -28,7 +28,7 @@
       "status": "completed",
       "started_at": "2026-06-04T14:04:34+0900",
       "summary": "collector/scheduler.py 신규 (BackgroundScheduler, 06:00 공고·18:00 낙찰결과 KST), main.py lifespan에 스케줄러 start/shutdown 등록, POST /admin/collect/trigger 엔드포인트 추가 + 9개 단위 테스트 전체 통과",
-      "completed_at": "2026-06-04T15:00:00+0900"
+      "completed_at": "2026-06-04T14:08:09+0900"
     },
     {
       "step": 4,
