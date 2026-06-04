@@ -1,4 +1,5 @@
-﻿from fastapi import APIRouter, Depends, HTTPException
+﻿from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import Optional
 from sqlalchemy.orm import Session
 
 from ...database import get_db
@@ -124,3 +125,20 @@ def srate_stats(
         }
         for r in rows
     ]
+
+
+@router.get("/yega-frequency")
+def yega_frequency(
+    base_amount: int = Query(..., description="기초금액 (원)", gt=0),
+    a_value: Optional[int] = Query(None, description="A값/예비가격 기초금액 (원). 미입력 시 기초금액 기반 추정"),
+    _: User = Depends(get_current_user),
+):
+    """
+    복수예가 예비가격 C(15,4) 조합 빈도 분석 (Prism형).
+
+    A값 ±2% 범위의 15개 예비가격 후보에서 4개를 추첨할 때
+    나올 수 있는 1,365가지 평균(예정가격)의 빈도 분포를 반환.
+    가장 자주 나오는 구간 = 예정가격 집중 구간.
+    """
+    from ...ml.yega import calc_yega_frequency
+    return calc_yega_frequency(base_amount=base_amount, a_value=a_value)

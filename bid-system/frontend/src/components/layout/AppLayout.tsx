@@ -40,6 +40,7 @@ const NAV_GROUPS = [
     label: '도구',
     items: [
       { to: '/qualification', label: '적격심사 계산기', icon: Calculator },
+      { to: '/yega',          label: '예가 빈도 분석',  icon: TrendingUp },
     ],
   },
 ]

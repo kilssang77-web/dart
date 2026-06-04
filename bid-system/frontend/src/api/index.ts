@@ -63,6 +63,8 @@ export const recommendApi = {
   retrainAssessment: () => api.post('/recommend/v2/retrain-assessment').then((r) => r.data),
   srateStats: (agencyId?: number, industryId?: number) =>
     api.get('/recommend/v2/srate-stats', { params: { agency_id: agencyId, industry_id: industryId } }).then((r) => r.data),
+  yegaFrequency: (baseAmount: number, aValue?: number): Promise<import('../types').YegaFrequencyResult> =>
+    api.get('/recommend/yega-frequency', { params: { base_amount: baseAmount, a_value: aValue } }).then((r) => r.data),
 }
 
 // -- 경쟁사 --------------------------------------------------

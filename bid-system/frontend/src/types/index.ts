@@ -404,6 +404,41 @@ export interface SrateDistributionResult {
   global_stats:   SrateStatSummary | null
 }
 
+// ── 예가 빈도 분석 ──────────────────────────────────────────
+
+export interface YegaCandidate {
+  idx: number
+  amount: number
+  rate: number
+}
+
+export interface YegaFreqRow {
+  amount: number
+  rate: number
+  rate_pct: number
+  count: number
+  probability: number
+  cumulative_prob: number
+}
+
+export interface YegaChartBin {
+  rate_pct: number
+  count: number
+}
+
+export interface YegaFrequencyResult {
+  base_amount: number
+  a_value_used: number
+  round_unit: number
+  candidates: YegaCandidate[]
+  frequency: YegaFreqRow[]
+  top10: YegaFreqRow[]
+  chart_bins: YegaChartBin[]
+  total_combinations: number
+  recommended_rate: number
+  floor_rate: number
+}
+
 export interface OverviewStatsWithChange {
   total_bids: number
   total_competitors: number
