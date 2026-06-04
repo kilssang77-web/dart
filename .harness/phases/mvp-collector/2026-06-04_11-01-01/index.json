@@ -1,4 +1,4 @@
-{
+﻿{
   "project": "bid-system",
   "phase": "mvp-collector",
   "branch": "feat/mvp-collector-2026-06-04_11-01-01",
@@ -17,7 +17,10 @@
     {
       "step": 2,
       "name": "공고·낙찰결과 수집 서비스",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-04T11:15:03+0900",
+      "summary": "collector/service.py 구현 (collect_notices·collect_results·run_full_collection, upsert 중복방지, CollectionLog 기록) + 10개 단위 테스트 전체 통과",
+      "completed_at": "2026-06-04T12:00:00+0900"
     },
     {
       "step": 3,
