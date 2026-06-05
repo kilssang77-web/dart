@@ -177,7 +177,24 @@ def test_retry_on_timeout():
 
 - `ml/assessment.py`: 사정율 예측 결과가 `[0.85, 1.05]` 범위 내인지 검증
 - `ml/simulation.py`: 시뮬레이션 n_sim=1000 수렴 여부 단위 테스트
-- `ml/yega.py`: 15개 후보 조합 합계가 1.0이 되는지 검증 (확률 합산)
+- `ml/a_value.py`: calc_bid_range P10~P90 범위·FLOOR_RATE_TABLE 업종별 매핑 정확도 검증
+- `ml/prism.py`: scan_prism_zones 71구간 생성·floor 필터·TOP10 순서 검증
+- `ml/yega.py`: 15개 후보 조합 합계가 1.0이 되는지 검증, get_agency_yega_pattern 발주처 없을 때 폴백 검증
 - `ml/rank_model.py`: DB fallback (버킷→전체) 경로 및 50건 미만 시 None 반환 검증
 - `ml/personal.py`: 이력 없음 empty_result, 지수감쇠 가중치, MAX_CORRECTION(0.008) 클리핑 검증
 - ML 테스트는 DB 불필요 — 순수 함수 단위 테스트 가능 (rank_model 제외: DB 조회 포함)
+
+---
+
+## mvp-enhance2 단위 테스트 (2026-06-05)
+
+| 파일 | 테스트 수 | 커버 대상 |
+|------|---------|---------|
+| `tests/unit/test_a_value.py` | 18 | calc_bid_range P10~P90, FLOOR_RATE_TABLE 업종별 매핑 |
+| `tests/unit/test_srate_trend.py` | 7 | SrateTrendService 폴백·3개월 필터·트렌드 방향(↑↓→) |
+| `tests/unit/test_prism.py` | 10 | scan_prism_zones 71구간·floor 필터·TOP10 정렬 |
+| `tests/unit/test_competitor_zones.py` | 5 | CompetitorZoneService 0.005 버킷·peak_zone 산출 |
+| `tests/unit/test_top_recommended.py` | 4 | OpportunityScoreService 7일 이내·활성공종 필터·점수 정렬 |
+| `tests/unit/test_gap_distribution.py` | 6 | DefeatAnalysisService 빈 이력·5건 이상·편향 방향 분류 |
+| `tests/unit/test_yega_pattern.py` | 6 | get_agency_yega_pattern C(15,4) 역산·발주처 없을 때 폴백 |
+| `tests/unit/test_joint_qual_service.py` | 5 | JointQualService 매칭 없음·1개 이상·적격 기준 계산 |

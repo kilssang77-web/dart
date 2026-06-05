@@ -113,6 +113,8 @@ Authorization: Bearer {access_token}
 | POST | `/api/v1/bids/{id}/bookmark` | 북마크 추가 | 필요 |
 | DELETE | `/api/v1/bids/{id}/bookmark` | 북마크 삭제 | 필요 |
 | GET | `/api/v1/bids/bookmarks` | 내 북마크 목록 | 필요 |
+| GET | `/api/v1/bids/recommended` | 공고 자동 추천 TOP5 (점수·등급·breakdown) | 필요 |
+| GET | `/api/v1/bids/{id}/joint-partners` | 공동도급 파트너 AI 매칭 (적격 여부·최소 지분율) | 필요 |
 
 ### AI 추천 (Recommend)
 
@@ -120,7 +122,9 @@ Authorization: Bearer {access_token}
 |--------|------|------|------|
 | POST | `/api/v1/recommend` | 투찰률 추천 v1 | 필요 |
 | POST | `/api/v1/recommend/v2` | 투찰률 추천 v2 (하이브리드 앙상블) | 필요 |
-| GET | `/api/v1/recommend/yega-frequency` | 예가 빈도 분석 (Prism형) | 필요 |
+| GET | `/api/v1/recommend/bid-range` | A값·낙찰하한가 산출 (P10~P90 범위) | 필요 |
+| POST | `/api/v1/recommend/prism` | 프리즘 2.0 히트맵 TOP10 구간 (71구간) | 필요 |
+| GET | `/api/v1/recommend/yega-frequency` | 예가 빈도 분석 (Prism형, `?agency_id` 발주처 특화) | 필요 |
 
 ### 통계 (Statistics)
 
@@ -131,6 +135,8 @@ Authorization: Bearer {access_token}
 | GET | `/api/v1/stats/industries` | 공종별 통계 | 필요 |
 | GET | `/api/v1/stats/heatmap` | 발주처×공종 히트맵 | 필요 |
 | GET | `/api/v1/stats/srate-distribution` | 사정율 분포 히스토그램 | 필요 |
+| GET | `/api/v1/stats/srate-trend` | 발주처×공종 사정율 트렌드 (최근 3개월) | 필요 |
+| GET | `/api/v1/stats/top-srate-trends` | 사정율 급변 상위 3건 알림 | 필요 |
 
 ### 발주처 (Agencies)
 
@@ -147,6 +153,7 @@ Authorization: Bearer {access_token}
 | GET | `/api/v1/competitors/{id}` | 경쟁사 상세 | 필요 |
 | GET | `/api/v1/competitors/{id}/pattern` | 경쟁사 투찰성향 (레이더 차트) | 필요 |
 | GET | `/api/v1/competitors/compare` | 2개사 성향 비교 | 필요 |
+| GET | `/api/v1/competitors/{id}/zones` | 경쟁사 투찰구간 모니터링 (0.005 버킷, 90일/180일) | 필요 |
 
 ### 내 입찰 (My Bids)
 
@@ -159,6 +166,7 @@ Authorization: Bearer {access_token}
 | GET | `/api/v1/my-bids/analysis` | 추천 정확도 분석 | 필요 |
 | GET | `/api/v1/my-bids/stats` | 투찰 통계 요약 (낙찰률, 평균 요율) | 필요 |
 | GET | `/api/v1/my-bids/defeat-analysis` | 패배 패턴 분석 (차이·분포) | 필요 |
+| GET | `/api/v1/my-bids/gap-analysis` | 낙찰 후 역산 분석 (rate_diff 분포·편향 보정) | 필요 |
 
 ### 관리자 (Admin)
 
@@ -177,3 +185,4 @@ Authorization: Bearer {access_token}
 | POST | `/api/v1/admin/ml/populate-features` | feature_store 일괄 사전 계산 | ADMIN |
 | GET | `/api/v1/admin/inpo21c/status` | inpo21c 쿠키 유효성 확인 | ADMIN |
 | POST | `/api/v1/admin/inpo21c/collect` | inpo21c 전 참여자 즉시 수집 | ADMIN |
+| POST | `/api/v1/admin/inpo21c/update-cookie` | inpo21c 세션 쿠키 갱신 | ADMIN |

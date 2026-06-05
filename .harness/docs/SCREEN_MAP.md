@@ -60,7 +60,9 @@ graph TD
   - KPI 카드: 총 공고 수, 경쟁사 수, 평균 낙찰률, 평균 경쟁사 수 (전월 대비 변화율 화살표)
   - 월별 트렌드 라인차트
   - 최근 공고 목록 (5건)
-- **사용 API**: `GET /api/v1/stats/overview`
+  - 사정율 트렌드 알림 카드 (급변 발주처×공종 상위 3건, ↑↓→ 방향 뱃지)
+  - 이번 주 추천 공고 TOP5 (점수 바·등급 뱃지·개찰일·기초금액·BidDetailPage 링크)
+- **사용 API**: `GET /api/v1/stats/overview`, `GET /api/v1/stats/top-srate-trends`, `GET /api/v1/bids/recommended`
 - **권한**: viewer 이상
 
 ---
@@ -90,7 +92,11 @@ graph TD
   - RiskCard (LOW/MEDIUM/HIGH)
   - 3-panel 사정율 비교: 발주처/공종/전체
   - 유사 사례 목록
-- **사용 API**: `POST /api/v1/recommend/v2`
+  - A값·낙찰하한가 카드 (debounce 500ms, P10~P90 범위 바)
+  - 사정율 트렌드 뱃지 (↑빨강/↓파랑/→회색, 발주처×공종 최근 3개월)
+  - 프리즘 2.0 섹션 (BarChart 71구간 히트맵, TOP10 테이블, 주황 강조)
+  - 전략 레포트 PDF 출력 버튼 (A4 5섹션: 공고 요약·A값·트렌드·4전략·리스크)
+- **사용 API**: `POST /api/v1/recommend/v2`, `GET /api/v1/recommend/bid-range`, `GET /api/v1/stats/srate-trend`, `POST /api/v1/recommend/prism`
 - **권한**: viewer 이상
 
 ---
@@ -102,7 +108,8 @@ graph TD
   - 투찰 이력 등록·수정·삭제
   - 결과 탭: 진행중·낙찰·유찰 필터
   - 정확도 분석 탭: 산점도(실제 vs 추천 투찰률), MAE 월별 차트
-- **사용 API**: `GET/POST/PATCH/DELETE /api/v1/my-bids`, `GET /api/v1/my-bids/analysis`
+  - 역산 분석 탭: rate_diff 분포 히스토그램 (중앙 0 기준선), 평균 격차 지표, 개인 편향 보정 요약 카드
+- **사용 API**: `GET/POST/PATCH/DELETE /api/v1/my-bids`, `GET /api/v1/my-bids/analysis`, `GET /api/v1/my-bids/gap-analysis`
 - **권한**: viewer 이상
 
 ---
@@ -125,7 +132,19 @@ graph TD
   - 경쟁사 목록 (승률·평균 투찰률·공격성 점수)
   - 투찰성향 탭: 5축 레이더 차트 (공격성·일관성·집중도·위험도·활동성)
   - 체크박스 2개사 비교 모드
-- **사용 API**: `GET /api/v1/competitors`, `GET /api/v1/competitors/{id}/pattern`, `GET /api/v1/competitors/compare`
+  - 투찰구간 탭: BarChart 0.005 버킷 분포, 피크 구간 주황 강조, 회피 추천 뱃지, 90일/180일 토글
+- **사용 API**: `GET /api/v1/competitors`, `GET /api/v1/competitors/{id}/pattern`, `GET /api/v1/competitors/compare`, `GET /api/v1/competitors/{id}/zones`
+- **권한**: viewer 이상
+
+---
+
+### SCR-011: 공동도급
+
+- **목적**: 공동도급 협정사 탐색 및 적격심사 AI 매칭
+- **주요 기능**:
+  - 공동도급 협정사 탐색 (업종·지역·규모 필터)
+  - 공고 연계 AI 매칭 섹션: 공고 선택 후 "적격심사 AI 매칭" 버튼, 협정 가능 업체 목록 (적격 여부·최소 지분율·궁합점수)
+- **사용 API**: `GET /api/v1/competitors`, `GET /api/v1/bids/{id}/joint-partners`
 - **권한**: viewer 이상
 
 ---
@@ -136,7 +155,8 @@ graph TD
 - **주요 기능**:
   - 15개 후보 조합별 당첨 빈도 BarChart
   - 공고 조건 입력 시 해당 조건 기준 분석
-- **사용 API**: `GET /api/v1/recommend/yega-frequency`
+  - 발주처 특화 패턴 섹션: 발주처 드롭다운 선택, TOP3 번호 하이라이트, dominant_zone 뱃지 (미선택 시 전체 분포)
+- **사용 API**: `GET /api/v1/recommend/yega-frequency?agency_id=` (agency_id 선택 파라미터)
 - **권한**: viewer 이상
 
 ---

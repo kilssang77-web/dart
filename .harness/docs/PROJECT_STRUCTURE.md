@@ -33,9 +33,11 @@ atom-harness-g2b/
 │   │   │   │   ├── assessment.py     # 사정율 예측 모델
 │   │   │   │   ├── competition.py    # 낙찰확률 계산
 │   │   │   │   ├── simulation.py     # Monte Carlo 시뮬레이션 (실증분포 지원)
+│   │   │   │   ├── a_value.py        # A값·낙찰하한가 계산 (FLOOR_RATE_TABLE, calc_bid_range)
+│   │   │   │   ├── prism.py          # 프리즘 2.0 71구간 낙찰확률 히트맵 (scan_prism_zones)
 │   │   │   │   ├── rank_model.py     # inpo21c 실증분포 기반 경쟁사 샘플링
 │   │   │   │   ├── personal.py       # 사용자 투찰 편향 보정 엔진
-│   │   │   │   └── yega.py           # 예가 빈도 분석 (Prism형)
+│   │   │   │   └── yega.py           # 예가 빈도 분석 + 발주처 특화 패턴 (get_agency_yega_pattern)
 │   │   │   ├── collector/            # 나라장터 수집 서브시스템 (mvp 단계 추가)
 │   │   │   │   ├── client.py         # NarajangterClient (G2B OpenAPI, 재시도 3회)
 │   │   │   │   ├── service.py        # collect_notices/collect_results (upsert)
