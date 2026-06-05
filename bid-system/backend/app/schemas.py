@@ -407,6 +407,17 @@ class RecommendV2Response(BaseModel):
     personal_correction:   Optional[dict] = None
 
 
+# -- A값·낙찰하한가 --------------------------------------------------
+
+class BidRangeResponse(BaseModel):
+    a_value:       int
+    floor_price:   int
+    floor_rate:    float
+    srate_center:  float
+    srate_range:   dict
+    industry_name: Optional[str] = None
+
+
 # -- ?? ?? --------------------------------------------------
 
 class MyBidRecordCreate(BaseModel):

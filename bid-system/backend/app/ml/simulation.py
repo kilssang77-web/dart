@@ -12,24 +12,7 @@
 import numpy as np
 from typing import List, Optional
 
-
-# 낙찰하한율 테이블: 공종명 키워드 → 비율
-FLOOR_RATE_TABLE: dict = {
-    "전기공사업":    0.86745,
-    "정보통신공사업": 0.86745,
-    "소방시설공사업": 0.86745,
-}
-DEFAULT_FLOOR_RATE: float = 0.87745
-
-
-def get_floor_rate(industry_name: str) -> float:
-    """공종명으로 낙찰하한율 반환 (미매칭 시 87.745%)."""
-    if not industry_name:
-        return DEFAULT_FLOOR_RATE
-    for keyword, rate in FLOOR_RATE_TABLE.items():
-        if keyword in industry_name:
-            return rate
-    return DEFAULT_FLOOR_RATE
+from .a_value import FLOOR_RATE_TABLE, DEFAULT_FLOOR_RATE, calc_floor_rate as get_floor_rate
 
 
 def simulate_yejung(

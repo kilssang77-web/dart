@@ -1,5 +1,5 @@
 ﻿import { api } from './client'
-import type { MetaData, RecommendResult, Competitor, WatchKeyword, SystemStatus, AdminUser, RegionStat, IndustryStat, ClusterResult, ModelInfo, IndustryFilterItem, MyBidAnalysis, OverviewStatsWithChange, CollectionLogOut } from '../types'
+import type { MetaData, RecommendResult, Competitor, WatchKeyword, SystemStatus, AdminUser, RegionStat, IndustryStat, ClusterResult, ModelInfo, IndustryFilterItem, MyBidAnalysis, OverviewStatsWithChange, CollectionLogOut, BidRangeResponse } from '../types'
 
 type KeywordUpdateBody = Partial<Pick<WatchKeyword, 'keyword' | 'kw_type' | 'is_active' | 'note'>>
 
@@ -67,6 +67,8 @@ export const recommendApi = {
     api.get('/recommend/v2/srate-stats', { params: { agency_id: agencyId, industry_id: industryId } }).then((r) => r.data),
   yegaFrequency: (baseAmount: number, aValue?: number): Promise<import('../types').YegaFrequencyResult> =>
     api.get('/recommend/yega-frequency', { params: { base_amount: baseAmount, a_value: aValue } }).then((r) => r.data),
+  bidRange: (params: { base_amount: number; industry_id?: number; agency_id?: number; region_id?: number }): Promise<BidRangeResponse> =>
+    api.get('/recommend/bid-range', { params }).then((r) => r.data),
 }
 
 // -- 경쟁사 --------------------------------------------------

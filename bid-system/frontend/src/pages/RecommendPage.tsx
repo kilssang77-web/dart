@@ -6,7 +6,7 @@ import {
   Clock, Search, BookmarkCheck,
 } from 'lucide-react'
 import { bidsApi, recommendApi, statsApi, myBidsApi } from '@/api'
-import type { RecommendV2Result, BidDetail } from '@/types'
+import type { RecommendV2Result, BidDetail, BidRangeResponse } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -73,6 +73,31 @@ export default function RecommendPage() {
   })
   const [result, setResult] = useState<RecommendV2Result | null>(null)
   const [prefilled, setPrefilled] = useState(false)
+
+  // A값 계산 — debounce 500ms
+  const [bidRangeParams, setBidRangeParams] = useState<{
+    base_amount: number; industry_id?: number; agency_id?: number; region_id?: number
+  } | null>(null)
+  useEffect(() => {
+    const amt = Number(form.base_amount)
+    if (amt <= 0) { setBidRangeParams(null); return }
+    const t = setTimeout(() => {
+      setBidRangeParams({
+        base_amount:  amt,
+        industry_id:  Number(form.industry_id) > 0 ? Number(form.industry_id) : undefined,
+        agency_id:    Number(form.agency_id)   > 0 ? Number(form.agency_id)   : undefined,
+        region_id:    Number(form.region_id)   > 0 ? Number(form.region_id)   : undefined,
+      })
+    }, 500)
+    return () => clearTimeout(t)
+  }, [form.base_amount, form.industry_id, form.agency_id, form.region_id])
+
+  const { data: bidRange } = useQuery<BidRangeResponse>({
+    queryKey: ['bid-range', bidRangeParams],
+    queryFn: () => recommendApi.bidRange(bidRangeParams!),
+    enabled: !!bidRangeParams,
+    staleTime: 30_000,
+  })
   const [showDetail, setShowDetail] = useState(false)
   const [presets, setPresets] = useState<Preset[]>(loadPresets)
   const [presetName, setPresetName] = useState('')
@@ -429,6 +454,42 @@ export default function RecommendPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* ── A값 계산 카드 (기초금액 입력 시 실시간 표시) ── */}
+      {bidRange && (
+        <Card className="border-blue-200 bg-blue-50/40">
+          <CardHeader className="pb-2 pt-4">
+            <CardTitle className="text-sm text-blue-700">A값 계산 (예정가격 추정)</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+              <div className="space-y-0.5">
+                <p className="text-xs text-muted-foreground">A값 (예정가격 추정)</p>
+                <p className="font-mono font-semibold text-blue-800">
+                  {bidRange.a_value.toLocaleString('ko-KR')}원
+                </p>
+              </div>
+              <div className="space-y-0.5">
+                <p className="text-xs text-muted-foreground">낙찰하한가</p>
+                <p className="font-mono font-semibold text-orange-700">
+                  {bidRange.floor_price.toLocaleString('ko-KR')}원
+                </p>
+              </div>
+              <div className="space-y-0.5">
+                <p className="text-xs text-muted-foreground">낙찰하한율</p>
+                <p className="font-mono font-semibold">
+                  {(bidRange.floor_rate * 100).toFixed(3)}%
+                  {bidRange.industry_name && (
+                    <span className="text-xs font-normal text-muted-foreground ml-1">({bidRange.industry_name})</span>
+                  )}
+                </p>
+              </div>
+            </div>
+            {/* 사정율 예측 범위 P10~P90 바 */}
+            <SratePercentileBar srate={bidRange.srate_range} center={bidRange.srate_center} />
+          </CardContent>
+        </Card>
+      )}
 
       {result && (
         <div className="space-y-4">
@@ -897,4 +958,47 @@ function TrendRow({ label, value, isRate }: { label: string; value: number; unit
 function RiskBadgeSm({ level }: { level: string }) {
   const variant = level === 'HIGH' ? 'destructive' : level === 'MEDIUM' ? 'warning' : 'success'
   return <Badge variant={variant} className="text-[10px] px-1.5 py-0">{level}</Badge>
+}
+
+interface SrateRange { p10: number; p25: number; p50: number; p75: number; p90: number }
+
+function SratePercentileBar({ srate, center }: { srate: SrateRange; center: number }) {
+  const lo = srate.p10
+  const hi = srate.p90
+  const span = hi - lo || 0.001
+  const pct = (v: number) => Math.max(0, Math.min(100, ((v - lo) / span) * 100))
+  const labels: { key: keyof SrateRange; label: string; color: string }[] = [
+    { key: 'p10', label: 'P10', color: 'bg-slate-300' },
+    { key: 'p25', label: 'P25', color: 'bg-blue-300' },
+    { key: 'p75', label: 'P75', color: 'bg-blue-300' },
+    { key: 'p90', label: 'P90', color: 'bg-slate-300' },
+  ]
+  return (
+    <div className="space-y-1">
+      <p className="text-xs text-muted-foreground">사정율 예측 범위 (P10 ~ P90)</p>
+      <div className="relative h-6 bg-slate-100 rounded-full overflow-hidden">
+        {/* P10~P90 범위 배경 */}
+        <div className="absolute h-full bg-slate-200 rounded-full" style={{ left: '0%', width: '100%' }} />
+        {/* P25~P75 내부 구간 */}
+        <div
+          className="absolute h-full bg-blue-100 rounded-full"
+          style={{ left: `${pct(srate.p25)}%`, width: `${pct(srate.p75) - pct(srate.p25)}%` }}
+        />
+        {/* 중앙값 마커 */}
+        <div
+          className="absolute top-0 h-full w-1 bg-blue-600 rounded"
+          style={{ left: `${pct(center)}%`, transform: 'translateX(-50%)' }}
+        />
+      </div>
+      <div className="flex justify-between text-xs text-muted-foreground">
+        {labels.map(({ key, label }) => (
+          <span key={key}>{label}: {(srate[key] * 100).toFixed(3)}%</span>
+        ))}
+      </div>
+      <p className="text-xs text-center text-blue-700 font-medium">
+        예측 중앙값 {(center * 100).toFixed(3)}%
+        (A값 = 기초금액 × {(center * 100).toFixed(3)}%)
+      </p>
+    </div>
+  )
 }

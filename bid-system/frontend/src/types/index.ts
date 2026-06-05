@@ -539,3 +539,20 @@ export interface PersonalCorrection {
   narrative:         string
 }
 
+// ── A값·낙찰하한가 ─────────────────────────────────────────
+
+export interface BidRangeResponse {
+  a_value:      number
+  floor_price:  number
+  floor_rate:   number
+  srate_center: number
+  srate_range: {
+    p10: number
+    p25: number
+    p50: number
+    p75: number
+    p90: number
+  }
+  industry_name: string | null
+}
+

@@ -1,12 +1,15 @@
 ﻿from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from ...database import get_db
 from ...models import User
-from ...schemas import RecommendRequest, RecommendV2Request
+from ...schemas import RecommendRequest, RecommendV2Request, BidRangeResponse
 from ...services import RecommendationService, HybridRecommendService
 from ...common.security import get_current_user
+from ...ml.assessment import load_srate_stats, predict_srate
+from ...ml.a_value import calc_bid_range
 
 router = APIRouter(prefix="/recommend", tags=["AI 추천"])
 svc    = RecommendationService()
@@ -125,6 +128,54 @@ def srate_stats(
         }
         for r in rows
     ]
+
+
+@router.get("/bid-range", response_model=BidRangeResponse)
+def bid_range(
+    base_amount:  int           = Query(..., gt=0, description="기초금액 (원)"),
+    industry_id:  Optional[int] = Query(None, description="공종 ID"),
+    agency_id:    Optional[int] = Query(None, description="발주처 ID"),
+    region_id:    Optional[int] = Query(None, description="지역 ID"),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """A값·낙찰하한가 자동 계산 (기초금액 + 사정율 예측 기반)."""
+    features_a = load_srate_stats(
+        db,
+        agency_id   or 0,
+        industry_id or 0,
+        region_id   or 0,
+        base_amount,
+    )
+    ep = predict_srate(features_a, base_amount)
+    srate_c   = ep["srate_range"]["center"]
+    srate_std = (
+        features_a.get("agency_srate_std")
+        or features_a.get("global_srate_std")
+        or 0.012
+    )
+
+    industry_name = ""
+    if industry_id:
+        row = db.execute(
+            text("SELECT name FROM industries WHERE id = :id"),
+            {"id": industry_id},
+        ).fetchone()
+        if row:
+            industry_name = row[0]
+
+    result = calc_bid_range(
+        base_amount   = base_amount,
+        srate_center  = srate_c,
+        srate_std     = srate_std,
+        industry_name = industry_name,
+        srate_p10     = ep["srate_range"]["p10"],
+        srate_p25     = ep["srate_range"]["lower"],
+        srate_p75     = ep["srate_range"]["upper"],
+        srate_p90     = ep["srate_range"]["p90"],
+    )
+    result["industry_name"] = industry_name
+    return result
 
 
 @router.get("/yega-frequency")
