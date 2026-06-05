@@ -29,7 +29,7 @@
       "status": "completed",
       "summary": "GET /agencies/{id}/srate-histogram(0.005빈·평균/중앙/하한 기준선·P10~P90·6/12/24개월 토글), GET /agencies/{id}/recent-results(개찰일순 낙찰사정율+경쟁사수), AgencyDetailPage 탭 구조(개요/공고목록/심층분석) 추가, 히스토그램+개찰타임라인(추세선)+백분위수 요약 카드 구현, 단위 테스트 10건 추가",
       "started_at": "2026-06-06T01:43:11+0900",
-      "completed_at": "2026-06-06T02:15:00+0900"
+      "completed_at": "2026-06-06T01:55:18+0900"
     },
     {
       "step": 4,
