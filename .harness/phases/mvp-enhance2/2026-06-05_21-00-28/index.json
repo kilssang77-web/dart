@@ -48,7 +48,7 @@
       "file": "step5.md",
       "status": "completed",
       "started_at": "2026-06-05T21:46:08+0900",
-      "completed_at": "2026-06-05T22:10:00+0900",
+      "completed_at": "2026-06-05T21:53:51+0900",
       "summary": "OpportunityScoreService.get_top_recommended(7일 이내 open 공고·활성공종필터·점수정렬), GET /bids/recommended, BidRecommendItem 스키마/타입, bidsApi.recommended, DashboardPage 이번 주 추천 공고 섹션(등급뱃지·점수바·breakdown 툴팁·개찰일·기초금액·BidDetailPage 링크), 테스트 4건 전통과"
     },
     {
