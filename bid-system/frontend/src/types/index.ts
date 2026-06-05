@@ -440,6 +440,18 @@ export interface YegaChartBin {
   count: number
 }
 
+export interface YegaNumberPattern {
+  number: number
+  freq_pct: number
+}
+
+export interface AgencyYegaPattern {
+  pattern: YegaNumberPattern[]
+  top3_numbers: number[]
+  dominant_zone: string | null
+  sample_count: number
+}
+
 export interface YegaFrequencyResult {
   base_amount: number
   a_value_used: number
@@ -451,6 +463,7 @@ export interface YegaFrequencyResult {
   total_combinations: number
   recommended_rate: number
   floor_rate: number
+  agency_pattern?: AgencyYegaPattern
 }
 
 export interface OverviewStatsWithChange {

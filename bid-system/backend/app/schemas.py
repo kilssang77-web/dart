@@ -745,3 +745,15 @@ class BidRecommendItem(BaseModel):
     base_amount:     int
     score_breakdown: Optional[dict]
 
+
+class YegaNumberPattern(BaseModel):
+    number:   int
+    freq_pct: float
+
+
+class AgencyYegaPattern(BaseModel):
+    pattern:       list[YegaNumberPattern]
+    top3_numbers:  list[int]
+    dominant_zone: Optional[str]
+    sample_count:  int
+

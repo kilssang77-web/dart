@@ -67,8 +67,8 @@ export const recommendApi = {
   retrainAssessment: () => api.post('/recommend/v2/retrain-assessment').then((r) => r.data),
   srateStats: (agencyId?: number, industryId?: number) =>
     api.get('/recommend/v2/srate-stats', { params: { agency_id: agencyId, industry_id: industryId } }).then((r) => r.data),
-  yegaFrequency: (baseAmount: number, aValue?: number): Promise<import('../types').YegaFrequencyResult> =>
-    api.get('/recommend/yega-frequency', { params: { base_amount: baseAmount, a_value: aValue } }).then((r) => r.data),
+  yegaFrequency: (baseAmount: number, aValue?: number, agencyId?: number): Promise<import('../types').YegaFrequencyResult> =>
+    api.get('/recommend/yega-frequency', { params: { base_amount: baseAmount, a_value: aValue, agency_id: agencyId } }).then((r) => r.data),
   bidRange: (params: { base_amount: number; industry_id?: number; agency_id?: number; region_id?: number }): Promise<BidRangeResponse> =>
     api.get('/recommend/bid-range', { params }).then((r) => r.data),
   prism: (body: { agency_id: number; industry_id: number; region_id: number; base_amount: number; min_bid_rate?: number }): Promise<PrismResponse> =>

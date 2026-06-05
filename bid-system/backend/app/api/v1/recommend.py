@@ -5,8 +5,8 @@ from sqlalchemy import text
 
 from ...database import get_db
 from ...models import User
-from ...schemas import RecommendRequest, RecommendV2Request, BidRangeResponse, PrismResponse
-from ...services import RecommendationService, HybridRecommendService
+from ...schemas import RecommendRequest, RecommendV2Request, BidRangeResponse, PrismResponse, AgencyYegaPattern
+from ...services import RecommendationService, HybridRecommendService, AgencyYegaService
 from ...common.security import get_current_user
 from ...ml.assessment import load_srate_stats, predict_srate
 from ...ml.a_value import calc_bid_range
@@ -226,6 +226,8 @@ def prism(
 def yega_frequency(
     base_amount: int = Query(..., description="기초금액 (원)", gt=0),
     a_value: Optional[int] = Query(None, description="A값/예비가격 기초금액 (원). 미입력 시 기초금액 기반 추정"),
+    agency_id: Optional[int] = Query(None, description="발주처 ID. 입력 시 발주처 특화 패턴 포함"),
+    db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     """
@@ -233,7 +235,13 @@ def yega_frequency(
 
     A값 ±2% 범위의 15개 예비가격 후보에서 4개를 추첨할 때
     나올 수 있는 1,365가지 평균(예정가격)의 빈도 분포를 반환.
-    가장 자주 나오는 구간 = 예정가격 집중 구간.
+    agency_id 입력 시 발주처 과거 낙찰 패턴을 추가 분석.
     """
     from ...ml.yega import calc_yega_frequency
-    return calc_yega_frequency(base_amount=base_amount, a_value=a_value)
+    result = calc_yega_frequency(base_amount=base_amount, a_value=a_value)
+
+    if agency_id:
+        agency_pattern = AgencyYegaService(db).get_pattern(agency_id)
+        result["agency_pattern"] = agency_pattern
+
+    return result

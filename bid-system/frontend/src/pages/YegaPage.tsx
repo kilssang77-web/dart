@@ -1,18 +1,18 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, ReferenceLine,
 } from 'recharts'
-import { TrendingUp, Info, Trophy, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react'
+import { TrendingUp, Info, Trophy, AlertTriangle, ChevronDown, ChevronUp, Building2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { recommendApi } from '@/api'
-import type { YegaFrequencyResult } from '@/types'
+import { recommendApi, agenciesApi } from '@/api'
+import type { YegaFrequencyResult, AgencyYegaPattern } from '@/types'
 
 /*
  * 예가 빈도 분석 (복수예가 Prism형)
@@ -287,17 +287,103 @@ function ResultPanel({ result, baseAmount }: { result: YegaFrequencyResult; base
   )
 }
 
+const ZONE_LABEL: Record<string, string> = {
+  low:  '저번호 집중 (1~5번)',
+  mid:  '중간번호 집중 (6~10번)',
+  high: '고번호 집중 (11~15번)',
+}
+
+function AgencyPatternPanel({ pattern }: { pattern: AgencyYegaPattern }) {
+  if (pattern.sample_count === 0) {
+    return (
+      <Card className="border-amber-200 bg-amber-50/40">
+        <CardContent className="pt-4 text-sm text-amber-700">
+          이 발주처의 최근 낙찰 데이터가 없습니다. 전체 분포를 참고하세요.
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const top3Set = new Set(pattern.top3_numbers)
+  const displayRows = pattern.pattern.slice(0, 15)
+
+  return (
+    <Card className="border-2 border-indigo-200 bg-indigo-50/20">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Building2 className="h-4 w-4 text-indigo-600" />
+          발주처 특화 패턴 — 상위 번호 하이라이트
+        </CardTitle>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-muted-foreground">
+            분석 표본: {pattern.sample_count}건
+          </span>
+          {pattern.dominant_zone && (
+            <Badge variant="outline" className="text-xs border-indigo-400 text-indigo-700">
+              {ZONE_LABEL[pattern.dominant_zone] ?? pattern.dominant_zone}
+            </Badge>
+          )}
+          <div className="flex gap-1">
+            {pattern.top3_numbers.map((n, i) => (
+              <Badge key={i} className={cn('text-xs font-mono', i === 0 ? 'bg-indigo-600' : 'bg-indigo-400')}>
+                #{n}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-5 gap-1.5">
+          {displayRows.map((row) => (
+            <div
+              key={row.number}
+              className={cn(
+                'rounded p-2 text-center text-xs border',
+                top3Set.has(row.number)
+                  ? 'bg-indigo-100 border-indigo-400 font-bold'
+                  : 'bg-muted/30 border-transparent',
+              )}
+            >
+              <p className={cn('text-muted-foreground', top3Set.has(row.number) && 'text-indigo-700')}>
+                #{row.number}
+              </p>
+              <p className={cn('font-mono', top3Set.has(row.number) ? 'text-indigo-800 text-sm' : 'text-xs')}>
+                {row.freq_pct.toFixed(1)}%
+              </p>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          번호 = 예비가격 후보 인덱스 (1: A값 -2% / 15: A값 +2%). 진한 파랑 = 상위 3개.
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function YegaPage() {
   const [baseAmount, setBaseAmount] = useState('')
   const [aValue, setAValue]         = useState('')
+  const [agencyId, setAgencyId]     = useState<number | undefined>()
   const [enabled, setEnabled]       = useState(false)
 
   const base = parseWon(baseAmount)
   const a    = aValue ? parseWon(aValue) : undefined
 
+  const { data: agencies } = useQuery<{ items: { id: number; name: string }[]; total: number }>({
+    queryKey:  ['agencies-list'],
+    queryFn:   () => agenciesApi.list({ size: 200 }),
+    staleTime: 300_000,
+  })
+
+  const agencyOptions = useMemo(
+    () => agencies?.items ?? [],
+    [agencies],
+  )
+
   const { data, isFetching, error } = useQuery<YegaFrequencyResult>({
-    queryKey:  ['yega-frequency', base, a],
-    queryFn:   () => recommendApi.yegaFrequency(base, a),
+    queryKey:  ['yega-frequency', base, a, agencyId],
+    queryFn:   () => recommendApi.yegaFrequency(base, a, agencyId),
     enabled:   enabled && base > 0,
     staleTime: 60_000,
   })
@@ -365,6 +451,24 @@ export default function YegaPage() {
             </div>
           </div>
 
+          <div className="space-y-2">
+            <Label className="flex items-center gap-1">
+              <Building2 className="h-3.5 w-3.5" />
+              발주처
+              <span className="ml-1 text-xs text-muted-foreground">(선택 — 발주처 특화 패턴 분석)</span>
+            </Label>
+            <select
+              className="w-full border rounded-md px-3 py-2 text-sm bg-background"
+              value={agencyId ?? ''}
+              onChange={(e) => { setAgencyId(e.target.value ? Number(e.target.value) : undefined); setEnabled(false) }}
+            >
+              <option value="">전체 (발주처 미선택)</option>
+              {agencyOptions.map((ag) => (
+                <option key={ag.id} value={ag.id}>{ag.name}</option>
+              ))}
+            </select>
+          </div>
+
           <Button onClick={handleCalc} disabled={base <= 0} className="gap-2">
             <TrendingUp className="h-4 w-4" />
             빈도 분석 실행
@@ -393,7 +497,12 @@ export default function YegaPage() {
 
       {/* 결과 */}
       {data && !isFetching && (
-        <ResultPanel result={data} baseAmount={base} />
+        <>
+          {data.agency_pattern && (
+            <AgencyPatternPanel pattern={data.agency_pattern} />
+          )}
+          <ResultPanel result={data} baseAmount={base} />
+        </>
       )}
     </div>
   )

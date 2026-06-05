@@ -2604,3 +2604,45 @@ class G2BSyncService:
         logger.info("G2B 자동 연계: won=%d, lost=%d, skipped=%d", won, lost, skipped)
         return {"won": won, "lost": lost, "skipped": skipped}
 
+
+class AgencyYegaService:
+    """발주처 특화 예가 번호 빈도 패턴 분석."""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_pattern(self, agency_id: int, industry_id: Optional[int] = None, months: int = 12) -> dict:
+        from .ml.yega import get_agency_yega_pattern
+
+        cutoff = datetime.utcnow() - timedelta(days=months * 30)
+
+        query = (
+            self.db.query(
+                BidResult.assessment_rate,
+                Bid.base_amount,
+                Bid.a_value,
+            )
+            .join(Bid, BidResult.bid_id == Bid.id)
+            .filter(
+                Bid.agency_id == agency_id,
+                BidResult.assessment_rate.isnot(None),
+                Bid.bid_open_date >= cutoff,
+            )
+        )
+
+        if industry_id:
+            query = query.filter(Bid.industry_id == industry_id)
+
+        rows = query.limit(500).all()
+
+        bid_data = [
+            {
+                "assessment_rate": float(r.assessment_rate),
+                "base_amount":     int(r.base_amount),
+                "a_value":         int(r.a_value) if r.a_value else None,
+            }
+            for r in rows
+        ]
+
+        return get_agency_yega_pattern(bid_data)
+
