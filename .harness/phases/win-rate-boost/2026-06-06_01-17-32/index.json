@@ -1,4 +1,4 @@
-﻿{
+{
   "task": "win-rate-boost",
   "run_id": "2026-06-06_01-17-32",
   "stage": "mvp",
@@ -45,7 +45,7 @@
       "status": "completed",
       "summary": "ml/competitor_predict.py(predict_participation agency/industry 3단계 fallback 참여율, predict_bid_zone base_ratio 0.005버킷 히스토그램), CompetitorPredictService, GET /competitors/{id}/predict?bid_id={bid_id}, CompetitorPage 예측탭(참여확률+투찰구간BarChart+피크구간 회피뱃지)+공고선택 드롭다운+이 공고 경쟁사 분석 Dialog(상위5개 일괄예측), 단위 테스트 16건 추가",
       "started_at": "2026-06-06T02:10:00+0900",
-      "completed_at": "2026-06-06T02:30:00+0900"
+      "completed_at": "2026-06-06T02:23:30+0900"
     },
     {
       "step": 6,
