@@ -3,10 +3,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
   Sparkles, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp,
-  Clock, Search, BookmarkCheck,
+  Clock, Search, BookmarkCheck, Zap,
 } from 'lucide-react'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { bidsApi, recommendApi, statsApi, myBidsApi } from '@/api'
-import type { RecommendV2Result, BidDetail, BidRangeResponse, SrateTrendResponse } from '@/types'
+import type { RecommendV2Result, BidDetail, BidRangeResponse, SrateTrendResponse, PrismResponse } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -73,6 +74,8 @@ export default function RecommendPage() {
   })
   const [result, setResult] = useState<RecommendV2Result | null>(null)
   const [prefilled, setPrefilled] = useState(false)
+  const [showPrism, setShowPrism] = useState(false)
+  const [prismParams, setPrismParams] = useState<{ agency_id: number; industry_id: number; region_id: number; base_amount: number } | null>(null)
 
   // A값 계산 — debounce 500ms
   const [bidRangeParams, setBidRangeParams] = useState<{
@@ -161,6 +164,13 @@ export default function RecommendPage() {
       months: 24,
     }),
     enabled: !!result,
+    staleTime: 60_000,
+  })
+
+  const { data: prismData, isFetching: prismLoading } = useQuery<PrismResponse>({
+    queryKey: ['prism', prismParams],
+    queryFn: () => recommendApi.prism(prismParams!),
+    enabled: !!prismParams,
     staleTime: 60_000,
   })
 
@@ -819,6 +829,145 @@ export default function RecommendPage() {
               </Card>
             )
           })()}
+
+          {/* ── 프리즘 2.0 구간별 낙찰확률 ── */}
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <CardTitle className="text-sm flex items-center gap-1.5">
+                  <Zap className="h-4 w-4 text-orange-500" />
+                  프리즘 2.0 — 구간별 낙찰확률 히트맵
+                  <span className="text-xs font-normal text-muted-foreground">(0.860~0.930 × 0.001 = 70구간)</span>
+                </CardTitle>
+                {!showPrism ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => {
+                      setPrismParams({
+                        agency_id:   Number(form.agency_id),
+                        industry_id: Number(form.industry_id),
+                        region_id:   Number(form.region_id),
+                        base_amount: Number(form.base_amount),
+                      })
+                      setShowPrism(true)
+                    }}
+                  >
+                    프리즘 분석 실행
+                  </Button>
+                ) : (
+                  <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowPrism(false)}>
+                    닫기
+                  </Button>
+                )}
+              </div>
+            </CardHeader>
+            {showPrism && (
+              <CardContent className="space-y-4">
+                {prismLoading ? (
+                  <div className="text-xs text-muted-foreground py-4 text-center">
+                    70구간 Monte Carlo 분석 중... (20,000회 시뮬레이션)
+                  </div>
+                ) : prismData ? (
+                  <>
+                    {/* 히트맵 BarChart */}
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-2">
+                        X축: 투찰률 구간 (사정율 기준) &nbsp;|&nbsp; Y축: 낙찰확률 (%) &nbsp;|&nbsp;
+                        <span className="text-orange-600 font-medium">주황색</span>: 상위 10개 구간
+                      </p>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <BarChart data={prismData.zones} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} barSize={6}>
+                          <XAxis
+                            dataKey="rate"
+                            tickFormatter={(v: number) => `${(v * 100).toFixed(1)}`}
+                            tick={{ fontSize: 9 }}
+                            interval={4}
+                            tickLine={false}
+                            axisLine={false}
+                          />
+                          <YAxis
+                            tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`}
+                            tick={{ fontSize: 9 }}
+                            width={36}
+                            tickLine={false}
+                            axisLine={false}
+                          />
+                          <Tooltip
+                            formatter={(v: number, _: string, props: { payload?: { floor_ok?: boolean } }) => [
+                              `${(v * 100).toFixed(2)}%`,
+                              props.payload?.floor_ok ? '낙찰확률' : '낙찰확률 (하한 미달)',
+                            ]}
+                            labelFormatter={(label: number) => `투찰률 ${(label * 100).toFixed(3)}%`}
+                          />
+                          <Bar dataKey="win_prob" radius={[2, 2, 0, 0]}>
+                            {prismData.zones.map((z, i) => {
+                              const isTop10 = prismData.top10.some((t) => t.rate === z.rate)
+                              return (
+                                <Cell
+                                  key={i}
+                                  fill={
+                                    !z.floor_ok ? '#e2e8f0' :
+                                    isTop10     ? '#f97316' :
+                                                  '#93c5fd'
+                                  }
+                                />
+                              )
+                            })}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    {/* 상위 10개 구간 테이블 */}
+                    <div>
+                      <p className="text-xs font-semibold text-orange-700 mb-2">
+                        낙찰확률 상위 10개 구간
+                        <span className="font-normal text-muted-foreground ml-2">
+                          (floor_ok 구간만, inpo21c 실증분포 기반)
+                        </span>
+                      </p>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-10">순위</TableHead>
+                            <TableHead>투찰률</TableHead>
+                            <TableHead className="text-right">낙찰확률</TableHead>
+                            <TableHead className="text-right">투찰금액</TableHead>
+                            <TableHead className="text-right">예상순위</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {prismData.top10.map((z, idx) => (
+                            <TableRow key={z.rate} className={idx === 0 ? 'bg-orange-50 font-medium' : ''}>
+                              <TableCell className="text-center font-mono text-muted-foreground">{idx + 1}</TableCell>
+                              <TableCell className="font-mono font-semibold text-orange-700">
+                                {(z.rate * 100).toFixed(3)}%
+                              </TableCell>
+                              <TableCell className="text-right font-mono">
+                                {(z.win_prob * 100).toFixed(2)}%
+                              </TableCell>
+                              <TableCell className="text-right text-sm">
+                                {z.amount.toLocaleString('ko-KR')}원
+                              </TableCell>
+                              <TableCell className="text-right text-muted-foreground">
+                                {z.rank_est.toFixed(1)}위
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                      <p className="text-[11px] text-muted-foreground mt-1.5">
+                        총 {prismData.scan_meta.total_zones}구간 스캔 · 유효구간 {prismData.scan_meta.floor_ok_count}개 ·
+                        공종 {prismData.scan_meta.industry_name || '미지정'}
+                      </p>
+                    </div>
+                  </>
+                ) : null}
+              </CardContent>
+            )}
+          </Card>
 
           {/* ── 유사 사례 ── */}
           {result.similar_cases.length > 0 && (

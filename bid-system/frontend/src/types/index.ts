@@ -555,6 +555,30 @@ export interface TopSrateTrend extends SrateTrendResponse {
   agency_name: string
 }
 
+// ── 프리즘 2.0 ────────────────────────────────────────────
+
+export interface PrismZone {
+  rate: number
+  win_prob: number
+  floor_ok: boolean
+  amount: number
+  rank_est: number
+}
+
+export interface PrismResponse {
+  zones: PrismZone[]
+  top10: PrismZone[]
+  scan_meta: {
+    scan_start: number
+    scan_end: number
+    scan_step: number
+    total_zones: number
+    floor_ok_count: number
+    top_n: number
+    industry_name: string
+  }
+}
+
 // ── A값·낙찰하한가 ─────────────────────────────────────────
 
 export interface BidRangeResponse {

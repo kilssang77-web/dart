@@ -5,7 +5,7 @@ from sqlalchemy import text
 
 from ...database import get_db
 from ...models import User
-from ...schemas import RecommendRequest, RecommendV2Request, BidRangeResponse
+from ...schemas import RecommendRequest, RecommendV2Request, BidRangeResponse, PrismResponse
 from ...services import RecommendationService, HybridRecommendService
 from ...common.security import get_current_user
 from ...ml.assessment import load_srate_stats, predict_srate
@@ -176,6 +176,50 @@ def bid_range(
     )
     result["industry_name"] = industry_name
     return result
+
+
+@router.post("/prism", response_model=PrismResponse)
+def prism(
+    body: RecommendV2Request,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """
+    프리즘 2.0 — 0.860~0.930 구간을 0.001 단위로 스캔(70구간).
+    inpo21c 실증 분포 기반 Monte Carlo 낙찰확률 계산, 상위 10개 구간 반환.
+    """
+    from ...ml.prism import scan_prism_zones, SCAN_START, SCAN_END, SCAN_STEP, TOP_N
+
+    industry_name = ""
+    if body.industry_id:
+        row = db.execute(
+            text("SELECT name FROM industries WHERE id = :id"),
+            {"id": body.industry_id},
+        ).fetchone()
+        if row:
+            industry_name = row[0]
+
+    all_zones, top10 = scan_prism_zones(
+        base_amount   = body.base_amount,
+        industry_name = industry_name,
+        agency_id     = body.agency_id,
+        industry_id   = body.industry_id,
+        db            = db,
+    )
+
+    return {
+        "zones": all_zones,
+        "top10": top10,
+        "scan_meta": {
+            "scan_start":      SCAN_START,
+            "scan_end":        SCAN_END,
+            "scan_step":       SCAN_STEP,
+            "total_zones":     len(all_zones),
+            "floor_ok_count":  sum(1 for z in all_zones if z["floor_ok"]),
+            "top_n":           TOP_N,
+            "industry_name":   industry_name,
+        },
+    }
 
 
 @router.get("/yega-frequency")

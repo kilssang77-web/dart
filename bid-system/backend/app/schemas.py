@@ -674,6 +674,21 @@ class DefeatAnalysisResponse(BaseModel):
     win_zone:         Optional[dict] = None
     total_analyzed:   int
 
+# ── 프리즘 2.0 스키마 ────────────────────────────────────
+
+class PrismZone(BaseModel):
+    rate:     float
+    win_prob: float
+    floor_ok: bool
+    amount:   int
+    rank_est: float
+
+class PrismResponse(BaseModel):
+    zones:     List[PrismZone]
+    top10:     List[PrismZone]
+    scan_meta: dict
+
+
 # ── ⑧ 공고 자동 평가 점수 스키마 ───────────────────────────
 
 class ScoreComponent(BaseModel):
