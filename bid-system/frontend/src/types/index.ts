@@ -659,3 +659,24 @@ export interface BidRangeResponse {
   industry_name: string | null
 }
 
+// ── 공동도급 적격심사 AI 매칭 ───────────────────────────────────
+
+export interface JointPartnerItem {
+  competitor_id:    number
+  name:             string
+  biz_reg_no:       string | null
+  joint_min_rate:   number
+  qualification_ok: boolean
+  win_rate:         number
+  total_bids:       number
+  avg_bid_rate:     number | null
+  compat_score:     number
+}
+
+export interface JointPartnersResponse {
+  partners:       JointPartnerItem[]
+  bid_title:      string
+  base_amount:    number
+  threshold_note: string
+}
+

@@ -757,3 +757,24 @@ class AgencyYegaPattern(BaseModel):
     dominant_zone: Optional[str]
     sample_count:  int
 
+
+# ── 공동도급 적격심사 AI 매칭 스키마 ────────────────────────────
+
+class JointPartnerItem(BaseModel):
+    competitor_id:    int
+    name:             str
+    biz_reg_no:       Optional[str]
+    joint_min_rate:   float
+    qualification_ok: bool
+    win_rate:         float
+    total_bids:       int
+    avg_bid_rate:     Optional[float]
+    compat_score:     float
+
+
+class JointPartnersResponse(BaseModel):
+    partners:       List[JointPartnerItem]
+    bid_title:      str
+    base_amount:    int
+    threshold_note: str
+

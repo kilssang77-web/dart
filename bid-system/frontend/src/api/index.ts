@@ -1,5 +1,5 @@
 ﻿import { api } from './client'
-import type { MetaData, RecommendResult, Competitor, WatchKeyword, SystemStatus, AdminUser, RegionStat, IndustryStat, ClusterResult, ModelInfo, IndustryFilterItem, MyBidAnalysis, OverviewStatsWithChange, CollectionLogOut, BidRangeResponse, SrateTrendResponse, TopSrateTrend, PrismResponse, CompetitorZoneResponse, BidRecommendItem } from '../types'
+import type { MetaData, RecommendResult, Competitor, WatchKeyword, SystemStatus, AdminUser, RegionStat, IndustryStat, ClusterResult, ModelInfo, IndustryFilterItem, MyBidAnalysis, OverviewStatsWithChange, CollectionLogOut, BidRangeResponse, SrateTrendResponse, TopSrateTrend, PrismResponse, CompetitorZoneResponse, BidRecommendItem, JointPartnersResponse } from '../types'
 
 type KeywordUpdateBody = Partial<Pick<WatchKeyword, 'keyword' | 'kw_type' | 'is_active' | 'note'>>
 
@@ -45,6 +45,8 @@ export const bidsApi = {
     api.get(`/bids/${id}/opportunity-score`).then((r) => r.data),
   recommended: (limit = 5): Promise<BidRecommendItem[]> =>
     api.get('/bids/recommended', { params: { limit } }).then((r) => r.data),
+  jointPartners: (bidId: number, userTrack: number, participationRate = 0.6): Promise<JointPartnersResponse> =>
+    api.get(`/bids/${bidId}/joint-partners`, { params: { user_track: userTrack, participation_rate: participationRate } }).then((r) => r.data),
 }
 
 // -- 추천 --------------------------------------------------

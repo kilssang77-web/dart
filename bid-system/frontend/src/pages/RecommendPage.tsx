@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
   Sparkles, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp,
-  Clock, Search, BookmarkCheck, Zap,
+  Clock, Search, BookmarkCheck, Zap, FileText,
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { bidsApi, recommendApi, statsApi, myBidsApi } from '@/api'
@@ -76,6 +76,8 @@ export default function RecommendPage() {
   const [prefilled, setPrefilled] = useState(false)
   const [showPrism, setShowPrism] = useState(false)
   const [prismParams, setPrismParams] = useState<{ agency_id: number; industry_id: number; region_id: number; base_amount: number } | null>(null)
+  const [generatingPdf, setGeneratingPdf] = useState(false)
+  const reportRef = useRef<HTMLDivElement>(null)
 
   // A값 계산 — debounce 500ms
   const [bidRangeParams, setBidRangeParams] = useState<{
@@ -222,6 +224,39 @@ export default function RecommendPage() {
       setPrefilled(true)
     }
   }, [prefillBid, meta, prefilled])
+
+  const generatePdf = async () => {
+    if (!reportRef.current || !result) return
+    setGeneratingPdf(true)
+    try {
+      const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
+        import('jspdf'),
+        import('html2canvas'),
+      ])
+      const canvas = await html2canvas(reportRef.current, { scale: 2, useCORS: true, logging: false })
+      const imgData = canvas.toDataURL('image/png')
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const pageW = pdf.internal.pageSize.getWidth()
+      const pageH = pdf.internal.pageSize.getHeight()
+      const margin = 10
+      const imgW = pageW - margin * 2
+      const imgH = (canvas.height * imgW) / canvas.width
+      let remaining = imgH
+      let page = 0
+      while (remaining > 0) {
+        if (page > 0) pdf.addPage()
+        pdf.addImage(imgData, 'PNG', margin, margin - page * (pageH - margin * 2), imgW, imgH)
+        remaining -= pageH - margin * 2
+        page++
+      }
+      const dateStr = new Date().toISOString().slice(0, 10)
+      pdf.save(`입찰전략레포트_${agencySearch || '미지정'}_${dateStr}.pdf`)
+    } catch {
+      // PDF 생성 실패 시 조용히 무시
+    } finally {
+      setGeneratingPdf(false)
+    }
+  }
 
   const saveMutation = useMutation({
     mutationFn: (submittedRate: number) => myBidsApi.create({
@@ -529,6 +564,19 @@ export default function RecommendPage() {
 
       {result && (
         <div className="space-y-4">
+
+          {/* ── PDF 출력 버튼 ── */}
+          <div className="flex justify-end">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={generatingPdf}
+              onClick={generatePdf}
+            >
+              <FileText className="h-4 w-4 mr-1.5" />
+              {generatingPdf ? 'PDF 생성 중...' : '전략 레포트 출력'}
+            </Button>
+          </div>
 
           {/* ── HERO: 2-column ── */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1069,6 +1117,121 @@ export default function RecommendPage() {
               )}
             </CardContent>
           </Card>
+        </div>
+      )}
+
+      {/* ── 전략 레포트 (숨겨진 A4 레이아웃 — PDF 출력 전용) ── */}
+      {result && (
+        <div
+          ref={reportRef}
+          style={{
+            position: 'fixed', left: '-9999px', top: 0,
+            width: '595px', background: 'white',
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            padding: '24px', fontSize: '11px', color: '#1a1a1a',
+          }}
+        >
+          {/* 헤더 */}
+          <div style={{ borderBottom: '2px solid #1e40af', paddingBottom: '10px', marginBottom: '14px' }}>
+            <div style={{ fontSize: '15px', fontWeight: 'bold', color: '#1e40af' }}>입찰 전략 레포트</div>
+            <div style={{ color: '#888', marginTop: '3px', fontSize: '9px' }}>
+              생성: {new Date().toLocaleDateString('ko-KR')} | 하이브리드 AI v2
+            </div>
+          </div>
+
+          {/* 공고 정보 */}
+          <div style={{ background: '#f8fafc', borderRadius: '5px', padding: '9px', marginBottom: '10px' }}>
+            <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>공고 정보</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px', fontSize: '10px' }}>
+              <div>발주처: {agencySearch || '-'}</div>
+              <div>기초금액: {Number(form.base_amount).toLocaleString('ko-KR')}원</div>
+              <div>공종: {meta?.industries.find(i => i.id === Number(form.industry_id))?.name || '-'}</div>
+              <div>지역: {meta?.regions.find(r => r.id === Number(form.region_id))?.name || '-'}</div>
+            </div>
+          </div>
+
+          {/* ① A값·낙찰하한가 */}
+          {bidRange && (
+            <div style={{ background: '#f0f9ff', borderRadius: '5px', padding: '9px', marginBottom: '10px' }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>① A값·낙찰하한가</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '3px', fontSize: '10px' }}>
+                <div>A값: {bidRange.a_value.toLocaleString('ko-KR')}원</div>
+                <div>낙찰하한가: {bidRange.floor_price.toLocaleString('ko-KR')}원</div>
+                <div>하한율: {(bidRange.floor_rate * 100).toFixed(3)}%</div>
+              </div>
+            </div>
+          )}
+
+          {/* ② 사정율 트렌드 */}
+          {srateTrend && (
+            <div style={{ background: '#f0fdf4', borderRadius: '5px', padding: '9px', marginBottom: '10px' }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>② 사정율 트렌드</div>
+              <div style={{ fontSize: '10px' }}>
+                방향: {srateTrend.direction === 'up' ? '↑ 상승' : srateTrend.direction === 'down' ? '↓ 하락' : '→ 안정'}
+                &nbsp;&nbsp;최근 평균: {srateTrend.recent_mean ? (srateTrend.recent_mean * 100).toFixed(3) + '%' : '-'}
+                &nbsp;&nbsp;직전 평균: {srateTrend.prev_mean ? (srateTrend.prev_mean * 100).toFixed(3) + '%' : '-'}
+              </div>
+            </div>
+          )}
+
+          {/* ③ 4전략 추천요율 */}
+          <div style={{ background: '#fefce8', borderRadius: '5px', padding: '9px', marginBottom: '10px' }}>
+            <div style={{ fontWeight: 'bold', marginBottom: '7px' }}>③ 4전략 추천요율</div>
+            {[
+              { label: '공격형',     rate: result.strategies.aggressive.rate,   prob: result.win_probabilities.at_aggressive,   note: result.strategies.aggressive.note },
+              { label: '균형형(권장)', rate: result.strategies.balanced.rate,   prob: result.win_probabilities.at_balanced,     note: result.strategies.balanced.note },
+              { label: '안정형',     rate: result.strategies.conservative.rate, prob: result.win_probabilities.at_conservative, note: result.strategies.conservative.note },
+            ].map(s => (
+              <div key={s.label} style={{ display: 'flex', gap: '12px', marginBottom: '3px', padding: '3px', background: s.label.includes('권장') ? '#fef08a' : 'transparent', borderRadius: '3px' }}>
+                <div style={{ width: '90px', fontWeight: s.label.includes('권장') ? 'bold' : 'normal', fontSize: '10px' }}>{s.label}</div>
+                <div style={{ width: '65px', fontFamily: 'monospace', fontWeight: 'bold', fontSize: '10px' }}>{(s.rate * 100).toFixed(3)}%</div>
+                <div style={{ width: '75px', fontSize: '10px' }}>낙찰확률 {(s.prob * 100).toFixed(0)}%</div>
+                <div style={{ color: '#555', fontSize: '9px' }}>{s.note || ''}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* ④ 프리즘 TOP 5 */}
+          {prismData && prismData.top10.length > 0 && (
+            <div style={{ background: '#fdf4ff', borderRadius: '5px', padding: '9px', marginBottom: '10px' }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '6px' }}>④ 프리즘 2.0 TOP 5 구간</div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9px' }}>
+                <thead>
+                  <tr style={{ background: '#e9d5ff' }}>
+                    <th style={{ padding: '3px 4px', textAlign: 'left' }}>투찰률</th>
+                    <th style={{ padding: '3px 4px', textAlign: 'right' }}>낙찰확률</th>
+                    <th style={{ padding: '3px 4px', textAlign: 'right' }}>예상 투찰금액</th>
+                    <th style={{ padding: '3px 4px', textAlign: 'center' }}>하한 초과</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {prismData.top10.slice(0, 5).map((z, i) => (
+                    <tr key={i} style={{ background: i % 2 === 0 ? '#faf5ff' : 'white' }}>
+                      <td style={{ padding: '3px 4px', fontFamily: 'monospace' }}>{(z.rate * 100).toFixed(3)}%</td>
+                      <td style={{ padding: '3px 4px', textAlign: 'right' }}>{(z.win_prob * 100).toFixed(1)}%</td>
+                      <td style={{ padding: '3px 4px', textAlign: 'right' }}>{z.amount.toLocaleString('ko-KR')}원</td>
+                      <td style={{ padding: '3px 4px', textAlign: 'center' }}>{z.floor_ok ? '✓' : '✗'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* ⑤ 리스크 요약 */}
+          <div style={{ background: '#fff1f2', borderRadius: '5px', padding: '9px', marginBottom: '10px' }}>
+            <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>⑤ 리스크 요약</div>
+            <div style={{ fontSize: '10px', marginBottom: '4px' }}>
+              등급: <strong>{result.risk.level}</strong>&nbsp;&nbsp;점수: {result.risk.score}
+            </div>
+            {result.risk.factors.slice(0, 3).map((f, i) => (
+              <div key={i} style={{ color: '#666', fontSize: '9px', marginTop: '2px' }}>· {f}</div>
+            ))}
+          </div>
+
+          <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '7px', color: '#aaa', fontSize: '8px', textAlign: 'center' }}>
+            본 레포트는 AI 시뮬레이션 기반 참고 자료입니다. 실제 투찰 결정은 담당자의 판단을 따르세요.
+          </div>
         </div>
       )}
     </div>

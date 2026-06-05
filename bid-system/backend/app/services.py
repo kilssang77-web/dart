@@ -2646,3 +2646,103 @@ class AgencyYegaService:
 
         return get_agency_yega_pattern(bid_data)
 
+
+# ==================================================
+# 공동도급 적격심사 매칭 서비스
+# ==================================================
+
+class JointQualService:
+    """공동도급 파트너 적격심사 AI 매칭.
+    경쟁사 DB 기반으로 협정 가능 업체를 탐색하고 적격 여부를 추정한다.
+    실제 실적 데이터 없이 낙찰 이력을 프록시로 사용하는 간소화 모델.
+    """
+
+    _MIN_PARTNER_RATE = 0.30  # 부계약자 최소 참여지분율 (건설산업기본법)
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def find_matching_partners(
+        self,
+        bid_id: int,
+        user_track_amount: float,
+        participation_rate: float = 0.6,
+    ) -> dict:
+        from fastapi import HTTPException
+        from sqlalchemy import func as sqlfunc
+
+        bid = self.db.query(Bid).filter(Bid.id == bid_id).first()
+        if not bid:
+            raise HTTPException(status_code=404, detail="공고를 찾을 수 없습니다")
+
+        base_amount = bid.base_amount or 0
+        min_bid_rate = float(bid.min_bid_rate or 0.87745)
+        partner_rate = max(1.0 - participation_rate, self._MIN_PARTNER_RATE)
+        min_bid_amount = int(base_amount * min_bid_rate * participation_rate)
+
+        threshold_note = (
+            f"기초금액 {base_amount:,}원 기준 — "
+            f"파트너 최소 지분 {partner_rate:.0%}, "
+            f"귀사 최소 투찰금액 약 {min_bid_amount:,}원"
+        )
+
+        # 최근 24개월 CompetitorStat 집계
+        cutoff_year = (datetime.now() - timedelta(days=730)).year
+        stats_subq = (
+            self.db.query(
+                CompetitorStat.competitor_id,
+                sqlfunc.sum(CompetitorStat.total_bid_count).label("total_bids"),
+                sqlfunc.sum(CompetitorStat.win_count).label("win_count"),
+                sqlfunc.avg(CompetitorStat.avg_bid_rate).label("avg_rate"),
+            )
+            .filter(CompetitorStat.period_year >= cutoff_year)
+            .group_by(CompetitorStat.competitor_id)
+            .subquery()
+        )
+
+        rows = (
+            self.db.query(Competitor, stats_subq)
+            .outerjoin(stats_subq, Competitor.id == stats_subq.c.competitor_id)
+            .limit(500)
+            .all()
+        )
+
+        partners = []
+        for competitor, stats_row in rows:
+            total_bids = int(stats_row.total_bids or 0) if stats_row else 0
+            win_count  = int(stats_row.win_count  or 0) if stats_row else 0
+            avg_rate   = float(stats_row.avg_rate or 0) if stats_row else 0.0
+
+            win_rate = win_count / total_bids if total_bids > 0 else 0.0
+
+            # 적격심사 통과 예상: 낙찰 이력 존재 + 최소 입찰 건수 기준
+            qualification_ok = win_count >= 1 and total_bids >= 3
+
+            # 궁합 점수 (안정성·실적·활동성)
+            stability  = 40.0 if qualification_ok else 8.0
+            perf       = min(win_rate / 0.3, 1.0) * 25
+            activity   = min(total_bids / 50, 1.0) * 15
+            compat     = round(stability + perf + activity, 1)
+
+            partners.append({
+                "competitor_id":    competitor.id,
+                "name":             competitor.name,
+                "biz_reg_no":       competitor.biz_reg_no,
+                "joint_min_rate":   round(partner_rate, 2),
+                "qualification_ok": qualification_ok,
+                "win_rate":         round(win_rate, 4),
+                "total_bids":       total_bids,
+                "avg_bid_rate":     round(avg_rate, 4) if avg_rate else None,
+                "compat_score":     compat,
+            })
+
+        # 적격 업체 우선, 궁합 점수 내림차순 정렬
+        partners.sort(key=lambda x: (-int(x["qualification_ok"]), -x["compat_score"]))
+        partners = partners[:50]
+
+        return {
+            "partners":       partners,
+            "bid_title":      bid.title,
+            "base_amount":    base_amount,
+            "threshold_note": threshold_note,
+        }

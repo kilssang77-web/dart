@@ -5,8 +5,8 @@ from datetime import date
 
 from ...database import get_db
 from ...models import User, Agency, Industry, Region
-from ...schemas import BidCreate, BidResultCreate, BookmarkResponse, OpportunityScoreResponse, BidRecommendItem
-from ...services import BidService, BookmarkService, get_active_industry_ids, OpportunityScoreService
+from ...schemas import BidCreate, BidResultCreate, BookmarkResponse, OpportunityScoreResponse, BidRecommendItem, JointPartnersResponse
+from ...services import BidService, BookmarkService, get_active_industry_ids, OpportunityScoreService, JointQualService
 from ...common.security import get_current_user
 
 router = APIRouter(prefix="/bids", tags=["입찰"])
@@ -128,3 +128,14 @@ def opportunity_score(
     user: User = Depends(get_current_user),
 ):
     return OpportunityScoreService(db).score(bid_id, user.id)
+
+
+@router.get("/{bid_id}/joint-partners", response_model=JointPartnersResponse)
+def joint_partners(
+    bid_id: int,
+    user_track: float = Query(0, ge=0, description="귀사 보유 실적금액(원)"),
+    participation_rate: float = Query(0.6, ge=0.1, le=1.0, description="귀사 참여지분율"),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    return JointQualService(db).find_matching_partners(bid_id, user_track, participation_rate)

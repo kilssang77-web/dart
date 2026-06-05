@@ -1,11 +1,11 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Handshake, Search, Shield, TrendingUp, Activity, Award, ChevronDown, ChevronUp } from 'lucide-react'
+import { Handshake, Search, Shield, TrendingUp, Activity, Award, ChevronDown, ChevronUp, CheckCircle2, XCircle, Zap } from 'lucide-react'
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer,
 } from 'recharts'
 import { competitorsApi, bidsApi } from '@/api'
-import type { Competitor, MetaData } from '@/types'
+import type { Competitor, MetaData, JointPartnersResponse } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -91,10 +91,23 @@ export default function JointBidPage() {
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 20
 
+  // 공고 연계 AI 매칭
+  const [aiBidId, setAiBidId] = useState('')
+  const [aiUserTrack, setAiUserTrack] = useState('500000000')
+  const [aiPartRate, setAiPartRate] = useState('60')
+  const [aiQueryKey, setAiQueryKey] = useState<{ bidId: number; track: number; rate: number } | null>(null)
+
   const { data: meta } = useQuery<MetaData>({
     queryKey: ['meta'],
     queryFn: bidsApi.meta,
     staleTime: 300_000,
+  })
+
+  const { data: aiResult, isLoading: aiLoading, error: aiError } = useQuery<JointPartnersResponse>({
+    queryKey: ['joint-partners', aiQueryKey],
+    queryFn: () => bidsApi.jointPartners(aiQueryKey!.bidId, aiQueryKey!.track, aiQueryKey!.rate / 100),
+    enabled: !!aiQueryKey,
+    staleTime: 60_000,
   })
 
   // 전체 경쟁사 목록 (최대 200건)
@@ -144,6 +157,128 @@ export default function JointBidPage() {
           경쟁사 데이터 기반 잠재 협력사 궁합 분석 — 안정성·실적·일관성·활동성 종합 평가
         </p>
       </div>
+
+      {/* 공고 연계 적격심사 AI 매칭 */}
+      <Card className="border-primary/40">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Zap className="h-4 w-4 text-primary" />
+            공고 연계 적격심사 AI 매칭
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">공고 ID</Label>
+              <Input
+                placeholder="예: 12345"
+                value={aiBidId}
+                onChange={(e) => setAiBidId(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const id = parseInt(aiBidId)
+                    if (!isNaN(id) && id > 0) setAiQueryKey({ bidId: id, track: Number(aiUserTrack), rate: Number(aiPartRate) })
+                  }
+                }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">귀사 실적금액 (원)</Label>
+              <Input
+                type="number"
+                placeholder="예: 500000000"
+                value={aiUserTrack}
+                onChange={(e) => setAiUserTrack(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">귀사 참여지분율 (%)</Label>
+              <Select value={aiPartRate} onValueChange={setAiPartRate}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="50">50%</SelectItem>
+                  <SelectItem value="60">60%</SelectItem>
+                  <SelectItem value="70">70%</SelectItem>
+                  <SelectItem value="80">80%</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-end">
+              <Button
+                size="sm"
+                className="w-full"
+                disabled={!aiBidId || isNaN(parseInt(aiBidId)) || aiLoading}
+                onClick={() => {
+                  const id = parseInt(aiBidId)
+                  if (!isNaN(id) && id > 0) setAiQueryKey({ bidId: id, track: Number(aiUserTrack), rate: Number(aiPartRate) })
+                }}
+              >
+                {aiLoading ? '분석 중...' : '적격심사 AI 매칭'}
+              </Button>
+            </div>
+          </div>
+
+          {aiError && (
+            <p className="text-xs text-destructive">공고를 찾을 수 없습니다. 공고 ID를 확인하세요.</p>
+          )}
+
+          {aiResult && (
+            <div className="space-y-3">
+              <div className="text-xs text-muted-foreground bg-muted/40 rounded px-3 py-2">
+                <strong className="text-foreground">{aiResult.bid_title}</strong>
+                <span className="mx-2">|</span>
+                {aiResult.threshold_note}
+              </div>
+              {aiResult.partners.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">매칭 가능한 업체가 없습니다.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>업체명</TableHead>
+                      <TableHead>사업자번호</TableHead>
+                      <TableHead className="text-center">적격 예상</TableHead>
+                      <TableHead className="text-right">파트너 지분</TableHead>
+                      <TableHead className="text-right">낙찰률</TableHead>
+                      <TableHead className="text-right">궁합점수</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {aiResult.partners.slice(0, 20).map((p) => (
+                      <TableRow key={p.competitor_id}>
+                        <TableCell className="font-medium text-sm">{p.name}</TableCell>
+                        <TableCell className="text-xs font-mono text-muted-foreground">{p.biz_reg_no ?? '-'}</TableCell>
+                        <TableCell className="text-center">
+                          {p.qualification_ok
+                            ? <CheckCircle2 className="h-4 w-4 text-green-600 mx-auto" />
+                            : <XCircle className="h-4 w-4 text-red-400 mx-auto" />}
+                        </TableCell>
+                        <TableCell className="text-right text-xs font-mono">
+                          {(p.joint_min_rate * 100).toFixed(0)}% 이상
+                        </TableCell>
+                        <TableCell className="text-right text-xs font-mono">
+                          {(p.win_rate * 100).toFixed(1)}%
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <span className={cn(
+                            'text-xs font-bold',
+                            p.compat_score >= 60 ? 'text-green-700' : p.compat_score >= 40 ? 'text-yellow-700' : 'text-muted-foreground'
+                          )}>
+                            {p.compat_score}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+              {aiResult.partners.length > 20 && (
+                <p className="text-xs text-muted-foreground text-center">상위 20개사 표시 (전체 {aiResult.partners.length}개사)</p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* 필터 */}
       <Card>

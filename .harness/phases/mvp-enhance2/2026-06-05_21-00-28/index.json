@@ -1,4 +1,4 @@
-{
+﻿{
   "task": "mvp-enhance2",
   "runId": "2026-06-05_21-00-28",
   "branch": "feat/mvp-enhance2-2026-06-05_21-00-28",
@@ -73,7 +73,10 @@
       "step": 8,
       "name": "공동도급 적격심사 AI 매칭 + 입찰 전략 레포트 PDF",
       "file": "step8.md",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-05T22:12:00+0900",
+      "completed_at": "2026-06-05T23:05:00+0900",
+      "summary": "JointQualService.find_matching_partners(CompetitorStat 집계·적격여부·궁합점수·최소지분율), GET /bids/{id}/joint-partners, JointPartnerItem/JointPartnersResponse 스키마/타입, bidsApi.jointPartners, JointBidPage 공고연계 AI매칭 섹션(적격표시·파트너목록·threshold_note), jspdf+html2canvas 추가, RecommendPage PDF출력 버튼(generatePdf·숨겨진A4 레포트div·5섹션), 테스트 5건 전통과"
     }
   ],
   "created_at": "2026-06-05T21:00:28+09:00"
