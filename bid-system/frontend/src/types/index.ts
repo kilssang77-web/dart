@@ -567,6 +567,47 @@ export interface GapAnalysisResponse {
   total_analyzed:       number
 }
 
+// ── 자사 승률 패턴 진단 타입 ─────────────────────────────
+
+export interface WinPatternBias {
+  rate_diff_mean: number | null
+  direction: 'above' | 'below' | 'balanced'
+  signal: string
+}
+
+export interface WinPatternAgency {
+  agency_name: string
+  total: number
+  won: number
+  win_rate: number
+  avg_rate_diff: number | null
+}
+
+export interface WinPatternYear {
+  year: number
+  total: number
+  won: number
+  win_rate: number
+}
+
+export interface WinPatternLossReasons {
+  above_winner: number
+  below_floor: number
+  below_winner: number
+}
+
+export interface WinPattern {
+  total: number
+  won: number
+  lost: number
+  overall_win_rate: number
+  bias: WinPatternBias
+  by_agency: WinPatternAgency[]
+  by_industry: Record<string, unknown>[]
+  by_year: WinPatternYear[]
+  loss_reasons: WinPatternLossReasons
+}
+
 // ── 공고 자동 평가 점수 타입 ─────────────────────────────
 
 export interface ScoreComponent {

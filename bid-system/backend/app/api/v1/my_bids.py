@@ -5,8 +5,8 @@ from typing import List, Optional
 
 from ...database import get_db
 from ...models import MyBidRecord, User
-from ...schemas import MyBidRecordCreate, MyBidRecordUpdate, MyBidRecordOut, MyBidAnalysisResponse, DefeatAnalysisResponse, GapAnalysisResponse
-from ...services import MyBidAnalysisService, DefeatAnalysisService
+from ...schemas import MyBidRecordCreate, MyBidRecordUpdate, MyBidRecordOut, MyBidAnalysisResponse, DefeatAnalysisResponse, GapAnalysisResponse, WinPatternResponse
+from ...services import MyBidAnalysisService, DefeatAnalysisService, WinPatternService
 from ...common.security import get_current_user
 
 router = APIRouter(prefix="/my-bids", tags=["투찰이력"])
@@ -83,6 +83,14 @@ def gap_analysis(
     user: User = Depends(get_current_user),
 ):
     return DefeatAnalysisService(db).get_gap_distribution(user.id)
+
+
+@router.get("/win-pattern", response_model=WinPatternResponse)
+def win_pattern(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return WinPatternService(db).analyze(user.id)
 
 
 @router.post("", response_model=MyBidRecordOut, status_code=201)

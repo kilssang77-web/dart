@@ -3,10 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, CheckCircle2, XCircle, Clock, Trash2, Edit2, Search } from 'lucide-react'
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, BarChart, Bar, ReferenceLine, Cell
+  LineChart, Line, BarChart, Bar, ReferenceLine, Cell, PieChart, Pie, Legend
 } from 'recharts'
 import { myBidsApi, bidsApi } from '@/api'
-import type { MyBidRecord, MyBidAnalysis, DefeatAnalysis, GapAnalysisResponse, BidSearchItem } from '@/types'
+import type { MyBidRecord, MyBidAnalysis, DefeatAnalysis, GapAnalysisResponse, BidSearchItem, WinPattern } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -105,6 +105,12 @@ export default function MyBidsPage() {
     queryKey: ['my-bids-gap'],
     queryFn: myBidsApi.gapAnalysis,
     enabled: activeTab === 'gap',
+  })
+
+  const { data: winPattern } = useQuery<WinPattern>({
+    queryKey: ['my-bids-win-pattern'],
+    queryFn: myBidsApi.winPattern,
+    enabled: activeTab === 'performance',
   })
 
   const { data: records = [], isLoading } = useQuery<MyBidRecord[]>({
@@ -244,6 +250,7 @@ export default function MyBidsPage() {
           <TabsTrigger value="history">이력 목록</TabsTrigger>
           <TabsTrigger value="analysis">정확도 분석</TabsTrigger>
           <TabsTrigger value="gap">역산 분석</TabsTrigger>
+          <TabsTrigger value="performance">성과 분석</TabsTrigger>
         </TabsList>
 
         {/* 이력 목록 탭 */}
@@ -605,6 +612,187 @@ export default function MyBidsPage() {
             )
           ) : (
             <p className="text-sm text-muted-foreground text-center py-10">분석 데이터를 불러오는 중...</p>
+          )}
+        </TabsContent>
+
+        {/* 성과 분석 탭 */}
+        <TabsContent value="performance" className="space-y-4 mt-3">
+          {!winPattern ? (
+            <p className="text-sm text-muted-foreground text-center py-10">분석 데이터를 불러오는 중...</p>
+          ) : (
+            <>
+              {/* 편향 진단 카드 */}
+              <Card className={cn(
+                'border-2',
+                winPattern.bias.direction === 'above'
+                  ? 'border-orange-300 bg-orange-50/40'
+                  : winPattern.bias.direction === 'below'
+                  ? 'border-blue-300 bg-blue-50/40'
+                  : 'border-border bg-muted/20'
+              )}>
+                <CardContent className="pt-5 pb-5">
+                  <div className="flex items-start gap-4">
+                    <div className={cn(
+                      'text-4xl leading-none select-none',
+                      winPattern.bias.direction === 'above' ? 'text-orange-500' : winPattern.bias.direction === 'below' ? 'text-blue-500' : 'text-muted-foreground'
+                    )}>
+                      {winPattern.bias.direction === 'above' ? '▲' : winPattern.bias.direction === 'below' ? '▼' : '—'}
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-xs text-muted-foreground mb-1">투찰 편향 진단</p>
+                      <p className="text-xl font-bold mb-1">{winPattern.bias.signal}</p>
+                      <div className="flex flex-wrap gap-4 text-sm text-muted-foreground mt-2">
+                        <span>평균 rate_diff: <span className="font-mono font-semibold">
+                          {winPattern.bias.rate_diff_mean != null
+                            ? `${winPattern.bias.rate_diff_mean > 0 ? '+' : ''}${(winPattern.bias.rate_diff_mean * 100).toFixed(3)}%p`
+                            : '-'}
+                        </span></span>
+                        <span>총 {winPattern.total}건 중 낙찰 {winPattern.won}건 ({winPattern.overall_win_rate.toFixed(2)}%)</span>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* 패배 원인 도넛차트 */}
+              {winPattern.lost > 0 && (() => {
+                const total = winPattern.loss_reasons.above_winner + winPattern.loss_reasons.below_floor + winPattern.loss_reasons.below_winner
+                const pieData = [
+                  { name: '높게 투찰', value: winPattern.loss_reasons.above_winner, fill: 'hsl(24 95% 53%)' },
+                  { name: '낮게 투찰', value: winPattern.loss_reasons.below_winner, fill: 'hsl(221 83% 53%)' },
+                  { name: '하한 미달', value: winPattern.loss_reasons.below_floor, fill: 'hsl(0 84% 60%)' },
+                ].filter((d) => d.value > 0)
+                return (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-sm font-semibold">패배 원인 분석 ({total}건)</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex flex-col md:flex-row items-center gap-6">
+                        <ResponsiveContainer width={220} height={200}>
+                          <PieChart>
+                            <Pie
+                              data={pieData}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={55}
+                              outerRadius={85}
+                              dataKey="value"
+                              paddingAngle={2}
+                            >
+                              {pieData.map((entry, i) => (
+                                <Cell key={i} fill={entry.fill} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(v: number) => [`${v}건 (${total > 0 ? (v / total * 100).toFixed(1) : 0}%)`, '']} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        <div className="space-y-2 flex-1">
+                          {pieData.map((d) => (
+                            <div key={d.name} className="flex items-center gap-2 text-sm">
+                              <span className="w-3 h-3 rounded-full shrink-0" style={{ background: d.fill }} />
+                              <span className="text-muted-foreground w-20">{d.name}</span>
+                              <span className="font-mono font-semibold">{d.value}건</span>
+                              <span className="text-muted-foreground text-xs">({total > 0 ? (d.value / total * 100).toFixed(1) : 0}%)</span>
+                            </div>
+                          ))}
+                          <p className="text-xs text-muted-foreground pt-2">
+                            높게 투찰: submitted &gt; winner<br />
+                            낮게 투찰: submitted &lt; winner (하한 이상)<br />
+                            하한 미달: 최저 투찰률 미만 투찰
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              })()}
+
+              {/* 발주처별 승률 테이블 (10건 이상만) */}
+              {winPattern.by_agency.filter((a) => a.total >= 10).length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm font-semibold">발주처별 승률 (10건 이상 참여)</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>발주처</TableHead>
+                          <TableHead className="text-right">참여</TableHead>
+                          <TableHead className="text-right">낙찰</TableHead>
+                          <TableHead className="text-right">승률</TableHead>
+                          <TableHead className="text-right">평균 격차</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {winPattern.by_agency
+                          .filter((a) => a.total >= 10)
+                          .map((a) => (
+                            <TableRow key={a.agency_name}>
+                              <TableCell className="max-w-xs truncate font-medium">{a.agency_name}</TableCell>
+                              <TableCell className="text-right">{a.total}</TableCell>
+                              <TableCell className="text-right">{a.won}</TableCell>
+                              <TableCell className={cn(
+                                'text-right font-mono font-semibold',
+                                a.win_rate >= 10 ? 'text-emerald-600' : a.win_rate > 0 ? 'text-primary' : 'text-muted-foreground'
+                              )}>
+                                {a.win_rate.toFixed(1)}%
+                              </TableCell>
+                              <TableCell className={cn(
+                                'text-right font-mono text-sm',
+                                a.avg_rate_diff == null ? 'text-muted-foreground'
+                                  : a.avg_rate_diff > 0 ? 'text-orange-600'
+                                  : 'text-blue-600'
+                              )}>
+                                {a.avg_rate_diff != null
+                                  ? `${a.avg_rate_diff > 0 ? '+' : ''}${(a.avg_rate_diff * 100).toFixed(3)}%p`
+                                  : '-'}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* 연도별 승률 추이 LineChart */}
+              {winPattern.by_year.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm font-semibold">연도별 승률 추이</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <LineChart data={winPattern.by_year} margin={{ left: -10, right: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="year" tick={{ fontSize: 11 }} />
+                        <YAxis tick={{ fontSize: 11 }} unit="%" domain={[0, 'auto']} />
+                        <Tooltip
+                          formatter={(v: number, name: string) => [
+                            name === 'win_rate' ? `${v.toFixed(1)}%` : v + '건',
+                            name === 'win_rate' ? '승률' : name === 'won' ? '낙찰' : '참여',
+                          ]}
+                        />
+                        <Legend formatter={(v) => v === 'win_rate' ? '승률 (%)' : v === 'won' ? '낙찰 건수' : '참여 건수'} />
+                        <Line type="monotone" dataKey="win_rate" stroke="hsl(142.1 76.2% 36.3%)" dot={{ r: 4 }} strokeWidth={2} name="win_rate" />
+                        <Line type="monotone" dataKey="total" stroke="hsl(var(--muted-foreground))" dot={{ r: 3 }} strokeWidth={1.5} strokeDasharray="4 2" name="total" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              )}
+
+              {winPattern.won === 0 && winPattern.lost === 0 && (
+                <Card>
+                  <CardContent className="py-12 text-center text-sm text-muted-foreground">
+                    결과가 확정된 투찰 이력이 없습니다.<br />
+                    낙찰 결과(won/lost)가 입력된 이력이 필요합니다.
+                  </CardContent>
+                </Card>
+              )}
+            </>
           )}
         </TabsContent>
       </Tabs>

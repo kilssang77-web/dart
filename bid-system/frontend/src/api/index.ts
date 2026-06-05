@@ -188,6 +188,8 @@ export const myBidsApi = {
     api.get('/my-bids/defeat-analysis').then((r) => r.data),
   gapAnalysis: (): Promise<import('../types').GapAnalysisResponse> =>
     api.get('/my-bids/gap-analysis').then((r) => r.data),
+  winPattern: (): Promise<import('../types').WinPattern> =>
+    api.get('/my-bids/win-pattern').then((r) => r.data),
 }
 
 // -- 발주기관 --------------------------------------------------

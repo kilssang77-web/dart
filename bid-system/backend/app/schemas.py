@@ -837,3 +837,40 @@ class FinalRecommendResponse(BaseModel):
     evidence:           FinalRecommendEvidence
     signal:             str
 
+
+# ── 자사 승률 패턴 진단 스키마 ─────────────────────────────
+
+class WinPatternBias(BaseModel):
+    rate_diff_mean: Optional[float] = None
+    direction: str  # above / below / balanced
+    signal: str
+
+class WinPatternAgency(BaseModel):
+    agency_name: str
+    total: int
+    won: int
+    win_rate: float
+    avg_rate_diff: Optional[float] = None
+
+class WinPatternYear(BaseModel):
+    year: int
+    total: int
+    won: int
+    win_rate: float
+
+class WinPatternLossReasons(BaseModel):
+    above_winner: int
+    below_floor: int
+    below_winner: int
+
+class WinPatternResponse(BaseModel):
+    total: int
+    won: int
+    lost: int
+    overall_win_rate: float
+    bias: WinPatternBias
+    by_agency: list[WinPatternAgency]
+    by_industry: list[dict]
+    by_year: list[WinPatternYear]
+    loss_reasons: WinPatternLossReasons
+

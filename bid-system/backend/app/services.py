@@ -3001,3 +3001,147 @@ class FinalRecommendService:
             "evidence":           evidence,
             "signal":             signal,
         }
+
+
+# ==================================================
+# 자사 승률 패턴 진단 서비스
+# ==================================================
+
+class WinPatternService:
+    """
+    my_bid_records를 분석해 편향 방향·패배 원인·발주처별 승률을 반환.
+    rate_diff = submitted_rate - actual_winner_rate (소수점 기준)
+    양수 = 낙찰자보다 높게 투찰(above), 음수 = 낮게 투찰(below).
+    """
+
+    BIAS_THRESHOLD = 0.003  # 0.3%p 이상이면 편향 있음
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def analyze(self, user_id: int) -> dict:
+        from collections import defaultdict
+
+        total = self.db.query(MyBidRecord).filter(MyBidRecord.user_id == user_id).count()
+
+        records = (
+            self.db.query(MyBidRecord)
+            .filter(
+                MyBidRecord.user_id == user_id,
+                MyBidRecord.result.in_(["won", "lost"]),
+                MyBidRecord.actual_winner_rate.isnot(None),
+                MyBidRecord.submitted_rate.isnot(None),
+            )
+            .all()
+        )
+
+        won_count = sum(1 for r in records if r.result == "won")
+        lost_count = sum(1 for r in records if r.result == "lost")
+        overall_win_rate = round(won_count / max(won_count + lost_count, 1) * 100, 2)
+
+        diffs = []
+        for r in records:
+            if r.rate_diff is not None:
+                diffs.append(float(r.rate_diff))
+            elif r.submitted_rate and r.actual_winner_rate:
+                diffs.append(float(r.submitted_rate) - float(r.actual_winner_rate))
+
+        mean_diff = round(float(np.mean(diffs)), 6) if diffs else None
+        bias = self._compute_bias(mean_diff)
+
+        return {
+            "total": total,
+            "won": won_count,
+            "lost": lost_count,
+            "overall_win_rate": overall_win_rate,
+            "bias": bias,
+            "by_agency": self._by_agency(records),
+            "by_industry": [],
+            "by_year": self._by_year(records),
+            "loss_reasons": self._loss_reasons([r for r in records if r.result == "lost"]),
+        }
+
+    def _compute_bias(self, mean_diff: Optional[float]) -> dict:
+        if mean_diff is None:
+            return {"rate_diff_mean": None, "direction": "balanced", "signal": "분석 데이터 없음"}
+        direction = "above" if mean_diff > 0 else "below" if mean_diff < 0 else "balanced"
+        has_bias = abs(mean_diff) > self.BIAS_THRESHOLD
+        pct_str = f"{abs(mean_diff * 100):.2f}%p"
+        if not has_bias:
+            signal = "편향 없음 — 균형적으로 투찰하는 경향"
+        elif direction == "above":
+            signal = f"평균 {pct_str} 높게 투찰하는 경향 — 낮게 조정 권장"
+        else:
+            signal = f"평균 {pct_str} 낮게 투찰하는 경향 — 높게 조정 권장"
+        return {"rate_diff_mean": mean_diff, "direction": direction, "signal": signal}
+
+    def _by_agency(self, records: list) -> list:
+        from collections import defaultdict
+        agency_map: dict = defaultdict(lambda: {"total": 0, "won": 0, "diffs": []})
+        for r in records:
+            if not r.agency_name:
+                continue
+            agency_map[r.agency_name]["total"] += 1
+            if r.result == "won":
+                agency_map[r.agency_name]["won"] += 1
+            diff = float(r.rate_diff) if r.rate_diff is not None else (
+                float(r.submitted_rate) - float(r.actual_winner_rate)
+                if r.submitted_rate and r.actual_winner_rate else None
+            )
+            if diff is not None:
+                agency_map[r.agency_name]["diffs"].append(diff)
+        return [
+            {
+                "agency_name": name,
+                "total": v["total"],
+                "won": v["won"],
+                "win_rate": round(v["won"] / max(v["total"], 1) * 100, 1),
+                "avg_rate_diff": round(float(np.mean(v["diffs"])), 4) if v["diffs"] else None,
+            }
+            for name, v in sorted(agency_map.items(), key=lambda x: -x[1]["total"])
+        ]
+
+    def _by_year(self, records: list) -> list:
+        from collections import defaultdict
+        year_map: dict = defaultdict(lambda: {"total": 0, "won": 0})
+        for r in records:
+            if r.bid_date:
+                y = r.bid_date.year
+                year_map[y]["total"] += 1
+                if r.result == "won":
+                    year_map[y]["won"] += 1
+        return [
+            {
+                "year": year,
+                "total": v["total"],
+                "won": v["won"],
+                "win_rate": round(v["won"] / max(v["total"], 1) * 100, 1),
+            }
+            for year, v in sorted(year_map.items())
+        ]
+
+    def _loss_reasons(self, lost_records: list) -> dict:
+        above_winner = 0
+        below_floor = 0
+        below_winner = 0
+        bid_ids = [r.bid_id for r in lost_records if r.bid_id is not None]
+        floor_map: dict[int, Optional[float]] = {}
+        if bid_ids:
+            bids = self.db.query(Bid).filter(Bid.id.in_(bid_ids)).all()
+            floor_map = {b.id: float(b.min_bid_rate) if b.min_bid_rate else None for b in bids}
+        for r in lost_records:
+            diff = float(r.rate_diff) if r.rate_diff is not None else (
+                float(r.submitted_rate) - float(r.actual_winner_rate)
+                if r.submitted_rate and r.actual_winner_rate else None
+            )
+            if diff is None:
+                continue
+            if diff > 0:
+                above_winner += 1
+            else:
+                floor_rate = floor_map.get(r.bid_id) if r.bid_id else None
+                if floor_rate and r.submitted_rate and float(r.submitted_rate) < floor_rate:
+                    below_floor += 1
+                else:
+                    below_winner += 1
+        return {"above_winner": above_winner, "below_floor": below_floor, "below_winner": below_winner}
