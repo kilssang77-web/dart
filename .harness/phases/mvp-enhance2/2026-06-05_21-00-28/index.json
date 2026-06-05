@@ -12,7 +12,7 @@
       "file": "step1.md",
       "status": "completed",
       "started_at": "2026-06-05T21:08:31+0900",
-      "completed_at": "2026-06-05T21:30:00+0900",
+      "completed_at": "2026-06-05T21:15:38+0900",
       "summary": "ml/a_value.py 신규(FLOOR_RATE_TABLE 이전·calc_bid_range), GET /recommend/bid-range 엔드포인트, BidRangeResponse 스키마, 프론트 bidRange API+타입+RecommendPage A값 카드(debounce 500ms·P10~P90 바), 테스트 18건 전통과"
     },
     {
