@@ -377,12 +377,12 @@ def save_results_to_db(db: Session, bid_id: int, announcement_no: str, items: li
 
             is_winner = str(item.get("sucsfYn") or item.get("bidprcpOrd") or "N").upper() in ("Y","1","01")
 
-            comp_row = db.execute(
-                text("INSERT INTO competitors (name) VALUES (:n) ON CONFLICT (name) DO UPDATE SET name=EXCLUDED.name RETURNING id"),
-                {"n": comp_name},
-            ).fetchone()
-            db.commit()
-            comp_id = comp_row[0]
+            _cr = db.execute(text("SELECT id FROM competitors WHERE name=:n LIMIT 1"), {"n": comp_name}).fetchone()
+            if _cr:
+                comp_id = _cr[0]
+            else:
+                comp_id = db.execute(text("INSERT INTO competitors (name) VALUES (:n) RETURNING id"), {"n": comp_name}).fetchone()[0]
+                db.commit()
 
             db.execute(text("""
                 INSERT INTO bid_results (bid_id, competitor_id, bid_amount, bid_rate, rank, is_winner)
@@ -516,14 +516,16 @@ async def fetch_results_scsbid(date_from: str, date_to: str) -> list[dict]:
 
 
 def save_scsbid_to_db(db: Session, items: list[dict]) -> int:
-    """낙찰정보서비스 결과를 bid_results에 저장. 낙찰자(winner=True) 1건씩."""
+    """낙찰정보서비스 결과를 bid_results에 저장. 낙찰자(winner=True) 1건씩.
+
+    API 필드: bidwinnrNm(낙찰자), sucsfbidRate(낙찰율%), sucsfbidAmt(낙찰금액), prtcptCnum(참가자수)
+    """
     saved = 0
     for item in items:
         bid_no = (item.get("bidNtceNo") or "").strip()
         if not bid_no:
             continue
         try:
-            # 공고번호로 bid_id 조회
             row = db.execute(
                 text("SELECT id FROM bids WHERE announcement_no = :no LIMIT 1"),
                 {"no": bid_no}
@@ -532,7 +534,7 @@ def save_scsbid_to_db(db: Session, items: list[dict]) -> int:
                 continue
             bid_id = row[0]
 
-            comp_name = (item.get("sucsfbidMbrtNm") or "").strip()
+            comp_name = (item.get("bidwinnrNm") or "").strip()
             if not comp_name:
                 continue
 
@@ -544,14 +546,17 @@ def save_scsbid_to_db(db: Session, items: list[dict]) -> int:
 
             bid_amount = _parse_amount(item.get("sucsfbidAmt")) or 0
 
-            # 경쟁사 upsert
-            comp_row = db.execute(
-                text("INSERT INTO competitors (name) VALUES (:n) ON CONFLICT (name) DO UPDATE SET name=EXCLUDED.name RETURNING id"),
-                {"n": comp_name},
-            ).fetchone()
-            db.commit()
-            comp_id = comp_row[0]
+            try:
+                participant_count = int(item.get("prtcptCnum") or 0)
+            except Exception:
+                participant_count = 0
 
+            _cr = db.execute(text("SELECT id FROM competitors WHERE name=:n LIMIT 1"), {"n": comp_name}).fetchone()
+            if _cr:
+                comp_id = _cr[0]
+            else:
+                comp_id = db.execute(text("INSERT INTO competitors (name) VALUES (:n) RETURNING id"), {"n": comp_name}).fetchone()[0]
+                db.commit()
             db.execute(text("""
                 INSERT INTO bid_results (bid_id, competitor_id, bid_amount, bid_rate, rank, is_winner)
                 VALUES (:bid, :comp, :amt, :rate, 1, true)
@@ -562,8 +567,10 @@ def save_scsbid_to_db(db: Session, items: list[dict]) -> int:
                     is_winner  = EXCLUDED.is_winner
             """), {"bid": bid_id, "comp": comp_id, "amt": bid_amount, "rate": bid_rate})
 
-            # 공고 status closed 업데이트
-            db.execute(text("UPDATE bids SET status='closed' WHERE id=:id"), {"id": bid_id})
+            db.execute(
+                text("UPDATE bids SET status='closed', participant_count = CASE WHEN :pc > 0 THEN :pc ELSE participant_count END WHERE id=:id"),
+                {"id": bid_id, "pc": participant_count}
+            )
             saved += 1
         except Exception as e:
             logger.debug(f"낙찰결과 저장 실패 {bid_no}: {e}")
@@ -661,3 +668,7 @@ if __name__ == "__main__":
         import time
         while True:
             time.sleep(3600)
+
+
+
+

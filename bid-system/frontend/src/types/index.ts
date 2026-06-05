@@ -116,6 +116,20 @@ export interface RecommendResult {
   similar_cases: SimilarCase[]
 }
 
+export interface CompetitorZoneItem {
+  range_lo: number
+  range_hi: number
+  count: number
+  pct: number
+}
+
+export interface CompetitorZoneResponse {
+  zones: CompetitorZoneItem[]
+  peak_zone: CompetitorZoneItem | null
+  total_count: number
+  last_updated: string | null
+}
+
 export interface Competitor {
   id: number
   name: string
@@ -300,7 +314,7 @@ export interface RecommendV2Result {
   rate_range:        RateRange
   strategies:        StrategySet
   estimated_price:   EstimatedPriceInfo
-  win_probabilities: { at_aggressive: number; at_center: number; at_conservative: number }
+  win_probabilities: { at_aggressive: number; at_balanced: number; at_conservative: number; at_avoid_competition?: number }
   risk:              { level: string; score: number; factors: string[] }
   competition:       CompetitionInfo
   ensemble_weights:  { engine_a: number; engine_b: number }
@@ -341,5 +355,328 @@ export interface MyBidStats {
   avg_recommendation_rate: number | null
   avg_winner_rate: number | null
   avg_rate_diff_from_rec: number | null
+}
+
+export interface BookmarkItem {
+  id: number
+  bid_id: number
+  user_id: number
+  note: string | null
+  created_at: string
+}
+
+export interface MyBidScatterPoint {
+  submitted_rate: number
+  recommendation_rate: number | null
+  result: string
+  bid_date: string
+}
+
+export interface MyBidMonthlyAccuracy {
+  year_month: string
+  mae: number | null
+  win_count: number
+  total: number
+}
+
+export interface MyBidAccuracyStats {
+  avg_error: number | null
+  median_error: number | null
+  accuracy_1pct: number | null
+  accuracy_3pct: number | null
+  total_records: number
+}
+
+export interface MyBidAnalysis {
+  accuracy_stats: MyBidAccuracyStats
+  rate_scatter: MyBidScatterPoint[]
+  monthly_accuracy: MyBidMonthlyAccuracy[]
+}
+
+export interface SrateStatSummary {
+  mean: number
+  std: number
+  sample_count: number
+  p25?: number
+  p50?: number
+  p75?: number
+  p10?: number
+  p90?: number
+}
+
+export interface SrateDistributionResult {
+  bins: { rate_pct: number; count: number }[]
+  mode: number | null
+  mean: number | null
+  std: number | null
+  p25: number | null
+  p50: number | null
+  p75: number | null
+  sample_count: number
+  agency_stats:   SrateStatSummary | null
+  industry_stats: SrateStatSummary | null
+  global_stats:   SrateStatSummary | null
+}
+
+// ── 예가 빈도 분석 ──────────────────────────────────────────
+
+export interface YegaCandidate {
+  idx: number
+  amount: number
+  rate: number
+}
+
+export interface YegaFreqRow {
+  amount: number
+  rate: number
+  rate_pct: number
+  count: number
+  probability: number
+  cumulative_prob: number
+}
+
+export interface YegaChartBin {
+  rate_pct: number
+  count: number
+}
+
+export interface YegaNumberPattern {
+  number: number
+  freq_pct: number
+}
+
+export interface AgencyYegaPattern {
+  pattern: YegaNumberPattern[]
+  top3_numbers: number[]
+  dominant_zone: string | null
+  sample_count: number
+}
+
+export interface YegaFrequencyResult {
+  base_amount: number
+  a_value_used: number
+  round_unit: number
+  candidates: YegaCandidate[]
+  frequency: YegaFreqRow[]
+  top10: YegaFreqRow[]
+  chart_bins: YegaChartBin[]
+  total_combinations: number
+  recommended_rate: number
+  floor_rate: number
+  agency_pattern?: AgencyYegaPattern
+}
+
+export interface OverviewStatsWithChange {
+  total_bids: number
+  total_competitors: number
+  avg_win_rate: number | null
+  avg_bid_rate: number | null
+  avg_competitor_count: number | null
+  monthly_trend: { year: number; month: number; bid_count: number; avg_rate: number | null }[]
+  win_rate_change_pct: number | null
+  bid_count_change_pct: number | null
+  avg_competitors_change: number | null
+}
+
+export interface CollectionLogOut {
+  id: number
+  collect_type: string
+  collected_at: string
+  success_count: number
+  fail_count: number
+  duration_sec: number | null
+  error_summary: string | null
+  created_at: string
+}
+
+
+// ── 패찰 원인 분석 타입 ──────────────────────────────────
+
+export interface MissStatsSummary {
+  avg_diff_pct:    number | null
+  median_diff_pct: number | null
+  std_diff_pct:    number | null
+  pct_too_low:     number | null
+  pct_too_high:    number | null
+  pct_balanced:    number | null
+  direction:       'too_low' | 'too_high' | 'balanced' | null
+  within_0_5pct:   number | null
+  within_1pct:     number | null
+}
+
+export interface DefeatDistBin {
+  from: number
+  to: number
+  count: number
+}
+
+export interface AgencyDefeatStat {
+  agency_name: string
+  count: number
+  avg_diff: number
+  direction: 'too_low' | 'too_high' | 'balanced'
+}
+
+export interface MonthlyTrendPoint {
+  year_month: string
+  avg_diff: number
+  count: number
+}
+
+export interface DefeatAnalysis {
+  miss_stats:       MissStatsSummary
+  distribution:     DefeatDistBin[]
+  agency_breakdown: AgencyDefeatStat[]
+  trend:            MonthlyTrendPoint[]
+  win_zone:         { avg_diff: number; sample_count: number; note: string } | null
+  total_analyzed:   number
+}
+
+// ── 역산 분석 (Gap Distribution) 타입 ───────────────────────
+
+export interface GapBucket {
+  range_lo: number
+  range_hi: number
+  count: number
+}
+
+export interface GapAnalysisResponse {
+  buckets:              GapBucket[]
+  mean_diff:            number | null
+  median_diff:          number | null
+  win_if_lower_by:      number | null
+  consistent_direction: 'too_high' | 'too_low' | 'mixed'
+  personal_bias:        PersonalCorrection
+  total_analyzed:       number
+}
+
+// ── 공고 자동 평가 점수 타입 ─────────────────────────────
+
+export interface ScoreComponent {
+  pts:  number
+  max:  number
+  note: string
+}
+
+export interface OpportunityScore {
+  bid_id:         number
+  score:          number | null
+  grade:          'A' | 'B' | 'C' | 'D' | null
+  breakdown: {
+    competition:    ScoreComponent
+    personal_track: ScoreComponent
+    market_trend:   ScoreComponent
+    amount_fit:     ScoreComponent
+  } | null
+  recommendation: string | null
+  error?:         string
+}
+
+// ── 공고 자동 추천 타입 ──────────────────────────────────
+
+export interface BidRecommendItem {
+  bid_id:          number
+  title:           string
+  agency_name:     string
+  score:           number | null
+  grade:           'A' | 'B' | 'C' | 'D' | null
+  open_date:       string | null
+  base_amount:     number
+  score_breakdown: {
+    competition:    ScoreComponent
+    personal_track: ScoreComponent
+    market_trend:   ScoreComponent
+    amount_fit:     ScoreComponent
+  } | null
+}
+
+// ── RecommendV2 개인화 보정 타입 ────────────────────────
+
+export interface PersonalCorrection {
+  correction:        number
+  agency_correction: number | null
+  confidence:        number
+  direction:         'too_low' | 'too_high' | 'balanced'
+  avg_bias_pct:      number
+  sample_count:      number
+  narrative:         string
+}
+
+// ── 사정율 트렌드 ─────────────────────────────────────────
+
+export interface SrateTrendResponse {
+  direction: 'up' | 'down' | 'stable'
+  delta: number
+  recent_mean: number
+  prev_mean: number | null
+  sample_count: number
+  signal: string
+}
+
+export interface TopSrateTrend extends SrateTrendResponse {
+  agency_id: number
+  agency_name: string
+}
+
+// ── 프리즘 2.0 ────────────────────────────────────────────
+
+export interface PrismZone {
+  rate: number
+  win_prob: number
+  floor_ok: boolean
+  amount: number
+  rank_est: number
+}
+
+export interface PrismResponse {
+  zones: PrismZone[]
+  top10: PrismZone[]
+  scan_meta: {
+    scan_start: number
+    scan_end: number
+    scan_step: number
+    total_zones: number
+    floor_ok_count: number
+    top_n: number
+    industry_name: string
+  }
+}
+
+// ── A값·낙찰하한가 ─────────────────────────────────────────
+
+export interface BidRangeResponse {
+  a_value:      number
+  floor_price:  number
+  floor_rate:   number
+  srate_center: number
+  srate_range: {
+    p10: number
+    p25: number
+    p50: number
+    p75: number
+    p90: number
+  }
+  industry_name: string | null
+}
+
+// ── 공동도급 적격심사 AI 매칭 ───────────────────────────────────
+
+export interface JointPartnerItem {
+  competitor_id:    number
+  name:             string
+  biz_reg_no:       string | null
+  joint_min_rate:   number
+  qualification_ok: boolean
+  win_rate:         number
+  total_bids:       number
+  avg_bid_rate:     number | null
+  compat_score:     number
+}
+
+export interface JointPartnersResponse {
+  partners:       JointPartnerItem[]
+  bid_title:      string
+  base_amount:    number
+  threshold_note: string
 }
 

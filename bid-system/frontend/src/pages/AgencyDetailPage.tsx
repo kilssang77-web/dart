@@ -3,7 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronLeft, Building2 } from 'lucide-react'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  LineChart, Line, ReferenceLine, ComposedChart, Area,
 } from 'recharts'
 import { bidsApi, recommendApi, statsApi } from '@/api'
 import type { MetaData } from '@/types'
@@ -92,6 +93,17 @@ export default function AgencyDetailPage() {
   const rateDistData = buildRateDist(closedBids)
   const totalPages = bidsData ? Math.ceil(bidsData.total / 20) : 1
 
+  // 예가 흐름 시계열 데이터 (낙찰률 추이)
+  const trendData = closedBids
+    .filter((b) => b.bid_open_date)
+    .sort((a, b) => new Date(a.bid_open_date!).getTime() - new Date(b.bid_open_date!).getTime())
+    .map((b) => ({
+      date: new Date(b.bid_open_date!).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }),
+      rate: b.winner_rate != null ? +(b.winner_rate * 100).toFixed(3) : null,
+    }))
+  const globalMean = globalSrate?.srate_mean != null ? +(globalSrate.srate_mean * 100).toFixed(3) : null
+  const agencyMean = agencySrate?.srate_mean != null ? +(agencySrate.srate_mean * 100).toFixed(3) : null
+
   return (
     <div className="p-6 space-y-5">
       <div className="flex items-center gap-3 flex-wrap">
@@ -144,6 +156,51 @@ export default function AgencyDetailPage() {
                 </span>
               )}
             </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 예가(낙찰률) 흐름 시계열 */}
+      {trendData.length >= 3 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm">낙찰률 흐름 (시계열)</CardTitle>
+              <div className="text-xs text-muted-foreground space-x-3">
+                {agencyMean != null && <span className="text-primary font-medium">기관 평균 {agencyMean}%</span>}
+                {globalMean != null && <span>전국 평균 {globalMean}%</span>}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={180}>
+              <ComposedChart data={trendData} margin={{ left: -10, right: 10 }}>
+                <defs>
+                  <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.15} />
+                    <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="date" tick={{ fontSize: 9 }} interval={Math.max(1, Math.floor(trendData.length / 8))} />
+                <YAxis tick={{ fontSize: 10 }} unit="%" domain={['auto', 'auto']} />
+                <Tooltip formatter={(v: number) => [v + '%', '낙찰률']} />
+                <Area type="monotone" dataKey="rate" fill="url(#areaGrad)" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3, fill: 'hsl(var(--primary))' }} connectNulls />
+                {agencyMean != null && (
+                  <ReferenceLine y={agencyMean} stroke="hsl(var(--primary))" strokeDasharray="4 2"
+                    label={{ value: '기관평균', position: 'insideTopRight', fontSize: 9, fill: 'hsl(var(--primary))' }} />
+                )}
+                {globalMean != null && (
+                  <ReferenceLine y={globalMean} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 2"
+                    label={{ value: '전국', position: 'insideTopLeft', fontSize: 9 }} />
+                )}
+              </ComposedChart>
+            </ResponsiveContainer>
+            {agencySrate?.srate_trend != null && (
+              <p className={cn('text-xs mt-1', agencySrate.srate_trend > 0 ? 'text-blue-600' : 'text-red-500')}>
+                최근 추세 {agencySrate.srate_trend > 0 ? '▲ 상승' : '▼ 하락'} {Math.abs(agencySrate.srate_trend * 100).toFixed(3)}%
+              </p>
+            )}
           </CardContent>
         </Card>
       )}

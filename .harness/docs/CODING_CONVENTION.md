@@ -1,92 +1,91 @@
-> 이 문서는 스켈레톤입니다. 본 프로젝트에 맞게 재작성하세요.
-> 각 섹션의 `{...}` 플레이스홀더와 `<!-- 예시 -->` 마커가 달린 항목을 교체하세요.
-
 # 코딩 컨벤션
 
 ---
 
 ## 공통
 
-> 이 섹션의 목적: 언어·프레임워크를 불문하고 적용되는 전팀 규칙을 명시한다.
-
-- 언어: {사용 언어 목록}
+- 언어: Python 3.12 (Backend), TypeScript 5 (Frontend)
 - 인코딩: UTF-8
 - 줄 끝: LF
-- 들여쓰기: {스페이스 N칸 / 탭}
+- 들여쓰기: 스페이스 4칸 (Python), 스페이스 2칸 (TypeScript)
 - 파일 끝 빈줄: 1개
-- 주석 언어: {한국어 / 영어}
-- TODO 형식: `// TODO(작성자): 내용 — 완료 조건`
+- 주석 언어: 한국어
+- TODO 형식: `# TODO(작성자): 내용 — 완료 조건`
 
 ---
 
-## Backend — Java / Spring
-
-> 이 섹션의 목적: Java·Spring 코드 작성 시 팀이 합의한 규칙을 기록한다.
+## Backend — Python / FastAPI
 
 ### 네이밍
 
 | 구분 | 규칙 | 예시 |
 |------|------|------|
-| 클래스 | PascalCase | `PostService`, `UserRepository` |
-| 메서드 / 변수 | camelCase | `findByUserId`, `pageSize` |
-| 상수 | UPPER_SNAKE_CASE | `MAX_PAGE_SIZE` |
-| 패키지 | lowercase | `com.example.domain.post` |
-
-### Service 메서드 네이밍 규칙 <!-- 예시 -->
-
-```java
-// 조회: find + 대상 + By + 조건
-public PostDto findPostById(Long postId) { ... }
-
-// 생성: create + 대상
-public PostDto createPost(CreatePostRequest request, Long userId) { ... }
-
-// 수정: update + 대상
-public PostDto updatePost(Long postId, UpdatePostRequest request, Long userId) { ... }
-
-// 삭제: delete + 대상
-public void deletePost(Long postId, Long userId) { ... }
-```
+| 클래스 | PascalCase | `BidService`, `RecommendEngine` |
+| 함수 / 변수 | snake_case | `get_bid_list`, `base_amount` |
+| 상수 | UPPER_SNAKE_CASE | `MAX_PAGE_SIZE`, `MODEL_VERSION` |
+| 파일 | snake_case | `services.py`, `assessment.py` |
+| Pydantic 모델 | PascalCase + Request/Response | `RecommendV2Request`, `BidDetail` |
 
 ### 레이어 규칙
 
-- Controller: DTO만 입력받고 반환. `@Valid` 필수. 비즈니스 로직 금지
-- Service: 트랜잭션 관리, 비즈니스 규칙. Repository 직접 접근만(다른 Service 호출 신중)
-- Repository: JPA/쿼리 메서드. N+1 주의 — 필요 시 `@EntityGraph` 또는 fetch join
-- DTO: Request/Response 분리. `@Builder` + `@Getter` 적용
+- Router (`api/v1/`): 입력 파싱·응답 반환만. 비즈니스 로직 금지. DB 세션 직접 사용 금지.
+- Service (`services.py`): 모든 비즈니스 로직. `db.commit()` / `db.rollback()` 사용 위치.
+- ML (`ml/`): 추론 로직. Service에서만 호출. Router 직접 import 금지.
+- ORM (`models.py`): SQLAlchemy 모델 정의. 관계(relationship) 설정.
+- Schema (`schemas.py`): Pydantic Request/Response 분리. `*Request` / `*Response` suffix.
+
+### Service 함수 네이밍 규칙
+
+```python
+# 조회: get_ + 대상 + _by_ + 조건
+def get_bid_by_id(db: Session, bid_id: int) -> BidDetail: ...
+
+# 목록: get_ + 대상 + _list
+def get_bid_list(db: Session, params: BidListParams) -> list[BidSummary]: ...
+
+# 생성: create_ + 대상
+def create_bid(db: Session, data: BidCreate) -> Bid: ...
+
+# 수정: update_ + 대상
+def update_my_bid_result(db: Session, record_id: int, data: MyBidRecordUpdate): ...
+```
 
 ### 예외 처리
 
-```
-{예외 처리 전략 — 예: @ControllerAdvice + 커스텀 ErrorResponse 포맷 사용}
-```
+- FastAPI `HTTPException` 사용. `status_code` + `detail` 포함.
+- 공통 에러는 `main.py`의 exception handler로 처리.
+- 404: `raise HTTPException(status_code=404, detail="공고를 찾을 수 없습니다")`
+- 403: `raise HTTPException(status_code=403, detail="권한이 없습니다")`
+
+### 린터
+
+- `ruff check .` — 린트
+- `ruff format .` — 포맷
 
 ---
 
 ## Frontend — TypeScript / React
 
-> 이 섹션의 목적: React 컴포넌트와 TypeScript 코드 작성 규칙을 명시한다.
-
 ### 네이밍
 
 | 구분 | 규칙 | 예시 |
 |------|------|------|
-| 컴포넌트 파일 | PascalCase | `PostCard.tsx`, `CommentList.tsx` |
-| 훅 파일 | camelCase + use 접두 | `usePostList.ts`, `useAuth.ts` |
-| 유틸/헬퍼 | camelCase | `formatDate.ts`, `validators.ts` |
-| 타입/인터페이스 | PascalCase | `PostDto`, `PageResponse<T>` |
+| 컴포넌트 파일 | PascalCase + .tsx | `RecommendPage.tsx`, `WinProbGauge.tsx` |
+| 훅 파일 | camelCase + use 접두 | `useAuthStore.ts` |
+| API 함수 | camelCase | `getBidList`, `postRecommendV2` |
+| 타입/인터페이스 | PascalCase | `BidSummary`, `RecommendV2Response` |
 
-### React 훅 사용 규칙 <!-- 예시 -->
+### 상태 관리 규칙
 
 ```typescript
-// 서버 상태: TanStack Query 사용 (useState로 직접 관리 금지)
-const { data: posts, isLoading } = useQuery({
-  queryKey: ['posts', page],
-  queryFn: () => postApi.getList({ page }),
+// 서버 상태: TanStack Query v5 사용 (useState 직접 관리 금지)
+const { data, isLoading } = useQuery({
+  queryKey: ['bids', page, filters],
+  queryFn: () => getBidList({ page, ...filters }),
 });
 
-// 전역 클라이언트 상태: Zustand 스토어 사용
-const user = useAuthStore((state) => state.user);
+// 전역 클라이언트 상태: Zustand (store/auth.ts)
+const { user, token } = useAuthStore();
 
 // 로컬 UI 상태만 useState 사용
 const [isOpen, setIsOpen] = useState(false);
@@ -94,45 +93,40 @@ const [isOpen, setIsOpen] = useState(false);
 
 ### 컴포넌트 작성 규칙
 
-- 컴포넌트는 `features/` 도메인 폴더 또는 `components/` 공통 폴더에 위치
-- Props 타입은 컴포넌트 파일 내 `interface Props` 로 정의 (별도 파일 불필요)
-- 직접 외부 API 호출 금지 — `api/` 레이어 경유 필수
-- {추가 규칙}
+- `pages/` — 라우트 페이지 컴포넌트 (URL 1:1 대응)
+- `components/ui/` — shadcn 래퍼 및 커스텀 시각화 컴포넌트
+- `components/layout/` — AppLayout, 사이드바 등 레이아웃
+- Props 타입은 파일 내 `interface Props`로 정의
+- `axios` 직접 호출 금지 — `src/api/index.ts` 경유 필수
+- `any` 타입 사용 금지 — `src/types/index.ts`에 타입 정의 필수
 
 ---
 
 ## 파일·디렉토리 네이밍
 
-> 이 섹션의 목적: 파일 이름 규칙을 통일하여 탐색 비용을 줄인다.
-
 | 파일 종류 | 규칙 |
 |----------|------|
 | React 컴포넌트 | PascalCase + .tsx |
 | 훅 | camelCase + .ts |
-| 유틸/서비스 | camelCase + .ts |
-| 테스트 | 원본파일명 + .test.ts(x) |
-| Java 클래스 | PascalCase + .java |
-| SQL 마이그레이션 | V{순번}__{설명}.sql (Flyway) |
+| API 함수 | camelCase + .ts |
+| 테스트 (pytest) | `test_` + 원본파일명.py |
+| DB 마이그레이션 | `V{순번}__{설명}.sql` |
 
 ---
 
 ## 포매터 · 린터
 
-> 이 섹션의 목적: 코드 스타일을 자동화하여 PR에서 스타일 논쟁을 없앤다.
-
 | 도구 | 대상 | 설정 파일 | 실행 명령 |
 |------|------|----------|----------|
-| {Prettier} | FE | {.prettierrc} | {npm run format} |
-| {ESLint} | FE | {eslint.config.js} | {npm run lint} |
-| {Checkstyle / Google Java Format} | BE | {checkstyle.xml} | {./gradlew checkstyleMain} |
+| Ruff | Backend (Python) | `pyproject.toml` | `ruff check . && ruff format .` |
+| Prettier | Frontend | `.prettierrc` | `npm run format` |
+| ESLint | Frontend | `eslint.config.js` | `npm run lint` |
 
 ---
 
 ## 커밋 메시지
 
-> 이 섹션의 목적: 커밋 이력을 읽기 좋게 유지하고 자동 changelog 생성을 가능하게 한다.
-
-Conventional Commits 형식을 따른다: `<type>(<scope>): <subject>`
+Conventional Commits 형식: `<type>(<scope>): <subject>`
 
 | type | 의미 |
 |------|------|
@@ -146,7 +140,7 @@ Conventional Commits 형식을 따른다: `<type>(<scope>): <subject>`
 
 예시:
 ```
-feat(post): 게시글 페이지네이션 API 추가
-fix(auth): 토큰 만료 후 재발급 로직 오류 수정
-docs(adr): ADR-003 PostgreSQL 선택 기록 추가
+feat(recommend): Monte Carlo 시뮬레이션 캐싱 추가
+fix(ml): 낙찰확률 0% 버그 수정 — 경쟁사 무효입찰 필터
+fix(auth): JWT 만료 후 401 응답 누락 수정
 ```

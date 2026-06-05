@@ -25,6 +25,8 @@ from .ml.engine import build_features, get_engine, FEATURE_LABELS
 from .ml.assessment  import load_srate_stats, predict_srate, compute_market_trend
 from .ml.competition import compute_competition_features, get_competitor_profiles, get_market_competitor_distributions
 from .ml.simulation  import recommend_with_simulation
+from .ml.rank_model  import get_inpo_raw_rates
+from .ml.personal    import PersonalBiasAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +73,7 @@ class BidService:
         if region_id:   q = q.filter(Bid.region_id == region_id)
         if status:      q = q.filter(Bid.status == status)
         if date_from:   q = q.filter(Bid.bid_open_date >= date_from)
-        if date_to:     q = q.filter(Bid.bid_open_date <= date_to)
+        if date_to:     q = q.filter(Bid.bid_open_date < datetime.combine(date_to + timedelta(days=1), datetime.min.time()))
         if keyword:
             q = q.filter(Bid.title.ilike(f"%{keyword}%"))
 
@@ -402,7 +404,7 @@ class RecommendationService:
         elif spread > 0.02:
             score += 1
 
-        wp = result["win_probabilities"].get("at_center")
+        wp = result["win_probabilities"].get("at_balanced")
         if wp is not None and wp < 0.1:
             factors.append(f"낮은 낙찰 기대확률 ({wp:.1%})")
             score += 2
@@ -450,7 +452,7 @@ class RecommendationService:
                 rate_safe_lower=rr["safe_lower"], rate_lower=rr["lower"],
                 rate_center=rr["center"],         rate_upper=rr["upper"],
                 rate_safe_upper=rr["safe_upper"],
-                win_prob_center=wp.get("at_center"),
+                win_prob_center=wp.get("at_balanced"),
                 risk_level=risk["level"],
                 shap_values=result.get("shap_values") or {},
                 explanation_text=result["narrative_ko"],
@@ -935,33 +937,116 @@ class StatisticsService:
         return {"clusters": clusters, "total_count": len(rows)}
 
     def srate_distribution_detail(self, db: Session, agency_id=None, industry_id=None, months=24) -> dict:
+        from sqlalchemy import func as sqlfunc, cast, Float
         cutoff = datetime.now() - timedelta(days=30 * months)
-        query = db.query(BidResult.assessment_rate).join(Bid, Bid.id == BidResult.bid_id).filter(
-            BidResult.assessment_rate.isnot(None),
-            Bid.bid_open_date >= cutoff
-        )
+
+        # ── 1. assessment_rate_stats 기반 발주처/공종별 통계 (우선)
+        agency_stats = industry_stats = global_stats = None
         if agency_id:
-            query = query.filter(Bid.agency_id == agency_id)
+            row = db.execute(text("""
+                SELECT srate_mean::float, srate_std::float, sample_count,
+                       srate_p10::float, srate_p25::float, srate_p50::float,
+                       srate_p75::float, srate_p90::float
+                FROM assessment_rate_stats
+                WHERE group_type='agency' AND group_id=:aid
+                ORDER BY updated_at DESC LIMIT 1
+            """), {"aid": agency_id}).fetchone()
+            if row:
+                agency_stats = {
+                    "mean": round(row[0], 4), "std": round(row[1], 4),
+                    "sample_count": row[2],
+                    "p10": round(row[3], 4), "p25": round(row[4], 4),
+                    "p50": round(row[5], 4), "p75": round(row[6], 4),
+                    "p90": round(row[7], 4),
+                }
         if industry_id:
-            query = query.filter(Bid.industry_id == industry_id)
-        rows = query.all()
-        values = [float(r.assessment_rate) for r in rows]
-        if not values:
-            return {"bins": [], "mode": None, "p25": None, "p50": None, "p75": None, "mean": None, "std": None, "sample_count": 0}
+            row = db.execute(text("""
+                SELECT srate_mean::float, srate_std::float, sample_count,
+                       srate_p25::float, srate_p50::float, srate_p75::float
+                FROM assessment_rate_stats
+                WHERE group_type='industry' AND group_id=:iid
+                ORDER BY updated_at DESC LIMIT 1
+            """), {"iid": industry_id}).fetchone()
+            if row:
+                industry_stats = {
+                    "mean": round(row[0], 4), "std": round(row[1], 4),
+                    "sample_count": row[2],
+                    "p25": round(row[3], 4), "p50": round(row[4], 4), "p75": round(row[5], 4),
+                }
+        row = db.execute(text("""
+            SELECT srate_mean::float, srate_std::float, sample_count,
+                   srate_p25::float, srate_p50::float, srate_p75::float
+            FROM assessment_rate_stats WHERE group_type='global'
+            ORDER BY updated_at DESC LIMIT 1
+        """)).fetchone()
+        if row:
+            global_stats = {
+                "mean": round(row[0], 4), "std": round(row[1], 4),
+                "sample_count": row[2],
+                "p25": round(row[3], 4), "p50": round(row[4], 4), "p75": round(row[5], 4),
+            }
+
+        # ── 2. bids.estimated_price 기반 히스토그램 (상세 분포)
+        query = db.execute(text("""
+            SELECT b.estimated_price::float / b.base_amount AS srate
+            FROM bids b
+            WHERE b.estimated_price IS NOT NULL
+              AND b.base_amount > 0
+              AND b.bid_open_date >= :cutoff
+              -- 부가세 제외 고정비율(base×10/11≈0.9091) 공고 제거
+              AND ABS(b.estimated_price::numeric / NULLIF(b.base_amount,0) - (10.0/11.0)) > 0.002
+              AND (:agency_id  IS NULL OR b.agency_id   = :agency_id)
+              AND (:industry_id IS NULL OR b.industry_id = :industry_id)
+        """), {"cutoff": cutoff, "agency_id": agency_id, "industry_id": industry_id})
+        rows = query.fetchall()
+        values = [float(r[0]) for r in rows if r[0] and 0.80 <= float(r[0]) <= 1.05]
+
+        # 히스토그램 데이터 생성 (bids 데이터 또는 stats 기반 합성)
+        if values:
+            arr = np.array(values)
+            src_mean = float(np.mean(arr))
+            src_std  = float(np.std(arr))
+            src_n    = len(values)
+        elif agency_stats:
+            # bids.estimated_price 없으면 assessment_rate_stats 기반 정규 분포 합성
+            src_mean = agency_stats["mean"]
+            src_std  = agency_stats["std"]
+            src_n    = min(agency_stats["sample_count"], 200)
+            rng = np.random.default_rng(42)
+            arr = rng.normal(src_mean, max(src_std, 0.005), src_n)
+            arr = arr[(arr >= 0.80) & (arr <= 1.10)]
+            values = arr.tolist()
+        elif global_stats:
+            src_mean = global_stats["mean"]
+            src_std  = global_stats["std"]
+            src_n    = 0
+            arr = np.array([src_mean])
+            values = [src_mean]
+        else:
+            return {
+                "bins": [], "mode": None, "mean": None, "std": None, "sample_count": 0,
+                "p25": None, "p50": None, "p75": None,
+                "agency_stats": None, "industry_stats": None, "global_stats": global_stats,
+            }
+
         arr = np.array(values)
-        bins_range = np.arange(80, 110, 0.5)
+        bins_range = np.arange(0.800, 1.101, 0.001)
         counts, edges = np.histogram(arr, bins=bins_range)
-        bins = [{"rate_pct": float(edges[i]), "count": int(counts[i])} for i in range(len(counts))]
+        bins = [{"rate_pct": round(float(edges[i]), 4), "count": int(counts[i])} for i in range(len(counts))]
         mode_idx = int(np.argmax(counts))
         return {
             "bins": bins,
-            "mode": float(edges[mode_idx]) if counts[mode_idx] > 0 else None,
-            "p25": float(np.percentile(arr, 25)),
-            "p50": float(np.percentile(arr, 50)),
-            "p75": float(np.percentile(arr, 75)),
-            "mean": float(np.mean(arr)),
-            "std": float(np.std(arr)),
-            "sample_count": len(values)
+            "mode": round(float(edges[mode_idx]), 4) if counts[mode_idx] > 0 else None,
+            "mean": round(float(np.mean(arr)), 4),
+            "std":  round(float(np.std(arr)),  4),
+            "p25":  round(float(np.percentile(arr, 25)), 4),
+            "p50":  round(float(np.percentile(arr, 50)), 4),
+            "p75":  round(float(np.percentile(arr, 75)), 4),
+            "sample_count": len(values),
+            # 발주처별 세분화 통계
+            "agency_stats":   agency_stats,
+            "industry_stats": industry_stats,
+            "global_stats":   global_stats,
         }
 
     def model_info(self, db: Session, months: int = 12) -> dict:
@@ -1009,6 +1094,169 @@ class StatisticsService:
                 "predictions_period": period_preds,
             },
         }
+
+# ==================================================
+# 사정율 트렌드 서비스
+# ==================================================
+
+class SrateTrendService:
+    """발주처×공종 최근 3개월 vs 이전 3개월 사정율 트렌드 분석."""
+
+    THRESHOLD = 0.002  # ±0.2%p 이상이면 상승/하락
+
+    def get_trend(self, db: Session, agency_id: Optional[int], industry_id: Optional[int]) -> dict:
+        rows = self._from_assessment_stats(db, agency_id, industry_id)
+        if not rows:
+            rows = self._from_bid_results(db, agency_id, industry_id)
+        return self._build_result(rows, datetime.now())
+
+    def get_top_trends(self, db: Session, limit: int = 3) -> list:
+        sql_rows = db.execute(text("""
+            SELECT ars.group_id, a.name,
+                   ars.period_year, ars.period_month,
+                   ars.srate_mean::float, ars.sample_count
+            FROM assessment_rate_stats ars
+            JOIN agencies a ON a.id = ars.group_id
+            WHERE ars.group_type = 'agency' AND ars.period_month IS NOT NULL
+              AND make_date(ars.period_year::int, ars.period_month::int, 1) >= NOW() - INTERVAL '6 months'
+            ORDER BY ars.group_id, ars.period_year, ars.period_month
+        """)).fetchall()
+
+        agency_data: dict = {}
+        for r in sql_rows:
+            gid = r[0]
+            if gid not in agency_data:
+                agency_data[gid] = {"agency_id": gid, "agency_name": r[1], "rows": []}
+            agency_data[gid]["rows"].append({
+                "period_year": r[2], "period_month": r[3],
+                "srate_mean": r[4], "sample_count": r[5] or 0,
+            })
+
+        now = datetime.now()
+        results = []
+        for gid, info in agency_data.items():
+            trend = self._build_result(info["rows"], now)
+            if trend["direction"] != "stable":
+                results.append({"agency_id": gid, "agency_name": info["agency_name"], **trend})
+
+        results.sort(key=lambda x: abs(x["delta"]), reverse=True)
+        return results[:limit]
+
+    def _from_assessment_stats(self, db: Session, agency_id: Optional[int], industry_id: Optional[int]) -> list:
+        if agency_id:
+            group_type, gid = "agency", agency_id
+        elif industry_id:
+            group_type, gid = "industry", industry_id
+        else:
+            group_type, gid = "global", None
+
+        if gid is not None:
+            rows = db.execute(text("""
+                SELECT period_year, period_month, srate_mean::float, sample_count
+                FROM assessment_rate_stats
+                WHERE group_type = :gt AND group_id = :gid AND period_month IS NOT NULL
+                  AND make_date(period_year::int, period_month::int, 1) >= NOW() - INTERVAL '6 months'
+                ORDER BY period_year, period_month
+            """), {"gt": group_type, "gid": gid}).fetchall()
+        else:
+            rows = db.execute(text("""
+                SELECT period_year, period_month, srate_mean::float, sample_count
+                FROM assessment_rate_stats
+                WHERE group_type = 'global' AND period_month IS NOT NULL
+                  AND make_date(period_year::int, period_month::int, 1) >= NOW() - INTERVAL '6 months'
+                ORDER BY period_year, period_month
+            """)).fetchall()
+
+        return [
+            {"period_year": r[0], "period_month": r[1], "srate_mean": r[2], "sample_count": r[3] or 0}
+            for r in rows
+        ]
+
+    def _from_bid_results(self, db: Session, agency_id: Optional[int], industry_id: Optional[int]) -> list:
+        rows = db.execute(text("""
+            SELECT
+                EXTRACT(YEAR FROM b.bid_open_date)::int,
+                EXTRACT(MONTH FROM b.bid_open_date)::int,
+                AVG(r.assessment_rate)::float,
+                COUNT(*)::int
+            FROM bid_results r
+            JOIN bids b ON b.id = r.bid_id
+            WHERE r.assessment_rate IS NOT NULL
+              AND b.bid_open_date >= NOW() - INTERVAL '6 months'
+              AND (:agency_id IS NULL OR b.agency_id = :agency_id)
+              AND (:industry_id IS NULL OR b.industry_id = :industry_id)
+            GROUP BY 1, 2
+            ORDER BY 1, 2
+        """), {"agency_id": agency_id, "industry_id": industry_id}).fetchall()
+        return [
+            {"period_year": r[0], "period_month": r[1], "srate_mean": r[2], "sample_count": r[3]}
+            for r in rows
+        ]
+
+    def _build_result(self, rows: list, now: datetime) -> dict:
+        if not rows:
+            return {
+                "direction": "stable", "delta": 0.0,
+                "recent_mean": 0.0, "prev_mean": None,
+                "sample_count": 0, "signal": "데이터 부족으로 트렌드 분석 불가",
+            }
+
+        recent, prev = [], []
+        for row in rows:
+            months_ago = (now.year - row["period_year"]) * 12 + (now.month - row["period_month"])
+            if months_ago < 3:
+                recent.append(row)
+            elif months_ago < 6:
+                prev.append(row)
+
+        if not recent:
+            return {
+                "direction": "stable", "delta": 0.0,
+                "recent_mean": 0.0, "prev_mean": None,
+                "sample_count": 0, "signal": "최근 데이터 없음",
+            }
+
+        total_recent = sum(r["sample_count"] for r in recent)
+        if total_recent > 0:
+            recent_mean = sum(r["srate_mean"] * r["sample_count"] for r in recent) / total_recent
+        else:
+            recent_mean = sum(r["srate_mean"] for r in recent) / len(recent)
+        sample_count = total_recent or len(recent)
+
+        if not prev:
+            return {
+                "direction": "stable", "delta": 0.0,
+                "recent_mean": round(recent_mean, 4), "prev_mean": None,
+                "sample_count": sample_count, "signal": "이전 기간 데이터 부족",
+            }
+
+        total_prev = sum(r["sample_count"] for r in prev)
+        if total_prev > 0:
+            prev_mean = sum(r["srate_mean"] * r["sample_count"] for r in prev) / total_prev
+        else:
+            prev_mean = sum(r["srate_mean"] for r in prev) / len(prev)
+
+        delta = recent_mean - prev_mean
+
+        if delta > self.THRESHOLD:
+            direction = "up"
+            signal = f"최근 3개월 사정율 +{delta*100:.2f}%p 상승 중 → 균형형 이상 추천"
+        elif delta < -self.THRESHOLD:
+            direction = "down"
+            signal = f"최근 3개월 사정율 {delta*100:.2f}%p 하락 중 → 안정형 또는 낮게 입찰 추천"
+        else:
+            direction = "stable"
+            signal = f"사정율 변화 미미 ({delta*100:+.2f}%p) → 균형형 전략 유지"
+
+        return {
+            "direction": direction,
+            "delta": round(delta, 6),
+            "recent_mean": round(recent_mean, 4),
+            "prev_mean": round(prev_mean, 4),
+            "sample_count": sample_count,
+            "signal": signal,
+        }
+
 
 # ==================================================
 # 하이브리드 추천 서비스 (v2)
@@ -1097,6 +1345,37 @@ class HybridRecommendService:
         ens_center = max(ens_center, ens_lower  + 0.0005)
         ens_upper  = max(ens_upper,  ens_center + 0.0005)
 
+        # ── Step 8.5: 개인화 편향 보정 (Monte Carlo 전 적용)
+        personal_info = {"correction": 0.0, "agency_correction": None,
+                         "confidence": 0.0, "direction": "balanced",
+                         "avg_bias_pct": 0.0, "sample_count": 0, "narrative": ""}
+        if user_id:
+            try:
+                agency_name_for_bias = None
+                _ag = db.query(Agency).filter(Agency.id == req.agency_id).first()
+                if _ag:
+                    agency_name_for_bias = _ag.name
+                personal_info = PersonalBiasAnalyzer().compute(
+                    db, user_id,
+                    agency_name=agency_name_for_bias,
+                )
+                # 신뢰도 비례 보정값 (낮은 신뢰도면 보정 축소)
+                effective_corr = personal_info["correction"] * personal_info["confidence"]
+                # 발주처 특화 보정 병합
+                if personal_info.get("agency_correction") is not None:
+                    agency_conf = min(1.0, len([1]) * personal_info["confidence"])
+                    effective_corr = (effective_corr * 0.6 +
+                                      personal_info["agency_correction"] * personal_info["confidence"] * 0.4)
+                ens_center += effective_corr
+                ens_lower  += effective_corr
+                ens_upper  += effective_corr
+                # 낙찰하한율 재확인
+                ens_lower  = max(ens_lower,  hard_floor + 0.0005)
+                ens_center = max(ens_center, ens_lower  + 0.0005)
+                ens_upper  = max(ens_upper,  ens_center + 0.0005)
+            except Exception as _e:
+                logger.debug(f"개인화 보정 실패 (무시): {_e}")
+
         # ── Step 9-pre: 경쟁사 프로파일 (시뮬레이션 입력용)
         comp_profiles = get_competitor_profiles(
             db, req.known_competitor_ids or [],
@@ -1106,6 +1385,7 @@ class HybridRecommendService:
         # ── Step 9: 복수예가 Monte Carlo 시뮬레이션 기반 4전략
         industry_name = self._get_industry_name(db, req.industry_id)
         srate_std_val = features_a.get("agency_srate_std") or 0.012
+        expected_n = max(3, min(features_c.get("expected_competitor_count", 8), 15))
         if comp_profiles:
             comp_means = [p["avg_rate"] for p in comp_profiles]
             comp_stds  = [max(p["std_rate"], 0.003) for p in comp_profiles]
@@ -1113,6 +1393,16 @@ class HybridRecommendService:
             comp_means, comp_stds = get_market_competitor_distributions(
                 db, req.agency_id, req.industry_id, bid_date
             )
+        # 기대 경쟁업체 수에 맞게 상위 N개만 사용
+        comp_means = comp_means[:expected_n]
+        comp_stds  = comp_stds[:expected_n]
+        # inpo21c 실증 분포 (데이터 있으면 합성 정규분포 대체)
+        inpo_rates = None
+        try:
+            inpo_rates = get_inpo_raw_rates(db, expected_n)
+        except Exception as _e:
+            logger.debug("inpo21c 실증 분포 조회 실패 (무시): %s", _e)
+
         sim_result = recommend_with_simulation(
             base_amount=req.base_amount,
             industry_name=industry_name,
@@ -1123,6 +1413,8 @@ class HybridRecommendService:
             hard_floor=hard_floor,
             ens_center=ens_center,
             ens_upper=ens_upper,
+            empirical_comp_rates=inpo_rates,
+            expected_n_comp=expected_n if inpo_rates is not None else 0,
         )
         strategies = sim_result["strategies"]
 
@@ -1174,6 +1466,7 @@ class HybridRecommendService:
             "similar_cases": similar,
             "market_trend":  features_d,
             "simulation":    sim_result["simulation"],
+            "personal_correction": personal_info,
         }
 
     # ──────────────────────────────────────────
@@ -1574,9 +1867,11 @@ class CompetitorPatternService:
                 "win_rate": round(len(wins) / len(bucket_results), 4) if bucket_results else None
             })
 
-        six_months_ago = datetime.utcnow() - timedelta(days=180)
-        recent_bids = [b for b in bids_data if b.bid_open_date and b.bid_open_date >= six_months_ago]
-        older_bids = [b for b in bids_data if b.bid_open_date and b.bid_open_date < six_months_ago]
+        from datetime import timezone as _tz
+        six_months_ago = datetime.now(_tz.utc) - timedelta(days=180)
+        def _naive(dt): return dt.replace(tzinfo=None) if dt.tzinfo else dt
+        recent_bids = [b for b in bids_data if b.bid_open_date and _naive(b.bid_open_date) >= six_months_ago.replace(tzinfo=None)]
+        older_bids = [b for b in bids_data if b.bid_open_date and _naive(b.bid_open_date) < six_months_ago.replace(tzinfo=None)]
         recent_ids = {b.id for b in recent_bids}
         older_ids = {b.id for b in older_bids}
         recent_rates = [float(r.bid_rate) for r in results if r.bid_id in recent_ids and r.bid_rate]
@@ -1751,4 +2046,703 @@ class MyBidAnalysisService:
             "accuracy_stats": accuracy_stats,
             "rate_scatter": scatter,
             "monthly_accuracy": monthly_accuracy
+        }
+
+
+
+
+# ==================================================
+# ② 패찰 원인 분석 (MyBidAnalysisService 확장)
+# ==================================================
+
+class DefeatAnalysisService:
+    """
+    패찰 이력에서 원인 분석:
+    - 낙찰자 대비 얼마나 높게/낮게 입찰했는지
+    - 발주처별 패턴
+    - 시간 흐름에 따른 개선 추이
+    """
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def analyze(self, user_id: int) -> dict:
+        from collections import defaultdict
+
+        records = self.db.query(MyBidRecord).filter(
+            MyBidRecord.user_id == user_id,
+            MyBidRecord.result == "lost",
+            MyBidRecord.actual_winner_rate.isnot(None),
+            MyBidRecord.submitted_rate.isnot(None),
+        ).order_by(MyBidRecord.bid_date.desc()).limit(500).all()
+
+        if not records:
+            return self._empty()
+
+        # rate_diff (percentage point): winner_rate - submitted_rate
+        diffs = []
+        for r in records:
+            if r.rate_diff is not None:
+                d = float(r.rate_diff)
+            else:
+                d = (float(r.actual_winner_rate) - float(r.submitted_rate)) * 100
+            diffs.append(d)
+
+        arr = np.array(diffs)
+        # 아웃라이어 제거 (|diff| > 5%)
+        clean = arr[np.abs(arr) <= 5.0]
+
+        miss_stats = self._compute_miss_stats(clean if len(clean) > 0 else arr)
+
+        # 히스토그램 bins: -5 ~ +5, 0.2 단위
+        bins = np.arange(-5.0, 5.2, 0.2)
+        hist, edges = np.histogram(clean if len(clean) > 0 else arr, bins=bins)
+        distribution = [
+            {"from": round(float(edges[i]), 2), "to": round(float(edges[i+1]), 2), "count": int(hist[i])}
+            for i in range(len(hist))
+        ]
+
+        # 발주처별 분석
+        agency_map = defaultdict(list)
+        for r, d in zip(records, diffs):
+            if r.agency_name and abs(d) <= 5.0:
+                agency_map[r.agency_name].append(d)
+
+        agency_breakdown = []
+        for name, ds in sorted(agency_map.items(), key=lambda x: len(x[1]), reverse=True)[:15]:
+            a = np.array(ds)
+            agency_breakdown.append({
+                "agency_name": name,
+                "count": len(ds),
+                "avg_diff": round(float(np.mean(a)), 4),
+                "direction": "too_low" if np.mean(a) > 0.15 else "too_high" if np.mean(a) < -0.15 else "balanced",
+            })
+
+        # 월별 추이
+        monthly_map = defaultdict(list)
+        for r, d in zip(records, diffs):
+            if r.bid_date and abs(d) <= 5.0:
+                key = r.bid_date.strftime("%Y-%m")
+                monthly_map[key].append(d)
+
+        trend = [
+            {
+                "year_month": k,
+                "avg_diff": round(float(np.mean(monthly_map[k])), 4),
+                "count": len(monthly_map[k]),
+            }
+            for k in sorted(monthly_map.keys())
+        ]
+
+        # 낙찰 구간 분석 (won 레코드)
+        won_records = self.db.query(MyBidRecord).filter(
+            MyBidRecord.user_id == user_id,
+            MyBidRecord.result == "won",
+            MyBidRecord.actual_winner_rate.isnot(None),
+        ).all()
+        win_zone = None
+        if won_records:
+            won_diffs = [float(r.rate_diff or 0) for r in won_records]
+            win_zone = {
+                "avg_diff": round(float(np.mean(won_diffs)), 4),
+                "sample_count": len(won_diffs),
+                "note": "낙찰 시 낙찰자 요율 대비 본인 요율 평균 차이",
+            }
+
+        return {
+            "miss_stats": miss_stats,
+            "distribution": distribution,
+            "agency_breakdown": agency_breakdown,
+            "trend": trend,
+            "win_zone": win_zone,
+            "total_analyzed": len(records),
+        }
+
+    def _compute_miss_stats(self, arr: np.ndarray) -> dict:
+        if len(arr) == 0:
+            return {}
+        avg = float(np.mean(arr))
+        return {
+            "avg_diff_pct":      round(avg, 4),
+            "median_diff_pct":   round(float(np.median(arr)), 4),
+            "std_diff_pct":      round(float(np.std(arr)), 4),
+            "pct_too_low":       round(float(np.mean(arr > 0.15)), 4),
+            "pct_too_high":      round(float(np.mean(arr < -0.15)), 4),
+            "pct_balanced":      round(float(np.mean(np.abs(arr) <= 0.15)), 4),
+            "direction":         "too_low" if avg > 0.15 else "too_high" if avg < -0.15 else "balanced",
+            "within_0_5pct":     round(float(np.mean(np.abs(arr) <= 0.5)), 4),
+            "within_1pct":       round(float(np.mean(np.abs(arr) <= 1.0)), 4),
+        }
+
+    def _empty(self) -> dict:
+        return {
+            "miss_stats": {}, "distribution": [],
+            "agency_breakdown": [], "trend": [],
+            "win_zone": None, "total_analyzed": 0,
+        }
+
+    def get_gap_distribution(self, user_id: int) -> dict:
+        """
+        rate_diff 분포 분석 (0.005 버킷).
+        diff = submitted_rate - actual_winner_rate (소수점 기준)
+        양수 → 낙찰자보다 높게 투찰 (too_high), 음수 → 낙찰자보다 낮게 투찰 (too_low).
+        """
+        personal_bias = PersonalBiasAnalyzer().compute(self.db, user_id)
+
+        records = (
+            self.db.query(MyBidRecord)
+            .filter(
+                MyBidRecord.user_id == user_id,
+                MyBidRecord.actual_winner_rate.isnot(None),
+                MyBidRecord.submitted_rate.isnot(None),
+            )
+            .order_by(MyBidRecord.bid_date.desc())
+            .limit(500)
+            .all()
+        )
+
+        if not records:
+            return self._gap_empty(personal_bias)
+
+        OUTLIER = 0.05  # 5%p 이상 이상치 제거
+        BUCKET = 0.005  # 소수점 기준 버킷 크기
+
+        diffs = []
+        for r in records:
+            d = float(r.submitted_rate) - float(r.actual_winner_rate)
+            if abs(d) <= OUTLIER:
+                diffs.append(d)
+
+        if not diffs:
+            return self._gap_empty(personal_bias)
+
+        arr = np.array(diffs)
+        mean_diff = round(float(np.mean(arr)), 6)
+        median_diff = round(float(np.median(arr)), 6)
+
+        THRESHOLD = 0.0015  # 0.15%p
+        if mean_diff > THRESHOLD:
+            consistent_direction = "too_high"
+        elif mean_diff < -THRESHOLD:
+            consistent_direction = "too_low"
+        else:
+            consistent_direction = "mixed"
+
+        win_if_lower_by = round(abs(mean_diff), 6) if consistent_direction == "too_high" else None
+
+        bucket_counts: dict[float, int] = {}
+        for d in diffs:
+            key = round(math.floor(d / BUCKET) * BUCKET, 3)
+            bucket_counts[key] = bucket_counts.get(key, 0) + 1
+
+        buckets = [
+            {
+                "range_lo": lo,
+                "range_hi": round(lo + BUCKET, 3),
+                "count": cnt,
+            }
+            for lo, cnt in sorted(bucket_counts.items())
+        ]
+
+        return {
+            "buckets": buckets,
+            "mean_diff": mean_diff,
+            "median_diff": median_diff,
+            "win_if_lower_by": win_if_lower_by,
+            "consistent_direction": consistent_direction,
+            "personal_bias": personal_bias,
+            "total_analyzed": len(diffs),
+        }
+
+    def _gap_empty(self, personal_bias: dict) -> dict:
+        return {
+            "buckets": [],
+            "mean_diff": None,
+            "median_diff": None,
+            "win_if_lower_by": None,
+            "consistent_direction": "mixed",
+            "personal_bias": personal_bias,
+            "total_analyzed": 0,
+        }
+
+
+# ==================================================
+# 경쟁사 투찰 구간 분포 서비스
+# ==================================================
+
+class CompetitorZoneService:
+    BUCKET_SIZE = 0.005
+    ZONE_MIN    = 0.800
+    ZONE_MAX    = 0.980
+
+    def get_recent_zones(self, db: Session, competitor_id: int, days: int = 90) -> dict:
+        from sqlalchemy import text as sa_text
+        competitor = db.query(Competitor).filter(Competitor.id == competitor_id).first()
+        if not competitor or not competitor.biz_reg_no:
+            return self._empty()
+
+        # inpo21c_participants에 date 컬럼 없으므로 전체 조회 (days 파라미터는 API 호환용)
+        rows = db.execute(sa_text("""
+            SELECT base_ratio::float
+            FROM inpo21c_participants
+            WHERE biz_reg_no = :biz_reg_no
+              AND base_ratio IS NOT NULL
+              AND base_ratio BETWEEN :lo AND :hi
+        """), {
+            "biz_reg_no": competitor.biz_reg_no,
+            "lo": self.ZONE_MIN,
+            "hi": self.ZONE_MAX,
+        }).fetchall()
+
+        if not rows:
+            return self._empty()
+
+        total = len(rows)
+        bucket_counts: dict[float, int] = {}
+        for (ratio,) in rows:
+            key = round(math.floor(ratio / self.BUCKET_SIZE) * self.BUCKET_SIZE, 3)
+            bucket_counts[key] = bucket_counts.get(key, 0) + 1
+
+        zones = [
+            {
+                "range_lo": lo,
+                "range_hi": round(lo + self.BUCKET_SIZE, 3),
+                "count":    cnt,
+                "pct":      round(cnt / total * 100, 1),
+            }
+            for lo, cnt in sorted(bucket_counts.items())
+        ]
+        peak_zone = max(zones, key=lambda z: z["count"]) if zones else None
+
+        return {
+            "zones":       zones,
+            "peak_zone":   peak_zone,
+            "total_count": total,
+            "last_updated": None,
+        }
+
+    def _empty(self) -> dict:
+        return {"zones": [], "peak_zone": None, "total_count": 0, "last_updated": None}
+
+
+# ==================================================
+# ⑧ 공고 자동 평가 점수 서비스
+# ==================================================
+
+class OpportunityScoreService:
+    """
+    신규 공고에 대해 내게 유리한 정도를 0~100점으로 산출.
+    점수 구성:
+      - 경쟁 약함 (40점): HHI 낮고 경쟁자 수 적을수록
+      - 내 이력 (30점): 이 발주처에서 본인 낙찰 이력 있을수록
+      - 시장 추세 (15점): 최근 낙찰율 상승 추세
+      - 금액 적합 (15점): 내가 자주 참여하는 금액 구간
+    """
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def score(self, bid_id: int, user_id: int) -> dict:
+        bid = self.db.query(Bid).filter(Bid.id == bid_id).first()
+        if not bid:
+            return {"score": None, "error": "공고를 찾을 수 없습니다."}
+
+        agency_score  = self._agency_track_score(user_id, bid.agency_id, bid.agency)
+        comp_score    = self._competition_score(bid)
+        trend_score   = self._trend_score(bid)
+        amount_score  = self._amount_fit_score(user_id, bid.base_amount)
+
+        total = (comp_score["pts"] + agency_score["pts"] +
+                 trend_score["pts"] + amount_score["pts"])
+        total = round(min(100, max(0, total)), 1)
+
+        grade = "A" if total >= 75 else "B" if total >= 55 else "C" if total >= 35 else "D"
+
+        return {
+            "bid_id": bid_id,
+            "score": total,
+            "grade": grade,
+            "breakdown": {
+                "competition":    comp_score,
+                "personal_track": agency_score,
+                "market_trend":   trend_score,
+                "amount_fit":     amount_score,
+            },
+            "recommendation": self._grade_message(grade, comp_score, agency_score),
+        }
+
+    def get_top_recommended(self, user_id: int, limit: int = 5) -> list:
+        """7일 이내 개찰 예정 open 공고 중 점수 상위 limit개 반환."""
+        now = datetime.now()
+        cutoff = now + timedelta(days=7)
+
+        q = self.db.query(Bid).filter(
+            Bid.status == "open",
+            Bid.bid_open_date >= now,
+            Bid.bid_open_date <= cutoff,
+        )
+
+        active_ids = get_active_industry_ids(self.db)
+        if active_ids is not None:
+            if not active_ids:
+                return []
+            q = q.filter(Bid.industry_id.in_(active_ids))
+
+        bids = q.all()
+
+        results = []
+        for bid in bids:
+            scored = self.score(bid.id, user_id)
+            if scored.get("error"):
+                continue
+            results.append({
+                "bid_id": bid.id,
+                "title": bid.title,
+                "agency_name": bid.agency.name if bid.agency else "",
+                "score": scored["score"],
+                "grade": scored["grade"],
+                "open_date": bid.bid_open_date.isoformat() if bid.bid_open_date else None,
+                "base_amount": bid.base_amount,
+                "score_breakdown": scored["breakdown"],
+            })
+
+        results.sort(key=lambda x: (x["score"] or 0), reverse=True)
+        return results[:limit]
+
+    def _competition_score(self, bid: "Bid") -> dict:
+        # 최근 해당 발주처 + 업종 낙찰 데이터로 경쟁강도 추정
+        cutoff = datetime.now() - timedelta(days=180)
+        rows = self.db.execute(text("""
+            SELECT COUNT(r.id) as comp_count
+            FROM bids b
+            JOIN bid_results r ON r.bid_id = b.id
+            WHERE b.agency_id = :aid AND b.industry_id = :iid
+              AND b.bid_open_date >= :cutoff AND b.status = 'closed'
+            GROUP BY b.id
+        """), {"aid": bid.agency_id, "iid": bid.industry_id, "cutoff": cutoff}).fetchall()
+
+        if not rows:
+            pts = 25.0
+            note = "경쟁 데이터 없음 (중간값 적용)"
+        else:
+            avg_comp = float(np.mean([r.comp_count for r in rows]))
+            # 경쟁자 수 적을수록 좋음: 5명 이하 = 40pt, 15명 이상 = 5pt
+            pts = max(5.0, 40.0 - (avg_comp - 1) * 2.5)
+            pts = min(40.0, pts)
+            note = f"최근 6개월 평균 경쟁사 {avg_comp:.1f}명"
+
+        return {"pts": round(pts, 1), "max": 40, "note": note}
+
+    def _agency_track_score(self, user_id: int, agency_id: int, agency) -> dict:
+        if not agency:
+            return {"pts": 0.0, "max": 30, "note": "발주처 정보 없음"}
+
+        agency_name = agency.name if hasattr(agency, "name") else ""
+        total = self.db.query(func.count(MyBidRecord.id)).filter(
+            MyBidRecord.user_id == user_id,
+            MyBidRecord.agency_name.ilike(f"%{agency_name[:10]}%"),
+        ).scalar() or 0
+
+        won = self.db.query(func.count(MyBidRecord.id)).filter(
+            MyBidRecord.user_id == user_id,
+            MyBidRecord.agency_name.ilike(f"%{agency_name[:10]}%"),
+            MyBidRecord.result == "won",
+        ).scalar() or 0
+
+        if total == 0:
+            pts, note = 15.0, "이 발주처 참여 이력 없음 (중간값)"
+        elif won == 0:
+            pts = max(5.0, 15.0 - total * 0.5)
+            note = f"참여 {total}건 / 낙찰 0건"
+        else:
+            win_rate = won / total
+            pts = 15.0 + win_rate * 15.0
+            note = f"참여 {total}건 / 낙찰 {won}건 ({win_rate:.0%})"
+
+        return {"pts": round(min(30.0, pts), 1), "max": 30, "note": note}
+
+    def _trend_score(self, bid: "Bid") -> dict:
+        cutoff = datetime.now() - timedelta(days=60)
+        prev   = datetime.now() - timedelta(days=120)
+        rows = self.db.execute(text("""
+            SELECT b.bid_open_date, r.bid_rate
+            FROM bids b
+            JOIN bid_results r ON r.bid_id = b.id AND r.is_winner = true
+            WHERE b.agency_id = :aid AND b.industry_id = :iid
+              AND b.bid_open_date >= :prev AND b.status = 'closed'
+        """), {"aid": bid.agency_id, "iid": bid.industry_id, "prev": prev}).fetchall()
+
+        if len(rows) < 4:
+            return {"pts": 8.0, "max": 15, "note": "추세 데이터 부족"}
+
+        recent = [float(r.bid_rate) for r in rows if r.bid_open_date >= cutoff]
+        older  = [float(r.bid_rate) for r in rows if r.bid_open_date < cutoff]
+
+        if not recent or not older:
+            return {"pts": 8.0, "max": 15, "note": "추세 계산 불가"}
+
+        diff = np.mean(recent) - np.mean(older)
+        # 낙찰률 상승은 예가 가까워짐 → 진입 기회
+        if diff > 0.002:
+            pts, note = 15.0, f"최근 낙찰률 상승 추세 (+{diff*100:.2f}%)"
+        elif diff < -0.002:
+            pts, note = 5.0,  f"최근 낙찰률 하락 추세 ({diff*100:.2f}%)"
+        else:
+            pts, note = 10.0, "낙찰률 안정적"
+
+        return {"pts": pts, "max": 15, "note": note}
+
+    def _amount_fit_score(self, user_id: int, base_amount: int) -> dict:
+        rows = self.db.query(MyBidRecord.base_amount).filter(
+            MyBidRecord.user_id == user_id,
+            MyBidRecord.base_amount.isnot(None),
+            MyBidRecord.base_amount > 0,
+        ).all()
+
+        if not rows:
+            return {"pts": 8.0, "max": 15, "note": "금액 이력 없음"}
+
+        amounts = [r.base_amount for r in rows]
+        p10, p90 = np.percentile(amounts, 10), np.percentile(amounts, 90)
+
+        if p10 <= base_amount <= p90:
+            pts, note = 15.0, f"자주 참여하는 금액 구간 ({base_amount/1e6:.0f}백만원)"
+        elif base_amount < p10:
+            ratio = base_amount / max(p10, 1)
+            pts = max(5.0, 15.0 * ratio)
+            note = f"평소보다 소액 ({base_amount/1e6:.0f}백만원)"
+        else:
+            ratio = p90 / max(base_amount, 1)
+            pts = max(5.0, 15.0 * ratio)
+            note = f"평소보다 고액 ({base_amount/1e6:.0f}백만원)"
+
+        return {"pts": round(pts, 1), "max": 15, "note": note}
+
+    def _grade_message(self, grade: str, comp: dict, track: dict) -> str:
+        if grade == "A":
+            return "낙찰 가능성이 높은 유망 공고입니다. 적극 참여를 추천합니다."
+        elif grade == "B":
+            return "참여 가능한 공고입니다. 요율 전략 수립 후 참여하세요."
+        elif grade == "C":
+            if comp["pts"] < 20:
+                return "경쟁이 치열한 공고입니다. 신중하게 참여 여부를 검토하세요."
+            return "발주처 이력이 부족합니다. 정보 수집 후 참여 여부를 결정하세요."
+        else:
+            return "불리한 조건의 공고입니다. 다른 공고를 우선 검토하세요."
+
+
+
+
+
+# ==================================================
+# G2B 개찰 결과 자동 연계 서비스
+# ==================================================
+
+class G2BSyncService:
+    """
+    G2B 개찰 결과를 투찰이력(my_bid_records)에 자동 반영.
+
+    개찰 완료된 공고의 낙찰자 정보를 기반으로:
+    - result: 'won' / 'lost' 자동 설정
+    - actual_winner_rate, winner_name, winner_biz_no, rate_diff 채우기
+
+    낙찰 판정 기준:
+      abs(submitted_rate - winner_bid_rate) < 0.0003 → won
+      그 외 → lost
+    """
+
+    def sync(self, db: Session) -> dict:
+        pending = (
+            db.query(MyBidRecord)
+            .filter(
+                MyBidRecord.result.is_(None),
+                MyBidRecord.bid_id.isnot(None),
+            )
+            .all()
+        )
+
+        won = lost = skipped = 0
+        for rec in pending:
+            bid = db.query(Bid).filter(Bid.id == rec.bid_id).first()
+            if not bid or bid.status != "closed":
+                skipped += 1
+                continue
+
+            winner_row = (
+                db.query(BidResult, Competitor)
+                .join(Competitor, Competitor.id == BidResult.competitor_id)
+                .filter(BidResult.bid_id == rec.bid_id, BidResult.is_winner == True)
+                .first()
+            )
+            if not winner_row:
+                skipped += 1
+                continue
+
+            winner_result, winner_comp = winner_row
+            winner_rate     = float(winner_result.bid_rate)
+            submitted_rate  = float(rec.submitted_rate)
+
+            rec.actual_winner_rate = winner_rate
+            rec.winner_name        = winner_comp.name
+            rec.winner_biz_no      = winner_comp.biz_reg_no
+            rec.rate_diff          = round(submitted_rate - winner_rate, 4)
+
+            if abs(submitted_rate - winner_rate) < 0.0003:
+                rec.result = "won"
+                won += 1
+            else:
+                rec.result = "lost"
+                lost += 1
+
+        try:
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            logger.error("G2B 연계 커밋 실패: %s", e)
+            return {"won": 0, "lost": 0, "skipped": skipped, "error": str(e)}
+
+        logger.info("G2B 자동 연계: won=%d, lost=%d, skipped=%d", won, lost, skipped)
+        return {"won": won, "lost": lost, "skipped": skipped}
+
+
+class AgencyYegaService:
+    """발주처 특화 예가 번호 빈도 패턴 분석."""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_pattern(self, agency_id: int, industry_id: Optional[int] = None, months: int = 12) -> dict:
+        from .ml.yega import get_agency_yega_pattern
+
+        cutoff = datetime.utcnow() - timedelta(days=months * 30)
+
+        query = (
+            self.db.query(
+                BidResult.assessment_rate,
+                Bid.base_amount,
+                Bid.a_value,
+            )
+            .join(Bid, BidResult.bid_id == Bid.id)
+            .filter(
+                Bid.agency_id == agency_id,
+                BidResult.assessment_rate.isnot(None),
+                Bid.bid_open_date >= cutoff,
+            )
+        )
+
+        if industry_id:
+            query = query.filter(Bid.industry_id == industry_id)
+
+        rows = query.limit(500).all()
+
+        bid_data = [
+            {
+                "assessment_rate": float(r.assessment_rate),
+                "base_amount":     int(r.base_amount),
+                "a_value":         int(r.a_value) if r.a_value else None,
+            }
+            for r in rows
+        ]
+
+        return get_agency_yega_pattern(bid_data)
+
+
+# ==================================================
+# 공동도급 적격심사 매칭 서비스
+# ==================================================
+
+class JointQualService:
+    """공동도급 파트너 적격심사 AI 매칭.
+    경쟁사 DB 기반으로 협정 가능 업체를 탐색하고 적격 여부를 추정한다.
+    실제 실적 데이터 없이 낙찰 이력을 프록시로 사용하는 간소화 모델.
+    """
+
+    _MIN_PARTNER_RATE = 0.30  # 부계약자 최소 참여지분율 (건설산업기본법)
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def find_matching_partners(
+        self,
+        bid_id: int,
+        user_track_amount: float,
+        participation_rate: float = 0.6,
+    ) -> dict:
+        from fastapi import HTTPException
+        from sqlalchemy import func as sqlfunc
+
+        bid = self.db.query(Bid).filter(Bid.id == bid_id).first()
+        if not bid:
+            raise HTTPException(status_code=404, detail="공고를 찾을 수 없습니다")
+
+        base_amount = bid.base_amount or 0
+        min_bid_rate = float(bid.min_bid_rate or 0.87745)
+        partner_rate = max(1.0 - participation_rate, self._MIN_PARTNER_RATE)
+        min_bid_amount = int(base_amount * min_bid_rate * participation_rate)
+
+        threshold_note = (
+            f"기초금액 {base_amount:,}원 기준 — "
+            f"파트너 최소 지분 {partner_rate:.0%}, "
+            f"귀사 최소 투찰금액 약 {min_bid_amount:,}원"
+        )
+
+        # 최근 24개월 CompetitorStat 집계
+        cutoff_year = (datetime.now() - timedelta(days=730)).year
+        stats_subq = (
+            self.db.query(
+                CompetitorStat.competitor_id,
+                sqlfunc.sum(CompetitorStat.total_bid_count).label("total_bids"),
+                sqlfunc.sum(CompetitorStat.win_count).label("win_count"),
+                sqlfunc.avg(CompetitorStat.avg_bid_rate).label("avg_rate"),
+            )
+            .filter(CompetitorStat.period_year >= cutoff_year)
+            .group_by(CompetitorStat.competitor_id)
+            .subquery()
+        )
+
+        rows = (
+            self.db.query(Competitor, stats_subq)
+            .outerjoin(stats_subq, Competitor.id == stats_subq.c.competitor_id)
+            .limit(500)
+            .all()
+        )
+
+        partners = []
+        for competitor, stats_row in rows:
+            total_bids = int(stats_row.total_bids or 0) if stats_row else 0
+            win_count  = int(stats_row.win_count  or 0) if stats_row else 0
+            avg_rate   = float(stats_row.avg_rate or 0) if stats_row else 0.0
+
+            win_rate = win_count / total_bids if total_bids > 0 else 0.0
+
+            # 적격심사 통과 예상: 낙찰 이력 존재 + 최소 입찰 건수 기준
+            qualification_ok = win_count >= 1 and total_bids >= 3
+
+            # 궁합 점수 (안정성·실적·활동성)
+            stability  = 40.0 if qualification_ok else 8.0
+            perf       = min(win_rate / 0.3, 1.0) * 25
+            activity   = min(total_bids / 50, 1.0) * 15
+            compat     = round(stability + perf + activity, 1)
+
+            partners.append({
+                "competitor_id":    competitor.id,
+                "name":             competitor.name,
+                "biz_reg_no":       competitor.biz_reg_no,
+                "joint_min_rate":   round(partner_rate, 2),
+                "qualification_ok": qualification_ok,
+                "win_rate":         round(win_rate, 4),
+                "total_bids":       total_bids,
+                "avg_bid_rate":     round(avg_rate, 4) if avg_rate else None,
+                "compat_score":     compat,
+            })
+
+        # 적격 업체 우선, 궁합 점수 내림차순 정렬
+        partners.sort(key=lambda x: (-int(x["qualification_ok"]), -x["compat_score"]))
+        partners = partners[:50]
+
+        return {
+            "partners":       partners,
+            "bid_title":      bid.title,
+            "base_amount":    base_amount,
+            "threshold_note": threshold_note,
         }

@@ -1,14 +1,14 @@
 ﻿import { useState, useRef, useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Search, ChevronLeft, ChevronRight, X, Building2 } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, X, Building2, Star, CalendarDays, List } from 'lucide-react'
 import { bidsApi } from '@/api'
 import type { Bid, MetaData } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Card } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table'
@@ -21,6 +21,7 @@ const SIZE_OPTIONS = [20, 50, 100]
 
 export default function BidsPage() {
   const navigate = useNavigate()
+  const qc = useQueryClient()
   const [searchParams] = useSearchParams()
   const initKeyword = searchParams.get('keyword') ?? ''
   const [keyword, setKeyword]       = useState(initKeyword)
@@ -32,6 +33,10 @@ export default function BidsPage() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [sortBy, setSortBy]         = useState('notice_date')
   const [pageSize, setPageSize]     = useState(20)
+  const [bookmarkOnly, setBookmarkOnly] = useState(false)
+  const [viewMode, setViewMode]         = useState<'list' | 'calendar'>('list')
+  const [calYear, setCalYear]           = useState(() => new Date().getFullYear())
+  const [calMonth, setCalMonth]         = useState(() => new Date().getMonth() + 1)
   const agencyRef = useRef<HTMLDivElement>(null)
   const [regionId, setRegionId]     = useState<number | null>(null)
 
@@ -40,6 +45,12 @@ export default function BidsPage() {
     queryFn: bidsApi.meta,
     staleTime: 300_000,
   })
+
+  const { data: bookmarkData } = useQuery<{ items: { bid_id: number }[]; total: number }>({
+    queryKey: ['bookmarks'],
+    queryFn: () => bidsApi.bookmarks({ size: 1000 }),
+  })
+  const bookmarkedIds = new Set((bookmarkData?.items ?? []).map((b) => b.bid_id))
 
   const { data, isLoading } = useQuery<{ items: Bid[]; total: number; page: number; size: number }>({
     queryKey: ['bids', search, page, statusFilter, sortBy, agencyId, regionId, pageSize],
@@ -53,6 +64,63 @@ export default function BidsPage() {
       region_id: regionId ?? undefined,
     }),
   })
+
+  const addBookmark = useMutation({
+    mutationFn: (id: number) => bidsApi.addBookmark(id),
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: ['bookmarks'] })
+      const prev = qc.getQueryData<{ items: { bid_id: number }[]; total: number }>(['bookmarks'])
+      qc.setQueryData(['bookmarks'], (old: { items: { bid_id: number }[]; total: number } | undefined) =>
+        old ? { ...old, items: [...old.items, { bid_id: id }] } : old
+      )
+      return { prev }
+    },
+    onError: (_e, _id, ctx) => qc.setQueryData(['bookmarks'], ctx?.prev),
+  })
+
+  const removeBookmark = useMutation({
+    mutationFn: (id: number) => bidsApi.removeBookmark(id),
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: ['bookmarks'] })
+      const prev = qc.getQueryData(['bookmarks'])
+      qc.setQueryData(['bookmarks'], (old: { items: { bid_id: number }[]; total: number } | undefined) =>
+        old ? { ...old, items: old.items.filter((b) => b.bid_id !== id) } : old
+      )
+      return { prev }
+    },
+    onError: (_e, _id, ctx) => qc.setQueryData(['bookmarks'], ctx?.prev),
+  })
+
+  function toggleBookmark(e: React.MouseEvent, bidId: number) {
+    e.stopPropagation()
+    if (bookmarkedIds.has(bidId)) removeBookmark.mutate(bidId)
+    else addBookmark.mutate(bidId)
+  }
+
+  // 달력뷰용 해당 월 전체 데이터 (최대 200건)
+  const { data: calData, isLoading: calLoading } = useQuery<{ items: Bid[]; total: number }>({
+    queryKey: ['bids-cal', calYear, calMonth],
+    queryFn: () => bidsApi.list({
+      date_from: `${calYear}-${String(calMonth).padStart(2,'0')}-01`,
+      date_to:   `${calYear}-${String(calMonth).padStart(2,'0')}-${new Date(calYear, calMonth, 0).getDate()}`,
+      size: 200,
+      sort_by: 'bid_open_date',
+    }),
+    enabled: viewMode === 'calendar',
+    staleTime: 60_000,
+  })
+
+  const calDaysMap = (() => {
+    const m: Record<number, Bid[]> = {}
+    for (const b of calData?.items ?? []) {
+      const dateStr = b.bid_open_date ?? b.notice_date
+      if (!dateStr) continue
+      const d = parseInt(dateStr.slice(8, 10), 10)
+      if (!m[d]) m[d] = []
+      m[d].push(b)
+    }
+    return m
+  })()
 
   const totalPages = data ? Math.ceil(data.total / pageSize) : 1
   const filteredAgencies = agencyInput.length >= 1
@@ -85,6 +153,79 @@ export default function BidsPage() {
         </p>
       </div>
 
+      {/* 탭 + 뷰 모드 */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex gap-1">
+          <Button variant={!bookmarkOnly ? 'default' : 'outline'} size="sm"
+            onClick={() => { setBookmarkOnly(false); setPage(1) }}>전체</Button>
+          <Button variant={bookmarkOnly ? 'default' : 'outline'} size="sm" className="gap-1.5"
+            onClick={() => { setBookmarkOnly(true); setPage(1) }}>
+            <Star className="h-3.5 w-3.5" />
+            북마크 {bookmarkedIds.size > 0 && `(${bookmarkedIds.size})`}
+          </Button>
+        </div>
+        <div className="flex gap-1">
+          <Button variant={viewMode === 'list' ? 'default' : 'outline'} size="sm" className="gap-1.5 h-8"
+            onClick={() => setViewMode('list')}><List className="h-3.5 w-3.5" />목록</Button>
+          <Button variant={viewMode === 'calendar' ? 'default' : 'outline'} size="sm" className="gap-1.5 h-8"
+            onClick={() => setViewMode('calendar')}><CalendarDays className="h-3.5 w-3.5" />달력</Button>
+        </div>
+      </div>
+
+      {/* 달력 뷰 */}
+      {viewMode === 'calendar' && (() => {
+        const daysInMonth = new Date(calYear, calMonth, 0).getDate()
+        const firstDay    = new Date(calYear, calMonth - 1, 1).getDay()
+        const cells = Array.from({ length: firstDay + daysInMonth }, (_, i) => i < firstDay ? null : i - firstDay + 1)
+        return (
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <Button variant="ghost" size="sm" onClick={() => { if (calMonth === 1) { setCalYear(y=>y-1); setCalMonth(12) } else setCalMonth(m=>m-1) }}>← 이전달</Button>
+                <span className="font-semibold">
+                  {calYear}년 {calMonth}월{' '}
+                  {calLoading
+                    ? <span className="text-xs text-muted-foreground font-normal">불러오는 중...</span>
+                    : <span className="text-sm font-normal text-muted-foreground">({calData?.total ?? 0}건 · 개찰일 기준)</span>
+                  }
+                </span>
+                <Button variant="ghost" size="sm" onClick={() => { if (calMonth === 12) { setCalYear(y=>y+1); setCalMonth(1) } else setCalMonth(m=>m+1) }}>다음달 →</Button>
+              </div>
+              <div className="grid grid-cols-7 gap-1 text-center">
+                {['일','월','화','수','목','금','토'].map(d => (
+                  <div key={d} className="text-[10px] font-semibold text-muted-foreground py-1">{d}</div>
+                ))}
+                {cells.map((day, i) => {
+                  const bids = day ? (calDaysMap[day] ?? []) : []
+                  return (
+                    <div key={i} className={cn('min-h-[80px] rounded-md p-1 border text-[10px]',
+                      day ? 'bg-background hover:bg-accent/30' : 'bg-muted/20 border-transparent')}>
+                      {day && (
+                        <>
+                          <div className="font-semibold text-muted-foreground mb-1">{day}</div>
+                          {bids.slice(0,3).map((b) => (
+                            <div key={b.id}
+                              className={cn('truncate rounded px-1 py-0.5 mb-0.5 cursor-pointer',
+                                b.status === 'closed' ? 'bg-primary/10 text-primary' : 'bg-orange-50 text-orange-700')}
+                              onClick={() => navigate(`/bids/${b.id}`)}>
+                              {b.title.slice(0, 12)}
+                            </div>
+                          ))}
+                          {bids.length > 3 && (
+                            <div className="text-muted-foreground text-center">+{bids.length-3}건</div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )
+      })()}
+
+      {viewMode === 'list' && <>
       {/* 필터 바 */}
       <div className="flex flex-wrap gap-2 items-center">
         <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1) }}>
@@ -194,6 +335,7 @@ export default function BidsPage() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-8" />
               <TableHead>공고명</TableHead>
               <TableHead>발주기관</TableHead>
               <TableHead>지역</TableHead>
@@ -208,24 +350,36 @@ export default function BidsPage() {
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
-                  {Array.from({ length: 8 }).map((_, j) => (
+                  {Array.from({ length: 9 }).map((_, j) => (
                     <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                   ))}
                 </TableRow>
               ))
             ) : !data?.items?.length ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center text-muted-foreground py-10">
+                <TableCell colSpan={9} className="text-center text-muted-foreground py-10">
                   데이터가 없습니다.
                 </TableCell>
               </TableRow>
             ) : (
-              data.items.map((bid: Bid) => (
+              data.items
+                .filter((bid) => !bookmarkOnly || bookmarkedIds.has(bid.id))
+                .map((bid: Bid) => (
                 <TableRow
                   key={bid.id}
                   className="cursor-pointer"
                   onClick={() => navigate(`/bids/${bid.id}`)}
                 >
+                  <TableCell onClick={(e) => toggleBookmark(e, bid.id)} className="cursor-pointer">
+                    <Star
+                      className={cn(
+                        'h-4 w-4 transition-colors',
+                        bookmarkedIds.has(bid.id)
+                          ? 'fill-yellow-400 text-yellow-400'
+                          : 'text-muted-foreground hover:text-yellow-400'
+                      )}
+                    />
+                  </TableCell>
                   <TableCell className="max-w-xs">
                     <div className="flex items-center gap-2">
                       <span className="truncate font-medium text-primary">{bid.title}</span>
@@ -293,6 +447,7 @@ export default function BidsPage() {
           </div>
         </div>
       </Card>
+      </>}
     </div>
   )
 }

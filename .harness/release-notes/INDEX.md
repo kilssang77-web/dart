@@ -1,7 +1,10 @@
 # Release Notes Index
 
-최신순으로 정렬됩니다. `synced` 컬럼: ✅ = docs에 반영 완료, ❌ = 미반영.
-`/a2m_sync_docs` 명령으로 미반영 항목을 docs/*에 동기화할 수 있습니다.
+> **이 파일은 자동 생성됩니다.** 직접 수정하지 마세요.
+> synced 상태는 각 release-note의 `.meta.json` 파일에서 관리됩니다.
+> `/a2m_sync_docs` 명령으로 ❌ 항목을 docs/*에 동기화하고 synced=true로 마킹합니다.
 
-| 파일 | task | stage | 날짜 | 요약 | synced |
-|------|------|-------|------|------|--------|
+| 파일 | task | stage | 날짜 | synced |
+|------|------|-------|------|--------|
+| [2026-06-05_21-00-28_mvp-enhance2.md](2026-06-05_21-00-28_mvp-enhance2.md) | mvp-enhance2 | mvp | 2026-06-05 | ✅ |
+| [2026-06-04_11-01-01_mvp-collector.md](2026-06-04_11-01-01_mvp-collector.md) | mvp-collector | mvp | 2026-06-04 | ✅ |

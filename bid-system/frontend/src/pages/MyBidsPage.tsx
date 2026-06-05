@@ -1,13 +1,17 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, CheckCircle2, XCircle, Clock, Trash2, Edit2 } from 'lucide-react'
+import {
+  ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  LineChart, Line, BarChart, Bar, ReferenceLine, Cell
+} from 'recharts'
 import { myBidsApi } from '@/api'
-import type { MyBidRecord } from '@/types'
+import type { MyBidRecord, MyBidAnalysis, DefeatAnalysis, GapAnalysisResponse } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table'
@@ -18,6 +22,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 type ResultType = 'pending' | 'won' | 'lost'
 
@@ -48,6 +53,7 @@ const emptyForm = {
 
 export default function MyBidsPage() {
   const qc = useQueryClient()
+  const [activeTab, setActiveTab] = useState('history')
   const [resultFilter, setResultFilter] = useState('all')
   const [showAdd, setShowAdd] = useState(false)
   const [editRecord, setEditRecord] = useState<MyBidRecord | null>(null)
@@ -57,6 +63,24 @@ export default function MyBidsPage() {
   const { data: stats } = useQuery({
     queryKey: ['my-bids-stats'],
     queryFn: myBidsApi.stats,
+  })
+
+  const { data: analysis } = useQuery<MyBidAnalysis>({
+    queryKey: ['my-bids-analysis'],
+    queryFn: myBidsApi.analysis,
+    enabled: activeTab === 'analysis',
+  })
+
+  const { data: defeat } = useQuery<DefeatAnalysis>({
+    queryKey: ['my-bids-defeat'],
+    queryFn: myBidsApi.defeatAnalysis,
+    enabled: activeTab === 'defeat',
+  })
+
+  const { data: gapData } = useQuery<GapAnalysisResponse>({
+    queryKey: ['my-bids-gap'],
+    queryFn: myBidsApi.gapAnalysis,
+    enabled: activeTab === 'gap',
   })
 
   const { data: records = [], isLoading } = useQuery<MyBidRecord[]>({
@@ -129,6 +153,12 @@ export default function MyBidsPage() {
 
   const pct = (v?: number | null) => v != null ? `${(v * 100).toFixed(4)}%` : '-'
 
+  const scatterData = (analysis?.rate_scatter ?? []).map((p) => ({
+    x: p.recommendation_rate != null ? +(p.recommendation_rate * 100).toFixed(4) : null,
+    y: +(p.submitted_rate * 100).toFixed(4),
+    result: p.result,
+  })).filter((p) => p.x != null)
+
   return (
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-between">
@@ -162,92 +192,375 @@ export default function MyBidsPage() {
         </div>
       )}
 
-      {/* 필터 */}
-      <div className="flex gap-2 items-center">
-        <Select value={resultFilter} onValueChange={setResultFilter}>
-          <SelectTrigger className="w-32">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">전체</SelectItem>
-            <SelectItem value="won">낙찰</SelectItem>
-            <SelectItem value="lost">미낙찰</SelectItem>
-            <SelectItem value="pending">결과대기</SelectItem>
-          </SelectContent>
-        </Select>
-        <span className="text-sm text-muted-foreground">{records.length}건</span>
-      </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="history">이력 목록</TabsTrigger>
+          <TabsTrigger value="analysis">정확도 분석</TabsTrigger>
+          <TabsTrigger value="gap">역산 분석</TabsTrigger>
+        </TabsList>
 
-      {/* 테이블 */}
-      <Card>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>공고명</TableHead>
-              <TableHead>발주기관</TableHead>
-              <TableHead>투찰일</TableHead>
-              <TableHead className="text-right">기초금액</TableHead>
-              <TableHead className="text-right">투찰률</TableHead>
-              <TableHead className="text-right">AI 추천률</TableHead>
-              <TableHead className="text-right">낙찰률</TableHead>
-              <TableHead className="text-center">결과</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              <TableRow>
-                <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">불러오는 중...</TableCell>
-              </TableRow>
-            ) : records.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">
-                  투찰 이력이 없습니다. 이력 추가 버튼으로 등록하세요.
-                </TableCell>
-              </TableRow>
-            ) : (
-              records.map((rec) => (
-                <TableRow key={rec.id}>
-                  <TableCell className="max-w-xs truncate font-medium">{rec.title}</TableCell>
-                  <TableCell className="whitespace-nowrap text-muted-foreground">{rec.agency_name || '-'}</TableCell>
-                  <TableCell className="whitespace-nowrap text-muted-foreground">
-                    {rec.bid_date ? new Date(rec.bid_date).toLocaleDateString('ko-KR') : '-'}
-                  </TableCell>
-                  <TableCell className="text-right whitespace-nowrap">
-                    {rec.base_amount ? `${(rec.base_amount / 1e8).toFixed(1)}억` : '-'}
-                  </TableCell>
-                  <TableCell className="text-right font-mono font-semibold">{pct(rec.submitted_rate)}</TableCell>
-                  <TableCell className={cn(
-                    "text-right font-mono text-sm",
-                    rec.recommendation_rate != null ? "text-primary" : "text-muted-foreground"
-                  )}>
-                    {pct(rec.recommendation_rate)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-sm text-muted-foreground">
-                    {pct(rec.actual_winner_rate)}
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <ResultBadge result={rec.result as ResultType} />
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1 justify-end">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(rec)}>
-                        <Edit2 className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
-                        onClick={() => { if (confirm('삭제하시겠습니까?')) deleteMut.mutate(rec.id) }}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </TableCell>
+        {/* 이력 목록 탭 */}
+        <TabsContent value="history" className="space-y-3 mt-3">
+          <div className="flex gap-2 items-center">
+            <Select value={resultFilter} onValueChange={setResultFilter}>
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">전체</SelectItem>
+                <SelectItem value="won">낙찰</SelectItem>
+                <SelectItem value="lost">미낙찰</SelectItem>
+                <SelectItem value="pending">결과대기</SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="text-sm text-muted-foreground">{records.length}건</span>
+          </div>
+          <Card>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>공고명</TableHead>
+                  <TableHead>발주기관</TableHead>
+                  <TableHead>투찰일</TableHead>
+                  <TableHead className="text-right">기초금액</TableHead>
+                  <TableHead className="text-right">투찰률</TableHead>
+                  <TableHead className="text-right">AI 추천률</TableHead>
+                  <TableHead className="text-right">낙찰률</TableHead>
+                  <TableHead className="text-center">결과</TableHead>
+                  <TableHead />
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </Card>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">불러오는 중...</TableCell>
+                  </TableRow>
+                ) : records.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">
+                      투찰 이력이 없습니다. 이력 추가 버튼으로 등록하세요.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  records.map((rec) => (
+                    <TableRow key={rec.id}>
+                      <TableCell className="max-w-xs truncate font-medium">{rec.title}</TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">{rec.agency_name || '-'}</TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">
+                        {rec.bid_date ? new Date(rec.bid_date).toLocaleDateString('ko-KR') : '-'}
+                      </TableCell>
+                      <TableCell className="text-right whitespace-nowrap">
+                        {rec.base_amount ? `${(rec.base_amount / 1e8).toFixed(1)}억` : '-'}
+                      </TableCell>
+                      <TableCell className="text-right font-mono font-semibold">{pct(rec.submitted_rate)}</TableCell>
+                      <TableCell className={cn(
+                        "text-right font-mono text-sm",
+                        rec.recommendation_rate != null ? "text-primary" : "text-muted-foreground"
+                      )}>
+                        {pct(rec.recommendation_rate)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-sm text-muted-foreground">
+                        {pct(rec.actual_winner_rate)}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <ResultBadge result={rec.result as ResultType} />
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-1 justify-end">
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(rec)}>
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                            onClick={() => { if (confirm('삭제하시겠습니까?')) deleteMut.mutate(rec.id) }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </Card>
+        </TabsContent>
+
+        {/* 정확도 분석 탭 */}
+        <TabsContent value="analysis" className="space-y-4 mt-3">
+          {analysis && (
+            <>
+              {/* 정확도 요약 카드 */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <Card>
+                  <CardContent className="pt-4">
+                    <p className="text-xs text-muted-foreground mb-1">±1% 적중률</p>
+                    <p className="text-2xl font-bold font-mono">
+                      {analysis.accuracy_stats.accuracy_1pct != null
+                        ? `${(analysis.accuracy_stats.accuracy_1pct * 100).toFixed(1)}%` : '-'}
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4">
+                    <p className="text-xs text-muted-foreground mb-1">±3% 적중률</p>
+                    <p className="text-2xl font-bold font-mono">
+                      {analysis.accuracy_stats.accuracy_3pct != null
+                        ? `${(analysis.accuracy_stats.accuracy_3pct * 100).toFixed(1)}%` : '-'}
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4">
+                    <p className="text-xs text-muted-foreground mb-1">평균 오차</p>
+                    <p className="text-2xl font-bold font-mono">
+                      {analysis.accuracy_stats.avg_error != null
+                        ? `±${(analysis.accuracy_stats.avg_error * 100).toFixed(4)}%` : '-'}
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4">
+                    <p className="text-xs text-muted-foreground mb-1">분석 대상</p>
+                    <p className="text-2xl font-bold font-mono">{analysis.accuracy_stats.total_records}건</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* 산점도 */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-semibold">AI 추천률 vs 실제 투찰률</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {scatterData.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-10">
+                      AI 추천률이 있는 이력 데이터가 없습니다.
+                    </p>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={280}>
+                      <ScatterChart margin={{ left: -10, right: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="x" name="AI 추천률" unit="%" type="number" domain={['auto', 'auto']} tick={{ fontSize: 11 }} />
+                        <YAxis dataKey="y" name="투찰률" unit="%" type="number" domain={['auto', 'auto']} tick={{ fontSize: 11 }} />
+                        <Tooltip cursor={{ strokeDasharray: '3 3' }} formatter={(v: number) => v + '%'} />
+                        <Scatter
+                          data={scatterData.filter((p) => p.result === 'won')}
+                          fill="hsl(142.1 76.2% 36.3%)"
+                          name="낙찰"
+                          opacity={0.8}
+                        />
+                        <Scatter
+                          data={scatterData.filter((p) => p.result === 'lost')}
+                          fill="hsl(var(--muted-foreground))"
+                          name="미낙찰"
+                          opacity={0.5}
+                        />
+                      </ScatterChart>
+                    </ResponsiveContainer>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* 월별 MAE */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-semibold">월별 AI 추천 오차 (MAE)</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {analysis.monthly_accuracy.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-10">월별 데이터가 없습니다.</p>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <LineChart data={analysis.monthly_accuracy} margin={{ left: -10, right: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="year_month" tick={{ fontSize: 10 }} />
+                        <YAxis tick={{ fontSize: 11 }} unit="%" />
+                        <Tooltip formatter={(v: number) => [v + '%', 'MAE']} />
+                        <Line type="monotone" dataKey="mae" stroke="hsl(var(--primary))" dot={{ r: 3 }} strokeWidth={2} connectNulls />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* 월별 진단 리포트 */}
+              {analysis.monthly_accuracy.length >= 2 && (() => {
+                const sorted = [...analysis.monthly_accuracy].sort((a, b) => a.year_month.localeCompare(b.year_month))
+                const latest = sorted[sorted.length - 1]
+                const prev   = sorted[sorted.length - 2]
+                const trend  = latest?.mae != null && prev?.mae != null ? latest.mae - prev.mae : null
+                const hitRate1 = analysis.accuracy_stats.accuracy_1pct
+                const hitRate3 = analysis.accuracy_stats.accuracy_3pct
+                const avgErr   = analysis.accuracy_stats.avg_error
+                const msgs: { type: 'good' | 'warn' | 'info'; text: string }[] = []
+                if (trend !== null) msgs.push({ type: trend < 0 ? 'good' : 'warn', text: `전월 대비 오차 ${trend < 0 ? '개선 ▼' : '증가 ▲'} ${Math.abs(trend * 100).toFixed(4)}%` })
+                if (hitRate1 != null) msgs.push({ type: hitRate1 >= 0.3 ? 'good' : 'warn', text: `±1% 적중률 ${(hitRate1*100).toFixed(1)}% — ${hitRate1 >= 0.3 ? '양호' : '개선 필요'}` })
+                if (hitRate3 != null) msgs.push({ type: hitRate3 >= 0.6 ? 'good' : 'warn', text: `±3% 적중률 ${(hitRate3*100).toFixed(1)}% — ${hitRate3 >= 0.6 ? '목표 달성' : '목표 60% 미달'}` })
+                if (avgErr != null) msgs.push({ type: 'info', text: `전체 평균 오차 ±${(avgErr*100).toFixed(4)}% (소수점 4자리 기준)` })
+                return (
+                  <Card className="border-blue-200 bg-blue-50/30">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-semibold text-blue-700">종합 진단 리포트</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {msgs.map((m, i) => (
+                        <div key={i} className={cn('flex items-start gap-2 text-sm p-2.5 rounded-md',
+                          m.type === 'good' ? 'bg-green-50 text-green-700' : m.type === 'warn' ? 'bg-orange-50 text-orange-700' : 'bg-white text-muted-foreground')}>
+                          <span className="shrink-0 font-bold">{m.type === 'good' ? '✓' : m.type === 'warn' ? '!' : 'ℹ'}</span>
+                          {m.text}
+                        </div>
+                      ))}
+                      <p className="text-[10px] text-muted-foreground pt-1">기준: 최근 {sorted.length}개월 투찰 이력</p>
+                    </CardContent>
+                  </Card>
+                )
+              })()}
+            </>
+          )}
+          {!analysis && (
+            <p className="text-sm text-muted-foreground text-center py-10">분석 데이터를 불러오는 중...</p>
+          )}
+        </TabsContent>
+        {/* 역산 분석 탭 */}
+        <TabsContent value="gap" className="space-y-4 mt-3">
+          {gapData ? (
+            gapData.total_analyzed === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center text-sm text-muted-foreground">
+                  투찰 이력이 쌓이면 역산 분석이 가능합니다.
+                  <br />
+                  낙찰 결과(실제 낙찰률)가 입력된 이력이 필요합니다.
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                {/* 핵심 지표 카드 */}
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <Card>
+                    <CardContent className="pt-4">
+                      <p className="text-xs text-muted-foreground mb-1">평균 격차</p>
+                      <p className={cn(
+                        "text-2xl font-bold font-mono",
+                        gapData.mean_diff != null && gapData.mean_diff > 0
+                          ? "text-orange-600"
+                          : "text-blue-600"
+                      )}>
+                        {gapData.mean_diff != null
+                          ? `${gapData.mean_diff > 0 ? '+' : ''}${(gapData.mean_diff * 100).toFixed(3)}%`
+                          : '-'}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {gapData.consistent_direction === 'too_high'
+                          ? '▲ 낙찰자보다 높게 투찰'
+                          : gapData.consistent_direction === 'too_low'
+                          ? '▼ 낙찰자보다 낮게 투찰'
+                          : '— 혼합 패턴'}
+                      </p>
+                    </CardContent>
+                  </Card>
+                  {gapData.win_if_lower_by != null ? (
+                    <Card className="border-orange-200 bg-orange-50/30">
+                      <CardContent className="pt-4">
+                        <p className="text-xs text-muted-foreground mb-1">낙찰 가능 구간</p>
+                        <p className="text-2xl font-bold font-mono text-orange-600">
+                          -{(gapData.win_if_lower_by * 100).toFixed(3)}%
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">낮게 투찰하면 낙찰 구간 진입</p>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <Card>
+                      <CardContent className="pt-4">
+                        <p className="text-xs text-muted-foreground mb-1">낙찰 가능 구간</p>
+                        <p className="text-2xl font-bold font-mono text-muted-foreground">-</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {gapData.consistent_direction === 'too_low' ? '낙찰자보다 낮게 투찰 중' : '패턴 미확정'}
+                        </p>
+                      </CardContent>
+                    </Card>
+                  )}
+                  <Card>
+                    <CardContent className="pt-4">
+                      <p className="text-xs text-muted-foreground mb-1">분석 건수</p>
+                      <p className="text-2xl font-bold font-mono">{gapData.total_analyzed}건</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        중앙값 {gapData.median_diff != null
+                          ? `${gapData.median_diff > 0 ? '+' : ''}${(gapData.median_diff * 100).toFixed(3)}%`
+                          : '-'}
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* rate_diff 분포 히스토그램 */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm font-semibold">
+                      낙찰자 대비 투찰 격차 분포
+                      <span className="text-xs font-normal text-muted-foreground ml-2">
+                        (양수: 내가 높게 투찰 / 음수: 내가 낮게 투찰)
+                      </span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {gapData.buckets.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-10">분포 데이터 없음</p>
+                    ) : (
+                      <ResponsiveContainer width="100%" height={240}>
+                        <BarChart
+                          data={gapData.buckets.map((b) => ({
+                            mid: +((b.range_lo + b.range_hi) / 2 * 100).toFixed(3),
+                            count: b.count,
+                            positive: b.range_lo >= 0,
+                          }))}
+                          margin={{ left: -10, right: 10 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis dataKey="mid" unit="%" tick={{ fontSize: 10 }} />
+                          <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                          <Tooltip
+                            formatter={(v: number) => [v + '건', '빈도']}
+                            labelFormatter={(l) => `격차 ${l}%`}
+                          />
+                          <ReferenceLine x={0} stroke="hsl(var(--foreground))" strokeDasharray="4 4" strokeWidth={1.5} />
+                          <Bar dataKey="count" radius={[2, 2, 0, 0]}>
+                            {gapData.buckets.map((b, i) => (
+                              <Cell
+                                key={i}
+                                fill={b.range_lo >= 0 ? 'hsl(24 95% 53%)' : 'hsl(221 83% 53%)'}
+                              />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* 개인화 편향 보정 카드 */}
+                {gapData.personal_bias.sample_count > 0 && (
+                  <Card className="border-blue-200 bg-blue-50/30">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-semibold text-blue-700">개인화 편향 분석</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      <p className="text-sm text-blue-800">{gapData.personal_bias.narrative}</p>
+                      <div className="flex gap-4 text-xs text-muted-foreground">
+                        <span>신뢰도: {(gapData.personal_bias.confidence * 100).toFixed(0)}%</span>
+                        <span>샘플: {gapData.personal_bias.sample_count}건</span>
+                        <span>편향: {gapData.personal_bias.avg_bias_pct > 0 ? '+' : ''}{gapData.personal_bias.avg_bias_pct.toFixed(3)}%</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </>
+            )
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-10">분석 데이터를 불러오는 중...</p>
+          )}
+        </TabsContent>
+      </Tabs>
 
       {/* 이력 추가 다이얼로그 */}
       <Dialog open={showAdd} onOpenChange={setShowAdd}>
@@ -347,3 +660,5 @@ export default function MyBidsPage() {
     </div>
   )
 }
+
+

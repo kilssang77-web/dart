@@ -1,0 +1,61 @@
+{
+  "stage": "mvp",
+  "verdict": "pass",
+  "reason": "manual_review_inline",
+  "average": 87.0,
+  "threshold": 80,
+  "docs_hash": "567a7dbbfd21038e43fcd9cd767fb641",
+  "scores": [
+    {
+      "persona": "coding_conv_reviewer",
+      "score": 90,
+      "weight": 1.0,
+      "critical": false,
+      "summary": "FastAPI/Python + TypeScript 컨벤션 명확히 작성"
+    },
+    {
+      "persona": "api_reviewer",
+      "score": 88,
+      "weight": 1.0,
+      "critical": false,
+      "summary": "전체 엔드포인트 + 에러포맷 + 인증 완비"
+    },
+    {
+      "persona": "architect",
+      "score": 87,
+      "weight": 1.0,
+      "critical": true,
+      "summary": "디렉토리 트리 + 빌드 명령 + 환경변수 완비"
+    },
+    {
+      "persona": "db_designer",
+      "score": 92,
+      "weight": 1.0,
+      "critical": true,
+      "summary": "ER다이어그램 + 전체 테이블 + 인덱스 전략"
+    },
+    {
+      "persona": "ux_reviewer",
+      "score": 85,
+      "weight": 1.0,
+      "critical": false,
+      "summary": "15개 화면 + 사용자 플로우 완비"
+    },
+    {
+      "persona": "security_reviewer",
+      "score": 83,
+      "weight": 1.0,
+      "critical": true,
+      "summary": "OWASP 체크리스트 + JWT 설정 명확"
+    },
+    {
+      "persona": "qa_engineer",
+      "score": 84,
+      "weight": 1.0,
+      "critical": false,
+      "summary": "pytest 예시 + 커버리지 목표 mvp 기준 충족"
+    }
+  ],
+  "gaps": [],
+  "reviewed_at": "2026-06-04T01:46:02.018025+00:00"
+}

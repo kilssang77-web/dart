@@ -5,8 +5,8 @@ from datetime import date
 
 from ...database import get_db
 from ...models import User, Agency, Industry, Region
-from ...schemas import BidCreate, BidResultCreate
-from ...services import BidService, get_active_industry_ids
+from ...schemas import BidCreate, BidResultCreate, BookmarkResponse, OpportunityScoreResponse, BidRecommendItem, JointPartnersResponse
+from ...services import BidService, BookmarkService, get_active_industry_ids, OpportunityScoreService, JointQualService
 from ...common.security import get_current_user
 
 router = APIRouter(prefix="/bids", tags=["입찰"])
@@ -24,7 +24,7 @@ def list_bids(
     keyword:     Optional[str]  = Query(None),
     sort_by:     str            = Query('notice_date'),
     page: int = Query(1, ge=1),
-    size: int = Query(20, ge=1, le=100),
+    size: int = Query(20, ge=1, le=500),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
@@ -58,6 +58,15 @@ def keyword_matches(db: Session = Depends(get_db), _: User = Depends(get_current
     return svc.get_keyword_matches(db)
 
 
+@router.get("/recommended", response_model=list[BidRecommendItem])
+def recommended_bids(
+    limit: int = Query(5, ge=1, le=20),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return OpportunityScoreService(db).get_top_recommended(user.id, limit)
+
+
 @router.get("/{bid_id}")
 def get_bid(bid_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     result = svc.get_bid_detail(db, bid_id)
@@ -72,6 +81,35 @@ def similar_bids(bid_id: int, top_k: int = Query(8, ge=1, le=20),
     return svc.find_similar_bids(db, bid_id, top_k)
 
 
+@router.get("/bookmarks")
+def list_bookmarks(
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    svc_bm = BookmarkService(db)
+    return svc_bm.list_bookmarks(user.id, page=page, size=size)
+
+
+@router.post("/{bid_id}/bookmark", status_code=204)
+def add_bookmark(
+    bid_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    BookmarkService(db).add(bid_id=bid_id, user_id=user.id)
+
+
+@router.delete("/{bid_id}/bookmark", status_code=204)
+def remove_bookmark(
+    bid_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    BookmarkService(db).remove(bid_id=bid_id, user_id=user.id)
+
+
 @router.post("", status_code=201)
 def create_bid(
     body: BidCreate,
@@ -82,3 +120,22 @@ def create_bid(
         raise HTTPException(status_code=403, detail="권한이 없습니다.")
     bid = svc.create_bid(db, body)
     return {"id": bid.id, "announcement_no": bid.announcement_no}
+
+@router.get("/{bid_id}/opportunity-score", response_model=OpportunityScoreResponse)
+def opportunity_score(
+    bid_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return OpportunityScoreService(db).score(bid_id, user.id)
+
+
+@router.get("/{bid_id}/joint-partners", response_model=JointPartnersResponse)
+def joint_partners(
+    bid_id: int,
+    user_track: float = Query(0, ge=0, description="귀사 보유 실적금액(원)"),
+    participation_rate: float = Query(0.6, ge=0.1, le=1.0, description="귀사 참여지분율"),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    return JointQualService(db).find_matching_partners(bid_id, user_track, participation_rate)

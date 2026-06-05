@@ -2,6 +2,13 @@
   "_comment": "외부 참고 프로젝트 목록. python3 scripts/references.py add <url-or-path> 명령으로 추가합니다.",
   "references": [
     {
+      "name": "info21c",
+      "source": "https://www.info21c.net/",
+      "type": "web",
+      "purpose": "나라장터 입찰 정보 서비스 — UX/IA 벤치마크. 공고 캘린더, 발주처 분석, 경쟁사 현황, 사정율 분석 화면 레이아웃 참조. renewal-ux 단계 전체 페이지 리뉴얼 기준.",
+      "added_at": "2026-06-04T00:00:00+09:00"
+    },
+    {
       "name": "infose_info21c",
       "source": "https://infose.info21c.net/",
       "type": "web",

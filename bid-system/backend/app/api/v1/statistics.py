@@ -4,12 +4,13 @@ from typing import Optional
 
 from ...database import get_db
 from ...models import User
-from ...services import StatisticsService
+from ...services import StatisticsService, SrateTrendService
 from ...schemas import SrateDistributionResponse
 from ...common.security import get_current_user
 
 router = APIRouter(prefix="/stats", tags=["통계"])
 svc = StatisticsService()
+svc_trend = SrateTrendService()
 
 
 @router.get("/overview")
@@ -76,6 +77,36 @@ def cluster_analysis(
     _: User = Depends(get_current_user),
 ):
     return svc.cluster_analysis(db, industry_id=industry_id, months=months, k=k)
+
+
+@router.get("/srate-distribution")
+def srate_distribution(
+    agency_id:   Optional[int] = Query(None),
+    industry_id: Optional[int] = Query(None),
+    months: int = Query(24, ge=1, le=60),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    return svc.srate_distribution_detail(db, agency_id=agency_id, industry_id=industry_id, months=months)
+
+
+@router.get("/srate-trend")
+def srate_trend(
+    agency_id: Optional[int] = Query(None),
+    industry_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    return svc_trend.get_trend(db, agency_id, industry_id)
+
+
+@router.get("/top-srate-trends")
+def top_srate_trends(
+    limit: int = Query(3, ge=1, le=10),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    return svc_trend.get_top_trends(db, limit)
 
 
 @router.get("/model-info")

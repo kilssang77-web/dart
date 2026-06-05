@@ -1,0 +1,17 @@
+{
+  "project": "bid-system",
+  "phase": "r10-joint-bid",
+  "branch": "feat/enhance-ux-2026-06-01_10-56-11",
+  "stage": "prototype",
+  "author": "kil0410@a2m.co.kr",
+  "created_at": "2026-06-02T11:30:00+09:00",
+  "reference": "renewal-ux R-10 — 공동도급 협정사 검색 및 궁합 분석",
+  "steps": [
+    {
+      "step": 1,
+      "name": "JointBidPage 신규 생성 — 파트너 궁합 점수 + 필터 + 레이더차트",
+      "status": "completed",
+      "summary": "경쟁사 DB 기반 잠재 협력사 탐색. 안정성(40)+실적(25)+일관성(20)+활동성(15) 100점 궁합 산출. 필터(최소점수/위험등급), 정렬(궁합/낙찰률/건수), 행 클릭 시 레이더차트+항목별 점수 확장. 사이드바 투찰 그룹 추가."
+    }
+  ]
+}

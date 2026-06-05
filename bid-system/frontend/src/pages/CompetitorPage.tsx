@@ -1,23 +1,24 @@
 ﻿import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Search, ChevronLeft, ChevronRight, Trophy } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, Trophy, CheckSquare, Square } from 'lucide-react'
 import {
-  RadarChart, Radar, PolarGrid, PolarAngleAxis,
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
+  LineChart, Line, BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts'
 import { competitorsApi } from '@/api'
-import type { Competitor } from '@/types'
+import type { Competitor, CompetitorZoneItem } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription
 } from '@/components/ui/dialog'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
@@ -37,6 +38,7 @@ export default function CompetitorPage() {
   const [page, setPage]       = useState(1)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [riskFilter, setRiskFilter] = useState('all')
+  const [winnerOnly, setWinnerOnly] = useState(false)
   const [winsModalOpen, setWinsModalOpen] = useState(false)
   const SIZE = 15
 
@@ -50,6 +52,18 @@ export default function CompetitorPage() {
     }),
   })
 
+  // 연속 낙찰 감지: 최근 trend 에서 연속 수주 개월 계산
+  function consecutiveWins(trend: TrendItem[]): number {
+    const sorted = [...trend].sort((a, b) => b.year * 12 + b.month - (a.year * 12 + a.month))
+    let cnt = 0
+    for (const t of sorted) { if (t.win_count > 0) cnt++; else break }
+    return cnt
+  }
+
+  const filteredItems = winnerOnly
+    ? (list?.items ?? []).filter((c) => c.win_rate > 0)
+    : (list?.items ?? [])
+
   const { data: detail } = useQuery<Competitor>({
     queryKey: ['competitor', selectedId],
     queryFn: () => competitorsApi.detail(selectedId!),
@@ -62,6 +76,29 @@ export default function CompetitorPage() {
     enabled: !!selectedId && (detail?.win_count ?? 0) > 0,
   })
 
+
+  const [detailTab, setDetailTab] = useState('overview')
+  const [compareIds, setCompareIds] = useState<number[]>([])
+  const [showCompare, setShowCompare] = useState(false)
+  const [zonesDays, setZonesDays] = useState<90 | 180>(90)
+
+  const { data: pattern } = useQuery({
+    queryKey: ['competitor-pattern', selectedId],
+    queryFn: () => competitorsApi.pattern(selectedId!),
+    enabled: !!selectedId && detailTab === 'pattern',
+  })
+
+  const { data: compareData } = useQuery({
+    queryKey: ['competitor-compare', compareIds],
+    queryFn: () => competitorsApi.compare(compareIds),
+    enabled: showCompare && compareIds.length === 2,
+  })
+
+  const { data: zonesData } = useQuery({
+    queryKey: ['competitor-zones', selectedId, zonesDays],
+    queryFn: () => competitorsApi.zones(selectedId!, zonesDays),
+    enabled: !!selectedId && detailTab === 'zones',
+  })
   const totalPages = list ? Math.ceil(list.total / SIZE) : 1
 
   const riskVariant = (r: string): 'destructive' | 'warning' | 'success' | 'secondary' =>
@@ -113,15 +150,25 @@ export default function CompetitorPage() {
       <div className="flex gap-5">
         {/* 목록 패널 */}
         <div className="w-80 shrink-0 space-y-2">
-          <Select value={riskFilter} onValueChange={(v) => { setRiskFilter(v); setPage(1) }}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">전체</SelectItem>
-              <SelectItem value="HIGH">HIGH</SelectItem>
-              <SelectItem value="MEDIUM">MEDIUM</SelectItem>
-              <SelectItem value="LOW">LOW</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            <Select value={riskFilter} onValueChange={(v) => { setRiskFilter(v); setPage(1) }}>
+              <SelectTrigger className="flex-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">전체</SelectItem>
+                <SelectItem value="HIGH">HIGH</SelectItem>
+                <SelectItem value="MEDIUM">MEDIUM</SelectItem>
+                <SelectItem value="LOW">LOW</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              variant={winnerOnly ? 'default' : 'outline'}
+              className="h-9 text-xs whitespace-nowrap gap-1"
+              onClick={() => setWinnerOnly((v) => !v)}
+            >
+              <Trophy className="h-3 w-3" /> 낙찰만
+            </Button>
+          </div>
 
           <div className="flex gap-2">
             <div className="relative flex-1">
@@ -136,6 +183,16 @@ export default function CompetitorPage() {
             </div>
             <Button onClick={handleSearch} size="sm">검색</Button>
           </div>
+          {compareIds.length === 2 && (
+            <Button size="sm" className="w-full" onClick={() => setShowCompare(true)}>
+              2개 업체 비교
+            </Button>
+          )}
+          {compareIds.length > 0 && (
+            <Button size="sm" variant="ghost" className="w-full text-xs text-muted-foreground" onClick={() => setCompareIds([])}>
+              비교 선택 해제
+            </Button>
+          )}
 
           <Card className="overflow-hidden">
             {isLoading ? (
@@ -144,22 +201,36 @@ export default function CompetitorPage() {
               </div>
             ) : (
               <div className="divide-y">
-                {(list?.items ?? []).map((c) => (
-                  <div key={c.id}
-                    className={cn('p-3 cursor-pointer hover:bg-accent transition-colors',
-                      selectedId === c.id && 'bg-accent border-l-2 border-l-primary')}
-                    onClick={() => handleSelect(c.id)}>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium truncate">{c.name}</span>
-                      <Badge variant={riskVariant(c.risk_level)} className="shrink-0 ml-1 text-[10px] px-1.5 py-0">
-                        {c.risk_level}
-                      </Badge>
+                {filteredItems.map((c) => {
+                  const consec = consecutiveWins(c.monthly_trend as TrendItem[] ?? [])
+                  return (
+                    <div key={c.id}
+                      className={cn('p-3 cursor-pointer hover:bg-accent transition-colors',
+                        selectedId === c.id && 'bg-accent border-l-2 border-l-primary')}
+                      onClick={() => handleSelect(c.id)}>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <button
+                          className="shrink-0"
+                          onClick={(e) => { e.stopPropagation(); setCompareIds((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : prev.length < 2 ? [...prev, c.id] : prev) }}
+                        >
+                          {compareIds.includes(c.id) ? <CheckSquare className="h-3.5 w-3.5 text-primary" /> : <Square className="h-3.5 w-3.5 text-muted-foreground" />}
+                        </button>
+                        {consec >= 3 && (
+                          <Badge variant="destructive" className="text-[9px] px-1 py-0">연속 {consec}개월 수주</Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium truncate">{c.name}</span>
+                        <Badge variant={riskVariant(c.risk_level)} className="shrink-0 ml-1 text-[10px] px-1.5 py-0">
+                          {c.risk_level}
+                        </Badge>
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        수주 {c.win_count}건 · 수주율 {(c.win_rate * 100).toFixed(1)}% · 평균 {(c.avg_bid_rate * 100).toFixed(2)}%
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      수주 {c.win_count}건 · 수주율 {(c.win_rate * 100).toFixed(1)}% · 평균 {(c.avg_bid_rate * 100).toFixed(2)}%
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
             <div className="flex items-center justify-between px-3 py-2 border-t bg-muted/30">
@@ -179,6 +250,14 @@ export default function CompetitorPage() {
         {/* 상세 패널 */}
         {detail ? (
           <div className="flex-1 space-y-4">
+            <Tabs value={detailTab} onValueChange={setDetailTab}>
+              <TabsList>
+                <TabsTrigger value="overview">개요</TabsTrigger>
+                <TabsTrigger value="pattern">투찰성향</TabsTrigger>
+                <TabsTrigger value="zones">투찰구간</TabsTrigger>
+              </TabsList>
+
+            <TabsContent value="overview" className="space-y-4 mt-3">
             {/* 기본 지표 */}
             <Card>
               <CardContent className="pt-5">
@@ -266,6 +345,143 @@ export default function CompetitorPage() {
                 </CardContent>
               </Card>
             )}
+            </TabsContent>
+
+            <TabsContent value="pattern" className="space-y-4 mt-3">
+              {pattern ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    {['aggressive','stable','defensive'].includes(pattern.recent_trend?.direction) && (
+                      <Badge variant={pattern.recent_trend.direction === 'aggressive' ? 'destructive' : pattern.recent_trend.direction === 'defensive' ? 'success' : 'secondary'}>
+                        {pattern.recent_trend.direction === 'aggressive' ? '공격적↑' : pattern.recent_trend.direction === 'defensive' ? '방어적↓' : '안정'}
+                        {pattern.recent_trend.change_pct != null && ` (${pattern.recent_trend.change_pct > 0 ? '+' : ''}${pattern.recent_trend.change_pct.toFixed(1)}%)`}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Card>
+                      <CardHeader className="pb-2"><CardTitle className="text-sm">투찰 성향 레이더</CardTitle></CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={200}>
+                          <RadarChart data={[
+                            { subject: '공격성', value: pattern.radar.aggression },
+                            { subject: '일관성', value: pattern.radar.consistency },
+                            { subject: '집중도', value: pattern.radar.concentration },
+                            { subject: '위험도', value: pattern.radar.risk },
+                            { subject: '활동성', value: pattern.radar.activity },
+                          ]}>
+                            <PolarGrid />
+                            <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11 }} />
+                            <PolarRadiusAxis domain={[0, 10]} tick={false} />
+                            <Radar dataKey="value" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.35} />
+                          </RadarChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader className="pb-2"><CardTitle className="text-sm">금액대별 투찰 패턴</CardTitle></CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={200}>
+                          <BarChart data={pattern.amount_pattern} margin={{ left: -10 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis dataKey="bucket" tick={{ fontSize: 10 }} />
+                            <YAxis yAxisId="l" tick={{ fontSize: 11 }} />
+                            <YAxis yAxisId="r" orientation="right" unit="%" tick={{ fontSize: 11 }} />
+                            <Tooltip />
+                            <Bar yAxisId="l" dataKey="bid_count" fill="hsl(var(--primary)/0.4)" name="입찰수" />
+                            <Bar yAxisId="r" dataKey="win_rate" fill="hsl(142.1 76.2% 36.3%/0.6)" name="낙찰률" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-10">데이터를 불러오는 중...</p>
+              )}
+            </TabsContent>
+            <TabsContent value="zones" className="space-y-4 mt-3">
+              <div className="flex items-center justify-between">
+                <div className="flex gap-2">
+                  {([90, 180] as const).map((d) => (
+                    <Button
+                      key={d}
+                      size="sm"
+                      variant={zonesDays === d ? 'default' : 'outline'}
+                      className="h-7 text-xs"
+                      onClick={() => setZonesDays(d)}
+                    >
+                      {d}일
+                    </Button>
+                  ))}
+                </div>
+                {zonesData && (
+                  <span className="text-xs text-muted-foreground">총 {zonesData.total_count.toLocaleString()}건 기준</span>
+                )}
+              </div>
+
+              {!zonesData ? (
+                <p className="text-sm text-muted-foreground text-center py-10">데이터를 불러오는 중...</p>
+              ) : zonesData.total_count === 0 ? (
+                <Card>
+                  <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                    inpo21c 데이터 없음 — 해당 경쟁사의 수집 데이터가 없습니다
+                  </CardContent>
+                </Card>
+              ) : (
+                <>
+                  {zonesData.peak_zone && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant="destructive" className="text-xs">
+                        피크 구간 {(zonesData.peak_zone.range_lo * 100).toFixed(1)}%~{(zonesData.peak_zone.range_hi * 100).toFixed(1)}%
+                        ({zonesData.peak_zone.pct}%)
+                      </Badge>
+                      <Badge variant="warning" className="text-xs">이 구간 회피 추천</Badge>
+                    </div>
+                  )}
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">사정율 구간별 투찰 빈도</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={260}>
+                        <BarChart
+                          data={zonesData.zones.map((z: CompetitorZoneItem) => ({
+                            label: `${(z.range_lo * 100).toFixed(1)}`,
+                            pct: z.pct,
+                            isPeak: zonesData.peak_zone
+                              ? z.range_lo === zonesData.peak_zone.range_lo
+                              : false,
+                          }))}
+                          margin={{ left: -10 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis dataKey="label" tick={{ fontSize: 9 }} interval={3} unit="%" />
+                          <YAxis tick={{ fontSize: 10 }} unit="%" />
+                          <Tooltip
+                            formatter={(v: number) => [`${v}%`, '빈도']}
+                            labelFormatter={(l) => `${l}%대`}
+                          />
+                          <Bar dataKey="pct" name="빈도%">
+                            {zonesData.zones.map((z: CompetitorZoneItem, i: number) => (
+                              <Cell
+                                key={i}
+                                fill={
+                                  zonesData.peak_zone && z.range_lo === zonesData.peak_zone.range_lo
+                                    ? '#f97316'
+                                    : 'hsl(var(--primary)/0.5)'
+                                }
+                              />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                </>
+              )}
+            </TabsContent>
+            </Tabs>
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center text-muted-foreground">
@@ -273,6 +489,99 @@ export default function CompetitorPage() {
           </div>
         )}
       </div>
+
+      {/* 2개 업체 비교 Dialog */}
+      <Dialog open={showCompare} onOpenChange={(o) => { setShowCompare(o); if (!o) setCompareIds([]) }}>
+        <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>경쟁사 투찰 패턴 비교</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              {compareData?.competitors?.map((c: { name: string }) => c.name).join(' vs ') ?? '...'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="overflow-y-auto flex-1">
+            {!compareData ? (
+              <div className="py-16 text-center text-muted-foreground text-sm">데이터를 불러오는 중...</div>
+            ) : (
+              <div className="space-y-5 p-1">
+                {/* 레이더 비교 */}
+                <div className="grid grid-cols-2 gap-4">
+                  {compareData.competitors.map((c: { id: number; name: string; radar: Record<string, number>; monthly_trend: { year_month: string; bid_count: number; win_count: number; avg_rate: number | null }[] }) => (
+                    <Card key={c.id}>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm text-center">{c.name}</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={200}>
+                          <RadarChart data={[
+                            { subject: '공격성', value: c.radar.aggression ?? 0 },
+                            { subject: '일관성', value: c.radar.consistency ?? 0 },
+                            { subject: '집중도', value: c.radar.concentration ?? 0 },
+                            { subject: '위험도', value: c.radar.risk ?? 0 },
+                            { subject: '활동성', value: c.radar.activity ?? 0 },
+                          ]}>
+                            <PolarGrid />
+                            <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11 }} />
+                            <PolarRadiusAxis domain={[0, 10]} tick={false} />
+                            <Radar dataKey="value" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.3} />
+                          </RadarChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+
+                {/* 월별 투찰 추이 비교 */}
+                {compareData.competitors.length === 2 && (() => {
+                  const c0 = compareData.competitors[0]
+                  const c1 = compareData.competitors[1]
+                  const allMonths = Array.from(new Set([
+                    ...c0.monthly_trend.map((t: { year_month: string }) => t.year_month),
+                    ...c1.monthly_trend.map((t: { year_month: string }) => t.year_month),
+                  ])).sort()
+                  const chartData = allMonths.map((ym) => {
+                    const t0 = c0.monthly_trend.find((t: { year_month: string }) => t.year_month === ym)
+                    const t1 = c1.monthly_trend.find((t: { year_month: string }) => t.year_month === ym)
+                    return {
+                      ym,
+                      [c0.name]: t0?.avg_rate != null ? +(t0.avg_rate * 100).toFixed(3) : null,
+                      [c1.name]: t1?.avg_rate != null ? +(t1.avg_rate * 100).toFixed(3) : null,
+                    }
+                  })
+                  const COMPARE_COLORS = ['hsl(var(--primary))', '#f97316']
+                  return (
+                    <Card>
+                      <CardHeader className="pb-2"><CardTitle className="text-sm">월별 평균 투찰률 추이 비교</CardTitle></CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={200}>
+                          <LineChart data={chartData}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis dataKey="ym" tick={{ fontSize: 9 }} interval={1} />
+                            <YAxis tick={{ fontSize: 10 }} unit="%" domain={['auto', 'auto']} />
+                            <Tooltip formatter={(v: number) => [v + '%', '']} />
+                            {compareData.competitors.map((c: { name: string }, i: number) => (
+                              <Line key={c.name} type="monotone" dataKey={c.name}
+                                stroke={COMPARE_COLORS[i]} strokeWidth={2} dot={false} connectNulls />
+                            ))}
+                          </LineChart>
+                        </ResponsiveContainer>
+                        <div className="flex gap-4 text-xs mt-2">
+                          {compareData.competitors.map((c: { name: string }, i: number) => (
+                            <span key={c.name} className="flex items-center gap-1">
+                              <span className="w-3 h-0.5 inline-block rounded" style={{ backgroundColor: COMPARE_COLORS[i] }} />
+                              {c.name}
+                            </span>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })()}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* 수주 이력 Dialog */}
       <Dialog open={winsModalOpen} onOpenChange={setWinsModalOpen}>

@@ -1,0 +1,21 @@
+{
+  "project": "bid-system",
+  "phase": "renewal-ux",
+  "branch": "feat/enhance-ux-2026-06-01_10-56-11",
+  "stage": "prototype",
+  "author": "kil0410@a2m.co.kr",
+  "created_at": "2026-06-02T09:41:44+09:00",
+  "reference": "Info21C (https://cloud.info21c.net) 벤치마킹 기반 전 페이지 리뉴얼",
+  "steps": [
+    { "step": 1, "name": "R-12 사이드바 그룹 재편 (AppLayout)", "status": "completed" },
+    { "step": 2, "name": "R-07 대시보드 누적통계·최근낙찰현황 (DashboardPage)", "status": "completed" },
+    { "step": 3, "name": "R-01 사정율 분포 정밀화 소수점3자리·누적선 (StatisticsPage)", "status": "completed" },
+    { "step": 4, "name": "R-03 투찰구간 Top10 추천 + R-08 조건 프리셋 (RecommendPage)", "status": "completed" },
+    { "step": 5, "name": "R-11 공고상세 발주처 미니차트·유사분석 강화 (BidDetailPage)", "status": "completed" },
+    { "step": 6, "name": "R-02 발주처 예가흐름·시계열 분석 (AgencyDetailPage)", "status": "completed" },
+    { "step": 7, "name": "R-04 낙찰업체 집중분석·연속낙찰 뱃지 (CompetitorPage)", "status": "completed" },
+    { "step": 8, "name": "R-06 월별 투찰 진단 리포트 (MyBidsPage)", "status": "completed" },
+    { "step": 9, "name": "R-05 달력형 공고관리·라벨 (BidsPage)", "status": "completed" },
+    { "step": 10, "name": "R-09 적격심사 계산기 신규 페이지 (QualificationPage)", "status": "completed" }
+  ]
+}

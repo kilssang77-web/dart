@@ -1,6 +1,6 @@
 ﻿from sqlalchemy import (
     Column, Integer, BigInteger, SmallInteger, String, Text,
-    Boolean, Numeric, Date, DateTime, ARRAY, JSON, ForeignKey, UniqueConstraint
+    Boolean, Numeric, Float, Date, DateTime, ARRAY, JSON, ForeignKey, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -293,6 +293,12 @@ class MyBidRecord(Base):
     result              = Column(String(10), default="pending")  # pending/won/lost
     actual_winner_rate  = Column(Numeric(7, 4))
     note                = Column(Text)
+    announcement_no     = Column(String(50),  nullable=True, index=True)
+    floor_rate          = Column(Float,        nullable=True)
+    a_value             = Column(BigInteger,   nullable=True)
+    rate_diff           = Column(Float,        nullable=True)
+    winner_biz_no       = Column(String(20),   nullable=True)
+    winner_name         = Column(String(200),  nullable=True)
     created_at          = Column(DateTime(timezone=True), server_default=func.now())
     updated_at          = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

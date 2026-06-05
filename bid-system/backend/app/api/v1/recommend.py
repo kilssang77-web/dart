@@ -1,11 +1,15 @@
-﻿from fastapi import APIRouter, Depends, HTTPException
+﻿from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import Optional
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from ...database import get_db
 from ...models import User
-from ...schemas import RecommendRequest, RecommendV2Request
-from ...services import RecommendationService, HybridRecommendService
+from ...schemas import RecommendRequest, RecommendV2Request, BidRangeResponse, PrismResponse, AgencyYegaPattern
+from ...services import RecommendationService, HybridRecommendService, AgencyYegaService
 from ...common.security import get_current_user
+from ...ml.assessment import load_srate_stats, predict_srate
+from ...ml.a_value import calc_bid_range
 
 router = APIRouter(prefix="/recommend", tags=["AI 추천"])
 svc    = RecommendationService()
@@ -124,3 +128,120 @@ def srate_stats(
         }
         for r in rows
     ]
+
+
+@router.get("/bid-range", response_model=BidRangeResponse)
+def bid_range(
+    base_amount:  int           = Query(..., gt=0, description="기초금액 (원)"),
+    industry_id:  Optional[int] = Query(None, description="공종 ID"),
+    agency_id:    Optional[int] = Query(None, description="발주처 ID"),
+    region_id:    Optional[int] = Query(None, description="지역 ID"),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """A값·낙찰하한가 자동 계산 (기초금액 + 사정율 예측 기반)."""
+    features_a = load_srate_stats(
+        db,
+        agency_id   or 0,
+        industry_id or 0,
+        region_id   or 0,
+        base_amount,
+    )
+    ep = predict_srate(features_a, base_amount)
+    srate_c   = ep["srate_range"]["center"]
+    srate_std = (
+        features_a.get("agency_srate_std")
+        or features_a.get("global_srate_std")
+        or 0.012
+    )
+
+    industry_name = ""
+    if industry_id:
+        row = db.execute(
+            text("SELECT name FROM industries WHERE id = :id"),
+            {"id": industry_id},
+        ).fetchone()
+        if row:
+            industry_name = row[0]
+
+    result = calc_bid_range(
+        base_amount   = base_amount,
+        srate_center  = srate_c,
+        srate_std     = srate_std,
+        industry_name = industry_name,
+        srate_p10     = ep["srate_range"]["p10"],
+        srate_p25     = ep["srate_range"]["lower"],
+        srate_p75     = ep["srate_range"]["upper"],
+        srate_p90     = ep["srate_range"]["p90"],
+    )
+    result["industry_name"] = industry_name
+    return result
+
+
+@router.post("/prism", response_model=PrismResponse)
+def prism(
+    body: RecommendV2Request,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """
+    프리즘 2.0 — 0.860~0.930 구간을 0.001 단위로 스캔(70구간).
+    inpo21c 실증 분포 기반 Monte Carlo 낙찰확률 계산, 상위 10개 구간 반환.
+    """
+    from ...ml.prism import scan_prism_zones, SCAN_START, SCAN_END, SCAN_STEP, TOP_N
+
+    industry_name = ""
+    if body.industry_id:
+        row = db.execute(
+            text("SELECT name FROM industries WHERE id = :id"),
+            {"id": body.industry_id},
+        ).fetchone()
+        if row:
+            industry_name = row[0]
+
+    all_zones, top10 = scan_prism_zones(
+        base_amount   = body.base_amount,
+        industry_name = industry_name,
+        agency_id     = body.agency_id,
+        industry_id   = body.industry_id,
+        db            = db,
+    )
+
+    return {
+        "zones": all_zones,
+        "top10": top10,
+        "scan_meta": {
+            "scan_start":      SCAN_START,
+            "scan_end":        SCAN_END,
+            "scan_step":       SCAN_STEP,
+            "total_zones":     len(all_zones),
+            "floor_ok_count":  sum(1 for z in all_zones if z["floor_ok"]),
+            "top_n":           TOP_N,
+            "industry_name":   industry_name,
+        },
+    }
+
+
+@router.get("/yega-frequency")
+def yega_frequency(
+    base_amount: int = Query(..., description="기초금액 (원)", gt=0),
+    a_value: Optional[int] = Query(None, description="A값/예비가격 기초금액 (원). 미입력 시 기초금액 기반 추정"),
+    agency_id: Optional[int] = Query(None, description="발주처 ID. 입력 시 발주처 특화 패턴 포함"),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """
+    복수예가 예비가격 C(15,4) 조합 빈도 분석 (Prism형).
+
+    A값 ±2% 범위의 15개 예비가격 후보에서 4개를 추첨할 때
+    나올 수 있는 1,365가지 평균(예정가격)의 빈도 분포를 반환.
+    agency_id 입력 시 발주처 과거 낙찰 패턴을 추가 분석.
+    """
+    from ...ml.yega import calc_yega_frequency
+    result = calc_yega_frequency(base_amount=base_amount, a_value=a_value)
+
+    if agency_id:
+        agency_pattern = AgencyYegaService(db).get_pattern(agency_id)
+        result["agency_pattern"] = agency_pattern
+
+    return result

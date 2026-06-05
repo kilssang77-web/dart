@@ -6,11 +6,75 @@
   "author": "kil0410@a2m.co.kr",
   "created_at": "2026-06-01T10:56:11+09:00",
   "steps": [
-    { "step": 1, "name": "AI 추천 UI 시각화 강화", "status": "pending" },
-    { "step": 2, "name": "UX 종합 개선 (북마크·My입찰 분석·대시보드)", "status": "pending" },
-    { "step": 3, "name": "사정율 빈도분석 강화", "status": "pending" },
-    { "step": 4, "name": "발주처 심층분석 페이지", "status": "pending" },
-    { "step": 5, "name": "경쟁사 투찰성향 분석 강화", "status": "pending" },
-    { "step": 6, "name": "공고 수집 안정성 + 확장", "status": "pending" }
+    {
+      "step": 1,
+      "name": "AI 추천 UI 시각화 강화",
+      "status": "completed",
+      "started_at": "2026-06-01T12:35:09+0900",
+      "completed_at": "2026-06-01T12:58:14+0900",
+      "summary": "WinProbGauge·StrategyCompareChart·SrateRangeViz·RiskCard 신규 컴포넌트 + RecommendPage 2-column 레이아웃·기관명 자동완성·금액 천단위·최근이력 개선"
+    },
+    {
+      "step": 2,
+      "name": "UX 종합 개선 (북마크·My입찰 분석·대시보드)",
+      "status": "completed",
+      "started_at": "2026-06-01T12:58:14+0900",
+      "completed_at": "2026-06-01T14:30:00+0900",
+      "summary": "BidBookmark API 엔드포인트(POST/DELETE/GET) + MyBidAnalysis API + BidsPage 북마크 토글·필터탭 + MyBidsPage 정확도분석탭(산점도·MAE차트) + DashboardPage KPI 변화율 화살표"
+    },
+    {
+      "step": 3,
+      "name": "사정율 빈도분석 강화",
+      "status": "completed",
+      "started_at": "2026-06-01T14:30:00+0900",
+      "completed_at": "2026-06-01T15:10:00+0900",
+      "summary": "GET /stats/srate-distribution 엔드포인트 + StatisticsPage '사정율 분포' 탭 (발주기관·공종 필터, 히스토그램 BarChart, 평균·최빈·표준편차·표본수 KPI 카드)"
+    },
+    {
+      "step": 4,
+      "name": "발주처 심층분석 페이지",
+      "status": "completed",
+      "started_at": "2026-06-01T14:30:00+0900",
+      "completed_at": "2026-06-01T15:10:00+0900",
+      "summary": "agencies.py 라우터 신규 (GET /agencies, GET /agencies/{id}/analysis) + router.py 등록 + frontend agenciesApi 추가"
+    },
+    {
+      "step": 5,
+      "name": "경쟁사 투찰성향 분석 강화",
+      "status": "completed",
+      "started_at": "2026-06-01T14:30:00+0900",
+      "completed_at": "2026-06-01T15:10:00+0900",
+      "summary": "GET /competitors/{id}/pattern + GET /competitors/compare 엔드포인트 + CompetitorPage '투찰성향' 탭 (RadarChart 5축, BarChart 금액대별) + 체크박스 2개사 비교 기능"
+    },
+    {
+      "step": 6,
+      "name": "공고 수집 안정성 + 확장",
+      "status": "skipped",
+      "note": "collector 서브시스템 미존재 (prototype 단계) — MVP 단계에서 구현 예정"
+    },
+    {
+      "step": 7,
+      "name": "낙찰확률 버그 수정 (Monte Carlo 재설계)",
+      "status": "completed",
+      "started_at": "2026-06-02T09:00:00+0900",
+      "completed_at": "2026-06-02T11:00:00+0900",
+      "summary": "경쟁사 낙찰하한율 이하 무효입찰 필터(np.inf 대체) + 전략 floor 기반 재설계(+0.03/0.15/0.30%) + predict_srate clamp 0.93→0.87로 완화 + competition.py 3-tier fallback 추가"
+    },
+    {
+      "step": 8,
+      "name": "발주처별 사정율 세분화",
+      "status": "completed",
+      "started_at": "2026-06-02T11:00:00+0900",
+      "completed_at": "2026-06-02T13:00:00+0900",
+      "summary": "srate_distribution_detail() 3-tier 통계(agency/industry/global) + assessment_rate_stats 기반 분포 합성 + RecommendPage 3-panel 사정율 비교 UI (이 발주처/동일공종/전체)"
+    },
+    {
+      "step": 9,
+      "name": "적격심사 역산 계산기",
+      "status": "completed",
+      "started_at": "2026-06-04T09:00:00+0900",
+      "completed_at": "2026-06-04T10:00:00+0900",
+      "summary": "QualificationPage 역산 탭 추가 — 비가격 고정점수 기반 최소 시공실적 역산, 최소 투찰금액(신용등급 기준), 보유실적 입력 시 통과 여부·실적 갭 표시"
+    }
   ]
 }

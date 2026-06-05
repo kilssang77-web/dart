@@ -154,7 +154,7 @@ class StepExecutor:
 
     @staticmethod
     def _read_json(p: Path) -> dict:
-        return json.loads(p.read_text(encoding="utf-8"))
+        return json.loads(p.read_text(encoding="utf-8-sig"))
 
     @staticmethod
     def _write_json(p: Path, data: dict):
@@ -717,10 +717,13 @@ class StepExecutor:
 
         prompt = preamble + step_file.read_text(encoding="utf-8")
 
+        import shutil as _shutil
+        _claude_cmd = _shutil.which("claude") or "claude"
         result = subprocess.run(
-            ["claude", "-p", "--dangerously-skip-permissions", "--output-format", "json"],
+            [_claude_cmd, "-p", "--dangerously-skip-permissions", "--output-format", "json"],
             input=prompt,
             cwd=self._root, capture_output=True, text=True, timeout=1800, encoding="utf-8", errors="replace",
+            shell=(sys.platform == "win32"),
         )
 
         if result.returncode != 0:
@@ -764,10 +767,13 @@ class StepExecutor:
         prompt = f"코드 리뷰를 수행하라. 리뷰 결과를 JSON으로 반환하라.\n\n{review_content}"
 
         try:
+            import shutil as _shutil
+            _claude_cmd = _shutil.which("claude") or "claude"
             result = subprocess.run(
-                ["claude", "-p", "--dangerously-skip-permissions", "--output-format", "json"],
+                [_claude_cmd, "-p", "--dangerously-skip-permissions", "--output-format", "json"],
                 input=prompt,
                 cwd=self._root, capture_output=True, text=True, timeout=300, encoding="utf-8", errors="replace",
+                shell=(sys.platform == "win32"),
             )
             review_out = {
                 "step": step_num,

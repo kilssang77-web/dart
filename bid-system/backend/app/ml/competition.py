@@ -190,45 +190,78 @@ def _zero_features() -> dict:
         "unique_competitors":          0,
     }
 
+_COMP_DIST_QUERY = text("""
+    SELECT
+        br.competitor_id,
+        AVG(br.bid_rate::float)    AS avg_rate,
+        STDDEV(br.bid_rate::float) AS std_rate,
+        COUNT(*)                   AS bid_count
+    FROM bid_results br
+    JOIN bids b ON b.id = br.bid_id
+    WHERE {where}
+      AND b.bid_open_date >= :cutoff
+      AND b.status = 'closed'
+    GROUP BY br.competitor_id
+    ORDER BY COUNT(*) DESC
+    LIMIT :top_n
+""")
+
+# 실제 입찰결과 기반 전국 시장 분포 (데이터 없을 때 합성용)
+_MARKET_MEAN = 0.8836
+_MARKET_STD  = 0.0073
+_SYNTH_N     = 10          # 경쟁사 없을 때 합성 인원
+
+
 def get_market_competitor_distributions(
     db: Session,
     agency_id: int,
     industry_id: int,
     bid_date: Optional[datetime] = None,
-    lookback_weeks: int = LOOKBACK_WEEKS,
+    lookback_weeks: int = 52,
     top_n: int = 20,
 ) -> tuple:
     """
-    최근 동일 기관+공종 입찰에서 주요 경쟁사 투찰률 분포 반환.
-    Monte Carlo 시뮬레이션 입력용.
+    최근 동일 기관+공종 투찰률 분포 반환 (Monte Carlo 시뮬레이션 입력용).
 
-    Returns:
-        (means: List[float], stds: List[float])
+    Fallback 순서:
+      1) 기관+공종 (52주)
+      2) 공종만    (52주) — 기관 데이터 < 5개사일 때
+      3) 전체 시장 합성 분포 (실제 DB 통계 기반)
     """
     dt     = bid_date or datetime.now()
     cutoff = dt - timedelta(weeks=lookback_weeks)
 
-    rows = db.execute(text("""
-        SELECT
-            br.competitor_id,
-            AVG(br.bid_rate::float)    AS avg_rate,
-            STDDEV(br.bid_rate::float) AS std_rate,
-            COUNT(*)                   AS bid_count
-        FROM bid_results br
-        JOIN bids b ON b.id = br.bid_id
-        WHERE b.agency_id   = :aid
-          AND b.industry_id = :iid
-          AND b.bid_open_date BETWEEN :cutoff AND :dt
-          AND b.status = 'closed'
-        GROUP BY br.competitor_id
-        HAVING COUNT(*) >= 2
-        ORDER BY COUNT(*) DESC
-        LIMIT :top_n
-    """), {"aid": agency_id, "iid": industry_id,
-           "cutoff": cutoff, "dt": dt, "top_n": top_n}).fetchall()
+    def _fetch(where_clause: str, params: dict) -> list:
+        q = text(f"""
+            SELECT
+                br.competitor_id,
+                AVG(br.bid_rate::float)    AS avg_rate,
+                STDDEV(br.bid_rate::float) AS std_rate,
+                COUNT(*)                   AS bid_count
+            FROM bid_results br
+            JOIN bids b ON b.id = br.bid_id
+            WHERE {where_clause}
+              AND b.bid_open_date >= :cutoff
+              AND b.status = 'closed'
+            GROUP BY br.competitor_id
+            ORDER BY COUNT(*) DESC
+            LIMIT :top_n
+        """)
+        return db.execute(q, {**params, "cutoff": cutoff, "top_n": top_n}).fetchall()
 
+    # 1차: 기관 + 공종
+    rows = _fetch("b.agency_id = :aid AND b.industry_id = :iid",
+                  {"aid": agency_id, "iid": industry_id})
+
+    # 2차: 공종만 (5개사 미만이면 더 넓게)
+    if len(rows) < 5:
+        rows_ind = _fetch("b.industry_id = :iid", {"iid": industry_id})
+        if len(rows_ind) > len(rows):
+            rows = rows_ind
+
+    # 3차: 데이터 없으면 전국 시장 합성 분포
     if not rows:
-        return [], []
+        return [_MARKET_MEAN] * _SYNTH_N, [_MARKET_STD] * _SYNTH_N
 
     means = [float(r[1]) for r in rows if r[1] is not None]
     stds  = [max(float(r[2] or 0.005), 0.003) for r in rows if r[1] is not None]

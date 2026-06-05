@@ -13,7 +13,7 @@
       "max_doc_kb_per_step": "문서 1개당 최대 주입 크기(KB). 초과분은 잘림 (기본: 64)"
     }
   },
-  "stage": "prototype",
+  "stage": "mvp",
   "project_name": "bid-system",
   "tech": {
     "backend": "fastapi",
@@ -58,6 +58,6 @@
     },
     "max_iterations": 3
   },
-  "updated_at": "2026-06-01T01:05:08.159545+00:00",
+  "updated_at": "2026-06-04T00:00:00.000000+09:00",
   "project_type": "b2b_internal"
 }

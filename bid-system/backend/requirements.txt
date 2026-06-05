@@ -30,3 +30,7 @@ apscheduler==3.10.4
 # 유틸
 python-dateutil==2.9.0
 loguru==0.7.2
+
+# 테스트
+pytest>=8.4
+pytest-mock==3.14.0

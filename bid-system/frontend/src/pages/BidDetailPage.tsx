@@ -2,8 +2,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Trophy, ExternalLink, Sparkles } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-import { bidsApi } from '@/api'
-import type { BidDetail, BidResultItem, MetaData } from '@/types'
+import { bidsApi, statsApi } from '@/api'
+import type { BidDetail, BidResultItem, MetaData, OpportunityScore } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -32,6 +32,21 @@ export default function BidDetailPage() {
   const { data: meta } = useQuery<MetaData>({
     queryKey: ['meta'],
     queryFn: bidsApi.meta,
+    staleTime: 300_000,
+  })
+
+  const agencyId = meta?.agencies.find((a) => a.name === bid?.agency_name)?.id
+  const { data: agencySrateDist } = useQuery({
+    queryKey: ['agency-srate-mini', agencyId],
+    queryFn: () => statsApi.srateDistribution({ agency_id: agencyId }),
+    enabled: !!agencyId,
+    staleTime: 300_000,
+  })
+
+  const { data: oppScore } = useQuery<OpportunityScore>({
+    queryKey: ['opportunity-score', id],
+    queryFn: () => bidsApi.opportunityScore(Number(id)),
+    enabled: !!id && bid?.status === 'open',
     staleTime: 300_000,
   })
 
@@ -201,6 +216,41 @@ export default function BidDetailPage() {
         </CardContent>
       </Card>
 
+      {/* 발주처 사정율 미니차트 */}
+      {agencySrateDist?.bins && agencySrateDist.bins.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-semibold">{bid.agency_name} — 사정율 분포</CardTitle>
+              <div className="text-xs text-muted-foreground space-x-2">
+                <span>평균 {agencySrateDist.mean != null ? (agencySrateDist.mean*100).toFixed(3)+'%' : '-'}</span>
+                <span>· 최빈 {agencySrateDist.mode != null ? (agencySrateDist.mode*100).toFixed(3)+'%' : '-'}</span>
+                <span>· {(agencySrateDist.sample_count ?? 0).toLocaleString()}건</span>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={120}>
+              <BarChart data={agencySrateDist.bins} margin={{ left: -20, right: 0, top: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="rate_pct" tickFormatter={(v: number) => (v * 100).toFixed(1) + '%'}
+                  tick={{ fontSize: 9 }} interval={Math.floor(agencySrateDist.bins.length / 6)} />
+                <YAxis tick={{ fontSize: 9 }} />
+                <Tooltip formatter={(v: unknown) => [String(v) + '건', '빈도']}
+                  labelFormatter={(l: number) => `사정율 ${(l * 100).toFixed(3)}%`} />
+                <Bar dataKey="count" fill="hsl(var(--primary)/0.6)" radius={[2,2,0,0]} />
+              </BarChart>
+            </ResponsiveContainer>
+            <button
+              className="text-xs text-primary hover:underline mt-1"
+              onClick={() => agencyId && navigate(`/agencies/${agencyId}`)}
+            >
+              발주처 심층 분석 →
+            </button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* 유사 사례 */}
       {similarList.length > 0 && (
         <Card>
@@ -241,3 +291,5 @@ function InfoBox({ label, value, highlight }: { label: string; value: string; hi
     </div>
   )
 }
+
+
