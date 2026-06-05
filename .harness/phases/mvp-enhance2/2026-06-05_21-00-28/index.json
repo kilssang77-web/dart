@@ -21,7 +21,7 @@
       "file": "step2.md",
       "status": "completed",
       "started_at": "2026-06-05T21:15:38+0900",
-      "completed_at": "2026-06-05T22:05:00+0900",
+      "completed_at": "2026-06-05T21:28:51+0900",
       "summary": "SrateTrendService(get_trend·get_top_trends·폴백), GET /stats/srate-trend·/top-srate-trends, SrateTrendResponse·TopSrateTrend 스키마/타입, statsApi.srateTrend·topSrateTrends, RecommendPage 트렌드 뱃지(↑빨강/↓파랑/→회색), DashboardPage 상위3 알림 카드, 테스트 7건 전통과"
     },
     {
