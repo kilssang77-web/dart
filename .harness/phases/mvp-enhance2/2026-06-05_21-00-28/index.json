@@ -1,80 +1,80 @@
-﻿{
-    "task":  "mvp-enhance2",
-    "runId":  "2026-06-05_21-00-28",
-    "branch":  "feat/mvp-enhance2-2026-06-05_21-00-28",
-    "stage":  "mvp",
-    "author":  "kil0410@a2m.co.kr",
-    "description":  "낙찰률 극대화 9개 기능 — A값 계산·사정율 트렌드·프리즘2.0·경쟁사 모니터링·공고추천·역산분석·예가ML·공동도급매칭·전략레포트",
-    "steps":  [
-                  {
-                      "step":  1,
-                      "name":  "A값 자동 계산 + 낙찰하한가 산출",
-                      "file":  "step1.md",
-                      "status":  "completed",
-                      "started_at":  "2026-06-05T21:08:31+0900",
-                      "completed_at":  "2026-06-05T21:15:38+0900",
-                      "summary":  "ml/a_value.py 신규(FLOOR_RATE_TABLE 이전·calc_bid_range), GET /recommend/bid-range 엔드포인트, BidRangeResponse 스키마, 프론트 bidRange API+타입+RecommendPage A값 카드(debounce 500ms·P10~P90 바), 테스트 18건 전통과"
-                  },
-                  {
-                      "step":  2,
-                      "name":  "사정율 트렌드 알림 (발주처×공종 최근 3개월)",
-                      "file":  "step2.md",
-                      "status":  "completed",
-                      "started_at":  "2026-06-05T21:15:38+0900",
-                      "completed_at":  "2026-06-05T21:28:51+0900",
-                      "summary":  "SrateTrendService(get_trend·get_top_trends·폴백), GET /stats/srate-trend·/top-srate-trends, SrateTrendResponse·TopSrateTrend 스키마/타입, statsApi.srateTrend·topSrateTrends, RecommendPage 트렌드 뱃지(↑빨강/↓파랑/→회색), DashboardPage 상위3 알림 카드, 테스트 7건 전통과"
-                  },
-                  {
-                      "step":  3,
-                      "name":  "프리즘 2.0 대응 — 구간별 낙찰확률 히트맵 10개 추천",
-                      "file":  "step3.md",
-                      "status":  "completed",
-                      "started_at":  "2026-06-05T21:28:51+0900",
-                      "completed_at":  "2026-06-05T21:37:54+0900",
-                      "summary":  "ml/prism.py 신규(scan_prism_zones·71구간·floor필터·top10), POST /recommend/prism 엔드포인트, PrismZone·PrismResponse 스키마/타입, recommendApi.prism, RecommendPage 프리즘분석 섹션(BarChart 히트맵·주황강조·top10 테이블), 테스트 10건 전통과"
-                  },
-                  {
-                      "step":  4,
-                      "name":  "경쟁사 최근 투찰 구간 실시간 모니터링",
-                      "file":  "step4.md",
-                      "status":  "completed",
-                      "started_at":  "2026-06-05T21:37:55+0900",
-                      "completed_at":  "2026-06-05T21:46:08+0900",
-                      "summary":  "CompetitorZoneService(get_recent_zones·0.005버킷·peak_zone), GET /competitors/{id}/zones, CompetitorZoneItem·CompetitorZoneResponse 스키마/타입, competitorsApi.zones, CompetitorPage 투찰구간 탭(BarChart·피크주황강조·회피추천뱃지·90일/180일 토글), 테스트 5건 전통과"
-                  },
-                  {
-                      "step":  5,
-                      "name":  "공고 자동 추천 TOP 5 + 점수 카드 (Dashboard)",
-                      "file":  "step5.md",
-                      "status":  "completed",
-                      "started_at":  "2026-06-05T21:46:08+0900",
-                      "completed_at":  "2026-06-05T21:53:51+0900",
-                      "summary":  "OpportunityScoreService.get_top_recommended(7일 이내 open 공고·활성공종필터·점수정렬), GET /bids/recommended, BidRecommendItem 스키마/타입, bidsApi.recommended, DashboardPage 이번 주 추천 공고 섹션(등급뱃지·점수바·breakdown 툴팁·개찰일·기초금액·BidDetailPage 링크), 테스트 4건 전통과"
-                  },
-                  {
-                      "step":  6,
-                      "name":  "낙찰 후 역산 분석 — rate_diff 분포·패턴",
-                      "file":  "step6.md",
-                      "status":  "completed",
-                      "started_at":  "2026-06-05T21:53:51+0900",
-                      "completed_at":  "2026-06-05T22:02:24+0900",
-                      "summary":  "DefeatAnalysisService.get_gap_distribution, GET /my-bids/gap-analysis, GapBucket/GapAnalysisResponse 스키마/타입, myBidsApi.gapAnalysis, MyBidsPage 역산분석 탭(BarChart 히스토그램), 테스트 6건 전통과"
-                  },
-                  {
-                      "step":  7,
-                      "name":  "예가 번호 패턴 ML — 발주처 특화 빈도 분석",
-                      "file":  "step7.md",
-                      "status":  "completed",
-                      "started_at":  "2026-06-05T22:02:25+0900",
-                      "completed_at":  "2026-06-05T22:20:00+0900",
-                      "summary":  "ml/yega.py get_agency_yega_pattern(C(15,4) 역산 번호1~15 빈도 dominant_zone), AgencyYegaService.get_pattern(DB 조회 발주처/공종/months 필터), AgencyYegaPattern/YegaNumberPattern 스키마/타입, GET /recommend/yega-frequency?agency_id 파라미터 추가, YegaPage 발주처 드롭다운 특화패턴 섹션(top3 하이라이트 dominant_zone 뱃지), 테스트 6건 전통과"
-                  },
-                  {
-                      "step":  8,
-                      "name":  "공동도급 적격심사 AI 매칭 + 입찰 전략 레포트 PDF",
-                      "file":  "step8.md",
-                      "status":  "pending"
-                  }
-              ],
-    "created_at":  "2026-06-05T21:00:28+09:00"
+{
+  "task": "mvp-enhance2",
+  "runId": "2026-06-05_21-00-28",
+  "branch": "feat/mvp-enhance2-2026-06-05_21-00-28",
+  "stage": "mvp",
+  "author": "kil0410@a2m.co.kr",
+  "description": "낙찰률 극대화 9개 기능 — A값 계산·사정율 트렌드·프리즘2.0·경쟁사 모니터링·공고추천·역산분석·예가ML·공동도급매칭·전략레포트",
+  "steps": [
+    {
+      "step": 1,
+      "name": "A값 자동 계산 + 낙찰하한가 산출",
+      "file": "step1.md",
+      "status": "completed",
+      "started_at": "2026-06-05T21:08:31+0900",
+      "completed_at": "2026-06-05T21:15:38+0900",
+      "summary": "ml/a_value.py 신규(FLOOR_RATE_TABLE 이전·calc_bid_range), GET /recommend/bid-range 엔드포인트, BidRangeResponse 스키마, 프론트 bidRange API+타입+RecommendPage A값 카드(debounce 500ms·P10~P90 바), 테스트 18건 전통과"
+    },
+    {
+      "step": 2,
+      "name": "사정율 트렌드 알림 (발주처×공종 최근 3개월)",
+      "file": "step2.md",
+      "status": "completed",
+      "started_at": "2026-06-05T21:15:38+0900",
+      "completed_at": "2026-06-05T21:28:51+0900",
+      "summary": "SrateTrendService(get_trend·get_top_trends·폴백), GET /stats/srate-trend·/top-srate-trends, SrateTrendResponse·TopSrateTrend 스키마/타입, statsApi.srateTrend·topSrateTrends, RecommendPage 트렌드 뱃지(↑빨강/↓파랑/→회색), DashboardPage 상위3 알림 카드, 테스트 7건 전통과"
+    },
+    {
+      "step": 3,
+      "name": "프리즘 2.0 대응 — 구간별 낙찰확률 히트맵 10개 추천",
+      "file": "step3.md",
+      "status": "completed",
+      "started_at": "2026-06-05T21:28:51+0900",
+      "completed_at": "2026-06-05T21:37:54+0900",
+      "summary": "ml/prism.py 신규(scan_prism_zones·71구간·floor필터·top10), POST /recommend/prism 엔드포인트, PrismZone·PrismResponse 스키마/타입, recommendApi.prism, RecommendPage 프리즘분석 섹션(BarChart 히트맵·주황강조·top10 테이블), 테스트 10건 전통과"
+    },
+    {
+      "step": 4,
+      "name": "경쟁사 최근 투찰 구간 실시간 모니터링",
+      "file": "step4.md",
+      "status": "completed",
+      "started_at": "2026-06-05T21:37:55+0900",
+      "completed_at": "2026-06-05T21:46:08+0900",
+      "summary": "CompetitorZoneService(get_recent_zones·0.005버킷·peak_zone), GET /competitors/{id}/zones, CompetitorZoneItem·CompetitorZoneResponse 스키마/타입, competitorsApi.zones, CompetitorPage 투찰구간 탭(BarChart·피크주황강조·회피추천뱃지·90일/180일 토글), 테스트 5건 전통과"
+    },
+    {
+      "step": 5,
+      "name": "공고 자동 추천 TOP 5 + 점수 카드 (Dashboard)",
+      "file": "step5.md",
+      "status": "completed",
+      "started_at": "2026-06-05T21:46:08+0900",
+      "completed_at": "2026-06-05T21:53:51+0900",
+      "summary": "OpportunityScoreService.get_top_recommended(7일 이내 open 공고·활성공종필터·점수정렬), GET /bids/recommended, BidRecommendItem 스키마/타입, bidsApi.recommended, DashboardPage 이번 주 추천 공고 섹션(등급뱃지·점수바·breakdown 툴팁·개찰일·기초금액·BidDetailPage 링크), 테스트 4건 전통과"
+    },
+    {
+      "step": 6,
+      "name": "낙찰 후 역산 분석 — rate_diff 분포·패턴",
+      "file": "step6.md",
+      "status": "completed",
+      "started_at": "2026-06-05T21:53:51+0900",
+      "completed_at": "2026-06-05T22:02:24+0900",
+      "summary": "DefeatAnalysisService.get_gap_distribution, GET /my-bids/gap-analysis, GapBucket/GapAnalysisResponse 스키마/타입, myBidsApi.gapAnalysis, MyBidsPage 역산분석 탭(BarChart 히스토그램), 테스트 6건 전통과"
+    },
+    {
+      "step": 7,
+      "name": "예가 번호 패턴 ML — 발주처 특화 빈도 분석",
+      "file": "step7.md",
+      "status": "completed",
+      "started_at": "2026-06-05T22:02:25+0900",
+      "completed_at": "2026-06-05T22:11:59+0900",
+      "summary": "ml/yega.py get_agency_yega_pattern(C(15,4) 역산 번호1~15 빈도 dominant_zone), AgencyYegaService.get_pattern(DB 조회 발주처/공종/months 필터), AgencyYegaPattern/YegaNumberPattern 스키마/타입, GET /recommend/yega-frequency?agency_id 파라미터 추가, YegaPage 발주처 드롭다운 특화패턴 섹션(top3 하이라이트 dominant_zone 뱃지), 테스트 6건 전통과"
+    },
+    {
+      "step": 8,
+      "name": "공동도급 적격심사 AI 매칭 + 입찰 전략 레포트 PDF",
+      "file": "step8.md",
+      "status": "pending"
+    }
+  ],
+  "created_at": "2026-06-05T21:00:28+09:00"
 }
