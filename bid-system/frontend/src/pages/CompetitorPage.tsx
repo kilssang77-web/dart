@@ -3,10 +3,10 @@ import { useQuery } from '@tanstack/react-query'
 import { Search, ChevronLeft, ChevronRight, Trophy, CheckSquare, Square } from 'lucide-react'
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+  LineChart, Line, BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts'
 import { competitorsApi } from '@/api'
-import type { Competitor } from '@/types'
+import type { Competitor, CompetitorZoneItem } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -80,6 +80,7 @@ export default function CompetitorPage() {
   const [detailTab, setDetailTab] = useState('overview')
   const [compareIds, setCompareIds] = useState<number[]>([])
   const [showCompare, setShowCompare] = useState(false)
+  const [zonesDays, setZonesDays] = useState<90 | 180>(90)
 
   const { data: pattern } = useQuery({
     queryKey: ['competitor-pattern', selectedId],
@@ -91,6 +92,12 @@ export default function CompetitorPage() {
     queryKey: ['competitor-compare', compareIds],
     queryFn: () => competitorsApi.compare(compareIds),
     enabled: showCompare && compareIds.length === 2,
+  })
+
+  const { data: zonesData } = useQuery({
+    queryKey: ['competitor-zones', selectedId, zonesDays],
+    queryFn: () => competitorsApi.zones(selectedId!, zonesDays),
+    enabled: !!selectedId && detailTab === 'zones',
   })
   const totalPages = list ? Math.ceil(list.total / SIZE) : 1
 
@@ -247,6 +254,7 @@ export default function CompetitorPage() {
               <TabsList>
                 <TabsTrigger value="overview">개요</TabsTrigger>
                 <TabsTrigger value="pattern">투찰성향</TabsTrigger>
+                <TabsTrigger value="zones">투찰구간</TabsTrigger>
               </TabsList>
 
             <TabsContent value="overview" className="space-y-4 mt-3">
@@ -390,6 +398,87 @@ export default function CompetitorPage() {
                 </>
               ) : (
                 <p className="text-sm text-muted-foreground text-center py-10">데이터를 불러오는 중...</p>
+              )}
+            </TabsContent>
+            <TabsContent value="zones" className="space-y-4 mt-3">
+              <div className="flex items-center justify-between">
+                <div className="flex gap-2">
+                  {([90, 180] as const).map((d) => (
+                    <Button
+                      key={d}
+                      size="sm"
+                      variant={zonesDays === d ? 'default' : 'outline'}
+                      className="h-7 text-xs"
+                      onClick={() => setZonesDays(d)}
+                    >
+                      {d}일
+                    </Button>
+                  ))}
+                </div>
+                {zonesData && (
+                  <span className="text-xs text-muted-foreground">총 {zonesData.total_count.toLocaleString()}건 기준</span>
+                )}
+              </div>
+
+              {!zonesData ? (
+                <p className="text-sm text-muted-foreground text-center py-10">데이터를 불러오는 중...</p>
+              ) : zonesData.total_count === 0 ? (
+                <Card>
+                  <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                    inpo21c 데이터 없음 — 해당 경쟁사의 수집 데이터가 없습니다
+                  </CardContent>
+                </Card>
+              ) : (
+                <>
+                  {zonesData.peak_zone && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant="destructive" className="text-xs">
+                        피크 구간 {(zonesData.peak_zone.range_lo * 100).toFixed(1)}%~{(zonesData.peak_zone.range_hi * 100).toFixed(1)}%
+                        ({zonesData.peak_zone.pct}%)
+                      </Badge>
+                      <Badge variant="warning" className="text-xs">이 구간 회피 추천</Badge>
+                    </div>
+                  )}
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">사정율 구간별 투찰 빈도</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={260}>
+                        <BarChart
+                          data={zonesData.zones.map((z: CompetitorZoneItem) => ({
+                            label: `${(z.range_lo * 100).toFixed(1)}`,
+                            pct: z.pct,
+                            isPeak: zonesData.peak_zone
+                              ? z.range_lo === zonesData.peak_zone.range_lo
+                              : false,
+                          }))}
+                          margin={{ left: -10 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis dataKey="label" tick={{ fontSize: 9 }} interval={3} unit="%" />
+                          <YAxis tick={{ fontSize: 10 }} unit="%" />
+                          <Tooltip
+                            formatter={(v: number) => [`${v}%`, '빈도']}
+                            labelFormatter={(l) => `${l}%대`}
+                          />
+                          <Bar dataKey="pct" name="빈도%">
+                            {zonesData.zones.map((z: CompetitorZoneItem, i: number) => (
+                              <Cell
+                                key={i}
+                                fill={
+                                  zonesData.peak_zone && z.range_lo === zonesData.peak_zone.range_lo
+                                    ? '#f97316'
+                                    : 'hsl(var(--primary)/0.5)'
+                                }
+                              />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                </>
               )}
             </TabsContent>
             </Tabs>

@@ -116,6 +116,20 @@ export interface RecommendResult {
   similar_cases: SimilarCase[]
 }
 
+export interface CompetitorZoneItem {
+  range_lo: number
+  range_hi: number
+  count: number
+  pct: number
+}
+
+export interface CompetitorZoneResponse {
+  zones: CompetitorZoneItem[]
+  peak_zone: CompetitorZoneItem | null
+  total_count: number
+  last_updated: string | null
+}
+
 export interface Competitor {
   id: number
   name: string

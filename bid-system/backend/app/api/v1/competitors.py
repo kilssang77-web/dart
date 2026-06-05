@@ -4,7 +4,7 @@ from typing import Optional, List
 
 from ...database import get_db
 from ...models import User
-from ...services import CompetitorService, CompetitorPatternService
+from ...services import CompetitorService, CompetitorPatternService, CompetitorZoneService
 from ...common.security import get_current_user
 
 router = APIRouter(prefix="/competitors", tags=["경쟁사"])
@@ -73,3 +73,13 @@ def competitor_pattern(
     _: User = Depends(get_current_user),
 ):
     return CompetitorPatternService(db).get_pattern(competitor_id)
+
+
+@router.get("/{competitor_id}/zones")
+def competitor_zones(
+    competitor_id: int,
+    days: int = Query(90, ge=30, le=365),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    return CompetitorZoneService().get_recent_zones(db, competitor_id, days)

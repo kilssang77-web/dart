@@ -2183,6 +2183,65 @@ class DefeatAnalysisService:
 
 
 # ==================================================
+# 경쟁사 투찰 구간 분포 서비스
+# ==================================================
+
+class CompetitorZoneService:
+    BUCKET_SIZE = 0.005
+    ZONE_MIN    = 0.800
+    ZONE_MAX    = 0.980
+
+    def get_recent_zones(self, db: Session, competitor_id: int, days: int = 90) -> dict:
+        from sqlalchemy import text as sa_text
+        competitor = db.query(Competitor).filter(Competitor.id == competitor_id).first()
+        if not competitor or not competitor.biz_reg_no:
+            return self._empty()
+
+        # inpo21c_participants에 date 컬럼 없으므로 전체 조회 (days 파라미터는 API 호환용)
+        rows = db.execute(sa_text("""
+            SELECT base_ratio::float
+            FROM inpo21c_participants
+            WHERE biz_reg_no = :biz_reg_no
+              AND base_ratio IS NOT NULL
+              AND base_ratio BETWEEN :lo AND :hi
+        """), {
+            "biz_reg_no": competitor.biz_reg_no,
+            "lo": self.ZONE_MIN,
+            "hi": self.ZONE_MAX,
+        }).fetchall()
+
+        if not rows:
+            return self._empty()
+
+        total = len(rows)
+        bucket_counts: dict[float, int] = {}
+        for (ratio,) in rows:
+            key = round(math.floor(ratio / self.BUCKET_SIZE) * self.BUCKET_SIZE, 3)
+            bucket_counts[key] = bucket_counts.get(key, 0) + 1
+
+        zones = [
+            {
+                "range_lo": lo,
+                "range_hi": round(lo + self.BUCKET_SIZE, 3),
+                "count":    cnt,
+                "pct":      round(cnt / total * 100, 1),
+            }
+            for lo, cnt in sorted(bucket_counts.items())
+        ]
+        peak_zone = max(zones, key=lambda z: z["count"]) if zones else None
+
+        return {
+            "zones":       zones,
+            "peak_zone":   peak_zone,
+            "total_count": total,
+            "last_updated": None,
+        }
+
+    def _empty(self) -> dict:
+        return {"zones": [], "peak_zone": None, "total_count": 0, "last_updated": None}
+
+
+# ==================================================
 # ⑧ 공고 자동 평가 점수 서비스
 # ==================================================
 

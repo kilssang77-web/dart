@@ -1,5 +1,5 @@
 ﻿import { api } from './client'
-import type { MetaData, RecommendResult, Competitor, WatchKeyword, SystemStatus, AdminUser, RegionStat, IndustryStat, ClusterResult, ModelInfo, IndustryFilterItem, MyBidAnalysis, OverviewStatsWithChange, CollectionLogOut, BidRangeResponse, SrateTrendResponse, TopSrateTrend, PrismResponse } from '../types'
+import type { MetaData, RecommendResult, Competitor, WatchKeyword, SystemStatus, AdminUser, RegionStat, IndustryStat, ClusterResult, ModelInfo, IndustryFilterItem, MyBidAnalysis, OverviewStatsWithChange, CollectionLogOut, BidRangeResponse, SrateTrendResponse, TopSrateTrend, PrismResponse, CompetitorZoneResponse } from '../types'
 
 type KeywordUpdateBody = Partial<Pick<WatchKeyword, 'keyword' | 'kw_type' | 'is_active' | 'note'>>
 
@@ -88,6 +88,8 @@ export const competitorsApi = {
     api.get(`/competitors/${id}/pattern`).then((r) => r.data),
   compare: (ids: number[]) =>
     api.get('/competitors/compare', { params: { ids: ids.join(',') } }).then((r) => r.data),
+  zones: (id: number, days = 90): Promise<CompetitorZoneResponse> =>
+    api.get(`/competitors/${id}/zones`, { params: { days } }).then((r) => r.data),
 }
 
 // -- 통계 --------------------------------------------------

@@ -689,6 +689,20 @@ class PrismResponse(BaseModel):
     scan_meta: dict
 
 
+# ── 경쟁사 투찰 구간 분포 스키마 ────────────────────────────
+
+class CompetitorZoneItem(BaseModel):
+    range_lo: float
+    range_hi: float
+    count: int
+    pct: float
+
+class CompetitorZoneResponse(BaseModel):
+    zones: List[CompetitorZoneItem]
+    peak_zone: Optional[CompetitorZoneItem]
+    total_count: int
+    last_updated: Optional[datetime]
+
 # ── ⑧ 공고 자동 평가 점수 스키마 ───────────────────────────
 
 class ScoreComponent(BaseModel):
