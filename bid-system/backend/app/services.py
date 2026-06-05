@@ -1,4 +1,4 @@
-﻿"""
+"""
 비즈니스 로직 서비스 레이어.
 Controller(API) -> Service -> Repository(DB) 방향 준수.
 """
@@ -1118,7 +1118,7 @@ class SrateTrendService:
             FROM assessment_rate_stats ars
             JOIN agencies a ON a.id = ars.group_id
             WHERE ars.group_type = 'agency' AND ars.period_month IS NOT NULL
-              AND make_date(ars.period_year::int, ars.period_month::int, 1) >= NOW() - INTERVAL '6 months'
+              AND make_date(ars.period_year::int, ars.period_month::int, 1) >= NOW() - INTERVAL '12 months'
             ORDER BY ars.group_id, ars.period_year, ars.period_month
         """)).fetchall()
 
@@ -1155,7 +1155,7 @@ class SrateTrendService:
                 SELECT period_year, period_month, srate_mean::float, sample_count
                 FROM assessment_rate_stats
                 WHERE group_type = :gt AND group_id = :gid AND period_month IS NOT NULL
-                  AND make_date(period_year::int, period_month::int, 1) >= NOW() - INTERVAL '6 months'
+                  AND make_date(period_year::int, period_month::int, 1) >= NOW() - INTERVAL '12 months'
                 ORDER BY period_year, period_month
             """), {"gt": group_type, "gid": gid}).fetchall()
         else:
@@ -1163,7 +1163,7 @@ class SrateTrendService:
                 SELECT period_year, period_month, srate_mean::float, sample_count
                 FROM assessment_rate_stats
                 WHERE group_type = 'global' AND period_month IS NOT NULL
-                  AND make_date(period_year::int, period_month::int, 1) >= NOW() - INTERVAL '6 months'
+                  AND make_date(period_year::int, period_month::int, 1) >= NOW() - INTERVAL '12 months'
                 ORDER BY period_year, period_month
             """)).fetchall()
 
@@ -1182,7 +1182,7 @@ class SrateTrendService:
             FROM bid_results r
             JOIN bids b ON b.id = r.bid_id
             WHERE r.assessment_rate IS NOT NULL
-              AND b.bid_open_date >= NOW() - INTERVAL '6 months'
+              AND b.bid_open_date >= NOW() - INTERVAL '12 months'
               AND (:agency_id IS NULL OR b.agency_id = :agency_id)
               AND (:industry_id IS NULL OR b.industry_id = :industry_id)
             GROUP BY 1, 2
@@ -1204,17 +1204,24 @@ class SrateTrendService:
         recent, prev = [], []
         for row in rows:
             months_ago = (now.year - row["period_year"]) * 12 + (now.month - row["period_month"])
-            if months_ago < 3:
+            if months_ago < 6:
                 recent.append(row)
-            elif months_ago < 6:
+            elif months_ago < 12:
                 prev.append(row)
 
         if not recent:
-            return {
-                "direction": "stable", "delta": 0.0,
-                "recent_mean": 0.0, "prev_mean": None,
-                "sample_count": 0, "signal": "최근 데이터 없음",
-            }
+            # fallback: 데이터 분포 기반 전반/후반 분할
+            all_rows = sorted(rows, key=lambda r: (r["period_year"], r["period_month"]))
+            if len(all_rows) >= 2:
+                mid = len(all_rows) // 2
+                prev = all_rows[:mid]
+                recent = all_rows[mid:]
+            else:
+                return {
+                    "direction": "stable", "delta": 0.0,
+                    "recent_mean": 0.0, "prev_mean": None,
+                    "sample_count": 0, "signal": "최근 데이터 없음",
+                }
 
         total_recent = sum(r["sample_count"] for r in recent)
         if total_recent > 0:
