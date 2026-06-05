@@ -1,12 +1,12 @@
-﻿import { useState } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, CheckCircle2, XCircle, Clock, Trash2, Edit2 } from 'lucide-react'
+import { Plus, CheckCircle2, XCircle, Clock, Trash2, Edit2, Search } from 'lucide-react'
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, BarChart, Bar, ReferenceLine, Cell
 } from 'recharts'
-import { myBidsApi } from '@/api'
-import type { MyBidRecord, MyBidAnalysis, DefeatAnalysis, GapAnalysisResponse } from '@/types'
+import { myBidsApi, bidsApi } from '@/api'
+import type { MyBidRecord, MyBidAnalysis, DefeatAnalysis, GapAnalysisResponse, BidSearchItem } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -47,8 +47,17 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
 }
 
 const emptyForm = {
-  title: '', agency_name: '', bid_date: '', base_amount: '',
-  submitted_rate: '', recommendation_rate: '', note: '',
+  announcement_no: '',
+  bid_id: null as number | null,
+  title: '',
+  agency_name: '',
+  bid_date: '',
+  base_amount: '',
+  submitted_rate: '',
+  recommendation_rate: '',
+  actual_winner_rate: '',
+  result: 'pending',
+  note: '',
 }
 
 export default function MyBidsPage() {
@@ -59,6 +68,21 @@ export default function MyBidsPage() {
   const [editRecord, setEditRecord] = useState<MyBidRecord | null>(null)
   const [form, setForm] = useState({ ...emptyForm })
   const [updateForm, setUpdateForm] = useState({ result: 'pending', actual_winner_rate: '', note: '' })
+  const [annoInput, setAnnoInput] = useState('')
+  const [debouncedAnno, setDebouncedAnno] = useState('')
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const annoRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedAnno(annoInput), 300)
+    return () => clearTimeout(t)
+  }, [annoInput])
+
+  const { data: bidSuggestions = [] } = useQuery<BidSearchItem[]>({
+    queryKey: ['bid-search', debouncedAnno],
+    queryFn: () => bidsApi.search(debouncedAnno),
+    enabled: debouncedAnno.length >= 2,
+  })
 
   const { data: stats } = useQuery({
     queryKey: ['my-bids-stats'],
@@ -126,8 +150,31 @@ export default function MyBidsPage() {
       submitted_rate: parseFloat(form.submitted_rate) / 100,
       recommendation_rate: form.recommendation_rate ? parseFloat(form.recommendation_rate) / 100 : undefined,
       note: form.note || undefined,
+      bid_id: form.bid_id ?? undefined,
+      announcement_no: form.announcement_no || undefined,
+      actual_winner_rate: form.actual_winner_rate ? parseFloat(form.actual_winner_rate) / 100 : undefined,
+      result: form.result || 'pending',
     })
   }
+
+  function handleSelectBid(item: BidSearchItem) {
+    setForm((f) => ({
+      ...f,
+      announcement_no: item.announcement_no,
+      bid_id: item.id,
+      title: item.title,
+      agency_name: item.agency_name ?? '',
+      base_amount: String(item.base_amount),
+    }))
+    setAnnoInput(item.announcement_no)
+    setShowSuggestions(false)
+  }
+
+  const rateDiffDisplay = (() => {
+    if (!form.submitted_rate || !form.actual_winner_rate) return null
+    const diff = parseFloat(form.submitted_rate) - parseFloat(form.actual_winner_rate)
+    return isNaN(diff) ? null : diff
+  })()
 
   function handleUpdate() {
     if (!editRecord) return
@@ -562,17 +609,50 @@ export default function MyBidsPage() {
         </TabsContent>
       </Tabs>
 
-      {/* 이력 추가 다이얼로그 */}
-      <Dialog open={showAdd} onOpenChange={setShowAdd}>
-        <DialogContent className="max-w-md">
+      {/* 투찰 등록 다이얼로그 */}
+      <Dialog open={showAdd} onOpenChange={(o) => { setShowAdd(o); if (!o) { setForm({ ...emptyForm }); setAnnoInput(''); setShowSuggestions(false) } }}>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>투찰 이력 추가</DialogTitle>
+            <DialogTitle>투찰 등록</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
+            {/* 공고번호 자동완성 */}
+            <div ref={annoRef} className="relative">
+              <Label className="text-xs mb-1">공고번호 (자동완성)</Label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                <Input
+                  className="pl-8"
+                  value={annoInput}
+                  onChange={(e) => { setAnnoInput(e.target.value); setForm((f) => ({ ...f, announcement_no: e.target.value, bid_id: null })); setShowSuggestions(true) }}
+                  onFocus={() => setShowSuggestions(true)}
+                  onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                  placeholder="공고번호 입력 (2자 이상)"
+                />
+              </div>
+              {showSuggestions && bidSuggestions.length > 0 && (
+                <div className="absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg py-1 max-h-48 overflow-y-auto">
+                  {bidSuggestions.map((item) => (
+                    <button
+                      key={item.id}
+                      className="w-full text-left px-3 py-2 hover:bg-accent transition-colors"
+                      onMouseDown={() => handleSelectBid(item)}
+                    >
+                      <div className="text-xs font-mono text-muted-foreground">{item.announcement_no}</div>
+                      <div className="text-sm font-medium truncate">{item.title}</div>
+                      <div className="text-xs text-muted-foreground">{item.agency_name} · {item.base_amount ? `${(item.base_amount / 1e8).toFixed(1)}억` : '-'}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 공고명 */}
             <div>
               <Label className="text-xs mb-1">공고명 *</Label>
-              <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="공고명 입력" />
+              <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="공고명 입력 (자동완성 또는 직접 입력)" />
             </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs mb-1">발주기관</Label>
@@ -583,31 +663,71 @@ export default function MyBidsPage() {
                 <Input type="date" value={form.bid_date} onChange={(e) => setForm((f) => ({ ...f, bid_date: e.target.value }))} />
               </div>
             </div>
+
             <div>
               <Label className="text-xs mb-1">기초금액 (원)</Label>
               <Input type="number" value={form.base_amount} onChange={(e) => setForm((f) => ({ ...f, base_amount: e.target.value }))} placeholder="예: 500000000" />
             </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs mb-1">투찰률 (%) *</Label>
                 <Input type="number" step="0.0001" value={form.submitted_rate}
                   onChange={(e) => setForm((f) => ({ ...f, submitted_rate: e.target.value }))}
-                  placeholder="예: 87.93" />
+                  placeholder="예: 87.9300" />
               </div>
               <div>
                 <Label className="text-xs mb-1">AI 추천률 (%)</Label>
                 <Input type="number" step="0.0001" value={form.recommendation_rate}
                   onChange={(e) => setForm((f) => ({ ...f, recommendation_rate: e.target.value }))}
-                  placeholder="예: 87.95" />
+                  placeholder="예: 87.9500" />
               </div>
             </div>
+
+            {/* 결과 + 낙찰자 사정율 */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs mb-1">결과</Label>
+                <Select value={form.result} onValueChange={(v) => setForm((f) => ({ ...f, result: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">결과대기</SelectItem>
+                    <SelectItem value="won">낙찰</SelectItem>
+                    <SelectItem value="lost">미낙찰</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs mb-1">낙찰자 사정율 (%)</Label>
+                <Input type="number" step="0.0001" value={form.actual_winner_rate}
+                  onChange={(e) => setForm((f) => ({ ...f, actual_winner_rate: e.target.value }))}
+                  placeholder="예: 87.9100"
+                  disabled={form.result === 'pending'} />
+              </div>
+            </div>
+
+            {/* rate_diff 실시간 표시 */}
+            {rateDiffDisplay !== null && (
+              <div className={cn(
+                'text-xs px-3 py-2 rounded-md border font-mono',
+                rateDiffDisplay > 0
+                  ? 'text-orange-700 bg-orange-50 border-orange-200'
+                  : rateDiffDisplay < 0
+                  ? 'text-blue-700 bg-blue-50 border-blue-200'
+                  : 'text-green-700 bg-green-50 border-green-200'
+              )}>
+                rate_diff: {rateDiffDisplay > 0 ? '+' : ''}{rateDiffDisplay.toFixed(4)}%
+                {rateDiffDisplay > 0 ? ' (낙찰자보다 높게 투찰)' : rateDiffDisplay < 0 ? ' (낙찰자보다 낮게 투찰)' : ' (동일)'}
+              </div>
+            )}
+
             <div>
               <Label className="text-xs mb-1">메모</Label>
               <Input value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="메모 (선택)" />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAdd(false)}>취소</Button>
+            <Button variant="outline" onClick={() => { setShowAdd(false); setForm({ ...emptyForm }); setAnnoInput('') }}>취소</Button>
             <Button onClick={handleCreate} disabled={!form.title || !form.submitted_rate || createMut.isPending}>
               {createMut.isPending ? '저장 중...' : '저장'}
             </Button>

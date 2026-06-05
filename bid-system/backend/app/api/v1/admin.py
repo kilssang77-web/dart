@@ -271,6 +271,45 @@ def retrain_ml(
     return {"status": "ok", "results": results}
 
 
+@router.get("/collector-status")
+def get_collector_status(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin")),
+):
+    """오늘 수집량·마지막/다음 수집 시각 실시간 조회."""
+    from datetime import datetime, timedelta, timezone
+
+    kst = timezone(timedelta(hours=9))
+    now_kst = datetime.now(kst)
+    today_start_utc = now_kst.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+
+    row = db.execute(text("""
+        SELECT
+            COALESCE(SUM(CASE WHEN collect_type LIKE 'notice%' THEN success_count ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN collect_type LIKE 'result%' THEN success_count ELSE 0 END), 0)
+        FROM collection_logs
+        WHERE collected_at >= :today_start
+    """), {"today_start": today_start_utc}).fetchone()
+
+    last_run = db.execute(text("SELECT MAX(collected_at) FROM collection_logs")).scalar()
+
+    # 다음 수집 예정: 06:00 또는 18:00 KST
+    next_runs = []
+    for hour in (6, 18):
+        candidate = now_kst.replace(hour=hour, minute=0, second=0, microsecond=0)
+        if candidate <= now_kst:
+            candidate += timedelta(days=1)
+        next_runs.append(candidate)
+    next_run_at = min(next_runs)
+
+    return {
+        "today_notices": int(row[0]),
+        "today_results": int(row[1]),
+        "last_run_at": last_run,
+        "next_run_at": next_run_at.isoformat(),
+    }
+
+
 @router.get("/system-status")
 def system_status(db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
     counts = db.execute(text("""

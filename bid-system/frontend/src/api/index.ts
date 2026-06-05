@@ -1,5 +1,5 @@
 ﻿import { api } from './client'
-import type { MetaData, RecommendResult, Competitor, WatchKeyword, SystemStatus, AdminUser, RegionStat, IndustryStat, ClusterResult, ModelInfo, IndustryFilterItem, MyBidAnalysis, OverviewStatsWithChange, CollectionLogOut, BidRangeResponse, SrateTrendResponse, TopSrateTrend, PrismResponse, CompetitorZoneResponse, BidRecommendItem, JointPartnersResponse } from '../types'
+import type { MetaData, RecommendResult, Competitor, WatchKeyword, SystemStatus, AdminUser, RegionStat, IndustryStat, ClusterResult, ModelInfo, IndustryFilterItem, MyBidAnalysis, OverviewStatsWithChange, CollectionLogOut, BidRangeResponse, SrateTrendResponse, TopSrateTrend, PrismResponse, CompetitorZoneResponse, BidRecommendItem, JointPartnersResponse, CollectorStatus, BidSearchItem } from '../types'
 
 type KeywordUpdateBody = Partial<Pick<WatchKeyword, 'keyword' | 'kw_type' | 'is_active' | 'note'>>
 
@@ -47,6 +47,8 @@ export const bidsApi = {
     api.get('/bids/recommended', { params: { limit } }).then((r) => r.data),
   jointPartners: (bidId: number, userTrack: number, participationRate = 0.6): Promise<JointPartnersResponse> =>
     api.get(`/bids/${bidId}/joint-partners`, { params: { user_track: userTrack, participation_rate: participationRate } }).then((r) => r.data),
+  search: (announcementNo: string, limit = 10): Promise<BidSearchItem[]> =>
+    api.get('/bids/search', { params: { announcement_no: announcementNo, limit } }).then((r) => r.data),
 }
 
 // -- 추천 --------------------------------------------------
@@ -161,6 +163,8 @@ export const adminApi = {
     api.get('/admin/inpo21c/status').then((r) => r.data),
   triggerInpo21cCollect: (maxPages = 4): Promise<{ message: string }> =>
     api.post('/admin/inpo21c/collect', null, { params: { max_pages: maxPages } }).then((r) => r.data),
+  collectorStatus: (): Promise<CollectorStatus> =>
+    api.get('/admin/collector-status').then((r) => r.data),
 }
 
 // -- 투찰 이력 --------------------------------------------------

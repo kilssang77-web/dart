@@ -2,7 +2,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Users, ShieldCheck, Activity, Plus, Pencil, Trash2, RefreshCw, Database, Layers, Search, CheckSquare, Square, Save, ChevronDown, Loader2, Zap, Download } from 'lucide-react'
 import { adminApi, statsApi } from '@/api'
-import type { AdminUser, SystemStatus, ModelInfo, IndustryFilterItem, CollectionLogOut } from '@/types'
+import type { AdminUser, SystemStatus, ModelInfo, IndustryFilterItem, CollectionLogOut, CollectorStatus } from '@/types'
 import { useAuthStore } from '@/store/auth'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -51,6 +51,9 @@ export default function AdminPage() {
   })
   const { data: status, isLoading: statusLoading, refetch: refetchStatus } = useQuery<SystemStatus>({
     queryKey: ['admin-status'], queryFn: adminApi.systemStatus, enabled: tab === 'system', refetchInterval: 30000,
+  })
+  const { data: collectorStatus, refetch: refetchCollectorStatus } = useQuery<CollectorStatus>({
+    queryKey: ['admin-collector-status'], queryFn: adminApi.collectorStatus, enabled: tab === 'system', refetchInterval: 60000,
   })
   const { data: modelInfo } = useQuery<ModelInfo>({
     queryKey: ['model-info'], queryFn: () => statsApi.modelInfo(), enabled: tab === 'system',
@@ -204,7 +207,7 @@ export default function AdminPage() {
                   <CardHeader className="pb-2">
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-sm">수집기 상태</CardTitle>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => refetchStatus()}>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { refetchStatus(); refetchCollectorStatus() }}>
                         <RefreshCw className="h-3.5 w-3.5" />
                       </Button>
                     </div>
@@ -213,8 +216,17 @@ export default function AdminPage() {
                     <div className="flex justify-between"><span className="text-muted-foreground">상태</span>
                       <Badge variant={collector?.enabled ? 'success' : 'secondary'}>{collector?.enabled ? '활성' : '비활성'}</Badge>
                     </div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">오늘 수집 공고</span>
+                      <span className="font-semibold text-blue-600">{(collectorStatus?.today_notices ?? 0).toLocaleString()}건</span>
+                    </div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">오늘 수집 결과</span>
+                      <span className="font-semibold text-purple-600">{(collectorStatus?.today_results ?? 0).toLocaleString()}건</span>
+                    </div>
                     <div className="flex justify-between"><span className="text-muted-foreground">마지막 수집</span>
-                      <span className="text-xs">{collector?.last_g2b_collect ? new Date(collector.last_g2b_collect).toLocaleString('ko-KR') : '없음'}</span>
+                      <span className="text-xs">{collectorStatus?.last_run_at ? new Date(collectorStatus.last_run_at).toLocaleString('ko-KR') : (collector?.last_g2b_collect ? new Date(collector.last_g2b_collect).toLocaleString('ko-KR') : '없음')}</span>
+                    </div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">다음 수집 예정</span>
+                      <span className="text-xs text-green-600">{collectorStatus?.next_run_at ? new Date(collectorStatus.next_run_at).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-'}</span>
                     </div>
                     <div className="flex justify-between"><span className="text-muted-foreground">활성 키워드</span><span>{stats.active_keywords}개</span></div>
                     {status?.daily_collection && status.daily_collection.length > 0 && (

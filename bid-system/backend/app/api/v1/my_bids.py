@@ -91,6 +91,10 @@ def create_my_bid(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    rate_diff = None
+    if body.actual_winner_rate is not None:
+        rate_diff = body.submitted_rate - body.actual_winner_rate
+
     rec = MyBidRecord(
         user_id=user.id,
         bid_id=body.bid_id,
@@ -101,6 +105,10 @@ def create_my_bid(
         submitted_rate=body.submitted_rate,
         recommendation_rate=body.recommendation_rate,
         note=body.note,
+        announcement_no=body.announcement_no,
+        actual_winner_rate=body.actual_winner_rate,
+        result=body.result or "pending",
+        rate_diff=rate_diff,
     )
     db.add(rec)
     db.commit()
@@ -129,6 +137,11 @@ def update_my_bid(
         rec.note = body.note
     if body.submitted_rate is not None:
         rec.submitted_rate = body.submitted_rate
+    # rate_diff 자동계산
+    submitted = float(rec.submitted_rate) if rec.submitted_rate is not None else None
+    winner = float(rec.actual_winner_rate) if rec.actual_winner_rate is not None else None
+    if submitted is not None and winner is not None:
+        rec.rate_diff = submitted - winner
     db.commit()
     db.refresh(rec)
     return rec

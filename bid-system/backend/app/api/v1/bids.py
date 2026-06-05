@@ -4,7 +4,7 @@ from typing import Optional
 from datetime import date
 
 from ...database import get_db
-from ...models import User, Agency, Industry, Region
+from ...models import User, Agency, Industry, Region, Bid
 from ...schemas import BidCreate, BidResultCreate, BookmarkResponse, OpportunityScoreResponse, BidRecommendItem, JointPartnersResponse
 from ...services import BidService, BookmarkService, get_active_industry_ids, OpportunityScoreService, JointQualService
 from ...common.security import get_current_user
@@ -50,6 +50,33 @@ def get_meta(db: Session = Depends(get_db), _: User = Depends(get_current_user))
         "industries": [{"id": i.id, "name": i.name} for i in industries_q],
         "regions":    [{"id": r.id, "name": r.name} for r in db.query(Region).all()],
     }
+
+
+@router.get("/search")
+def search_bids(
+    announcement_no: str = Query("", min_length=1),
+    limit: int = Query(10, ge=1, le=20),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """공고번호 자동완성 검색 (경량)."""
+    rows = (
+        db.query(Bid, Agency.name.label("agency_name"))
+        .join(Agency, Bid.agency_id == Agency.id, isouter=True)
+        .filter(Bid.announcement_no.ilike(f"%{announcement_no}%"))
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "id": bid.id,
+            "announcement_no": bid.announcement_no,
+            "title": bid.title,
+            "agency_name": agency_name,
+            "base_amount": bid.base_amount,
+        }
+        for bid, agency_name in rows
+    ]
 
 
 @router.get("/keyword-matches")

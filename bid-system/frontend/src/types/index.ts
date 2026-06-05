@@ -341,8 +341,25 @@ export interface MyBidRecord {
   recommendation_rate: number | null
   result: 'pending' | 'won' | 'lost'
   actual_winner_rate: number | null
+  rate_diff: number | null
+  announcement_no: string | null
   note: string | null
   created_at: string
+}
+
+export interface CollectorStatus {
+  today_notices: number
+  today_results: number
+  last_run_at: string | null
+  next_run_at: string | null
+}
+
+export interface BidSearchItem {
+  id: number
+  announcement_no: string
+  title: string
+  agency_name: string | null
+  base_amount: number
 }
 
 export interface MyBidStats {

@@ -429,6 +429,9 @@ class MyBidRecordCreate(BaseModel):
     recommendation_rate: Optional[float] = None
     bid_id: Optional[int] = None
     note: Optional[str] = None
+    announcement_no: Optional[str] = None
+    actual_winner_rate: Optional[float] = None
+    result: Optional[str] = "pending"
 
 class MyBidRecordUpdate(BaseModel):
     result: Optional[str] = None        # pending/won/lost
