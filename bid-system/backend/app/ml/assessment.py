@@ -322,6 +322,15 @@ def predict_srate(features_a: dict, base_amount: int) -> dict:
             upper  = preds[0.75]
             p10    = preds[0.10]
             p90    = preds[0.90]
+            # inpo21c 보정: G2B 역사 모델이 구 사정율로 훈련된 경우 global 통계로 보정
+            _global = features_a.get('global_srate_mean')
+            if _global and _global > 0.95 and center < 0.95:
+                _delta = _global - center  # inpo21c 기준으로 전면 보정
+                center += _delta
+                lower  += _delta
+                upper  += _delta
+                p10    += _delta
+                p90    += _delta
             # ML 사용 시 신뢰도 상향
             confidence = min(0.95, confidence + 0.2)
         except Exception as e:

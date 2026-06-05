@@ -1,9 +1,9 @@
-﻿from pydantic import BaseModel, ConfigDict, EmailStr
+﻿from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from typing import Optional, List
 from datetime import datetime, date
 
 
-# -- 공통 --------------------------------------------------
+# -- ?? --------------------------------------------------
 
 class ApiResponse(BaseModel):
     success: bool = True
@@ -11,7 +11,7 @@ class ApiResponse(BaseModel):
     message: str = "OK"
 
 
-# -- 인증 --------------------------------------------------
+# -- ?? --------------------------------------------------
 
 class LoginRequest(BaseModel):
     email: str
@@ -46,7 +46,7 @@ class UserOut(BaseModel):
         from_attributes = True
 
 
-# -- 입찰 --------------------------------------------------
+# -- ?? --------------------------------------------------
 
 class BidResultOut(BaseModel):
     id: int
@@ -88,7 +88,7 @@ class BidDetail(BidSummary):
     construction_period: Optional[int]
     region_restriction: bool
     ntce_url: Optional[str] = None
-    # 신규 필드
+    # ?? ??
     construction_site: Optional[str] = None
     contract_method: Optional[str] = None
     bid_method: Optional[str] = None
@@ -137,7 +137,7 @@ class BidListParams(BaseModel):
     size: int = 20
 
 
-# -- 추천 --------------------------------------------------
+# -- ?? --------------------------------------------------
 
 class RecommendRequest(BaseModel):
     industry_id: int
@@ -205,7 +205,7 @@ class RecommendResponse(BaseModel):
     similar_cases: List[SimilarCase]
 
 
-# -- 경쟁사 --------------------------------------------------
+# -- ??? --------------------------------------------------
 
 class CompetitorSummary(BaseModel):
     id: int
@@ -238,7 +238,7 @@ class CompetitorTimelinePoint(BaseModel):
     avg_rate: float
 
 
-# -- 통계 --------------------------------------------------
+# -- ?? --------------------------------------------------
 
 class OverviewStats(BaseModel):
     total_bids: int
@@ -273,7 +273,7 @@ class HeatmapCell(BaseModel):
     count: int
 
 
-# -- 키워드 --------------------------------------------------
+# -- ??? --------------------------------------------------
 
 class WatchKeywordCreate(BaseModel):
     keyword: str
@@ -294,11 +294,17 @@ class WatchKeywordOut(BaseModel):
     kw_type: str
     is_active: bool
     note: Optional[str]
+    announcement_no: Optional[str]
+    floor_rate: Optional[float]
+    a_value: Optional[int]
+    rate_diff: Optional[float]
+    winner_biz_no: Optional[str]
+    winner_name: Optional[str]
     created_at: datetime
 
     class Config:
         from_attributes = True
-# -- 하이브리드 추천 v2 --------------------------------------------------
+# -- ????? ?? v2 --------------------------------------------------
 
 class RecommendV2Request(BaseModel):
     agency_id:             int
@@ -397,10 +403,11 @@ class RecommendV2Response(BaseModel):
     explanation:      ExplanationV2
     similar_cases:    List[SimilarCase]
     market_trend:     dict
-    simulation:       Optional[SimulationResult] = None
+    simulation:            Optional[SimulationResult] = None
+    personal_correction:   Optional[dict] = None
 
 
-# -- 투찰 이력 --------------------------------------------------
+# -- ?? ?? --------------------------------------------------
 
 class MyBidRecordCreate(BaseModel):
     title: str
@@ -430,13 +437,19 @@ class MyBidRecordOut(BaseModel):
     result: str
     actual_winner_rate: Optional[float]
     note: Optional[str]
+    announcement_no: Optional[str]
+    floor_rate: Optional[float]
+    a_value: Optional[int]
+    rate_diff: Optional[float]
+    winner_biz_no: Optional[str]
+    winner_name: Optional[str]
     created_at: datetime
 
     class Config:
         from_attributes = True
 
 
-# ── 사정율 분포 ──────────────────────────
+# ?? ??? ?? ??????????????????????????
 class SrateDistributionBin(BaseModel):
     rate_pct: float
     count: int
@@ -451,7 +464,7 @@ class SrateDistributionResponse(BaseModel):
     std: Optional[float]
     sample_count: int
 
-# ── 기관 분석 ────────────────────────────
+# ?? ?? ?? ????????????????????????????
 class AgencySummary(BaseModel):
     id: int
     name: str
@@ -501,7 +514,7 @@ class AgencyAnalysisResponse(BaseModel):
     top_winners: list[AgencyTopWinner]
     amount_distribution: list[AgencyAmountBucket]
 
-# ── 경쟁사 투찰성향 ──────────────────────
+# ?? ??? ???? ??????????????????????
 class CompetitorRadar(BaseModel):
     aggression: float
     consistency: float
@@ -534,7 +547,7 @@ class CompetitorCompareItem(BaseModel):
 class CompetitorCompareResponse(BaseModel):
     competitors: list[CompetitorCompareItem]
 
-# ── 수집 로그 ────────────────────────────
+# ?? ?? ?? ????????????????????????????
 class CollectionLogOut(BaseModel):
     id: int
     collect_type: str
@@ -547,7 +560,7 @@ class CollectionLogOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-# ── 북마크 ───────────────────────────────
+# ?? ??? ???????????????????????????????
 class BookmarkResponse(BaseModel):
     bid_id: int
     user_id: int
@@ -556,7 +569,7 @@ class BookmarkResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-# ── My입찰 분석 ──────────────────────────
+# ?? My?? ?? ??????????????????????????
 class MyBidScatterPoint(BaseModel):
     submitted_rate: float
     recommendation_rate: Optional[float]
@@ -572,8 +585,8 @@ class MyBidMonthlyAccuracy(BaseModel):
 class MyBidAccuracyStats(BaseModel):
     avg_error: Optional[float]
     median_error: Optional[float]
-    accuracy_1pct: Optional[float]  # ±1% 적중률
-    accuracy_3pct: Optional[float]  # ±3% 적중률
+    accuracy_1pct: Optional[float]  # ?1% ???
+    accuracy_3pct: Optional[float]  # ?3% ???
     total_records: int
 
 class MyBidAnalysisResponse(BaseModel):
@@ -581,9 +594,9 @@ class MyBidAnalysisResponse(BaseModel):
     rate_scatter: list[MyBidScatterPoint]
     monthly_accuracy: list[MyBidMonthlyAccuracy]
 
-# ── 대시보드 KPI 변화율 ───────────────────
+# ?? ???? KPI ??? ???????????????????
 class OverviewStatsWithChange(BaseModel):
-    # 기존 OverviewStats 필드들 + 변화율
+    # ?? OverviewStats ??? + ???
     total_bids: int
     total_competitors: int
     avg_win_rate: Optional[float]
@@ -593,4 +606,59 @@ class OverviewStatsWithChange(BaseModel):
     win_rate_change_pct: Optional[float]
     bid_count_change_pct: Optional[float]
     avg_competitors_change: Optional[float]
+
+
+
+# ── ② 패찰 원인 분석 스키마 ──────────────────────────────
+
+class MissStatsSummary(BaseModel):
+    avg_diff_pct:    Optional[float] = None
+    median_diff_pct: Optional[float] = None
+    std_diff_pct:    Optional[float] = None
+    pct_too_low:     Optional[float] = None
+    pct_too_high:    Optional[float] = None
+    pct_balanced:    Optional[float] = None
+    direction:       Optional[str]   = None
+    within_0_5pct:   Optional[float] = None
+    within_1pct:     Optional[float] = None
+
+class DefeatDistBin(BaseModel):
+    from_: float = Field(..., alias="from")
+    to: float
+    count: int
+    model_config = ConfigDict(populate_by_name=True)
+
+class AgencyDefeatStat(BaseModel):
+    agency_name: str
+    count: int
+    avg_diff: float
+    direction: str
+
+class MonthlyTrendPoint(BaseModel):
+    year_month: str
+    avg_diff: float
+    count: int
+
+class DefeatAnalysisResponse(BaseModel):
+    miss_stats:       MissStatsSummary
+    distribution:     list[dict]
+    agency_breakdown: list[AgencyDefeatStat]
+    trend:            list[MonthlyTrendPoint]
+    win_zone:         Optional[dict] = None
+    total_analyzed:   int
+
+# ── ⑧ 공고 자동 평가 점수 스키마 ───────────────────────────
+
+class ScoreComponent(BaseModel):
+    pts:  float
+    max:  int
+    note: str
+
+class OpportunityScoreResponse(BaseModel):
+    bid_id:         int
+    score:          Optional[float]
+    grade:          Optional[str]   = None
+    breakdown: Optional[dict]       = None
+    recommendation: Optional[str]   = None
+    error:          Optional[str]   = None
 

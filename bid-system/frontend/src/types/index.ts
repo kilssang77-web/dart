@@ -462,3 +462,80 @@ export interface CollectionLogOut {
   created_at: string
 }
 
+
+// ── 패찰 원인 분석 타입 ──────────────────────────────────
+
+export interface MissStatsSummary {
+  avg_diff_pct:    number | null
+  median_diff_pct: number | null
+  std_diff_pct:    number | null
+  pct_too_low:     number | null
+  pct_too_high:    number | null
+  pct_balanced:    number | null
+  direction:       'too_low' | 'too_high' | 'balanced' | null
+  within_0_5pct:   number | null
+  within_1pct:     number | null
+}
+
+export interface DefeatDistBin {
+  from: number
+  to: number
+  count: number
+}
+
+export interface AgencyDefeatStat {
+  agency_name: string
+  count: number
+  avg_diff: number
+  direction: 'too_low' | 'too_high' | 'balanced'
+}
+
+export interface MonthlyTrendPoint {
+  year_month: string
+  avg_diff: number
+  count: number
+}
+
+export interface DefeatAnalysis {
+  miss_stats:       MissStatsSummary
+  distribution:     DefeatDistBin[]
+  agency_breakdown: AgencyDefeatStat[]
+  trend:            MonthlyTrendPoint[]
+  win_zone:         { avg_diff: number; sample_count: number; note: string } | null
+  total_analyzed:   number
+}
+
+// ── 공고 자동 평가 점수 타입 ─────────────────────────────
+
+export interface ScoreComponent {
+  pts:  number
+  max:  number
+  note: string
+}
+
+export interface OpportunityScore {
+  bid_id:         number
+  score:          number | null
+  grade:          'A' | 'B' | 'C' | 'D' | null
+  breakdown: {
+    competition:    ScoreComponent
+    personal_track: ScoreComponent
+    market_trend:   ScoreComponent
+    amount_fit:     ScoreComponent
+  } | null
+  recommendation: string | null
+  error?:         string
+}
+
+// ── RecommendV2 개인화 보정 타입 ────────────────────────
+
+export interface PersonalCorrection {
+  correction:        number
+  agency_correction: number | null
+  confidence:        number
+  direction:         'too_low' | 'too_high' | 'balanced'
+  avg_bias_pct:      number
+  sample_count:      number
+  narrative:         string
+}
+

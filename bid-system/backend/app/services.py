@@ -25,6 +25,8 @@ from .ml.engine import build_features, get_engine, FEATURE_LABELS
 from .ml.assessment  import load_srate_stats, predict_srate, compute_market_trend
 from .ml.competition import compute_competition_features, get_competitor_profiles, get_market_competitor_distributions
 from .ml.simulation  import recommend_with_simulation
+from .ml.rank_model  import get_inpo_raw_rates
+from .ml.personal    import PersonalBiasAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -1180,6 +1182,37 @@ class HybridRecommendService:
         ens_center = max(ens_center, ens_lower  + 0.0005)
         ens_upper  = max(ens_upper,  ens_center + 0.0005)
 
+        # ── Step 8.5: 개인화 편향 보정 (Monte Carlo 전 적용)
+        personal_info = {"correction": 0.0, "agency_correction": None,
+                         "confidence": 0.0, "direction": "balanced",
+                         "avg_bias_pct": 0.0, "sample_count": 0, "narrative": ""}
+        if user_id:
+            try:
+                agency_name_for_bias = None
+                _ag = db.query(Agency).filter(Agency.id == req.agency_id).first()
+                if _ag:
+                    agency_name_for_bias = _ag.name
+                personal_info = PersonalBiasAnalyzer().compute(
+                    db, user_id,
+                    agency_name=agency_name_for_bias,
+                )
+                # 신뢰도 비례 보정값 (낮은 신뢰도면 보정 축소)
+                effective_corr = personal_info["correction"] * personal_info["confidence"]
+                # 발주처 특화 보정 병합
+                if personal_info.get("agency_correction") is not None:
+                    agency_conf = min(1.0, len([1]) * personal_info["confidence"])
+                    effective_corr = (effective_corr * 0.6 +
+                                      personal_info["agency_correction"] * personal_info["confidence"] * 0.4)
+                ens_center += effective_corr
+                ens_lower  += effective_corr
+                ens_upper  += effective_corr
+                # 낙찰하한율 재확인
+                ens_lower  = max(ens_lower,  hard_floor + 0.0005)
+                ens_center = max(ens_center, ens_lower  + 0.0005)
+                ens_upper  = max(ens_upper,  ens_center + 0.0005)
+            except Exception as _e:
+                logger.debug(f"개인화 보정 실패 (무시): {_e}")
+
         # ── Step 9-pre: 경쟁사 프로파일 (시뮬레이션 입력용)
         comp_profiles = get_competitor_profiles(
             db, req.known_competitor_ids or [],
@@ -1200,6 +1233,13 @@ class HybridRecommendService:
         # 기대 경쟁업체 수에 맞게 상위 N개만 사용
         comp_means = comp_means[:expected_n]
         comp_stds  = comp_stds[:expected_n]
+        # inpo21c 실증 분포 (데이터 있으면 합성 정규분포 대체)
+        inpo_rates = None
+        try:
+            inpo_rates = get_inpo_raw_rates(db, expected_n)
+        except Exception as _e:
+            logger.debug("inpo21c 실증 분포 조회 실패 (무시): %s", _e)
+
         sim_result = recommend_with_simulation(
             base_amount=req.base_amount,
             industry_name=industry_name,
@@ -1210,6 +1250,8 @@ class HybridRecommendService:
             hard_floor=hard_floor,
             ens_center=ens_center,
             ens_upper=ens_upper,
+            empirical_comp_rates=inpo_rates,
+            expected_n_comp=expected_n if inpo_rates is not None else 0,
         )
         strategies = sim_result["strategies"]
 
@@ -1261,6 +1303,7 @@ class HybridRecommendService:
             "similar_cases": similar,
             "market_trend":  features_d,
             "simulation":    sim_result["simulation"],
+            "personal_correction": personal_info,
         }
 
     # ──────────────────────────────────────────
@@ -1841,3 +1884,379 @@ class MyBidAnalysisService:
             "rate_scatter": scatter,
             "monthly_accuracy": monthly_accuracy
         }
+
+
+
+
+# ==================================================
+# ② 패찰 원인 분석 (MyBidAnalysisService 확장)
+# ==================================================
+
+class DefeatAnalysisService:
+    """
+    패찰 이력에서 원인 분석:
+    - 낙찰자 대비 얼마나 높게/낮게 입찰했는지
+    - 발주처별 패턴
+    - 시간 흐름에 따른 개선 추이
+    """
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def analyze(self, user_id: int) -> dict:
+        from collections import defaultdict
+
+        records = self.db.query(MyBidRecord).filter(
+            MyBidRecord.user_id == user_id,
+            MyBidRecord.result == "lost",
+            MyBidRecord.actual_winner_rate.isnot(None),
+            MyBidRecord.submitted_rate.isnot(None),
+        ).order_by(MyBidRecord.bid_date.desc()).limit(500).all()
+
+        if not records:
+            return self._empty()
+
+        # rate_diff (percentage point): winner_rate - submitted_rate
+        diffs = []
+        for r in records:
+            if r.rate_diff is not None:
+                d = float(r.rate_diff)
+            else:
+                d = (float(r.actual_winner_rate) - float(r.submitted_rate)) * 100
+            diffs.append(d)
+
+        arr = np.array(diffs)
+        # 아웃라이어 제거 (|diff| > 5%)
+        clean = arr[np.abs(arr) <= 5.0]
+
+        miss_stats = self._compute_miss_stats(clean if len(clean) > 0 else arr)
+
+        # 히스토그램 bins: -5 ~ +5, 0.2 단위
+        bins = np.arange(-5.0, 5.2, 0.2)
+        hist, edges = np.histogram(clean if len(clean) > 0 else arr, bins=bins)
+        distribution = [
+            {"from": round(float(edges[i]), 2), "to": round(float(edges[i+1]), 2), "count": int(hist[i])}
+            for i in range(len(hist))
+        ]
+
+        # 발주처별 분석
+        agency_map = defaultdict(list)
+        for r, d in zip(records, diffs):
+            if r.agency_name and abs(d) <= 5.0:
+                agency_map[r.agency_name].append(d)
+
+        agency_breakdown = []
+        for name, ds in sorted(agency_map.items(), key=lambda x: len(x[1]), reverse=True)[:15]:
+            a = np.array(ds)
+            agency_breakdown.append({
+                "agency_name": name,
+                "count": len(ds),
+                "avg_diff": round(float(np.mean(a)), 4),
+                "direction": "too_low" if np.mean(a) > 0.15 else "too_high" if np.mean(a) < -0.15 else "balanced",
+            })
+
+        # 월별 추이
+        monthly_map = defaultdict(list)
+        for r, d in zip(records, diffs):
+            if r.bid_date and abs(d) <= 5.0:
+                key = r.bid_date.strftime("%Y-%m")
+                monthly_map[key].append(d)
+
+        trend = [
+            {
+                "year_month": k,
+                "avg_diff": round(float(np.mean(monthly_map[k])), 4),
+                "count": len(monthly_map[k]),
+            }
+            for k in sorted(monthly_map.keys())
+        ]
+
+        # 낙찰 구간 분석 (won 레코드)
+        won_records = self.db.query(MyBidRecord).filter(
+            MyBidRecord.user_id == user_id,
+            MyBidRecord.result == "won",
+            MyBidRecord.actual_winner_rate.isnot(None),
+        ).all()
+        win_zone = None
+        if won_records:
+            won_diffs = [float(r.rate_diff or 0) for r in won_records]
+            win_zone = {
+                "avg_diff": round(float(np.mean(won_diffs)), 4),
+                "sample_count": len(won_diffs),
+                "note": "낙찰 시 낙찰자 요율 대비 본인 요율 평균 차이",
+            }
+
+        return {
+            "miss_stats": miss_stats,
+            "distribution": distribution,
+            "agency_breakdown": agency_breakdown,
+            "trend": trend,
+            "win_zone": win_zone,
+            "total_analyzed": len(records),
+        }
+
+    def _compute_miss_stats(self, arr: np.ndarray) -> dict:
+        if len(arr) == 0:
+            return {}
+        avg = float(np.mean(arr))
+        return {
+            "avg_diff_pct":      round(avg, 4),
+            "median_diff_pct":   round(float(np.median(arr)), 4),
+            "std_diff_pct":      round(float(np.std(arr)), 4),
+            "pct_too_low":       round(float(np.mean(arr > 0.15)), 4),
+            "pct_too_high":      round(float(np.mean(arr < -0.15)), 4),
+            "pct_balanced":      round(float(np.mean(np.abs(arr) <= 0.15)), 4),
+            "direction":         "too_low" if avg > 0.15 else "too_high" if avg < -0.15 else "balanced",
+            "within_0_5pct":     round(float(np.mean(np.abs(arr) <= 0.5)), 4),
+            "within_1pct":       round(float(np.mean(np.abs(arr) <= 1.0)), 4),
+        }
+
+    def _empty(self) -> dict:
+        return {
+            "miss_stats": {}, "distribution": [],
+            "agency_breakdown": [], "trend": [],
+            "win_zone": None, "total_analyzed": 0,
+        }
+
+
+# ==================================================
+# ⑧ 공고 자동 평가 점수 서비스
+# ==================================================
+
+class OpportunityScoreService:
+    """
+    신규 공고에 대해 내게 유리한 정도를 0~100점으로 산출.
+    점수 구성:
+      - 경쟁 약함 (40점): HHI 낮고 경쟁자 수 적을수록
+      - 내 이력 (30점): 이 발주처에서 본인 낙찰 이력 있을수록
+      - 시장 추세 (15점): 최근 낙찰율 상승 추세
+      - 금액 적합 (15점): 내가 자주 참여하는 금액 구간
+    """
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def score(self, bid_id: int, user_id: int) -> dict:
+        bid = self.db.query(Bid).filter(Bid.id == bid_id).first()
+        if not bid:
+            return {"score": None, "error": "공고를 찾을 수 없습니다."}
+
+        agency_score  = self._agency_track_score(user_id, bid.agency_id, bid.agency)
+        comp_score    = self._competition_score(bid)
+        trend_score   = self._trend_score(bid)
+        amount_score  = self._amount_fit_score(user_id, bid.base_amount)
+
+        total = (comp_score["pts"] + agency_score["pts"] +
+                 trend_score["pts"] + amount_score["pts"])
+        total = round(min(100, max(0, total)), 1)
+
+        grade = "A" if total >= 75 else "B" if total >= 55 else "C" if total >= 35 else "D"
+
+        return {
+            "bid_id": bid_id,
+            "score": total,
+            "grade": grade,
+            "breakdown": {
+                "competition":    comp_score,
+                "personal_track": agency_score,
+                "market_trend":   trend_score,
+                "amount_fit":     amount_score,
+            },
+            "recommendation": self._grade_message(grade, comp_score, agency_score),
+        }
+
+    def _competition_score(self, bid: "Bid") -> dict:
+        # 최근 해당 발주처 + 업종 낙찰 데이터로 경쟁강도 추정
+        cutoff = datetime.now() - timedelta(days=180)
+        rows = self.db.execute(text("""
+            SELECT COUNT(r.id) as comp_count
+            FROM bids b
+            JOIN bid_results r ON r.bid_id = b.id
+            WHERE b.agency_id = :aid AND b.industry_id = :iid
+              AND b.bid_open_date >= :cutoff AND b.status = 'closed'
+            GROUP BY b.id
+        """), {"aid": bid.agency_id, "iid": bid.industry_id, "cutoff": cutoff}).fetchall()
+
+        if not rows:
+            pts = 25.0
+            note = "경쟁 데이터 없음 (중간값 적용)"
+        else:
+            avg_comp = float(np.mean([r.comp_count for r in rows]))
+            # 경쟁자 수 적을수록 좋음: 5명 이하 = 40pt, 15명 이상 = 5pt
+            pts = max(5.0, 40.0 - (avg_comp - 1) * 2.5)
+            pts = min(40.0, pts)
+            note = f"최근 6개월 평균 경쟁사 {avg_comp:.1f}명"
+
+        return {"pts": round(pts, 1), "max": 40, "note": note}
+
+    def _agency_track_score(self, user_id: int, agency_id: int, agency) -> dict:
+        if not agency:
+            return {"pts": 0.0, "max": 30, "note": "발주처 정보 없음"}
+
+        agency_name = agency.name if hasattr(agency, "name") else ""
+        total = self.db.query(func.count(MyBidRecord.id)).filter(
+            MyBidRecord.user_id == user_id,
+            MyBidRecord.agency_name.ilike(f"%{agency_name[:10]}%"),
+        ).scalar() or 0
+
+        won = self.db.query(func.count(MyBidRecord.id)).filter(
+            MyBidRecord.user_id == user_id,
+            MyBidRecord.agency_name.ilike(f"%{agency_name[:10]}%"),
+            MyBidRecord.result == "won",
+        ).scalar() or 0
+
+        if total == 0:
+            pts, note = 15.0, "이 발주처 참여 이력 없음 (중간값)"
+        elif won == 0:
+            pts = max(5.0, 15.0 - total * 0.5)
+            note = f"참여 {total}건 / 낙찰 0건"
+        else:
+            win_rate = won / total
+            pts = 15.0 + win_rate * 15.0
+            note = f"참여 {total}건 / 낙찰 {won}건 ({win_rate:.0%})"
+
+        return {"pts": round(min(30.0, pts), 1), "max": 30, "note": note}
+
+    def _trend_score(self, bid: "Bid") -> dict:
+        cutoff = datetime.now() - timedelta(days=60)
+        prev   = datetime.now() - timedelta(days=120)
+        rows = self.db.execute(text("""
+            SELECT b.bid_open_date, r.bid_rate
+            FROM bids b
+            JOIN bid_results r ON r.bid_id = b.id AND r.is_winner = true
+            WHERE b.agency_id = :aid AND b.industry_id = :iid
+              AND b.bid_open_date >= :prev AND b.status = 'closed'
+        """), {"aid": bid.agency_id, "iid": bid.industry_id, "prev": prev}).fetchall()
+
+        if len(rows) < 4:
+            return {"pts": 8.0, "max": 15, "note": "추세 데이터 부족"}
+
+        recent = [float(r.bid_rate) for r in rows if r.bid_open_date >= cutoff]
+        older  = [float(r.bid_rate) for r in rows if r.bid_open_date < cutoff]
+
+        if not recent or not older:
+            return {"pts": 8.0, "max": 15, "note": "추세 계산 불가"}
+
+        diff = np.mean(recent) - np.mean(older)
+        # 낙찰률 상승은 예가 가까워짐 → 진입 기회
+        if diff > 0.002:
+            pts, note = 15.0, f"최근 낙찰률 상승 추세 (+{diff*100:.2f}%)"
+        elif diff < -0.002:
+            pts, note = 5.0,  f"최근 낙찰률 하락 추세 ({diff*100:.2f}%)"
+        else:
+            pts, note = 10.0, "낙찰률 안정적"
+
+        return {"pts": pts, "max": 15, "note": note}
+
+    def _amount_fit_score(self, user_id: int, base_amount: int) -> dict:
+        rows = self.db.query(MyBidRecord.base_amount).filter(
+            MyBidRecord.user_id == user_id,
+            MyBidRecord.base_amount.isnot(None),
+            MyBidRecord.base_amount > 0,
+        ).all()
+
+        if not rows:
+            return {"pts": 8.0, "max": 15, "note": "금액 이력 없음"}
+
+        amounts = [r.base_amount for r in rows]
+        p10, p90 = np.percentile(amounts, 10), np.percentile(amounts, 90)
+
+        if p10 <= base_amount <= p90:
+            pts, note = 15.0, f"자주 참여하는 금액 구간 ({base_amount/1e6:.0f}백만원)"
+        elif base_amount < p10:
+            ratio = base_amount / max(p10, 1)
+            pts = max(5.0, 15.0 * ratio)
+            note = f"평소보다 소액 ({base_amount/1e6:.0f}백만원)"
+        else:
+            ratio = p90 / max(base_amount, 1)
+            pts = max(5.0, 15.0 * ratio)
+            note = f"평소보다 고액 ({base_amount/1e6:.0f}백만원)"
+
+        return {"pts": round(pts, 1), "max": 15, "note": note}
+
+    def _grade_message(self, grade: str, comp: dict, track: dict) -> str:
+        if grade == "A":
+            return "낙찰 가능성이 높은 유망 공고입니다. 적극 참여를 추천합니다."
+        elif grade == "B":
+            return "참여 가능한 공고입니다. 요율 전략 수립 후 참여하세요."
+        elif grade == "C":
+            if comp["pts"] < 20:
+                return "경쟁이 치열한 공고입니다. 신중하게 참여 여부를 검토하세요."
+            return "발주처 이력이 부족합니다. 정보 수집 후 참여 여부를 결정하세요."
+        else:
+            return "불리한 조건의 공고입니다. 다른 공고를 우선 검토하세요."
+
+
+
+
+
+# ==================================================
+# G2B 개찰 결과 자동 연계 서비스
+# ==================================================
+
+class G2BSyncService:
+    """
+    G2B 개찰 결과를 투찰이력(my_bid_records)에 자동 반영.
+
+    개찰 완료된 공고의 낙찰자 정보를 기반으로:
+    - result: 'won' / 'lost' 자동 설정
+    - actual_winner_rate, winner_name, winner_biz_no, rate_diff 채우기
+
+    낙찰 판정 기준:
+      abs(submitted_rate - winner_bid_rate) < 0.0003 → won
+      그 외 → lost
+    """
+
+    def sync(self, db: Session) -> dict:
+        pending = (
+            db.query(MyBidRecord)
+            .filter(
+                MyBidRecord.result.is_(None),
+                MyBidRecord.bid_id.isnot(None),
+            )
+            .all()
+        )
+
+        won = lost = skipped = 0
+        for rec in pending:
+            bid = db.query(Bid).filter(Bid.id == rec.bid_id).first()
+            if not bid or bid.status != "closed":
+                skipped += 1
+                continue
+
+            winner_row = (
+                db.query(BidResult, Competitor)
+                .join(Competitor, Competitor.id == BidResult.competitor_id)
+                .filter(BidResult.bid_id == rec.bid_id, BidResult.is_winner == True)
+                .first()
+            )
+            if not winner_row:
+                skipped += 1
+                continue
+
+            winner_result, winner_comp = winner_row
+            winner_rate     = float(winner_result.bid_rate)
+            submitted_rate  = float(rec.submitted_rate)
+
+            rec.actual_winner_rate = winner_rate
+            rec.winner_name        = winner_comp.name
+            rec.winner_biz_no      = winner_comp.biz_reg_no
+            rec.rate_diff          = round(submitted_rate - winner_rate, 4)
+
+            if abs(submitted_rate - winner_rate) < 0.0003:
+                rec.result = "won"
+                won += 1
+            else:
+                rec.result = "lost"
+                lost += 1
+
+        try:
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            logger.error("G2B 연계 커밋 실패: %s", e)
+            return {"won": 0, "lost": 0, "skipped": skipped, "error": str(e)}
+
+        logger.info("G2B 자동 연계: won=%d, lost=%d, skipped=%d", won, lost, skipped)
+        return {"won": won, "lost": lost, "skipped": skipped}
+

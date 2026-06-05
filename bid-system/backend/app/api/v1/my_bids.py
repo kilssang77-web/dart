@@ -1,12 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+﻿from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
 
 from ...database import get_db
 from ...models import MyBidRecord, User
-from ...schemas import MyBidRecordCreate, MyBidRecordUpdate, MyBidRecordOut, MyBidAnalysisResponse
-from ...services import MyBidAnalysisService
+from ...schemas import MyBidRecordCreate, MyBidRecordUpdate, MyBidRecordOut, MyBidAnalysisResponse, DefeatAnalysisResponse
+from ...services import MyBidAnalysisService, DefeatAnalysisService
 from ...common.security import get_current_user
 
 router = APIRouter(prefix="/my-bids", tags=["투찰이력"])
@@ -34,6 +34,14 @@ def my_bid_analysis(
     user: User = Depends(get_current_user),
 ):
     return MyBidAnalysisService(db).analyze(user.id)
+
+
+@router.get("/defeat-analysis")
+def defeat_analysis(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return DefeatAnalysisService(db).analyze(user.id)
 
 
 @router.get("/stats")

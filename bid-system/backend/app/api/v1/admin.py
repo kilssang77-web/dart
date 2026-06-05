@@ -363,7 +363,7 @@ _FEATURE_STORE_CTE = """
                 ELSE 5
             END AS amount_bucket,
             wr.bid_rate  AS winner_rate,
-            cnt.comp_cnt AS competitor_count
+            COALESCE(NULLIF(b.participant_count, 0), cnt.comp_cnt) AS competitor_count
         FROM bids b
         LEFT JOIN LATERAL (
             SELECT bid_rate FROM bid_results
@@ -511,3 +511,53 @@ def collection_logs(
         .limit(200)
         .all()
     )
+
+
+class InpoCookieBody(BaseModel):
+    cookie: str
+
+
+@router.post("/inpo21c/update-cookie")
+def update_inpo21c_cookie(
+    body: InpoCookieBody,
+    _: User = Depends(require_role("admin")),
+):
+    """inpo21c 세션 쿠키 갱신 (환경변수 INPO21C_COOKIE 런타임 업데이트)."""
+    import os
+    from ...config import get_settings
+    os.environ["INPO21C_COOKIE"] = body.cookie
+    # 캐시 무효화
+    get_settings.cache_clear()
+    return {"message": "inpo21c 쿠키 업데이트 완료"}
+
+
+@router.post("/inpo21c/collect")
+def trigger_inpo21c_collect(
+    background_tasks: BackgroundTasks,
+    max_pages: int = 4,
+    _: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """inpo21c 전 참여자 데이터 즉시 수집 (백그라운드)."""
+    def _run():
+        from ...database import SessionLocal
+        from ...collector.inpo21c import collect_inpo21c
+        _db = SessionLocal()
+        try:
+            collect_inpo21c(_db, max_pages=max_pages)
+        finally:
+            _db.close()
+
+    background_tasks.add_task(_run)
+    return {"message": f"inpo21c 수집 시작됨 (최대 {max_pages}페이지)"}
+
+
+@router.post("/sync-my-bids")
+def sync_my_bids(
+    _: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """개찰 완료 공고와 투찰이력 즉시 연계."""
+    from ...services import G2BSyncService
+    result = G2BSyncService().sync(db)
+    return result

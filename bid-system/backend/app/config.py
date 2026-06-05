@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+﻿from pydantic_settings import BaseSettings
 from functools import lru_cache
 
 _DEV_SECRET = "changeme-super-secret-key-2024"
@@ -15,8 +15,9 @@ class Settings(BaseSettings):
     first_admin_password: str = "admin1234"
     seed_demo_data: bool = True
 
-    nara_api_key: str = ""
+    g2b_api_key: str = ""
     collect_enabled: bool = False
+    inpo21c_cookie: str = ""
 
     # CORS: "*" = 전체 허용 (개발), 프로덕션은 "https://app.example.com,https://admin.example.com"
     cors_origins: str = "*"
@@ -36,3 +37,4 @@ class Settings(BaseSettings):
 @lru_cache()
 def get_settings() -> Settings:
     return Settings()
+

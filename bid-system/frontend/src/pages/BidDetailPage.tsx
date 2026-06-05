@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Trophy, ExternalLink, Sparkles } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { bidsApi, statsApi } from '@/api'
-import type { BidDetail, BidResultItem, MetaData } from '@/types'
+import type { BidDetail, BidResultItem, MetaData, OpportunityScore } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -40,6 +40,13 @@ export default function BidDetailPage() {
     queryKey: ['agency-srate-mini', agencyId],
     queryFn: () => statsApi.srateDistribution({ agency_id: agencyId }),
     enabled: !!agencyId,
+    staleTime: 300_000,
+  })
+
+  const { data: oppScore } = useQuery<OpportunityScore>({
+    queryKey: ['opportunity-score', id],
+    queryFn: () => bidsApi.opportunityScore(Number(id)),
+    enabled: !!id && bid?.status === 'open',
     staleTime: 300_000,
   })
 
@@ -284,3 +291,5 @@ function InfoBox({ label, value, highlight }: { label: string; value: string; hi
     </div>
   )
 }
+
+

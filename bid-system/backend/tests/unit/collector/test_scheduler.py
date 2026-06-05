@@ -1,4 +1,4 @@
-"""scheduler.py 단위 테스트"""
+﻿"""scheduler.py ?⑥쐞 ?뚯뒪??""
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -39,13 +39,13 @@ def test_create_scheduler_job_args():
 
 
 def test_run_collection_job_all(monkeypatch):
-    """collect_type='all' → run_full_collection 호출"""
+    """collect_type='all' ??run_full_collection ?몄텧"""
     from app.collector import scheduler as sched_mod
 
     mock_db = MagicMock()
     mock_session_cls = MagicMock(return_value=mock_db)
     mock_run_full = MagicMock()
-    mock_settings = MagicMock(nara_api_key="test-key")
+    mock_settings = MagicMock(g2b_api_key="test-key")
     mock_client_cls = MagicMock()
 
     monkeypatch.setattr("app.database.SessionLocal", mock_session_cls)
@@ -62,13 +62,13 @@ def test_run_collection_job_all(monkeypatch):
 
 
 def test_run_collection_job_notices(monkeypatch):
-    """collect_type='notices' → collect_notices 3회 호출"""
+    """collect_type='notices' ??collect_notices 3???몄텧"""
     from app.collector import scheduler as sched_mod
 
     mock_db = MagicMock()
     mock_session_cls = MagicMock(return_value=mock_db)
     mock_collect_notices = MagicMock()
-    mock_settings = MagicMock(nara_api_key="test-key")
+    mock_settings = MagicMock(g2b_api_key="test-key")
     mock_client = MagicMock()
     mock_client_cls = MagicMock(return_value=mock_client)
 
@@ -92,13 +92,13 @@ def test_run_collection_job_notices(monkeypatch):
 
 
 def test_run_collection_job_results(monkeypatch):
-    """collect_type='results' → collect_results 1회 호출"""
+    """collect_type='results' ??collect_results 1???몄텧"""
     from app.collector import scheduler as sched_mod
 
     mock_db = MagicMock()
     mock_session_cls = MagicMock(return_value=mock_db)
     mock_collect_results = MagicMock()
-    mock_settings = MagicMock(nara_api_key="test-key")
+    mock_settings = MagicMock(g2b_api_key="test-key")
     mock_client = MagicMock()
     mock_client_cls = MagicMock(return_value=mock_client)
 
@@ -116,13 +116,13 @@ def test_run_collection_job_results(monkeypatch):
 
 
 def test_run_collection_job_unknown_type(caplog, monkeypatch):
-    """알 수 없는 collect_type → warning 로그 + 예외 없음"""
+    """?????녿뒗 collect_type ??warning 濡쒓렇 + ?덉쇅 ?놁쓬"""
     from app.collector import scheduler as sched_mod
     import logging
 
     mock_db = MagicMock()
     mock_session_cls = MagicMock(return_value=mock_db)
-    mock_settings = MagicMock(nara_api_key="test-key")
+    mock_settings = MagicMock(g2b_api_key="test-key")
     mock_client_cls = MagicMock()
 
     monkeypatch.setattr("app.database.SessionLocal", mock_session_cls)
@@ -134,17 +134,17 @@ def test_run_collection_job_unknown_type(caplog, monkeypatch):
     ):
         sched_mod.run_collection_job("invalid")
 
-    assert "알 수 없는 collect_type" in caplog.text
+    assert "?????녿뒗 collect_type" in caplog.text
     mock_db.close.assert_called_once()
 
 
 def test_run_collection_job_closes_db_on_exception(monkeypatch):
-    """수집 중 예외 발생해도 db.close() 호출 보장"""
+    """?섏쭛 以??덉쇅 諛쒖깮?대룄 db.close() ?몄텧 蹂댁옣"""
     from app.collector import scheduler as sched_mod
 
     mock_db = MagicMock()
     mock_session_cls = MagicMock(return_value=mock_db)
-    mock_settings = MagicMock(nara_api_key="test-key")
+    mock_settings = MagicMock(g2b_api_key="test-key")
     mock_client_cls = MagicMock()
 
     monkeypatch.setattr("app.database.SessionLocal", mock_session_cls)
@@ -154,7 +154,7 @@ def test_run_collection_job_closes_db_on_exception(monkeypatch):
         patch("app.collector.client.NarajangterClient", mock_client_cls),
         patch(
             "app.collector.service.run_full_collection",
-            side_effect=RuntimeError("DB 오류"),
+            side_effect=RuntimeError("DB ?ㅻ쪟"),
         ),
     ):
         sched_mod.run_collection_job("all")

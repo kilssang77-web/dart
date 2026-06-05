@@ -5,8 +5,8 @@ from datetime import date
 
 from ...database import get_db
 from ...models import User, Agency, Industry, Region
-from ...schemas import BidCreate, BidResultCreate, BookmarkResponse
-from ...services import BidService, BookmarkService, get_active_industry_ids
+from ...schemas import BidCreate, BidResultCreate, BookmarkResponse, OpportunityScoreResponse
+from ...services import BidService, BookmarkService, get_active_industry_ids, OpportunityScoreService
 from ...common.security import get_current_user
 
 router = APIRouter(prefix="/bids", tags=["입찰"])
@@ -111,3 +111,11 @@ def create_bid(
         raise HTTPException(status_code=403, detail="권한이 없습니다.")
     bid = svc.create_bid(db, body)
     return {"id": bid.id, "announcement_no": bid.announcement_no}
+
+@router.get("/{bid_id}/opportunity-score", response_model=OpportunityScoreResponse)
+def opportunity_score(
+    bid_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return OpportunityScoreService(db).score(bid_id, user.id)

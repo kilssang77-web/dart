@@ -1,4 +1,4 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, CheckCircle2, XCircle, Clock, Trash2, Edit2 } from 'lucide-react'
 import {
@@ -6,7 +6,7 @@ import {
   LineChart, Line
 } from 'recharts'
 import { myBidsApi } from '@/api'
-import type { MyBidRecord, MyBidAnalysis } from '@/types'
+import type { MyBidRecord, MyBidAnalysis, DefeatAnalysis } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -69,6 +69,12 @@ export default function MyBidsPage() {
     queryKey: ['my-bids-analysis'],
     queryFn: myBidsApi.analysis,
     enabled: activeTab === 'analysis',
+  })
+
+  const { data: defeat } = useQuery<DefeatAnalysis>({
+    queryKey: ['my-bids-defeat'],
+    queryFn: myBidsApi.defeatAnalysis,
+    enabled: activeTab === 'defeat',
   })
 
   const { data: records = [], isLoading } = useQuery<MyBidRecord[]>({
@@ -509,3 +515,5 @@ export default function MyBidsPage() {
     </div>
   )
 }
+
+

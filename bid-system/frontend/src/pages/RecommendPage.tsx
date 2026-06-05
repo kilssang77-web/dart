@@ -1,11 +1,11 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+﻿import { useState, useEffect, useMemo, useRef } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
   Sparkles, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp,
-  Clock, Search,
+  Clock, Search, BookmarkCheck,
 } from 'lucide-react'
-import { bidsApi, recommendApi, statsApi } from '@/api'
+import { bidsApi, recommendApi, statsApi, myBidsApi } from '@/api'
 import type { RecommendV2Result, BidDetail } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -77,6 +77,10 @@ export default function RecommendPage() {
   const [presets, setPresets] = useState<Preset[]>(loadPresets)
   const [presetName, setPresetName] = useState('')
   const [showPresetSave, setShowPresetSave] = useState(false)
+  const [savedBidId, setSavedBidId] = useState<number | null>(null)
+  const [saveRate, setSaveRate] = useState('')
+  const [saveBidDate, setSaveBidDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const qc = useQueryClient()
 
   // 기관명 자동완성
   const [agencySearch, setAgencySearch] = useState('')
@@ -173,6 +177,23 @@ export default function RecommendPage() {
       setPrefilled(true)
     }
   }, [prefillBid, meta, prefilled])
+
+  const saveMutation = useMutation({
+    mutationFn: (submittedRate: number) => myBidsApi.create({
+      title: prefillBid?.title ?? ('AI추천-' + agencySearch + '-' + form.base_amount),
+      agency_name: agencySearch || undefined,
+      bid_date: saveBidDate || undefined,
+      base_amount: Number(form.base_amount) || undefined,
+      submitted_rate: submittedRate,
+      recommendation_rate: result?.strategies.balanced.rate,
+      bid_id: bidIdParam ? Number(bidIdParam) : undefined,
+    }),
+    onSuccess: (data) => {
+      setSavedBidId(data.id)
+      qc.invalidateQueries({ queryKey: ['my-bids'] })
+      qc.invalidateQueries({ queryKey: ['my-bids-stats'] })
+    },
+  })
 
   const mutation = useMutation({
     mutationFn: () => recommendApi.recommendV2({
@@ -752,6 +773,66 @@ export default function RecommendPage() {
               </CardContent>
             </Card>
           )}
+
+          {/* ── 투찰 이력 기록 ── */}
+          <Card className={cn('border-2', savedBidId ? 'border-green-400 bg-green-50/30' : 'border-dashed border-muted-foreground/30')}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <BookmarkCheck className="h-4 w-4 text-primary" />
+                투찰 이력 기록
+                {savedBidId && <span className="text-xs font-normal text-green-600 ml-1">저장 완료 ✓</span>}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {savedBidId ? (
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-green-700">이력이 저장되었습니다. 결과 확인 후 투찰이력에서 낙찰 여부를 업데이트해 주세요.</p>
+                  <Button size="sm" variant="outline" onClick={() => navigate('/my-bids')}>투찰이력 보기 →</Button>
+                </div>
+              ) : (
+                <div className="flex items-end gap-3 flex-wrap">
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">AI 권장 투찰률</p>
+                    <p className="text-lg font-mono font-bold text-primary">{(result.strategies.balanced.rate * 100).toFixed(2)}%</p>
+                  </div>
+                  <div className="space-y-1 flex-1 min-w-[120px]">
+                    <label className="text-xs text-muted-foreground">실제 투찰률 (%)</label>
+                    <Input
+                      type="number"
+                      step="0.001"
+                      placeholder="예: 87.75"
+                      value={saveRate}
+                      onChange={(e) => setSaveRate(e.target.value)}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">입찰일</label>
+                    <Input
+                      type="date"
+                      value={saveBidDate}
+                      onChange={(e) => setSaveBidDate(e.target.value)}
+                      className="h-8 text-sm w-36"
+                    />
+                  </div>
+                  <Button
+                    size="sm"
+                    disabled={!saveRate || saveMutation.isPending}
+                    onClick={() => {
+                      const rate = parseFloat(saveRate)
+                      if (isNaN(rate) || rate <= 0) return
+                      saveMutation.mutate(rate / 100)
+                    }}
+                  >
+                    {saveMutation.isPending ? '저장 중...' : '이력 저장'}
+                  </Button>
+                  {saveMutation.isError && (
+                    <p className="text-xs text-destructive">저장 실패. 다시 시도하세요.</p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>

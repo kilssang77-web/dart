@@ -1,4 +1,4 @@
-"""APScheduler 설정 — 나라장터 수집 스케줄"""
+﻿"""APScheduler 기반 백그라운드 작업 스케줄러"""
 import logging
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 def run_collection_job(collect_type: str) -> None:
-    """DB 세션 생성 후 수집 서비스 호출.
+    """G2B 수집 작업 실행.
 
     collect_type: "all" | "notices" | "results"
     """
@@ -20,7 +20,7 @@ def run_collection_job(collect_type: str) -> None:
     settings = get_settings()
     db = SessionLocal()
     try:
-        client = NarajangterClient(api_key=settings.nara_api_key)
+        client = NarajangterClient(api_key=settings.g2b_api_key)
         if collect_type == "all":
             run_full_collection(db)
         elif collect_type == "notices":
@@ -36,8 +36,40 @@ def run_collection_job(collect_type: str) -> None:
         db.close()
 
 
+def run_results_and_sync() -> None:
+    """G2B 개찰 결과 수집 후 투찰이력 자동 연계 (18:00 KST)."""
+    run_collection_job("results")
+
+    from app.database import SessionLocal
+    from app.services import G2BSyncService
+
+    db = SessionLocal()
+    try:
+        result = G2BSyncService().sync(db)
+        logger.info("투찰이력 자동 연계: %s", result)
+    except Exception as exc:
+        logger.error("투찰이력 연계 실패: %s", exc)
+    finally:
+        db.close()
+
+
+def run_inpo21c_job() -> None:
+    """inpo21c 전 참여자 데이터 수집 (매주 월요일 02:00 KST)."""
+    from app.database import SessionLocal
+    from app.collector.inpo21c import collect_inpo21c
+
+    db = SessionLocal()
+    try:
+        result = collect_inpo21c(db, max_pages=10)
+        logger.info("inpo21c 수집 완료: %s", result)
+    except Exception as exc:
+        logger.error("inpo21c 수집 실패: %s", exc)
+    finally:
+        db.close()
+
+
 def create_scheduler() -> BackgroundScheduler:
-    """BackgroundScheduler 생성 — 매일 06:00 KST 공고 수집, 18:00 KST 낙찰결과 수집"""
+    """BackgroundScheduler 생성 및 작업 등록."""
     scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 
     scheduler.add_job(
@@ -49,11 +81,17 @@ def create_scheduler() -> BackgroundScheduler:
         replace_existing=True,
     )
     scheduler.add_job(
-        run_collection_job,
+        run_results_and_sync,
         trigger=CronTrigger(hour=18, minute=0, timezone="Asia/Seoul"),
-        args=["results"],
-        id="collect_results_daily",
-        name="낙찰결과 수집 (매일 18:00 KST)",
+        id="collect_results_and_sync_daily",
+        name="개찰결과 수집 + 투찰이력 연계 (매일 18:00 KST)",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_inpo21c_job,
+        trigger=CronTrigger(day_of_week="mon", hour=2, minute=0, timezone="Asia/Seoul"),
+        id="collect_inpo21c_weekly",
+        name="inpo21c 전참여자 수집 (매주 월 02:00 KST)",
         replace_existing=True,
     )
 

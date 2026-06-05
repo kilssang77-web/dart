@@ -41,6 +41,8 @@ export const bidsApi = {
     api.post(`/bids/${id}/bookmark`).then((r) => r.data),
   removeBookmark: (id: number) =>
     api.delete(`/bids/${id}/bookmark`).then((r) => r.data),
+  opportunityScore: (id: number): Promise<import('../types').OpportunityScore> =>
+    api.get(`/bids/${id}/opportunity-score`).then((r) => r.data),
 }
 
 // -- 추천 --------------------------------------------------
@@ -158,6 +160,8 @@ export const myBidsApi = {
   update: (id: number, body: { result?: string; actual_winner_rate?: number; note?: string; submitted_rate?: number }) =>
     api.put(`/my-bids/${id}`, body).then((r) => r.data),
   remove: (id: number) => api.delete(`/my-bids/${id}`).then((r) => r.data),
+  defeatAnalysis: (): Promise<import('../types').DefeatAnalysis> =>
+    api.get('/my-bids/defeat-analysis').then((r) => r.data),
 }
 
 // -- 발주기관 --------------------------------------------------
@@ -168,3 +172,6 @@ export const agenciesApi = {
   analysis: (id: number) =>
     api.get(`/agencies/${id}/analysis`).then((r) => r.data),
 }
+
+
+

@@ -154,7 +154,7 @@ class StepExecutor:
 
     @staticmethod
     def _read_json(p: Path) -> dict:
-        return json.loads(p.read_text(encoding="utf-8"))
+        return json.loads(p.read_text(encoding="utf-8-sig"))
 
     @staticmethod
     def _write_json(p: Path, data: dict):

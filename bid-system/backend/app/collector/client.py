@@ -48,11 +48,11 @@ class NarajangterClient:
 
     def __init__(self, api_key: str | None = None) -> None:
         settings = get_settings()
-        resolved_key = api_key or settings.nara_api_key
+        resolved_key = api_key or settings.g2b_api_key
         if not resolved_key:
             raise ValueError(
-                "NARA_API_KEY가 설정되지 않았습니다. "
-                ".env 파일에 NARA_API_KEY=<공공데이터포털 인증키>를 추가하세요."
+                "G2B_API_KEY가 설정되지 않았습니다. "
+                ".env 파일에 G2B_API_KEY=<공공데이터포털 인증키>를 추가하세요."
             )
         self._api_key = resolved_key
         self._timeout = _TIMEOUT

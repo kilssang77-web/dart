@@ -1,4 +1,4 @@
-"""공고·낙찰결과 수집 서비스 — DB upsert 및 CollectionLog 기록"""
+﻿"""怨듦퀬쨌?숈같寃곌낵 ?섏쭛 ?쒕퉬????DB upsert 諛?CollectionLog 湲곕줉"""
 from __future__ import annotations
 
 import time
@@ -17,12 +17,12 @@ CollectType = Literal["notice_cnstwk", "notice_servc", "notice_thng"]
 
 
 # ------------------------------------------------------------------ #
-# 내부 upsert 헬퍼                                                     #
+# ?대? upsert ?ы띁                                                     #
 # ------------------------------------------------------------------ #
 
 
 def _upsert_agency(db: Session, name: str) -> Agency:
-    """발주처 upsert — name 기준. 신규 발주처면 flush."""
+    """諛쒖＜泥?upsert ??name 湲곗?. ?좉퇋 諛쒖＜泥섎㈃ flush."""
     agency = db.query(Agency).filter(Agency.name == name).first()
     if not agency:
         agency = Agency(name=name)
@@ -32,7 +32,7 @@ def _upsert_agency(db: Session, name: str) -> Agency:
 
 
 def _upsert_bid(db: Session, notice: BidNotice, agency_id: int) -> tuple[Bid, bool]:
-    """공고 upsert — announcement_no 기준. 두 번째 반환값 True = 신규."""
+    """怨듦퀬 upsert ??announcement_no 湲곗?. ??踰덉㎏ 諛섑솚媛?True = ?좉퇋."""
     bid = db.query(Bid).filter(Bid.announcement_no == notice.announcement_no).first()
     if bid:
         bid.title = notice.title
@@ -56,7 +56,7 @@ def _upsert_bid(db: Session, notice: BidNotice, agency_id: int) -> tuple[Bid, bo
 
 
 def _upsert_competitor(db: Session, name: str, biz_reg_no: str | None) -> Competitor:
-    """경쟁사 upsert — biz_reg_no 우선, 없으면 name 기준."""
+    """寃쎌웳??upsert ??biz_reg_no ?곗꽑, ?놁쑝硫?name 湲곗?."""
     if biz_reg_no:
         competitor = db.query(Competitor).filter(Competitor.biz_reg_no == biz_reg_no).first()
     else:
@@ -74,7 +74,7 @@ def _upsert_bid_result(
     competitor_id: int,
     data: BidResultData,
 ) -> bool:
-    """낙찰결과 upsert — (bid_id, competitor_id) 기준. True = 신규."""
+    """?숈같寃곌낵 upsert ??(bid_id, competitor_id) 湲곗?. True = ?좉퇋."""
     result = (
         db.query(BidResult)
         .filter(BidResult.bid_id == bid_id, BidResult.competitor_id == competitor_id)
@@ -100,7 +100,7 @@ def _upsert_bid_result(
 
 
 # ------------------------------------------------------------------ #
-# 날짜 파싱 헬퍼                                                       #
+# ?좎쭨 ?뚯떛 ?ы띁                                                       #
 # ------------------------------------------------------------------ #
 
 
@@ -127,14 +127,14 @@ def _parse_datetime(s: str | None) -> datetime | None:
 
 
 def _date_range(days_back: int) -> tuple[str, str]:
-    """YYYYMMDDHHMM 형식의 시작·끝 날짜 문자열 반환"""
+    """YYYYMMDDHHMM ?뺤떇???쒖옉쨌???좎쭨 臾몄옄??諛섑솚"""
     end = datetime.now()
     start = end - timedelta(days=days_back)
     return start.strftime("%Y%m%d0000"), end.strftime("%Y%m%d2359")
 
 
 # ------------------------------------------------------------------ #
-# CollectionLog 기록                                                   #
+# CollectionLog 湲곕줉                                                   #
 # ------------------------------------------------------------------ #
 
 
@@ -160,7 +160,7 @@ def _record_log(
 
 
 # ------------------------------------------------------------------ #
-# 공개 서비스 함수                                                     #
+# 怨듦컻 ?쒕퉬???⑥닔                                                     #
 # ------------------------------------------------------------------ #
 
 
@@ -170,7 +170,7 @@ def collect_notices(
     collect_type: CollectType,
     days_back: int = 7,
 ) -> CollectionLog:
-    """공사/용역/물품 공고 수집 → bids + agencies upsert + CollectionLog 기록"""
+    """怨듭궗/?⑹뿭/臾쇳뭹 怨듦퀬 ?섏쭛 ??bids + agencies upsert + CollectionLog 湲곕줉"""
     paginate_fn = {
         "notice_cnstwk": client.paginate_construction_bids,
         "notice_servc": client.paginate_service_bids,
@@ -194,10 +194,10 @@ def collect_notices(
                     db.rollback()
                     fail += 1
                     errors.append(str(exc)[:200])
-                    logger.warning("공고 저장 실패 {}: {}", notice.announcement_no, exc)
+                    logger.warning("怨듦퀬 ????ㅽ뙣 {}: {}", notice.announcement_no, exc)
     except Exception as exc:
-        errors.append(f"페이지네이션 오류: {str(exc)[:200]}")
-        logger.error("공고 수집 중단: {}", exc)
+        errors.append(f"?섏씠吏?ㅼ씠???ㅻ쪟: {str(exc)[:200]}")
+        logger.error("怨듦퀬 ?섏쭛 以묐떒: {}", exc)
 
     return _record_log(
         db,
@@ -214,7 +214,7 @@ def collect_results(
     client: NarajangterClient,
     days_back: int = 30,
 ) -> CollectionLog:
-    """낙찰결과 수집 → bid_results + competitors upsert + CollectionLog 기록"""
+    """?숈같寃곌낵 ?섏쭛 ??bid_results + competitors upsert + CollectionLog 湲곕줉"""
     bgn_dt, end_dt = _date_range(days_back)
     success = fail = 0
     errors: list[str] = []
@@ -230,7 +230,7 @@ def collect_results(
                         .first()
                     )
                     if not bid:
-                        logger.debug("공고 없음, 건너뜀: {}", result_data.announcement_no)
+                        logger.debug("怨듦퀬 ?놁쓬, 嫄대꼫?: {}", result_data.announcement_no)
                         continue
                     competitor = _upsert_competitor(
                         db, result_data.competitor_name, result_data.biz_reg_no
@@ -243,11 +243,11 @@ def collect_results(
                     fail += 1
                     errors.append(str(exc)[:200])
                     logger.warning(
-                        "낙찰결과 저장 실패 {}: {}", result_data.announcement_no, exc
+                        "?숈같寃곌낵 ????ㅽ뙣 {}: {}", result_data.announcement_no, exc
                     )
     except Exception as exc:
-        errors.append(f"페이지네이션 오류: {str(exc)[:200]}")
-        logger.error("낙찰결과 수집 중단: {}", exc)
+        errors.append(f"?섏씠吏?ㅼ씠???ㅻ쪟: {str(exc)[:200]}")
+        logger.error("?숈같寃곌낵 ?섏쭛 以묐떒: {}", exc)
 
     return _record_log(
         db,
@@ -260,24 +260,24 @@ def collect_results(
 
 
 def run_full_collection(db: Session) -> list[CollectionLog]:
-    """전체 수집 진입점 — notices(3종) → results 순서로 실행"""
+    """?꾩껜 ?섏쭛 吏꾩엯????notices(3醫? ??results ?쒖꽌濡??ㅽ뻾"""
     from app.config import get_settings
 
     settings = get_settings()
-    client = NarajangterClient(api_key=settings.nara_api_key)
+    client = NarajangterClient(api_key=settings.g2b_api_key)
 
     logs: list[CollectionLog] = []
     for ctype in ("notice_cnstwk", "notice_servc", "notice_thng"):
         log = collect_notices(db, client, ctype)
         logs.append(log)
         logger.info(
-            "수집 완료 [{}]: 성공={}, 실패={}", ctype, log.success_count, log.fail_count
+            "?섏쭛 ?꾨즺 [{}]: ?깃났={}, ?ㅽ뙣={}", ctype, log.success_count, log.fail_count
         )
 
     log = collect_results(db, client)
     logs.append(log)
     logger.info(
-        "낙찰결과 수집 완료: 성공={}, 실패={}", log.success_count, log.fail_count
+        "?숈같寃곌낵 ?섏쭛 ?꾨즺: ?깃났={}, ?ㅽ뙣={}", log.success_count, log.fail_count
     )
 
     return logs
