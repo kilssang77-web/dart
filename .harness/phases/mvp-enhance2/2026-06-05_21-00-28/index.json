@@ -1,0 +1,59 @@
+{
+  "task": "mvp-enhance2",
+  "runId": "2026-06-05_21-00-28",
+  "branch": "feat/mvp-enhance2-2026-06-05_21-00-28",
+  "stage": "mvp",
+  "author": "kil0410@a2m.co.kr",
+  "description": "낙찰률 극대화 9개 기능 — A값 계산·사정율 트렌드·프리즘2.0·경쟁사 모니터링·공고추천·역산분석·예가ML·공동도급매칭·전략레포트",
+  "steps": [
+    {
+      "id": 1,
+      "title": "A값 자동 계산 + 낙찰하한가 산출",
+      "file": "step1.md",
+      "status": "pending"
+    },
+    {
+      "id": 2,
+      "title": "사정율 트렌드 알림 (발주처×공종 최근 3개월)",
+      "file": "step2.md",
+      "status": "pending"
+    },
+    {
+      "id": 3,
+      "title": "프리즘 2.0 대응 — 구간별 낙찰확률 히트맵 10개 추천",
+      "file": "step3.md",
+      "status": "pending"
+    },
+    {
+      "id": 4,
+      "title": "경쟁사 최근 투찰 구간 실시간 모니터링",
+      "file": "step4.md",
+      "status": "pending"
+    },
+    {
+      "id": 5,
+      "title": "공고 자동 추천 TOP 5 + 점수 카드 (Dashboard)",
+      "file": "step5.md",
+      "status": "pending"
+    },
+    {
+      "id": 6,
+      "title": "낙찰 후 역산 분석 — rate_diff 분포·패턴 분석 페이지",
+      "file": "step6.md",
+      "status": "pending"
+    },
+    {
+      "id": 7,
+      "title": "예가 번호 패턴 ML — 발주처 특화 빈도 분석",
+      "file": "step7.md",
+      "status": "pending"
+    },
+    {
+      "id": 8,
+      "title": "공동도급 적격심사 AI 매칭 + 입찰 전략 레포트 PDF",
+      "file": "step8.md",
+      "status": "pending"
+    }
+  ],
+  "created_at": "2026-06-05T21:00:28+09:00"
+}
