@@ -5,8 +5,8 @@ from datetime import date
 
 from ...database import get_db
 from ...models import User, Agency, Industry, Region, Bid
-from ...schemas import BidCreate, BidResultCreate, BookmarkResponse, OpportunityScoreResponse, BidRecommendItem, JointPartnersResponse, FinalRecommendResponse
-from ...services import BidService, BookmarkService, get_active_industry_ids, OpportunityScoreService, JointQualService, FinalRecommendService
+from ...schemas import BidCreate, BidResultCreate, BookmarkResponse, OpportunityScoreResponse, BidRecommendItem, JointPartnersResponse, JointSimRequest, JointSimResponse, FinalRecommendResponse
+from ...services import BidService, BookmarkService, get_active_industry_ids, OpportunityScoreService, JointQualService, JointSimulateService, FinalRecommendService
 from ...common.security import get_current_user
 
 router = APIRouter(prefix="/bids", tags=["입찰"])
@@ -166,6 +166,20 @@ def joint_partners(
     _: User = Depends(get_current_user),
 ):
     return JointQualService(db).find_matching_partners(bid_id, user_track, participation_rate)
+
+
+@router.post("/{bid_id}/joint-simulate", response_model=JointSimResponse)
+def joint_simulate(
+    bid_id: int,
+    body: JointSimRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """파트너 구성·지분율 조합으로 적격심사 통과 여부 및 최저 투찰금액 산출."""
+    return JointSimulateService(db).simulate(
+        bid_id,
+        [p.model_dump() for p in body.partners],
+    )
 
 
 @router.get("/{bid_id}/final-recommend", response_model=FinalRecommendResponse)

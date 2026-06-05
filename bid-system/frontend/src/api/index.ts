@@ -1,5 +1,5 @@
 ﻿import { api } from './client'
-import type { MetaData, RecommendResult, Competitor, WatchKeyword, SystemStatus, AdminUser, RegionStat, IndustryStat, ClusterResult, ModelInfo, IndustryFilterItem, MyBidAnalysis, OverviewStatsWithChange, CollectionLogOut, BidRangeResponse, SrateTrendResponse, TopSrateTrend, PrismResponse, CompetitorZoneResponse, BidRecommendItem, JointPartnersResponse, CollectorStatus, BidSearchItem, FinalRecommendResult } from '../types'
+import type { MetaData, RecommendResult, Competitor, WatchKeyword, SystemStatus, AdminUser, RegionStat, IndustryStat, ClusterResult, ModelInfo, IndustryFilterItem, MyBidAnalysis, OverviewStatsWithChange, CollectionLogOut, BidRangeResponse, SrateTrendResponse, TopSrateTrend, PrismResponse, CompetitorZoneResponse, BidRecommendItem, JointPartnersResponse, JointSimRequest, JointSimResponse, CollectorStatus, BidSearchItem, FinalRecommendResult } from '../types'
 
 type KeywordUpdateBody = Partial<Pick<WatchKeyword, 'keyword' | 'kw_type' | 'is_active' | 'note'>>
 
@@ -51,6 +51,8 @@ export const bidsApi = {
     api.get('/bids/search', { params: { announcement_no: announcementNo, limit } }).then((r) => r.data),
   finalRecommend: (bidId: number): Promise<FinalRecommendResult> =>
     api.get(`/bids/${bidId}/final-recommend`).then((r) => r.data),
+  jointSimulate: (bidId: number, body: JointSimRequest): Promise<JointSimResponse> =>
+    api.post(`/bids/${bidId}/joint-simulate`, body).then((r) => r.data),
 }
 
 // -- 추천 --------------------------------------------------

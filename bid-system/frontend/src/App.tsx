@@ -15,6 +15,7 @@ import AgenciesPage from '@/pages/AgenciesPage'
 import MyBidsPage from '@/pages/MyBidsPage'
 import QualificationPage from '@/pages/QualificationPage'
 import JointBidPage from '@/pages/JointBidPage'
+import JointSimPage from '@/pages/JointSimPage'
 import YegaPage from '@/pages/YegaPage'
 import TenderRecommendPage from '@/pages/TenderRecommendPage'
 
@@ -41,6 +42,7 @@ export default function App() {
           <Route path="bids"                       element={<BidsPage />} />
           <Route path="bids/:id"                 element={<BidDetailPage />} />
           <Route path="bids/:id/final-recommend" element={<TenderRecommendPage />} />
+          <Route path="bids/:id/joint-sim"      element={<JointSimPage />} />
           <Route path="recommend"   element={<RecommendPage />} />
           <Route path="competitors" element={<CompetitorPage />} />
           <Route path="statistics"  element={<StatisticsPage />} />

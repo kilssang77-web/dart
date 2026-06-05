@@ -1,57 +1,57 @@
-{
+﻿{
   "task": "win-rate-boost",
   "run_id": "2026-06-06_01-17-32",
   "stage": "mvp",
   "branch": "feat/win-rate-boost-2026-06-06_01-17-32",
   "created_at": "2026-06-06T01:17:32+09:00",
   "author": "kil0410@a2m.co.kr",
-  "description": "낙찰률 극대화 — 수집기·투찰이력·최종추천가·발주처심층분석·자사승률진단·경쟁사예측·공동도급시뮬레이터",
+  "description": "?숈같瑜?洹밸??????섏쭛湲걔룻닾李곗씠?Β룹턀醫낆텛泥쒓?쨌諛쒖＜泥섏떖痢듬텇?씲룹옄?ъ듅瑜좎쭊?㉱룰꼍?곸궗?덉륫쨌怨듬룞?꾧툒?쒕??덉씠??,
   "steps": [
     {
       "step": 1,
-      "name": "수집기 현황 개선 + 투찰이력 빠른입력 폼",
+      "name": "?섏쭛湲??꾪솴 媛쒖꽑 + ?ъ같?대젰 鍮좊Ⅸ?낅젰 ??,
       "status": "completed",
-      "summary": "GET /admin/collector-status(today_notices/today_results/last_run_at/next_run_at), GET /bids/search(공고번호 자동완성), MyBidRecordCreate에 announcement_no·actual_winner_rate·result 추가 및 rate_diff 자동계산, AdminPage 수집기 카드 4필드 표시, MyBidsPage 공고번호 자동완성+결과·낙찰자사정율·rate_diff 실시간표시 모달 구현",
+      "summary": "GET /admin/collector-status(today_notices/today_results/last_run_at/next_run_at), GET /bids/search(怨듦퀬踰덊샇 ?먮룞?꾩꽦), MyBidRecordCreate??announcement_no쨌actual_winner_rate쨌result 異붽? 諛?rate_diff ?먮룞怨꾩궛, AdminPage ?섏쭛湲?移대뱶 4?꾨뱶 ?쒖떆, MyBidsPage 怨듦퀬踰덊샇 ?먮룞?꾩꽦+寃곌낵쨌?숈같?먯궗?뺤쑉쨌rate_diff ?ㅼ떆媛꾪몴??紐⑤떖 援ы쁽",
       "started_at": "2026-06-06T01:22:30+0900",
       "completed_at": "2026-06-06T01:30:25+0900"
     },
     {
       "step": 2,
-      "name": "공고별 최종 추천 투찰가 종합 화면",
+      "name": "怨듦퀬蹂?理쒖쥌 異붿쿇 ?ъ같媛 醫낇빀 ?붾㈃",
       "status": "completed",
-      "summary": "GET /bids/{bid_id}/final-recommend(FinalRecommendService: 사정율통계+프리즘+예가+트렌드+개인화 합산), FinalRecommendResponse 스키마 추가, TenderRecommendPage(4전략 비교표·근거패널·신뢰도배지·하한경고), BidDetailPage '투찰가 분석' 버튼, App.tsx 라우트 추가",
+      "summary": "GET /bids/{bid_id}/final-recommend(FinalRecommendService: ?ъ젙?⑦넻怨??꾨━利??덇?+?몃젋??媛쒖씤???⑹궛), FinalRecommendResponse ?ㅽ궎留?異붽?, TenderRecommendPage(4?꾨왂 鍮꾧탳?쑣룰렐嫄고뙣?먃룹떊猶곕룄諛곗?쨌?섑븳寃쎄퀬), BidDetailPage '?ъ같媛 遺꾩꽍' 踰꾪듉, App.tsx ?쇱슦??異붽?",
       "started_at": "2026-06-06T01:30:26+0900",
       "completed_at": "2026-06-06T01:43:10+0900"
     },
     {
       "step": 3,
-      "name": "발주처 심층분석 (사정율 히스토그램 + 개찰 타임라인)",
+      "name": "諛쒖＜泥??ъ링遺꾩꽍 (?ъ젙???덉뒪?좉렇??+ 媛쒖같 ??꾨씪??",
       "status": "completed",
-      "summary": "GET /agencies/{id}/srate-histogram(0.005빈·평균/중앙/하한 기준선·P10~P90·6/12/24개월 토글), GET /agencies/{id}/recent-results(개찰일순 낙찰사정율+경쟁사수), AgencyDetailPage 탭 구조(개요/공고목록/심층분석) 추가, 히스토그램+개찰타임라인(추세선)+백분위수 요약 카드 구현, 단위 테스트 10건 추가",
+      "summary": "GET /agencies/{id}/srate-histogram(0.005鍮댟룻룊洹?以묒븰/?섑븳 湲곗??졖텾10~P90쨌6/12/24媛쒖썡 ?좉?), GET /agencies/{id}/recent-results(媛쒖같?쇱닚 ?숈같?ъ젙??寃쎌웳?ъ닔), AgencyDetailPage ??援ъ“(媛쒖슂/怨듦퀬紐⑸줉/?ъ링遺꾩꽍) 異붽?, ?덉뒪?좉렇??媛쒖같??꾨씪??異붿꽭??+諛깅텇?꾩닔 ?붿빟 移대뱶 援ы쁽, ?⑥쐞 ?뚯뒪??10嫄?異붽?",
       "started_at": "2026-06-06T01:43:11+0900",
       "completed_at": "2026-06-06T01:55:18+0900"
     },
     {
       "step": 4,
-      "name": "자사 승률 패턴 진단",
+      "name": "?먯궗 ?밸쪧 ?⑦꽩 吏꾨떒",
       "status": "completed",
-      "summary": "GET /my-bids/win-pattern(WinPatternService: 편향진단·발주처별·연도별·패배원인분류), WinPatternResponse 스키마 추가, MyBidsPage '성과 분석' 탭(편향진단카드·패배원인도넛차트·발주처별승률테이블·연도별추이LineChart), 단위 테스트 13건 추가",
+      "summary": "GET /my-bids/win-pattern(WinPatternService: ?명뼢吏꾨떒쨌諛쒖＜泥섎퀎쨌?곕룄蹂꽷룻뙣諛곗썝?몃텇瑜?, WinPatternResponse ?ㅽ궎留?異붽?, MyBidsPage '?깃낵 遺꾩꽍' ???명뼢吏꾨떒移대뱶쨌?⑤같?먯씤?꾨꽋李⑦듃쨌諛쒖＜泥섎퀎?밸쪧?뚯씠釉붋룹뿰?꾨퀎異붿씠LineChart), ?⑥쐞 ?뚯뒪??13嫄?異붽?",
       "started_at": "2026-06-06T01:55:19+0900",
       "completed_at": "2026-06-06T02:09:59+0900"
     },
     {
       "step": 5,
-      "name": "경쟁사 행동 예측 ML",
+      "name": "寃쎌웳???됰룞 ?덉륫 ML",
       "status": "completed",
-      "summary": "ml/competitor_predict.py(predict_participation agency/industry 3단계 fallback 참여율, predict_bid_zone base_ratio 0.005버킷 히스토그램), CompetitorPredictService, GET /competitors/{id}/predict?bid_id={bid_id}, CompetitorPage 예측탭(참여확률+투찰구간BarChart+피크구간 회피뱃지)+공고선택 드롭다운+이 공고 경쟁사 분석 Dialog(상위5개 일괄예측), 단위 테스트 16건 추가",
+      "summary": "ml/competitor_predict.py(predict_participation agency/industry 3?④퀎 fallback 李몄뿬?? predict_bid_zone base_ratio 0.005踰꾪궥 ?덉뒪?좉렇??, CompetitorPredictService, GET /competitors/{id}/predict?bid_id={bid_id}, CompetitorPage ?덉륫??李몄뿬?뺣쪧+?ъ같援ш컙BarChart+?쇳겕援ш컙 ?뚰뵾諭껋?)+怨듦퀬?좏깮 ?쒕∼?ㅼ슫+??怨듦퀬 寃쎌웳??遺꾩꽍 Dialog(?곸쐞5媛??쇨큵?덉륫), ?⑥쐞 ?뚯뒪??16嫄?異붽?",
       "started_at": "2026-06-06T02:10:00+0900",
       "completed_at": "2026-06-06T02:23:30+0900"
     },
     {
       "step": 6,
-      "name": "공동도급 적격심사 시뮬레이터 고도화",
-      "status": "pending",
-      "summary": ""
+      "name": "怨듬룞?꾧툒 ?곴꺽?ъ궗 ?쒕??덉씠??怨좊룄??,
+      "status": "completed",
+      "summary": "JointSimulateService(기초금액 구간별 threshold 12~18점·귀사/경쟁사 perf_score 계산·합산 통과 판정), JointSim 스키마 5종 추가, POST /bids/{bid_id}/joint-simulate, JointSimPage(/bids/:bidId/joint-sim: 파트너 구성패널+지분율슬라이더+경쟁사검색Dialog+실시간 결과패널), BidDetailPage 공동도급 시뮬레이터 버튼, 단위 테스트 9건 추가"
     }
   ]
 }

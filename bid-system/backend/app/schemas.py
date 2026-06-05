@@ -811,6 +811,42 @@ class JointPartnersResponse(BaseModel):
     threshold_note: str
 
 
+# ── 공동도급 적격심사 시뮬레이터 스키마 ──────────────────────────
+
+class JointSimPartner(BaseModel):
+    competitor_id:      Optional[int]   = None  # 경쟁사 ID (DB 조회)
+    user_track:         Optional[float] = None  # 귀사 실적금액(원)
+    participation_rate: float                   # 지분율 (0.0~1.0)
+
+
+class JointSimRequest(BaseModel):
+    partners: List[JointSimPartner]
+
+
+class JointSimPartnerResult(BaseModel):
+    name:               str
+    participation_rate: float
+    track_amount:       int
+    qual_score:         float
+    passes:             bool
+
+
+class JointSimJointResult(BaseModel):
+    passes:           bool
+    total_qual_score: float
+    threshold:        float
+    min_bid_amount:   int
+    min_bid_rate:     float
+    margin:           int
+
+
+class JointSimResponse(BaseModel):
+    bid_id:              int
+    bid_amount_required: int
+    partners:            List[JointSimPartnerResult]
+    joint_result:        JointSimJointResult
+
+
 # ── ⑨ 최종 투찰 추천 종합 스키마 ───────────────────────────
 
 class FinalRecommendStrategy(BaseModel):

@@ -760,6 +760,42 @@ export interface JointPartnersResponse {
   threshold_note: string
 }
 
+// ── 공동도급 적격심사 시뮬레이터 ─────────────────────────────────
+
+export interface JointSimPartner {
+  competitor_id?:     number
+  user_track?:        number
+  participation_rate: number
+}
+
+export interface JointSimRequest {
+  partners: JointSimPartner[]
+}
+
+export interface JointSimPartnerResult {
+  name:               string
+  participation_rate: number
+  track_amount:       number
+  qual_score:         number
+  passes:             boolean
+}
+
+export interface JointSimJointResult {
+  passes:           boolean
+  total_qual_score: number
+  threshold:        number
+  min_bid_amount:   number
+  min_bid_rate:     number
+  margin:           number
+}
+
+export interface JointSimResponse {
+  bid_id:              number
+  bid_amount_required: number
+  partners:            JointSimPartnerResult[]
+  joint_result:        JointSimJointResult
+}
+
 // ── 최종 투찰 추천 종합 ───────────────────────────────────────
 
 export interface FinalRecommendStrategy {

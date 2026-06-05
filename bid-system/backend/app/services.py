@@ -2886,6 +2886,117 @@ class JointQualService:
 
 
 # ==================================================
+# 공동도급 적격심사 시뮬레이터
+# ==================================================
+
+class JointSimulateService:
+    """공동도급 파트너 구성 + 지분율 조합으로 심사통과 여부 및 최저 투찰가 계산."""
+
+    # 기초금액 구간별 적격심사 기준점수 (간소화 모델)
+    _THRESHOLD_TABLE = [
+        (300_000_000,    12.0),   # 3억 미만
+        (3_000_000_000,  14.0),   # 30억 미만
+        (10_000_000_000, 16.0),   # 100억 미만
+        (float("inf"),   18.0),   # 100억 이상
+    ]
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def simulate(self, bid_id: int, partners: list) -> dict:
+        from fastapi import HTTPException
+
+        bid = self.db.query(Bid).filter(Bid.id == bid_id).first()
+        if not bid:
+            raise HTTPException(status_code=404, detail="공고를 찾을 수 없습니다")
+
+        base_amount  = int(bid.base_amount or 0)
+        min_bid_rate = float(bid.min_bid_rate or 0.87745)
+
+        # 기초금액에 맞는 기준점수 결정
+        threshold = 18.0
+        for limit, t in self._THRESHOLD_TABLE:
+            if base_amount < limit:
+                threshold = t
+                break
+
+        cutoff_year = (datetime.now() - timedelta(days=730)).year
+
+        partner_results = []
+        for p in partners:
+            competitor_id      = p.get("competitor_id")
+            user_track         = p.get("user_track")
+            participation_rate = float(p.get("participation_rate", 0.0))
+
+            if competitor_id:
+                # 경쟁사 DB 조회
+                stats_row = (
+                    self.db.query(
+                        func.sum(CompetitorStat.total_bid_count).label("total_bids"),
+                        func.sum(CompetitorStat.win_count).label("win_count"),
+                        func.avg(CompetitorStat.avg_bid_rate).label("avg_rate"),
+                    )
+                    .filter(
+                        CompetitorStat.competitor_id == competitor_id,
+                        CompetitorStat.period_year >= cutoff_year,
+                    )
+                    .first()
+                )
+                competitor = self.db.query(Competitor).filter(Competitor.id == competitor_id).first()
+                name       = competitor.name if competitor else f"업체 #{competitor_id}"
+
+                total_bids = int(stats_row.total_bids or 0) if stats_row else 0
+                win_count  = int(stats_row.win_count  or 0) if stats_row else 0
+                avg_rate   = float(stats_row.avg_rate or 0.87) if stats_row else 0.87
+
+                # 낙찰 이력으로 시공실적 추정
+                track_amount = int(base_amount * avg_rate * win_count)
+
+                if win_count >= 1 and total_bids >= 3:
+                    win_rate   = win_count / total_bids
+                    perf_score = 8.0 + min(win_rate / 0.3, 1.0) * 6.0 + min(total_bids / 30, 1.0) * 6.0
+                else:
+                    perf_score = 4.0
+
+            else:
+                # 귀사
+                name         = "귀사"
+                track_amount = int(user_track or 0)
+                ratio        = track_amount / base_amount if base_amount > 0 else 0
+                perf_score   = min(20.0, 5.0 + ratio * 15.0)
+
+            qual_score     = round(perf_score * participation_rate, 2)
+            partner_passes = perf_score >= 8.0  # 개별 최소 충족 기준
+
+            partner_results.append({
+                "name":               name,
+                "participation_rate": participation_rate,
+                "track_amount":       track_amount,
+                "qual_score":         qual_score,
+                "passes":             partner_passes,
+            })
+
+        total_qual_score    = round(sum(r["qual_score"] for r in partner_results), 2)
+        joint_passes        = total_qual_score >= threshold
+        bid_amount_required = int(base_amount * min_bid_rate)
+        margin              = int(bid_amount_required * 0.003)
+
+        return {
+            "bid_id":              bid_id,
+            "bid_amount_required": bid_amount_required,
+            "partners":            partner_results,
+            "joint_result": {
+                "passes":           joint_passes,
+                "total_qual_score": total_qual_score,
+                "threshold":        threshold,
+                "min_bid_amount":   bid_amount_required,
+                "min_bid_rate":     round(min_bid_rate, 4),
+                "margin":           margin,
+            },
+        }
+
+
+# ==================================================
 # 최종 투찰 추천 종합 서비스
 # ==================================================
 
