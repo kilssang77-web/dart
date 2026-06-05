@@ -98,6 +98,8 @@ export const competitorsApi = {
     api.get('/competitors/compare', { params: { ids: ids.join(',') } }).then((r) => r.data),
   zones: (id: number, days = 90): Promise<CompetitorZoneResponse> =>
     api.get(`/competitors/${id}/zones`, { params: { days } }).then((r) => r.data),
+  predict: (id: number, bidId: number): Promise<import('../types').CompetitorPredictResponse> =>
+    api.get(`/competitors/${id}/predict`, { params: { bid_id: bidId } }).then((r) => r.data),
 }
 
 // -- 통계 --------------------------------------------------

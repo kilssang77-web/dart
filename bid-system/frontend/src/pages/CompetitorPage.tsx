@@ -1,12 +1,12 @@
-﻿import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { Search, ChevronLeft, ChevronRight, Trophy, CheckSquare, Square } from 'lucide-react'
+﻿import { useState, useRef, useEffect } from 'react'
+import { useQuery, useQueries } from '@tanstack/react-query'
+import { Search, ChevronLeft, ChevronRight, Trophy, CheckSquare, Square, Target, Loader2 } from 'lucide-react'
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   LineChart, Line, BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts'
-import { competitorsApi } from '@/api'
-import type { Competitor, CompetitorZoneItem } from '@/types'
+import { competitorsApi, bidsApi } from '@/api'
+import type { Competitor, CompetitorZoneItem, BidZonePredItem, CompetitorPredictResponse, BidSearchItem } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -82,6 +82,14 @@ export default function CompetitorPage() {
   const [showCompare, setShowCompare] = useState(false)
   const [zonesDays, setZonesDays] = useState<90 | 180>(90)
 
+  // 공고 예측 상태
+  const [selectedBid, setSelectedBid] = useState<BidSearchItem | null>(null)
+  const [bidSearchInput, setBidSearchInput] = useState('')
+  const [bidSearchQuery, setBidSearchQuery] = useState('')
+  const [showBidDropdown, setShowBidDropdown] = useState(false)
+  const [showBatchAnalysis, setShowBatchAnalysis] = useState(false)
+  const bidSearchRef = useRef<HTMLDivElement>(null)
+
   const { data: pattern } = useQuery({
     queryKey: ['competitor-pattern', selectedId],
     queryFn: () => competitorsApi.pattern(selectedId!),
@@ -99,7 +107,47 @@ export default function CompetitorPage() {
     queryFn: () => competitorsApi.zones(selectedId!, zonesDays),
     enabled: !!selectedId && detailTab === 'zones',
   })
+
+  const { data: bidSearchResults = [] } = useQuery<BidSearchItem[]>({
+    queryKey: ['bid-search-predict', bidSearchQuery],
+    queryFn: () => bidsApi.search(bidSearchQuery),
+    enabled: bidSearchQuery.length >= 2,
+  })
+
+  const { data: predictData, isLoading: predictLoading } = useQuery<CompetitorPredictResponse>({
+    queryKey: ['competitor-predict', selectedId, selectedBid?.id],
+    queryFn: () => competitorsApi.predict(selectedId!, selectedBid!.id),
+    enabled: !!selectedId && !!selectedBid && detailTab === 'predict',
+  })
+
   const totalPages = list ? Math.ceil(list.total / SIZE) : 1
+
+  // 드롭다운 외부 클릭 시 닫기
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (bidSearchRef.current && !bidSearchRef.current.contains(e.target as Node)) {
+        setShowBidDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  function handleBidSearchChange(val: string) {
+    setBidSearchInput(val)
+    if (val.length >= 2) {
+      setBidSearchQuery(val)
+      setShowBidDropdown(true)
+    } else {
+      setShowBidDropdown(false)
+    }
+  }
+
+  function handleBidSelect(bid: BidSearchItem) {
+    setSelectedBid(bid)
+    setBidSearchInput(bid.announcement_no)
+    setShowBidDropdown(false)
+  }
 
   const riskVariant = (r: string): 'destructive' | 'warning' | 'success' | 'secondary' =>
     r === 'HIGH' ? 'destructive' : r === 'MEDIUM' ? 'warning' : r === 'LOW' ? 'success' : 'secondary'
@@ -143,6 +191,62 @@ export default function CompetitorPage() {
             <span><Badge variant="destructive" className="mr-1">HIGH</Badge> 리스크 점수 6+ (공격적·고수주율)</span>
             <span><Badge variant="warning" className="mr-1">MEDIUM</Badge> 점수 3~6</span>
             <span><Badge variant="success" className="mr-1">LOW</Badge> 점수 3 미만 (보수적·저수주율)</span>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 공고 선택 — 경쟁사 행동 예측용 */}
+      <Card>
+        <CardContent className="py-3 px-4">
+          <div className="flex items-center gap-3 flex-wrap">
+            <Target className="h-4 w-4 text-primary shrink-0" />
+            <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">예측 대상 공고</span>
+            <div className="relative flex-1 min-w-[220px]" ref={bidSearchRef}>
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                value={bidSearchInput}
+                onChange={(e) => handleBidSearchChange(e.target.value)}
+                onFocus={() => bidSearchInput.length >= 2 && setShowBidDropdown(true)}
+                placeholder="공고번호 입력 (2자 이상)..."
+                className="pl-8 h-8 text-xs"
+              />
+              {showBidDropdown && bidSearchResults.length > 0 && (
+                <div className="absolute top-full left-0 right-0 z-50 bg-background border rounded-md shadow-md mt-1 max-h-48 overflow-y-auto">
+                  {bidSearchResults.map((b) => (
+                    <button
+                      key={b.id}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-accent"
+                      onClick={() => handleBidSelect(b)}
+                    >
+                      <span className="font-mono text-primary">{b.announcement_no}</span>
+                      <span className="ml-2 text-muted-foreground truncate">{b.title}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {selectedBid && (
+              <>
+                <Badge variant="secondary" className="text-xs max-w-[240px] truncate">{selectedBid.title}</Badge>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  onClick={() => { setSelectedBid(null); setBidSearchInput('') }}
+                >
+                  초기화
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-7 text-xs gap-1"
+                  onClick={() => setShowBatchAnalysis(true)}
+                  disabled={!list?.items?.length}
+                >
+                  <Target className="h-3 w-3" />
+                  이 공고 경쟁사 분석 (상위 5개)
+                </Button>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -255,6 +359,10 @@ export default function CompetitorPage() {
                 <TabsTrigger value="overview">개요</TabsTrigger>
                 <TabsTrigger value="pattern">투찰성향</TabsTrigger>
                 <TabsTrigger value="zones">투찰구간</TabsTrigger>
+                <TabsTrigger value="predict" disabled={!selectedBid} className="gap-1">
+                  <Target className="h-3 w-3" />
+                  예측{!selectedBid && <span className="text-[10px] opacity-50 ml-0.5">(공고선택)</span>}
+                </TabsTrigger>
               </TabsList>
 
             <TabsContent value="overview" className="space-y-4 mt-3">
@@ -481,6 +589,115 @@ export default function CompetitorPage() {
                 </>
               )}
             </TabsContent>
+
+            <TabsContent value="predict" className="space-y-4 mt-3">
+              {!selectedBid ? (
+                <Card>
+                  <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                    상단에서 예측 대상 공고를 선택하세요
+                  </CardContent>
+                </Card>
+              ) : predictLoading ? (
+                <div className="flex justify-center py-10">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : !predictData ? (
+                <Card>
+                  <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                    데이터를 불러오는 중...
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-4">
+                  {/* 참여 확률 카드 */}
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">참여 확률 예측</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="flex items-end gap-3">
+                        <span className="text-4xl font-bold text-primary">
+                          {(predictData.participation.probability * 100).toFixed(0)}%
+                        </span>
+                        <Badge
+                          variant={
+                            predictData.participation.confidence === 'high' ? 'default'
+                              : predictData.participation.confidence === 'medium' ? 'warning'
+                              : 'secondary'
+                          }
+                          className="mb-1"
+                        >
+                          신뢰도 {predictData.participation.confidence === 'high' ? '높음' : predictData.participation.confidence === 'medium' ? '보통' : '낮음'}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{predictData.participation.basis}</p>
+                      <div className="w-full bg-muted rounded-full h-2">
+                        <div
+                          className="bg-primary h-2 rounded-full transition-all"
+                          style={{ width: `${predictData.participation.probability * 100}%` }}
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* 투찰 구간 예측 */}
+                  {predictData.bid_zone.sample_count === 0 ? (
+                    <Card>
+                      <CardContent className="py-6 text-center text-sm text-muted-foreground">
+                        inpo21c 투찰 구간 데이터 없음
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm flex items-center justify-between">
+                          <span>예상 투찰 구간 분포</span>
+                          <span className="text-xs font-normal text-muted-foreground">{predictData.bid_zone.sample_count}건 기반</span>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {predictData.bid_zone.peak_zone && (
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge variant="destructive" className="text-xs">
+                              피크 {(predictData.bid_zone.peak_zone.range_lo * 100).toFixed(1)}%~{(predictData.bid_zone.peak_zone.range_hi * 100).toFixed(1)}%
+                              ({predictData.bid_zone.peak_zone.pct}%)
+                            </Badge>
+                            <Badge variant="warning" className="text-xs">이 구간 회피 추천</Badge>
+                          </div>
+                        )}
+                        <ResponsiveContainer width="100%" height={200}>
+                          <BarChart
+                            data={predictData.bid_zone.zones.map((z: BidZonePredItem) => ({
+                              label: `${(z.range_lo * 100).toFixed(1)}`,
+                              pct: z.pct,
+                              isPeak: predictData.bid_zone.peak_zone?.range_lo === z.range_lo,
+                            }))}
+                            margin={{ left: -10 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis dataKey="label" tick={{ fontSize: 9 }} interval={1} unit="%" />
+                            <YAxis tick={{ fontSize: 10 }} unit="%" />
+                            <Tooltip formatter={(v: number) => [`${v}%`, '빈도']} labelFormatter={(l) => `${l}%대`} />
+                            <Bar dataKey="pct" name="빈도%">
+                              {predictData.bid_zone.zones.map((z: BidZonePredItem, i: number) => (
+                                <Cell
+                                  key={i}
+                                  fill={
+                                    predictData.bid_zone.peak_zone?.range_lo === z.range_lo
+                                      ? '#f97316'
+                                      : 'hsl(var(--primary)/0.5)'
+                                  }
+                                />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              )}
+            </TabsContent>
             </Tabs>
           </div>
         ) : (
@@ -583,6 +800,16 @@ export default function CompetitorPage() {
         </DialogContent>
       </Dialog>
 
+      {/* 이 공고 경쟁사 일괄 분석 Dialog */}
+      {selectedBid && (
+        <BatchAnalysisDialog
+          open={showBatchAnalysis}
+          onOpenChange={setShowBatchAnalysis}
+          bidItem={selectedBid}
+          competitors={(list?.items ?? []).slice(0, 5)}
+        />
+      )}
+
       {/* 수주 이력 Dialog */}
       <Dialog open={winsModalOpen} onOpenChange={setWinsModalOpen}>
         <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
@@ -645,5 +872,97 @@ function Metric({ label, value }: { label: string; value: string }) {
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="text-sm font-bold mt-0.5">{value}</div>
     </div>
+  )
+}
+
+interface BatchAnalysisDialogProps {
+  open: boolean
+  onOpenChange: (o: boolean) => void
+  bidItem: BidSearchItem
+  competitors: Competitor[]
+}
+
+function BatchAnalysisDialog({ open, onOpenChange, bidItem, competitors }: BatchAnalysisDialogProps) {
+  const results = useQueries({
+    queries: competitors.map((c) => ({
+      queryKey: ['competitor-predict-batch', c.id, bidItem.id],
+      queryFn: () => competitorsApi.predict(c.id, bidItem.id),
+      enabled: open,
+    })),
+  })
+
+  const confidenceLabel = (c: string) =>
+    c === 'high' ? '높음' : c === 'medium' ? '보통' : '낮음'
+  const confidenceVariant = (c: string): 'default' | 'warning' | 'secondary' =>
+    c === 'high' ? 'default' : c === 'medium' ? 'warning' : 'secondary'
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Target className="h-4 w-4 text-primary" />
+            이 공고 경쟁사 일괄 분석
+          </DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground truncate">
+            {bidItem.announcement_no} · {bidItem.title}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="overflow-y-auto flex-1 space-y-3 pr-1">
+          {competitors.map((c, i) => {
+            const q = results[i]
+            return (
+              <Card key={c.id}>
+                <CardContent className="pt-4 pb-3">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm">{c.name}</span>
+                      <Badge variant={c.risk_level === 'HIGH' ? 'destructive' : c.risk_level === 'MEDIUM' ? 'warning' : 'success'} className="text-[10px] px-1.5">
+                        {c.risk_level}
+                      </Badge>
+                    </div>
+                    {q.isLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                  </div>
+                  {q.data ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <div className="text-xs text-muted-foreground mb-1">참여 확률</div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-2xl font-bold text-primary">
+                            {(q.data.participation.probability * 100).toFixed(0)}%
+                          </span>
+                          <Badge variant={confidenceVariant(q.data.participation.confidence)} className="text-[10px]">
+                            신뢰 {confidenceLabel(q.data.participation.confidence)}
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mt-1 leading-tight">{q.data.participation.basis}</p>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground mb-1">
+                          예상 피크 구간
+                          {q.data.bid_zone.sample_count > 0 && (
+                            <span className="ml-1 text-[10px]">({q.data.bid_zone.sample_count}건 기반)</span>
+                          )}
+                        </div>
+                        {q.data.bid_zone.peak_zone ? (
+                          <Badge variant="destructive" className="text-xs">
+                            {(q.data.bid_zone.peak_zone.range_lo * 100).toFixed(1)}%~{(q.data.bid_zone.peak_zone.range_hi * 100).toFixed(1)}%
+                            ({q.data.bid_zone.peak_zone.pct}%)
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">데이터 없음</span>
+                        )}
+                      </div>
+                    </div>
+                  ) : q.isError ? (
+                    <p className="text-xs text-destructive">데이터 조회 실패</p>
+                  ) : null}
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }

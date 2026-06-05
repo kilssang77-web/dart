@@ -123,6 +123,28 @@ export interface CompetitorZoneItem {
   pct: number
 }
 
+export interface BidZonePredItem {
+  range_lo: number
+  range_hi: number
+  pct: number
+}
+
+export interface CompetitorPredictResponse {
+  competitor_id: number
+  competitor_name: string
+  bid_id: number
+  participation: {
+    probability: number
+    basis: string
+    confidence: 'low' | 'medium' | 'high'
+  }
+  bid_zone: {
+    zones: BidZonePredItem[]
+    peak_zone: BidZonePredItem | null
+    sample_count: number
+  }
+}
+
 export interface CompetitorZoneResponse {
   zones: CompetitorZoneItem[]
   peak_zone: CompetitorZoneItem | null

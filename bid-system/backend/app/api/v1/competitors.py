@@ -4,7 +4,7 @@ from typing import Optional, List
 
 from ...database import get_db
 from ...models import User
-from ...services import CompetitorService, CompetitorPatternService, CompetitorZoneService
+from ...services import CompetitorService, CompetitorPatternService, CompetitorZoneService, CompetitorPredictService
 from ...common.security import get_current_user
 
 router = APIRouter(prefix="/competitors", tags=["경쟁사"])
@@ -83,3 +83,14 @@ def competitor_zones(
     _: User = Depends(get_current_user),
 ):
     return CompetitorZoneService().get_recent_zones(db, competitor_id, days)
+
+
+@router.get("/{competitor_id}/predict")
+def competitor_predict(
+    competitor_id: int,
+    bid_id: int = Query(..., description="분석 대상 공고 ID"),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """경쟁사의 특정 공고 참여 확률 및 투찰 구간 분포 예측."""
+    return CompetitorPredictService().predict(db, competitor_id, bid_id)

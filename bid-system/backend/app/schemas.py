@@ -874,3 +874,28 @@ class WinPatternResponse(BaseModel):
     by_year: list[WinPatternYear]
     loss_reasons: WinPatternLossReasons
 
+
+# ── 경쟁사 행동 예측 스키마 ──────────────────────────────────
+
+class ParticipationPrediction(BaseModel):
+    probability: float
+    basis: str
+    confidence: str  # low / medium / high
+
+class BidZonePredItem(BaseModel):
+    range_lo: float
+    range_hi: float
+    pct: float
+
+class BidZonePrediction(BaseModel):
+    zones: List[BidZonePredItem]
+    peak_zone: Optional[BidZonePredItem]
+    sample_count: int
+
+class CompetitorPredictResponse(BaseModel):
+    competitor_id: int
+    competitor_name: str
+    bid_id: int
+    participation: ParticipationPrediction
+    bid_zone: BidZonePrediction
+

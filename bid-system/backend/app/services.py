@@ -2427,6 +2427,43 @@ class CompetitorZoneService:
 
 
 # ==================================================
+# ⑦-2 경쟁사 행동 예측 서비스
+# ==================================================
+
+class CompetitorPredictService:
+    """inpo21c 데이터 기반 경쟁사 참여 확률 + 투찰 구간 예측."""
+
+    def predict(self, db: Session, competitor_id: int, bid_id: int) -> dict:
+        from fastapi import HTTPException
+        from .ml.competitor_predict import predict_participation, predict_bid_zone
+
+        competitor = db.query(Competitor).filter(Competitor.id == competitor_id).first()
+        if not competitor:
+            raise HTTPException(status_code=404, detail="경쟁사를 찾을 수 없습니다.")
+
+        bid = db.query(Bid).filter(Bid.id == bid_id).first()
+        if not bid:
+            raise HTTPException(status_code=404, detail="공고를 찾을 수 없습니다.")
+
+        bid_dict = {
+            "agency_id":   bid.agency_id,
+            "industry_id": bid.industry_id,
+            "base_amount": bid.base_amount,
+        }
+
+        participation = predict_participation(competitor_id, bid_dict, db)
+        bid_zone      = predict_bid_zone(competitor_id, bid.base_amount, db)
+
+        return {
+            "competitor_id":   competitor_id,
+            "competitor_name": competitor.name,
+            "bid_id":          bid_id,
+            "participation":   participation,
+            "bid_zone":        bid_zone,
+        }
+
+
+# ==================================================
 # ⑧ 공고 자동 평가 점수 서비스
 # ==================================================
 
