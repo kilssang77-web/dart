@@ -197,6 +197,10 @@ export const agenciesApi = {
     api.get('/agencies', { params }).then((r) => r.data),
   analysis: (id: number) =>
     api.get(`/agencies/${id}/analysis`).then((r) => r.data),
+  srateHistogram: (id: number, months = 12): Promise<import('../types').SrateHistogramResponse> =>
+    api.get(`/agencies/${id}/srate-histogram`, { params: { months } }).then((r) => r.data),
+  recentResults: (id: number, limit = 20): Promise<import('../types').AgencyRecentResultsResponse> =>
+    api.get(`/agencies/${id}/recent-results`, { params: { limit } }).then((r) => r.data),
 }
 
 

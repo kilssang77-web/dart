@@ -28,3 +28,23 @@ def agency_analysis(
     _: User     = Depends(get_current_user),
 ):
     return AgencyAnalysisService(db).analyze(agency_id)
+
+
+@router.get("/{agency_id}/srate-histogram")
+def agency_srate_histogram(
+    agency_id: int,
+    months: int = Query(12, ge=1, le=60),
+    db: Session = Depends(get_db),
+    _: User     = Depends(get_current_user),
+):
+    return AgencyAnalysisService(db).srate_histogram(agency_id, months)
+
+
+@router.get("/{agency_id}/recent-results")
+def agency_recent_results(
+    agency_id: int,
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _: User    = Depends(get_current_user),
+):
+    return AgencyAnalysisService(db).recent_results(agency_id, limit)

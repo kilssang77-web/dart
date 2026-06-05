@@ -729,3 +729,43 @@ export interface FinalRecommendResult {
   signal:   string
 }
 
+// ── 발주처 심층분석 ──────────────────────────────────────────
+
+export interface SrateHistogramBin {
+  range_lo: number
+  range_hi: number
+  count: number
+  pct: number
+}
+
+export interface SrateHistogramResponse {
+  agency_id: number
+  agency_name: string
+  months: number
+  sample_count: number
+  mean: number | null
+  std: number | null
+  bins: SrateHistogramBin[]
+  percentiles: {
+    p10: number | null
+    p25: number | null
+    p50: number | null
+    p75: number | null
+    p90: number | null
+  }
+}
+
+export interface AgencyRecentResult {
+  bid_id: number
+  title: string
+  base_amount: number
+  bid_open_date: string | null
+  assessment_rate: number | null
+  competitor_count: number
+}
+
+export interface AgencyRecentResultsResponse {
+  items: AgencyRecentResult[]
+  total: number
+}
+

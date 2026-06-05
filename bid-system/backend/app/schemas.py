@@ -544,6 +544,35 @@ class AgencyAnalysisResponse(BaseModel):
     top_winners: list[AgencyTopWinner]
     amount_distribution: list[AgencyAmountBucket]
 
+# 발주처 심층분석 스키마
+class SrateHistogramBin(BaseModel):
+    range_lo: float
+    range_hi: float
+    count: int
+    pct: float
+
+class SrateHistogramResponse(BaseModel):
+    agency_id: int
+    agency_name: str
+    months: int
+    sample_count: int
+    mean: Optional[float]
+    std: Optional[float]
+    bins: list[SrateHistogramBin]
+    percentiles: dict
+
+class AgencyRecentResult(BaseModel):
+    bid_id: int
+    title: str
+    base_amount: float
+    bid_open_date: Optional[str]
+    assessment_rate: Optional[float]
+    competitor_count: int
+
+class AgencyRecentResultsResponse(BaseModel):
+    items: list[AgencyRecentResult]
+    total: int
+
 # ?? ??? ???? ??????????????????????
 class CompetitorRadar(BaseModel):
     aggression: float

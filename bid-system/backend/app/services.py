@@ -1781,6 +1781,97 @@ class AgencyAnalysisService:
             "amount_distribution": amount_dist
         }
 
+    def srate_histogram(self, agency_id: int, months: int = 12) -> dict:
+        from fastapi import HTTPException
+        agency = self.db.query(Agency).filter(Agency.id == agency_id).first()
+        if not agency:
+            raise HTTPException(status_code=404, detail="기관을 찾을 수 없습니다")
+
+        cutoff = datetime.utcnow() - timedelta(days=30 * months)
+        bid_ids = [b.id for b in self.db.query(Bid).filter(
+            Bid.agency_id == agency_id,
+            Bid.bid_open_date >= cutoff,
+        ).all()]
+
+        results = self.db.query(BidResult).filter(
+            BidResult.bid_id.in_(bid_ids),
+            BidResult.is_winner == True,
+            BidResult.assessment_rate.isnot(None),
+        ).all() if bid_ids else []
+
+        srate_vals = sorted([float(r.assessment_rate) for r in results])
+        n = len(srate_vals)
+
+        mean = float(np.mean(srate_vals)) if n > 0 else None
+        std = float(np.std(srate_vals)) if n > 0 else None
+
+        lo, hi, width = 0.860, 0.960, 0.005
+        bins = []
+        b = lo
+        while b < hi - 1e-9:
+            cnt = sum(1 for v in srate_vals if b <= v < b + width)
+            pct = round(cnt / n * 100, 1) if n > 0 else 0.0
+            bins.append({
+                "range_lo": round(b, 3),
+                "range_hi": round(b + width, 3),
+                "count": cnt,
+                "pct": pct,
+            })
+            b = round(b + width, 3)
+
+        def _pct(p):
+            return float(np.percentile(srate_vals, p)) if srate_vals else None
+
+        percentiles = {
+            "p10": _pct(10), "p25": _pct(25), "p50": _pct(50),
+            "p75": _pct(75), "p90": _pct(90),
+        }
+
+        return {
+            "agency_id": agency_id,
+            "agency_name": agency.name,
+            "months": months,
+            "sample_count": n,
+            "mean": mean,
+            "std": std,
+            "bins": bins,
+            "percentiles": percentiles,
+        }
+
+    def recent_results(self, agency_id: int, limit: int = 20) -> dict:
+        from fastapi import HTTPException
+        from sqlalchemy import func as sqlfunc
+        agency = self.db.query(Agency).filter(Agency.id == agency_id).first()
+        if not agency:
+            raise HTTPException(status_code=404, detail="기관을 찾을 수 없습니다")
+
+        bids = self.db.query(Bid).filter(
+            Bid.agency_id == agency_id,
+            Bid.bid_open_date.isnot(None),
+        ).order_by(Bid.bid_open_date.desc()).limit(limit * 3).all()
+
+        items = []
+        for bid in bids:
+            if len(items) >= limit:
+                break
+            winner = self.db.query(BidResult).filter(
+                BidResult.bid_id == bid.id,
+                BidResult.is_winner == True,
+            ).first()
+            comp_count = self.db.query(sqlfunc.count(BidResult.id)).filter(
+                BidResult.bid_id == bid.id,
+            ).scalar() or 0
+            items.append({
+                "bid_id": bid.id,
+                "title": bid.title,
+                "base_amount": float(bid.base_amount) if bid.base_amount else 0.0,
+                "bid_open_date": bid.bid_open_date.isoformat() if bid.bid_open_date else None,
+                "assessment_rate": float(winner.assessment_rate) if winner and winner.assessment_rate else None,
+                "competitor_count": comp_count,
+            })
+
+        return {"items": items, "total": len(items)}
+
     def _make_distribution(self, values: list, low: float, high: float, step: float) -> dict:
         if not values:
             return {"bins": [], "mode": None, "p25": None, "p50": None, "p75": None, "mean": None, "std": None}
