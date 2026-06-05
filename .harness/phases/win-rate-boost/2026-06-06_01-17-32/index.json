@@ -37,7 +37,7 @@
       "status": "completed",
       "summary": "GET /my-bids/win-pattern(WinPatternService: 편향진단·발주처별·연도별·패배원인분류), WinPatternResponse 스키마 추가, MyBidsPage '성과 분석' 탭(편향진단카드·패배원인도넛차트·발주처별승률테이블·연도별추이LineChart), 단위 테스트 13건 추가",
       "started_at": "2026-06-06T01:55:19+0900",
-      "completed_at": "2026-06-06T02:22:00+0900"
+      "completed_at": "2026-06-06T02:09:59+0900"
     },
     {
       "step": 5,
