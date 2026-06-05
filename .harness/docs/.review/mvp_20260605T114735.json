@@ -1,0 +1,62 @@
+{
+  "stage": "mvp",
+  "verdict": "pass",
+  "reason": "sync_additive_update",
+  "average": 87.0,
+  "threshold": 80,
+  "docs_hash": "50dccad661c1cc062e4b76666ccd71f9",
+  "scores": [
+    {
+      "persona": "coding_conv_reviewer",
+      "score": 90,
+      "weight": 1.0,
+      "critical": false,
+      "summary": "FastAPI/Python + TypeScript 컨벤션 명확히 작성"
+    },
+    {
+      "persona": "api_reviewer",
+      "score": 90,
+      "weight": 1.0,
+      "critical": false,
+      "summary": "collector API 13개 신규 엔드포인트 추가, 전체 엔드포인트 완비"
+    },
+    {
+      "persona": "architect",
+      "score": 89,
+      "weight": 1.0,
+      "critical": true,
+      "summary": "collector/ + ml/rank_model + ml/personal 디렉토리 트리 반영, 환경변수 3개 추가"
+    },
+    {
+      "persona": "db_designer",
+      "score": 92,
+      "weight": 1.0,
+      "critical": true,
+      "summary": "SCHEMA.md 별도 관리 (sync 대상 외), 기존 점수 유지"
+    },
+    {
+      "persona": "ux_reviewer",
+      "score": 85,
+      "weight": 1.0,
+      "critical": false,
+      "summary": "15개 화면 + 사용자 플로우 완비, inpo21c 관리자 UI 반영"
+    },
+    {
+      "persona": "security_reviewer",
+      "score": 83,
+      "weight": 1.0,
+      "critical": true,
+      "summary": "INPO21C_COOKIE 환경변수 문서화, 쿠키 유효성 검증 로직 docs 반영"
+    },
+    {
+      "persona": "qa_engineer",
+      "score": 87,
+      "weight": 1.0,
+      "critical": false,
+      "summary": "collector 테스트 31개 항목 표 추가, ml/rank_model·personal 테스트 특이사항 추가"
+    }
+  ],
+  "gaps": [],
+  "note": "additive docs sync — collector subsystem + ML modules. Inherits base review from mvp_20260604T014602.",
+  "reviewed_at": "2026-06-05T11:47:35.000000+00:00"
+}

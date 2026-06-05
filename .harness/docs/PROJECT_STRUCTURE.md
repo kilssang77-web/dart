@@ -32,8 +32,15 @@ atom-harness-g2b/
 │   │   │   │   ├── engine.py         # 하이브리드 앙상블 진입점
 │   │   │   │   ├── assessment.py     # 사정율 예측 모델
 │   │   │   │   ├── competition.py    # 낙찰확률 계산
-│   │   │   │   ├── simulation.py     # Monte Carlo 시뮬레이션
+│   │   │   │   ├── simulation.py     # Monte Carlo 시뮬레이션 (실증분포 지원)
+│   │   │   │   ├── rank_model.py     # inpo21c 실증분포 기반 경쟁사 샘플링
+│   │   │   │   ├── personal.py       # 사용자 투찰 편향 보정 엔진
 │   │   │   │   └── yega.py           # 예가 빈도 분석 (Prism형)
+│   │   │   ├── collector/            # 나라장터 수집 서브시스템 (mvp 단계 추가)
+│   │   │   │   ├── client.py         # NarajangterClient (G2B OpenAPI, 재시도 3회)
+│   │   │   │   ├── service.py        # collect_notices/collect_results (upsert)
+│   │   │   │   ├── scheduler.py      # APScheduler (06:00 공고, 18:00 결과+연계, 월 02:00 inpo21c)
+│   │   │   │   └── inpo21c.py        # inpo21c 전 참여자 스크래퍼 + 쿠키 유효성 검증
 │   │   │   ├── common/
 │   │   │   │   └── security.py       # JWT 인증, 권한 검사
 │   │   │   ├── main.py               # FastAPI 앱 진입점, CORS, exception handler
@@ -156,6 +163,9 @@ docker compose down
 | `SECRET_KEY` | JWT 서명 키 (256bit+) | `(secret)` |
 | `ALGORITHM` | JWT 알고리즘 | `HS256` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | 토큰 만료 시간(분) | `1440` |
+| `G2B_API_KEY` | 나라장터 OpenAPI 인증키 | `(secret)` |
+| `INPO21C_COOKIE` | inpo21c 세션 쿠키 (`INFO21CSESSID=...`) | `(secret)` |
+| `COLLECT_ENABLED` | 수집 스케줄러 활성화 여부 | `true` |
 
 ### Frontend (`bid-system/frontend/.env.local`)
 

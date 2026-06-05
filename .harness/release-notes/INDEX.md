@@ -6,4 +6,4 @@
 
 | 파일 | task | stage | 날짜 | synced |
 |------|------|-------|------|--------|
-| [2026-06-04_11-01-01_mvp-collector.md](2026-06-04_11-01-01_mvp-collector.md) | mvp-collector | mvp | 2026-06-04 | ❌ |
+| [2026-06-04_11-01-01_mvp-collector.md](2026-06-04_11-01-01_mvp-collector.md) | mvp-collector | mvp | 2026-06-04 | ✅ |

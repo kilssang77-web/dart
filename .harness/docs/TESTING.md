@@ -149,9 +149,35 @@ npm run coverage
 
 ---
 
+## Collector 단위 테스트
+
+| 파일 | 테스트 수 | 커버 대상 |
+|------|---------|---------|
+| `tests/unit/collector/test_client.py` | 12 | NarajangterClient 페이지네이션·재시도·파싱 |
+| `tests/unit/collector/test_service.py` | 10 | collect_notices/results upsert 중복방지 |
+| `tests/unit/collector/test_scheduler.py` | 9 | APScheduler 잡 등록·실행·에러 처리 |
+
+**패턴**: collector 테스트는 `requests` 및 `SessionLocal`을 mock으로 교체. 실제 API 호출 없이 단위 검증.
+
+```python
+# 예시 — NarajangterClient 재시도 테스트
+from unittest.mock import patch, MagicMock
+from app.collector.client import NarajangterClient
+
+def test_retry_on_timeout():
+    client = NarajangterClient(api_key="test")
+    with patch("requests.get", side_effect=[Timeout(), MagicMock(status_code=200, json=lambda: {})]):
+        result = client.get_notices("notice_cnstwk", page=1)
+    assert result is not None
+```
+
+---
+
 ## ML 엔진 테스트 특이사항
 
 - `ml/assessment.py`: 사정율 예측 결과가 `[0.85, 1.05]` 범위 내인지 검증
 - `ml/simulation.py`: 시뮬레이션 n_sim=1000 수렴 여부 단위 테스트
 - `ml/yega.py`: 15개 후보 조합 합계가 1.0이 되는지 검증 (확률 합산)
-- ML 테스트는 DB 불필요 — 순수 함수 단위 테스트 가능
+- `ml/rank_model.py`: DB fallback (버킷→전체) 경로 및 50건 미만 시 None 반환 검증
+- `ml/personal.py`: 이력 없음 empty_result, 지수감쇠 가중치, MAX_CORRECTION(0.008) 클리핑 검증
+- ML 테스트는 DB 불필요 — 순수 함수 단위 테스트 가능 (rank_model 제외: DB 조회 포함)

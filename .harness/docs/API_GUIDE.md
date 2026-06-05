@@ -112,6 +112,7 @@ Authorization: Bearer {access_token}
 | POST | `/api/v1/bids` | 공고 수동 등록 | ADMIN |
 | POST | `/api/v1/bids/{id}/bookmark` | 북마크 추가 | 필요 |
 | DELETE | `/api/v1/bids/{id}/bookmark` | 북마크 삭제 | 필요 |
+| GET | `/api/v1/bids/bookmarks` | 내 북마크 목록 | 필요 |
 
 ### AI 추천 (Recommend)
 
@@ -156,6 +157,8 @@ Authorization: Bearer {access_token}
 | PATCH | `/api/v1/my-bids/{id}` | 투찰 결과 업데이트 | 필요 |
 | DELETE | `/api/v1/my-bids/{id}` | 투찰 이력 삭제 | 필요 |
 | GET | `/api/v1/my-bids/analysis` | 추천 정확도 분석 | 필요 |
+| GET | `/api/v1/my-bids/stats` | 투찰 통계 요약 (낙찰률, 평균 요율) | 필요 |
+| GET | `/api/v1/my-bids/defeat-analysis` | 패배 패턴 분석 (차이·분포) | 필요 |
 
 ### 관리자 (Admin)
 
@@ -163,4 +166,14 @@ Authorization: Bearer {access_token}
 |--------|------|------|------|
 | GET | `/api/v1/admin/users` | 사용자 목록 | ADMIN |
 | POST | `/api/v1/admin/users` | 사용자 생성 | ADMIN |
+| PUT | `/api/v1/admin/users/{id}` | 사용자 수정 (이름·역할·비밀번호) | ADMIN |
+| DELETE | `/api/v1/admin/users/{id}` | 사용자 삭제 | ADMIN |
+| GET | `/api/v1/admin/industries` | 공종 필터 목록 조회 | ADMIN |
+| PUT | `/api/v1/admin/industries/filters` | 활성 공종 저장 | ADMIN |
+| POST | `/api/v1/admin/collect/trigger` | G2B 수집 즉시 실행 (`collect_type`: all/notices/results) | ADMIN |
 | GET | `/api/v1/admin/collection-logs` | 수집 로그 조회 | ADMIN |
+| GET | `/api/v1/admin/system-status` | DB·수집기·ML 상태 조회 | ADMIN |
+| POST | `/api/v1/admin/ml/retrain` | ML 모델 재학습 (Engine A+B) | ADMIN |
+| POST | `/api/v1/admin/ml/populate-features` | feature_store 일괄 사전 계산 | ADMIN |
+| GET | `/api/v1/admin/inpo21c/status` | inpo21c 쿠키 유효성 확인 | ADMIN |
+| POST | `/api/v1/admin/inpo21c/collect` | inpo21c 전 참여자 즉시 수집 | ADMIN |
