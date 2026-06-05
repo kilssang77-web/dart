@@ -1,0 +1,47 @@
+{
+  "task": "win-rate-boost",
+  "run_id": "2026-06-06_01-17-32",
+  "stage": "mvp",
+  "branch": "feat/win-rate-boost-2026-06-06_01-17-32",
+  "created_at": "2026-06-06T01:17:32+09:00",
+  "author": "kil0410@a2m.co.kr",
+  "description": "낙찰률 극대화 — 수집기·투찰이력·최종추천가·발주처심층분석·자사승률진단·경쟁사예측·공동도급시뮬레이터",
+  "steps": [
+    {
+      "step": 1,
+      "name": "수집기 현황 개선 + 투찰이력 빠른입력 폼",
+      "status": "pending",
+      "summary": ""
+    },
+    {
+      "step": 2,
+      "name": "공고별 최종 추천 투찰가 종합 화면",
+      "status": "pending",
+      "summary": ""
+    },
+    {
+      "step": 3,
+      "name": "발주처 심층분석 (사정율 히스토그램 + 개찰 타임라인)",
+      "status": "pending",
+      "summary": ""
+    },
+    {
+      "step": 4,
+      "name": "자사 승률 패턴 진단",
+      "status": "pending",
+      "summary": ""
+    },
+    {
+      "step": 5,
+      "name": "경쟁사 행동 예측 ML",
+      "status": "pending",
+      "summary": ""
+    },
+    {
+      "step": 6,
+      "name": "공동도급 적격심사 시뮬레이터 고도화",
+      "status": "pending",
+      "summary": ""
+    }
+  ]
+}
