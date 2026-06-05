@@ -326,6 +326,30 @@ def system_status(db: Session = Depends(get_db), _: User = Depends(require_role(
     }
 
 
+@router.get("/inpo21c/status")
+def inpo21c_status(_: User = Depends(require_role("admin"))):
+    """inpo21c 쿠키 유효성 및 수집 통계 조회."""
+    from ...config import get_settings
+    from ...collector.inpo21c import check_cookie_valid
+
+    settings = get_settings()
+    cookie = getattr(settings, "inpo21c_cookie", "")
+
+    has_cookie = bool(cookie)
+    is_valid = check_cookie_valid(cookie) if has_cookie else False
+
+    return {
+        "has_cookie": has_cookie,
+        "cookie_valid": is_valid,
+        "status": "ok" if is_valid else ("no_cookie" if not has_cookie else "expired"),
+        "message": (
+            "쿠키 정상" if is_valid
+            else ("INPO21C_COOKIE 미설정 — .env에 추가하세요" if not has_cookie
+                  else "쿠키 만료 — INPO21C_COOKIE를 갱신하세요")
+        ),
+    }
+
+
 _TRIGGER_COLLECT_TYPES = {"all", "notices", "results"}
 
 

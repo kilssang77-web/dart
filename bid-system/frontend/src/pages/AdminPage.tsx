@@ -44,6 +44,7 @@ export default function AdminPage() {
   const [indSaved, setIndSaved] = useState(false)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [triggerMsg, setTriggerMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [inpoCollectMsg, setInpoCollectMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const { data: users = [], isLoading: usersLoading } = useQuery<AdminUser[]>({
     queryKey: ['admin-users'], queryFn: adminApi.users, enabled: tab === 'users',
@@ -64,6 +65,25 @@ export default function AdminPage() {
     queryFn: () => adminApi.collectionLogs(7),
     enabled: tab === 'system' || tab === 'collection',
     refetchInterval: 60000,
+  })
+  const { data: inpoStatus, refetch: refetchInpoStatus } = useQuery<{
+    has_cookie: boolean; cookie_valid: boolean; status: string; message: string
+  }>({
+    queryKey: ['admin-inpo21c-status'],
+    queryFn: () => adminApi.inpo21cStatus(),
+    enabled: tab === 'collection',
+    staleTime: 60_000,
+  })
+  const inpoCollectMutation = useMutation({
+    mutationFn: () => adminApi.triggerInpo21cCollect(4),
+    onSuccess: (data) => {
+      setInpoCollectMsg({ type: 'success', text: data.message ?? 'inpo21c 수집 시작됨' })
+      setTimeout(() => setInpoCollectMsg(null), 5000)
+    },
+    onError: () => {
+      setInpoCollectMsg({ type: 'error', text: 'inpo21c 수집 요청 실패' })
+      setTimeout(() => setInpoCollectMsg(null), 5000)
+    },
   })
   if (checkedIds === null && industryFilters.length > 0) {
     setCheckedIds(new Set(industryFilters.filter((i) => i.is_active).map((i) => i.industry_id)))
@@ -336,6 +356,50 @@ export default function AdminPage() {
                   {triggerMsg.text}
                 </div>
               )}
+              {/* inpo21c 쿠키 상태 */}
+              <Card>
+                <CardHeader className="pb-2 pt-4 px-4">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm">inpo21c 연동 상태</CardTitle>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => refetchInpoStatus()}>
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="px-4 pb-4 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <Badge
+                      variant={inpoStatus?.cookie_valid ? 'success' : inpoStatus?.has_cookie ? 'destructive' : 'secondary'}
+                      className="text-xs"
+                    >
+                      {inpoStatus?.cookie_valid ? '쿠키 정상' : inpoStatus?.has_cookie ? '쿠키 만료' : '쿠키 미설정'}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">{inpoStatus?.message ?? '상태 확인 중...'}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!inpoStatus?.cookie_valid || inpoCollectMutation.isPending}
+                      onClick={() => inpoCollectMutation.mutate()}
+                    >
+                      {inpoCollectMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                      inpo21c 즉시 수집
+                    </Button>
+                  </div>
+                  {inpoCollectMsg && (
+                    <div className={cn(
+                      'text-xs px-3 py-2 rounded-md border',
+                      inpoCollectMsg.type === 'success'
+                        ? 'text-green-700 bg-green-50 border-green-200'
+                        : 'text-destructive bg-destructive/5 border-destructive/20'
+                    )}>
+                      {inpoCollectMsg.text}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
               <Card>
                 <CardContent className="p-0">
                   <Table>

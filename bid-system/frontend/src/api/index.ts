@@ -143,6 +143,10 @@ export const adminApi = {
     api.get('/admin/collection-logs', { params: { days } }).then((r) => r.data),
   triggerCollect: (collectType: 'all' | 'notices' | 'results'): Promise<{ message: string }> =>
     api.post('/admin/collect/trigger', null, { params: { collect_type: collectType } }).then((r) => r.data),
+  inpo21cStatus: (): Promise<{ has_cookie: boolean; cookie_valid: boolean; status: string; message: string }> =>
+    api.get('/admin/inpo21c/status').then((r) => r.data),
+  triggerInpo21cCollect: (maxPages = 4): Promise<{ message: string }> =>
+    api.post('/admin/inpo21c/collect', null, { params: { max_pages: maxPages } }).then((r) => r.data),
 }
 
 // -- 투찰 이력 --------------------------------------------------

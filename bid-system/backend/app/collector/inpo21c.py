@@ -16,6 +16,39 @@ logger = logging.getLogger(__name__)
 BASE = "https://cloud.info21c.net"
 UA   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
+# 로그인 페이지 특징 문자열 (세션 만료 시 리다이렉트되는 페이지에 포함)
+_LOGIN_SIGNALS = ["login", "sign_in", "로그인", "세션이 만료", "인증이 필요"]
+
+
+def check_cookie_valid(cookie: str) -> bool:
+    """
+    inpo21c 쿠키 유효성 사전 검증.
+
+    낙찰결과 목록 1페이지를 fetch해 실제 데이터가 있으면 True,
+    로그인 리다이렉트 또는 빈 응답이면 False를 반환한다.
+    """
+    if not cookie:
+        return False
+    html = _fetch(f"{BASE}/suc/con?division=1&page=1", cookie)
+    if not html:
+        logger.error("inpo21c 쿠키 검증 실패 — 응답 없음 (서버 다운 또는 네트워크 오류)")
+        return False
+    html_lower = html.lower()
+    if any(sig in html_lower for sig in _LOGIN_SIGNALS):
+        logger.error(
+            "inpo21c 쿠키 만료 — 로그인 페이지로 리다이렉트됨. "
+            "INPO21C_COOKIE 환경변수를 갱신하세요."
+        )
+        return False
+    # 실제 낙찰 목록이면 /suc/view/con/ 패턴 링크가 있어야 함
+    if "/suc/view/con/" not in html:
+        logger.error(
+            "inpo21c 쿠키 만료 추정 — 낙찰 목록 미확인 (응답 길이: %d bytes). "
+            "INPO21C_COOKIE를 확인하세요.", len(html)
+        )
+        return False
+    return True
+
 
 def _fetch(url: str, cookie: str, referer: str = BASE) -> str:
     req = Request(url, headers={
@@ -111,7 +144,11 @@ def collect_inpo21c(db: Session, max_pages: int = 4) -> dict:
     cookie   = getattr(settings, "inpo21c_cookie", "")
     if not cookie:
         logger.warning("INPO21C_COOKIE 미설정 — inpo21c 수집 건너뜀")
-        return {"bids": 0, "participants": 0, "skipped": 0}
+        return {"bids": 0, "participants": 0, "skipped": 0, "cookie_valid": False}
+
+    if not check_cookie_valid(cookie):
+        return {"bids": 0, "participants": 0, "skipped": 0, "cookie_valid": False,
+                "error": "쿠키 만료 또는 인증 실패 — INPO21C_COOKIE 갱신 필요"}
 
     # 기존 수집된 bid_id 목록 캐싱 (중복 스킵)
     existing = {r[0] for r in db.execute(
@@ -140,4 +177,5 @@ def collect_inpo21c(db: Session, max_pages: int = 4) -> dict:
 
     logger.info("inpo21c 수집 완료: %d건 공고, %d명 참여자, %d건 스킵",
                 total_bids, total_participants, skipped)
-    return {"bids": total_bids, "participants": total_participants, "skipped": skipped}
+    return {"bids": total_bids, "participants": total_participants,
+            "skipped": skipped, "cookie_valid": True}
