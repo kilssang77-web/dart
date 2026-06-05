@@ -3,10 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, CheckCircle2, XCircle, Clock, Trash2, Edit2 } from 'lucide-react'
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line
+  LineChart, Line, BarChart, Bar, ReferenceLine, Cell
 } from 'recharts'
 import { myBidsApi } from '@/api'
-import type { MyBidRecord, MyBidAnalysis, DefeatAnalysis } from '@/types'
+import type { MyBidRecord, MyBidAnalysis, DefeatAnalysis, GapAnalysisResponse } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -75,6 +75,12 @@ export default function MyBidsPage() {
     queryKey: ['my-bids-defeat'],
     queryFn: myBidsApi.defeatAnalysis,
     enabled: activeTab === 'defeat',
+  })
+
+  const { data: gapData } = useQuery<GapAnalysisResponse>({
+    queryKey: ['my-bids-gap'],
+    queryFn: myBidsApi.gapAnalysis,
+    enabled: activeTab === 'gap',
   })
 
   const { data: records = [], isLoading } = useQuery<MyBidRecord[]>({
@@ -190,6 +196,7 @@ export default function MyBidsPage() {
         <TabsList>
           <TabsTrigger value="history">이력 목록</TabsTrigger>
           <TabsTrigger value="analysis">정확도 분석</TabsTrigger>
+          <TabsTrigger value="gap">역산 분석</TabsTrigger>
         </TabsList>
 
         {/* 이력 목록 탭 */}
@@ -412,6 +419,144 @@ export default function MyBidsPage() {
             </>
           )}
           {!analysis && (
+            <p className="text-sm text-muted-foreground text-center py-10">분석 데이터를 불러오는 중...</p>
+          )}
+        </TabsContent>
+        {/* 역산 분석 탭 */}
+        <TabsContent value="gap" className="space-y-4 mt-3">
+          {gapData ? (
+            gapData.total_analyzed === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center text-sm text-muted-foreground">
+                  투찰 이력이 쌓이면 역산 분석이 가능합니다.
+                  <br />
+                  낙찰 결과(실제 낙찰률)가 입력된 이력이 필요합니다.
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                {/* 핵심 지표 카드 */}
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <Card>
+                    <CardContent className="pt-4">
+                      <p className="text-xs text-muted-foreground mb-1">평균 격차</p>
+                      <p className={cn(
+                        "text-2xl font-bold font-mono",
+                        gapData.mean_diff != null && gapData.mean_diff > 0
+                          ? "text-orange-600"
+                          : "text-blue-600"
+                      )}>
+                        {gapData.mean_diff != null
+                          ? `${gapData.mean_diff > 0 ? '+' : ''}${(gapData.mean_diff * 100).toFixed(3)}%`
+                          : '-'}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {gapData.consistent_direction === 'too_high'
+                          ? '▲ 낙찰자보다 높게 투찰'
+                          : gapData.consistent_direction === 'too_low'
+                          ? '▼ 낙찰자보다 낮게 투찰'
+                          : '— 혼합 패턴'}
+                      </p>
+                    </CardContent>
+                  </Card>
+                  {gapData.win_if_lower_by != null ? (
+                    <Card className="border-orange-200 bg-orange-50/30">
+                      <CardContent className="pt-4">
+                        <p className="text-xs text-muted-foreground mb-1">낙찰 가능 구간</p>
+                        <p className="text-2xl font-bold font-mono text-orange-600">
+                          -{(gapData.win_if_lower_by * 100).toFixed(3)}%
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">낮게 투찰하면 낙찰 구간 진입</p>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <Card>
+                      <CardContent className="pt-4">
+                        <p className="text-xs text-muted-foreground mb-1">낙찰 가능 구간</p>
+                        <p className="text-2xl font-bold font-mono text-muted-foreground">-</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {gapData.consistent_direction === 'too_low' ? '낙찰자보다 낮게 투찰 중' : '패턴 미확정'}
+                        </p>
+                      </CardContent>
+                    </Card>
+                  )}
+                  <Card>
+                    <CardContent className="pt-4">
+                      <p className="text-xs text-muted-foreground mb-1">분석 건수</p>
+                      <p className="text-2xl font-bold font-mono">{gapData.total_analyzed}건</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        중앙값 {gapData.median_diff != null
+                          ? `${gapData.median_diff > 0 ? '+' : ''}${(gapData.median_diff * 100).toFixed(3)}%`
+                          : '-'}
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* rate_diff 분포 히스토그램 */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm font-semibold">
+                      낙찰자 대비 투찰 격차 분포
+                      <span className="text-xs font-normal text-muted-foreground ml-2">
+                        (양수: 내가 높게 투찰 / 음수: 내가 낮게 투찰)
+                      </span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {gapData.buckets.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-10">분포 데이터 없음</p>
+                    ) : (
+                      <ResponsiveContainer width="100%" height={240}>
+                        <BarChart
+                          data={gapData.buckets.map((b) => ({
+                            mid: +((b.range_lo + b.range_hi) / 2 * 100).toFixed(3),
+                            count: b.count,
+                            positive: b.range_lo >= 0,
+                          }))}
+                          margin={{ left: -10, right: 10 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis dataKey="mid" unit="%" tick={{ fontSize: 10 }} />
+                          <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                          <Tooltip
+                            formatter={(v: number) => [v + '건', '빈도']}
+                            labelFormatter={(l) => `격차 ${l}%`}
+                          />
+                          <ReferenceLine x={0} stroke="hsl(var(--foreground))" strokeDasharray="4 4" strokeWidth={1.5} />
+                          <Bar dataKey="count" radius={[2, 2, 0, 0]}>
+                            {gapData.buckets.map((b, i) => (
+                              <Cell
+                                key={i}
+                                fill={b.range_lo >= 0 ? 'hsl(24 95% 53%)' : 'hsl(221 83% 53%)'}
+                              />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* 개인화 편향 보정 카드 */}
+                {gapData.personal_bias.sample_count > 0 && (
+                  <Card className="border-blue-200 bg-blue-50/30">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-semibold text-blue-700">개인화 편향 분석</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      <p className="text-sm text-blue-800">{gapData.personal_bias.narrative}</p>
+                      <div className="flex gap-4 text-xs text-muted-foreground">
+                        <span>신뢰도: {(gapData.personal_bias.confidence * 100).toFixed(0)}%</span>
+                        <span>샘플: {gapData.personal_bias.sample_count}건</span>
+                        <span>편향: {gapData.personal_bias.avg_bias_pct > 0 ? '+' : ''}{gapData.personal_bias.avg_bias_pct.toFixed(3)}%</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </>
+            )
+          ) : (
             <p className="text-sm text-muted-foreground text-center py-10">분석 데이터를 불러오는 중...</p>
           )}
         </TabsContent>

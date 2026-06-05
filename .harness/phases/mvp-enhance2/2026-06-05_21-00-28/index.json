@@ -55,7 +55,10 @@
       "step": 6,
       "name": "낙찰 후 역산 분석 — rate_diff 분포·패턴",
       "file": "step6.md",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-06-05T21:53:51+0900",
+      "completed_at": "2026-06-05T23:10:00+0900",
+      "summary": "DefeatAnalysisService.get_gap_distribution, GET /my-bids/gap-analysis, GapBucket/GapAnalysisResponse 스키마/타입, myBidsApi.gapAnalysis, MyBidsPage 역산분석 탭(BarChart 히스토그램), 테스트 6건 전통과"
     },
     {
       "step": 7,

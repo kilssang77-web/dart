@@ -519,6 +519,24 @@ export interface DefeatAnalysis {
   total_analyzed:   number
 }
 
+// ── 역산 분석 (Gap Distribution) 타입 ───────────────────────
+
+export interface GapBucket {
+  range_lo: number
+  range_hi: number
+  count: number
+}
+
+export interface GapAnalysisResponse {
+  buckets:              GapBucket[]
+  mean_diff:            number | null
+  median_diff:          number | null
+  win_if_lower_by:      number | null
+  consistent_direction: 'too_high' | 'too_low' | 'mixed'
+  personal_bias:        PersonalCorrection
+  total_analyzed:       number
+}
+
 // ── 공고 자동 평가 점수 타입 ─────────────────────────────
 
 export interface ScoreComponent {

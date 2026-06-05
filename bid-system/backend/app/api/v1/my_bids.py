@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from ...database import get_db
 from ...models import MyBidRecord, User
-from ...schemas import MyBidRecordCreate, MyBidRecordUpdate, MyBidRecordOut, MyBidAnalysisResponse, DefeatAnalysisResponse
+from ...schemas import MyBidRecordCreate, MyBidRecordUpdate, MyBidRecordOut, MyBidAnalysisResponse, DefeatAnalysisResponse, GapAnalysisResponse
 from ...services import MyBidAnalysisService, DefeatAnalysisService
 from ...common.security import get_current_user
 
@@ -75,6 +75,14 @@ def my_bid_stats(
         "avg_winner_rate": round(sum(winner_rates) / len(winner_rates), 4) if winner_rates else None,
         "avg_rate_diff_from_rec": round(sum(rate_diffs) / len(rate_diffs), 4) if rate_diffs else None,
     }
+
+
+@router.get("/gap-analysis", response_model=GapAnalysisResponse)
+def gap_analysis(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return DefeatAnalysisService(db).get_gap_distribution(user.id)
 
 
 @router.post("", response_model=MyBidRecordOut, status_code=201)

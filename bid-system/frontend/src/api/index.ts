@@ -178,6 +178,8 @@ export const myBidsApi = {
   remove: (id: number) => api.delete(`/my-bids/${id}`).then((r) => r.data),
   defeatAnalysis: (): Promise<import('../types').DefeatAnalysis> =>
     api.get('/my-bids/defeat-analysis').then((r) => r.data),
+  gapAnalysis: (): Promise<import('../types').GapAnalysisResponse> =>
+    api.get('/my-bids/gap-analysis').then((r) => r.data),
 }
 
 // -- 발주기관 --------------------------------------------------

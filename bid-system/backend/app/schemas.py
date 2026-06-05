@@ -674,6 +674,23 @@ class DefeatAnalysisResponse(BaseModel):
     win_zone:         Optional[dict] = None
     total_analyzed:   int
 
+# ── 역산 분석 (Gap Distribution) 스키마 ─────────────────────
+
+class GapBucket(BaseModel):
+    range_lo: float
+    range_hi: float
+    count: int
+
+class GapAnalysisResponse(BaseModel):
+    buckets:              list[GapBucket]
+    mean_diff:            Optional[float] = None
+    median_diff:          Optional[float] = None
+    win_if_lower_by:      Optional[float] = None
+    consistent_direction: str
+    personal_bias:        dict
+    total_analyzed:       int
+
+
 # ── 프리즘 2.0 스키마 ────────────────────────────────────
 
 class PrismZone(BaseModel):

@@ -2181,6 +2181,90 @@ class DefeatAnalysisService:
             "win_zone": None, "total_analyzed": 0,
         }
 
+    def get_gap_distribution(self, user_id: int) -> dict:
+        """
+        rate_diff 분포 분석 (0.005 버킷).
+        diff = submitted_rate - actual_winner_rate (소수점 기준)
+        양수 → 낙찰자보다 높게 투찰 (too_high), 음수 → 낙찰자보다 낮게 투찰 (too_low).
+        """
+        personal_bias = PersonalBiasAnalyzer().compute(self.db, user_id)
+
+        records = (
+            self.db.query(MyBidRecord)
+            .filter(
+                MyBidRecord.user_id == user_id,
+                MyBidRecord.actual_winner_rate.isnot(None),
+                MyBidRecord.submitted_rate.isnot(None),
+            )
+            .order_by(MyBidRecord.bid_date.desc())
+            .limit(500)
+            .all()
+        )
+
+        if not records:
+            return self._gap_empty(personal_bias)
+
+        OUTLIER = 0.05  # 5%p 이상 이상치 제거
+        BUCKET = 0.005  # 소수점 기준 버킷 크기
+
+        diffs = []
+        for r in records:
+            d = float(r.submitted_rate) - float(r.actual_winner_rate)
+            if abs(d) <= OUTLIER:
+                diffs.append(d)
+
+        if not diffs:
+            return self._gap_empty(personal_bias)
+
+        arr = np.array(diffs)
+        mean_diff = round(float(np.mean(arr)), 6)
+        median_diff = round(float(np.median(arr)), 6)
+
+        THRESHOLD = 0.0015  # 0.15%p
+        if mean_diff > THRESHOLD:
+            consistent_direction = "too_high"
+        elif mean_diff < -THRESHOLD:
+            consistent_direction = "too_low"
+        else:
+            consistent_direction = "mixed"
+
+        win_if_lower_by = round(abs(mean_diff), 6) if consistent_direction == "too_high" else None
+
+        bucket_counts: dict[float, int] = {}
+        for d in diffs:
+            key = round(math.floor(d / BUCKET) * BUCKET, 3)
+            bucket_counts[key] = bucket_counts.get(key, 0) + 1
+
+        buckets = [
+            {
+                "range_lo": lo,
+                "range_hi": round(lo + BUCKET, 3),
+                "count": cnt,
+            }
+            for lo, cnt in sorted(bucket_counts.items())
+        ]
+
+        return {
+            "buckets": buckets,
+            "mean_diff": mean_diff,
+            "median_diff": median_diff,
+            "win_if_lower_by": win_if_lower_by,
+            "consistent_direction": consistent_direction,
+            "personal_bias": personal_bias,
+            "total_analyzed": len(diffs),
+        }
+
+    def _gap_empty(self, personal_bias: dict) -> dict:
+        return {
+            "buckets": [],
+            "mean_diff": None,
+            "median_diff": None,
+            "win_if_lower_by": None,
+            "consistent_direction": "mixed",
+            "personal_bias": personal_bias,
+            "total_analyzed": 0,
+        }
+
 
 # ==================================================
 # 경쟁사 투찰 구간 분포 서비스
