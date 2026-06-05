@@ -27,6 +27,9 @@ from .ml.competition import compute_competition_features, get_competitor_profile
 from .ml.simulation  import recommend_with_simulation
 from .ml.rank_model  import get_inpo_raw_rates
 from .ml.personal    import PersonalBiasAnalyzer
+from .ml.prism       import scan_prism_zones
+from .ml.yega        import calc_yega_frequency
+from .ml.a_value     import calc_floor_rate
 
 logger = logging.getLogger(__name__)
 
@@ -2751,4 +2754,159 @@ class JointQualService:
             "bid_title":      bid.title,
             "base_amount":    base_amount,
             "threshold_note": threshold_note,
+        }
+
+
+# ==================================================
+# 최종 투찰 추천 종합 서비스
+# ==================================================
+
+class FinalRecommendService:
+    """사정율통계 + 프리즘 + 예가 + 트렌드 + 개인화를 합산해 최종 투찰 사정율 1개 산출."""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get(self, bid_id: int, user_id: int) -> dict:
+        from fastapi import HTTPException
+
+        bid = self.db.query(Bid).filter(Bid.id == bid_id).first()
+        if not bid:
+            raise HTTPException(status_code=404, detail="공고를 찾을 수 없습니다.")
+
+        agency   = self.db.query(Agency).filter(Agency.id == bid.agency_id).first()
+        industry = (self.db.query(Industry).filter(Industry.id == bid.industry_id).first()
+                    if bid.industry_id else None)
+        industry_name = industry.name if industry else ""
+        base_amount   = int(bid.base_amount)
+
+        # 1. 사정율 통계 (기준 mean + 표본수)
+        features = load_srate_stats(
+            self.db, bid.agency_id, bid.industry_id or 0, bid.region_id or 0, base_amount
+        )
+        srate_mean = (
+            features.get("agency_srate_mean")
+            or features.get("industry_srate_mean")
+            or features.get("global_srate_mean")
+            or 0.8876
+        )
+        sample_count = int(features.get("agency_srate_n") or 0)
+
+        # 2. 트렌드 방향 (SrateTrendService 재사용)
+        trend           = SrateTrendService().get_trend(self.db, bid.agency_id, bid.industry_id)
+        trend_direction = trend.get("direction", "stable")
+
+        # 3. 프리즘 스캔 (전 구간 win_prob + top1 근거)
+        try:
+            all_zones, top10 = scan_prism_zones(
+                base_amount=base_amount,
+                industry_name=industry_name,
+                agency_id=bid.agency_id,
+                industry_id=bid.industry_id or 0,
+                db=self.db,
+                n_sim=15_000,
+            )
+        except Exception:
+            all_zones, top10 = [], []
+
+        prism_top = top10[0] if top10 else None
+
+        # 4. 예가 빈도 top1 (크로스체크 근거)
+        try:
+            a_val  = int(bid.a_value) if bid.a_value else None
+            yega   = calc_yega_frequency(base_amount, a_value=a_val, srate_center=srate_mean)
+            yega_rows     = yega.get("frequency", [])
+            yega_top_rate = float(yega_rows[0]["rate"])        if yega_rows else None
+            yega_top_prob = float(yega_rows[0]["probability"]) if yega_rows else None
+        except Exception:
+            yega_top_rate = yega_top_prob = None
+
+        # 5. 개인화 편향 보정
+        try:
+            bias = PersonalBiasAnalyzer().compute(
+                self.db, user_id,
+                agency_name=agency.name if agency else None,
+            )
+        except Exception:
+            bias = PersonalBiasAnalyzer()._empty_result()
+
+        # 6. 권장 사정율 합산
+        trend_adj    = 0.001 if trend_direction == "up" else (-0.001 if trend_direction == "down" else 0.0)
+        correction   = float(bias.get("correction", 0.0))
+        bias_applied = abs(correction) > 0.0001
+
+        recommended_rate = round(float(srate_mean) + trend_adj + correction, 4)
+
+        # 7. 낙찰하한율 (A값 기준 floor → base_amount 기준 환산)
+        floor_pct = calc_floor_rate(industry_name)
+        if bid.min_bid_rate:
+            floor_rate = round(float(bid.min_bid_rate), 5)
+        else:
+            floor_rate = round(float(srate_mean) * floor_pct, 5)
+
+        # 8. 전략별 근접 zone win_prob 탐색
+        def _win_prob(rate: float) -> float:
+            if not all_zones:
+                return 0.0
+            nearest = min(all_zones, key=lambda z: abs(z["rate"] - rate))
+            return round(float(nearest.get("win_prob", 0.0)), 4)
+
+        def _strat(rate: float) -> dict:
+            r = round(rate, 4)
+            return {"rate": r, "amount": round(base_amount * r), "win_prob": _win_prob(r)}
+
+        strategies = {
+            "balanced":     _strat(recommended_rate),
+            "aggressive":   _strat(recommended_rate - 0.005),
+            "conservative": _strat(recommended_rate + 0.005),
+            "floor_safe":   _strat(floor_rate + 0.001),
+        }
+
+        # 9. 신뢰도 (표본 수 기준)
+        confidence = "high" if sample_count >= 50 else ("medium" if sample_count >= 10 else "low")
+
+        # 10. 시그널 메시지
+        dir_msg = {
+            "up":     "발주처 최근 사정율 상승 추세 → 균형형 이상 추천",
+            "down":   "발주처 최근 사정율 하락 추세 → 공격형 이하 고려",
+            "stable": "발주처 사정율 안정 추세 → 균형형 추천",
+        }
+        signal = dir_msg.get(trend_direction, "균형형 추천")
+        if bias_applied:
+            if bias.get("direction") == "too_low":
+                signal += " · 과거 낮게 투찰 경향 → 상향 보정 적용"
+            elif bias.get("direction") == "too_high":
+                signal += " · 과거 높게 투찰 경향 → 하향 보정 적용"
+
+        # 11. 근거 패널
+        evidence = {
+            "srate_stats": {
+                "mean": round(float(srate_mean), 4),
+                "sample_count": sample_count,
+                "trend_direction": trend_direction,
+            },
+            "prism_top": {
+                "rate":        round(float(prism_top["rate"]), 4),
+                "probability": round(float(prism_top["win_prob"]) * 100, 2),
+            } if prism_top else None,
+            "yega_top": {
+                "rate":        round(yega_top_rate, 4),
+                "probability": round(yega_top_prob, 2),
+            } if (yega_top_rate is not None and yega_top_prob is not None) else None,
+            "personal_bias": {
+                "rate_diff_mean": round(correction, 4),
+                "applied":        bias_applied,
+            },
+        }
+
+        return {
+            "bid_id":             bid_id,
+            "base_amount":        base_amount,
+            "recommended_rate":   recommended_rate,
+            "recommended_amount": round(base_amount * recommended_rate),
+            "confidence":         confidence,
+            "floor_rate":         floor_rate,
+            "strategies":         strategies,
+            "evidence":           evidence,
+            "signal":             signal,
         }

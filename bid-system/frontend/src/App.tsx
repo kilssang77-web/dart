@@ -16,6 +16,7 @@ import MyBidsPage from '@/pages/MyBidsPage'
 import QualificationPage from '@/pages/QualificationPage'
 import JointBidPage from '@/pages/JointBidPage'
 import YegaPage from '@/pages/YegaPage'
+import TenderRecommendPage from '@/pages/TenderRecommendPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -37,8 +38,9 @@ export default function App() {
         >
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard"   element={<DashboardPage />} />
-          <Route path="bids"        element={<BidsPage />} />
-          <Route path="bids/:id"    element={<BidDetailPage />} />
+          <Route path="bids"                       element={<BidsPage />} />
+          <Route path="bids/:id"                 element={<BidDetailPage />} />
+          <Route path="bids/:id/final-recommend" element={<TenderRecommendPage />} />
           <Route path="recommend"   element={<RecommendPage />} />
           <Route path="competitors" element={<CompetitorPage />} />
           <Route path="statistics"  element={<StatisticsPage />} />

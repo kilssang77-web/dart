@@ -18,8 +18,10 @@
     {
       "step": 2,
       "name": "공고별 최종 추천 투찰가 종합 화면",
-      "status": "pending",
-      "summary": ""
+      "status": "completed",
+      "summary": "GET /bids/{bid_id}/final-recommend(FinalRecommendService: 사정율통계+프리즘+예가+트렌드+개인화 합산), FinalRecommendResponse 스키마 추가, TenderRecommendPage(4전략 비교표·근거패널·신뢰도배지·하한경고), BidDetailPage '투찰가 분석' 버튼, App.tsx 라우트 추가",
+      "started_at": "2026-06-06T01:30:26+0900",
+      "completed_at": "2026-06-06T02:10:00+0900"
     },
     {
       "step": 3,

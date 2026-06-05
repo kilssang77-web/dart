@@ -697,3 +697,35 @@ export interface JointPartnersResponse {
   threshold_note: string
 }
 
+// ── 최종 투찰 추천 종합 ───────────────────────────────────────
+
+export interface FinalRecommendStrategy {
+  rate:     number
+  amount:   number
+  win_prob: number
+}
+
+export interface FinalRecommendEvidence {
+  srate_stats:   { mean: number; sample_count: number; trend_direction: string }
+  prism_top:     { rate: number; probability: number } | null
+  yega_top:      { rate: number; probability: number } | null
+  personal_bias: { rate_diff_mean: number; applied: boolean }
+}
+
+export interface FinalRecommendResult {
+  bid_id:             number
+  base_amount:        number
+  recommended_rate:   number
+  recommended_amount: number
+  confidence:         'high' | 'medium' | 'low'
+  floor_rate:         number
+  strategies: {
+    balanced:     FinalRecommendStrategy
+    aggressive:   FinalRecommendStrategy
+    conservative: FinalRecommendStrategy
+    floor_safe:   FinalRecommendStrategy
+  }
+  evidence: FinalRecommendEvidence
+  signal:   string
+}
+

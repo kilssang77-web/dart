@@ -781,3 +781,30 @@ class JointPartnersResponse(BaseModel):
     base_amount:    int
     threshold_note: str
 
+
+# ── ⑨ 최종 투찰 추천 종합 스키마 ───────────────────────────
+
+class FinalRecommendStrategy(BaseModel):
+    rate:     float
+    amount:   int
+    win_prob: float
+
+
+class FinalRecommendEvidence(BaseModel):
+    srate_stats:   dict
+    prism_top:     Optional[dict]
+    yega_top:      Optional[dict]
+    personal_bias: dict
+
+
+class FinalRecommendResponse(BaseModel):
+    bid_id:             int
+    base_amount:        int
+    recommended_rate:   float
+    recommended_amount: int
+    confidence:         str   # high / medium / low
+    floor_rate:         float
+    strategies:         dict  # balanced / aggressive / conservative / floor_safe
+    evidence:           FinalRecommendEvidence
+    signal:             str
+

@@ -5,8 +5,8 @@ from datetime import date
 
 from ...database import get_db
 from ...models import User, Agency, Industry, Region, Bid
-from ...schemas import BidCreate, BidResultCreate, BookmarkResponse, OpportunityScoreResponse, BidRecommendItem, JointPartnersResponse
-from ...services import BidService, BookmarkService, get_active_industry_ids, OpportunityScoreService, JointQualService
+from ...schemas import BidCreate, BidResultCreate, BookmarkResponse, OpportunityScoreResponse, BidRecommendItem, JointPartnersResponse, FinalRecommendResponse
+from ...services import BidService, BookmarkService, get_active_industry_ids, OpportunityScoreService, JointQualService, FinalRecommendService
 from ...common.security import get_current_user
 
 router = APIRouter(prefix="/bids", tags=["입찰"])
@@ -166,3 +166,13 @@ def joint_partners(
     _: User = Depends(get_current_user),
 ):
     return JointQualService(db).find_matching_partners(bid_id, user_track, participation_rate)
+
+
+@router.get("/{bid_id}/final-recommend", response_model=FinalRecommendResponse)
+def final_recommend(
+    bid_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """사정율통계·프리즘·예가·트렌드·개인화를 합산한 최종 투찰 사정율 종합 추천."""
+    return FinalRecommendService(db).get(bid_id, user.id)

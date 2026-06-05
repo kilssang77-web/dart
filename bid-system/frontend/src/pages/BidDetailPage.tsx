@@ -1,6 +1,6 @@
 ﻿import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Trophy, ExternalLink, Sparkles } from 'lucide-react'
+import { ArrowLeft, Trophy, ExternalLink, Sparkles, Target } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { bidsApi, statsApi } from '@/api'
 import type { BidDetail, BidResultItem, MetaData, OpportunityScore } from '@/types'
@@ -87,6 +87,14 @@ export default function BidDetailPage() {
         <div className="flex items-center gap-2">
           <Button onClick={handleRecommend} size="sm" className="gap-1.5">
             <Sparkles className="h-4 w-4" /> AI 투찰률 추천
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => navigate(`/bids/${id}/final-recommend`)}
+          >
+            <Target className="h-4 w-4" /> 투찰가 분석
           </Button>
           {bid.ntce_url && (
             <Button variant="outline" size="sm" asChild>
