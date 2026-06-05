@@ -135,8 +135,29 @@ Authorization: Bearer {access_token}
 | GET | `/api/v1/stats/industries` | 공종별 통계 | 필요 |
 | GET | `/api/v1/stats/heatmap` | 발주처×공종 히트맵 | 필요 |
 | GET | `/api/v1/stats/srate-distribution` | 사정율 분포 히스토그램 | 필요 |
-| GET | `/api/v1/stats/srate-trend` | 발주처×공종 사정율 트렌드 (최근 3개월) | 필요 |
-| GET | `/api/v1/stats/top-srate-trends` | 사정율 급변 상위 3건 알림 | 필요 |
+| GET | `/api/v1/stats/srate-trend` | 발주처×공종 사정율 트렌드 (12개월 윈도우, 전반/후반 비교) | 필요 |
+| GET | `/api/v1/stats/top-srate-trends` | 사정율 급변 상위 3건 알림 (12개월 윈도우, delta 내림차순) | 필요 |
+
+#### `GET /api/v1/stats/top-srate-trends` 응답 예시
+
+```json
+[
+  {
+    "agency_id": 452,
+    "agency_name": "산림청 남부지방산림청 함양국유림관리소",
+    "direction": "up",
+    "delta": 0.1789,
+    "recent_mean": 1.0,
+    "prev_mean": 0.8211,
+    "sample_count": 3,
+    "signal": "최근 사정율 +17.89%p 상승 중 → 균형형 이상 추천"
+  }
+]
+```
+
+> **조회 로직**: `assessment_rate_stats`의 12개월 내 월별 집계를 시간 순 전반/후반으로 분할해 `delta = recent_mean - prev_mean` 계산.
+> `|delta| > 0.005`이면 `up`/`down`, 이하면 `stable` (stable은 목록 제외).
+
 
 ### 발주처 (Agencies)
 

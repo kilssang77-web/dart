@@ -198,3 +198,32 @@ def test_retry_on_timeout():
 | `tests/unit/test_gap_distribution.py` | 6 | DefeatAnalysisService 빈 이력·5건 이상·편향 방향 분류 |
 | `tests/unit/test_yega_pattern.py` | 6 | get_agency_yega_pattern C(15,4) 역산·발주처 없을 때 폴백 |
 | `tests/unit/test_joint_qual_service.py` | 5 | JointQualService 매칭 없음·1개 이상·적격 기준 계산 |
+---
+
+## DB 연동 테스트 주의사항
+
+### PostgreSQL TIMESTAMPTZ vs Python datetime
+
+PostgreSQL `TIMESTAMPTZ` 컬럼은 timezone-aware datetime을 반환한다.
+Python `datetime.now()`는 naive datetime이므로 SQLAlchemy 비교 시 오류 발생:
+
+```
+TypeError: can't compare offset-naive and offset-aware datetimes
+```
+
+**규칙**: `TIMESTAMPTZ` 컬럼(예: `bid_open_date`, `created_at`, `notice_date`)과 비교할 때는 반드시 `datetime.now(timezone.utc)` 사용.
+
+```python
+# 잘못된 코드 — runtime TypeError 발생
+from datetime import datetime, timedelta
+cutoff = datetime.now() - timedelta(days=7)
+db.query(Bid).filter(Bid.bid_open_date >= cutoff)  # TypeError!
+
+# 올바른 코드
+from datetime import datetime, timedelta, timezone
+cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+db.query(Bid).filter(Bid.bid_open_date >= cutoff)   # OK
+```
+
+> 영향 범위: `services.py`에서 DB 컬럼과 datetime을 비교하는 모든 쿼리.
+> 단위 테스트에서 DB 없이 mock 사용 시에도 datetime 인자는 timezone-aware로 전달할 것.
