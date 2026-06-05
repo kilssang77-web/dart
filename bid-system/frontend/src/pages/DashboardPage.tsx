@@ -6,11 +6,11 @@ import {
   Tooltip, ResponsiveContainer, ComposedChart, Area,
 } from 'recharts'
 import {
-  FileText, Users, TrendingUp, Activity, ArrowUp, ArrowDown,
+  FileText, Users, TrendingUp, TrendingDown, Activity, ArrowUp, ArrowDown,
   Trophy, Building2, Clock, Zap,
 } from 'lucide-react'
 import { statsApi, bidsApi } from '@/api'
-import type { OverviewStatsWithChange, Bid } from '@/types'
+import type { OverviewStatsWithChange, Bid, TopSrateTrend } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
@@ -82,6 +82,12 @@ export default function DashboardPage() {
     queryKey: ['recent-closed'],
     queryFn: () => bidsApi.list({ status: 'closed', sort_by: 'bid_open_date', size: 8 }),
     staleTime: 60_000,
+  })
+
+  const { data: topTrends } = useQuery<TopSrateTrend[]>({
+    queryKey: ['top-srate-trends'],
+    queryFn: () => statsApi.topSrateTrends(3),
+    staleTime: 300_000,
   })
 
   const trend = (overview?.monthly_trend ?? []).map((d) => ({
@@ -181,6 +187,48 @@ export default function DashboardPage() {
           </ResponsiveContainer>
         </CardContent>
       </Card>
+
+      {/* 사정율 트렌드 알림 */}
+      {topTrends && topTrends.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center gap-2">
+              <Activity className="h-4 w-4 text-orange-500" />
+              <CardTitle className="text-sm font-semibold">사정율 트렌드 알림</CardTitle>
+              <Badge variant="secondary" className="text-[10px] ml-auto">최근 3개월 기준</Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {topTrends.map((t) => (
+                <div
+                  key={t.agency_id}
+                  className={cn(
+                    'rounded-lg border p-3',
+                    t.direction === 'up'   ? 'border-red-200  bg-red-50'  :
+                    t.direction === 'down' ? 'border-blue-200 bg-blue-50' :
+                                            'border-slate-200 bg-slate-50',
+                  )}
+                >
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    {t.direction === 'up'   ? <TrendingUp   className="h-3.5 w-3.5 text-red-500  shrink-0" /> :
+                     t.direction === 'down' ? <TrendingDown className="h-3.5 w-3.5 text-blue-500 shrink-0" /> :
+                                              <ArrowUp      className="h-3.5 w-3.5 text-slate-400 shrink-0" />}
+                    <span className="text-xs font-semibold truncate">{t.agency_name}</span>
+                    <span className={cn(
+                      'ml-auto text-xs font-mono shrink-0',
+                      t.direction === 'up' ? 'text-red-600' : t.direction === 'down' ? 'text-blue-600' : 'text-slate-500',
+                    )}>
+                      {t.delta > 0 ? '+' : ''}{(t.delta * 100).toFixed(2)}%p
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-snug">{t.signal}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* 최근 낙찰현황 + 발주기관 TOP10 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

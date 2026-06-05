@@ -461,6 +461,22 @@ class MyBidRecordOut(BaseModel):
 
 
 # ?? ??? ?? ??????????????????????????
+# -- 사정율 트렌드 --------------------------------------------------
+
+class SrateTrendResponse(BaseModel):
+    direction: str               # "up" | "down" | "stable"
+    delta: float
+    recent_mean: float
+    prev_mean: Optional[float]
+    sample_count: int
+    signal: str
+
+
+class TopSrateTrend(SrateTrendResponse):
+    agency_id: int
+    agency_name: str
+
+
 class SrateDistributionBin(BaseModel):
     rate_pct: float
     count: int

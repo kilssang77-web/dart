@@ -1096,6 +1096,169 @@ class StatisticsService:
         }
 
 # ==================================================
+# 사정율 트렌드 서비스
+# ==================================================
+
+class SrateTrendService:
+    """발주처×공종 최근 3개월 vs 이전 3개월 사정율 트렌드 분석."""
+
+    THRESHOLD = 0.002  # ±0.2%p 이상이면 상승/하락
+
+    def get_trend(self, db: Session, agency_id: Optional[int], industry_id: Optional[int]) -> dict:
+        rows = self._from_assessment_stats(db, agency_id, industry_id)
+        if not rows:
+            rows = self._from_bid_results(db, agency_id, industry_id)
+        return self._build_result(rows, datetime.now())
+
+    def get_top_trends(self, db: Session, limit: int = 3) -> list:
+        sql_rows = db.execute(text("""
+            SELECT ars.group_id, a.name,
+                   ars.period_year, ars.period_month,
+                   ars.srate_mean::float, ars.sample_count
+            FROM assessment_rate_stats ars
+            JOIN agencies a ON a.id = ars.group_id
+            WHERE ars.group_type = 'agency' AND ars.period_month IS NOT NULL
+              AND make_date(ars.period_year::int, ars.period_month::int, 1) >= NOW() - INTERVAL '6 months'
+            ORDER BY ars.group_id, ars.period_year, ars.period_month
+        """)).fetchall()
+
+        agency_data: dict = {}
+        for r in sql_rows:
+            gid = r[0]
+            if gid not in agency_data:
+                agency_data[gid] = {"agency_id": gid, "agency_name": r[1], "rows": []}
+            agency_data[gid]["rows"].append({
+                "period_year": r[2], "period_month": r[3],
+                "srate_mean": r[4], "sample_count": r[5] or 0,
+            })
+
+        now = datetime.now()
+        results = []
+        for gid, info in agency_data.items():
+            trend = self._build_result(info["rows"], now)
+            if trend["direction"] != "stable":
+                results.append({"agency_id": gid, "agency_name": info["agency_name"], **trend})
+
+        results.sort(key=lambda x: abs(x["delta"]), reverse=True)
+        return results[:limit]
+
+    def _from_assessment_stats(self, db: Session, agency_id: Optional[int], industry_id: Optional[int]) -> list:
+        if agency_id:
+            group_type, gid = "agency", agency_id
+        elif industry_id:
+            group_type, gid = "industry", industry_id
+        else:
+            group_type, gid = "global", None
+
+        if gid is not None:
+            rows = db.execute(text("""
+                SELECT period_year, period_month, srate_mean::float, sample_count
+                FROM assessment_rate_stats
+                WHERE group_type = :gt AND group_id = :gid AND period_month IS NOT NULL
+                  AND make_date(period_year::int, period_month::int, 1) >= NOW() - INTERVAL '6 months'
+                ORDER BY period_year, period_month
+            """), {"gt": group_type, "gid": gid}).fetchall()
+        else:
+            rows = db.execute(text("""
+                SELECT period_year, period_month, srate_mean::float, sample_count
+                FROM assessment_rate_stats
+                WHERE group_type = 'global' AND period_month IS NOT NULL
+                  AND make_date(period_year::int, period_month::int, 1) >= NOW() - INTERVAL '6 months'
+                ORDER BY period_year, period_month
+            """)).fetchall()
+
+        return [
+            {"period_year": r[0], "period_month": r[1], "srate_mean": r[2], "sample_count": r[3] or 0}
+            for r in rows
+        ]
+
+    def _from_bid_results(self, db: Session, agency_id: Optional[int], industry_id: Optional[int]) -> list:
+        rows = db.execute(text("""
+            SELECT
+                EXTRACT(YEAR FROM b.bid_open_date)::int,
+                EXTRACT(MONTH FROM b.bid_open_date)::int,
+                AVG(r.assessment_rate)::float,
+                COUNT(*)::int
+            FROM bid_results r
+            JOIN bids b ON b.id = r.bid_id
+            WHERE r.assessment_rate IS NOT NULL
+              AND b.bid_open_date >= NOW() - INTERVAL '6 months'
+              AND (:agency_id IS NULL OR b.agency_id = :agency_id)
+              AND (:industry_id IS NULL OR b.industry_id = :industry_id)
+            GROUP BY 1, 2
+            ORDER BY 1, 2
+        """), {"agency_id": agency_id, "industry_id": industry_id}).fetchall()
+        return [
+            {"period_year": r[0], "period_month": r[1], "srate_mean": r[2], "sample_count": r[3]}
+            for r in rows
+        ]
+
+    def _build_result(self, rows: list, now: datetime) -> dict:
+        if not rows:
+            return {
+                "direction": "stable", "delta": 0.0,
+                "recent_mean": 0.0, "prev_mean": None,
+                "sample_count": 0, "signal": "데이터 부족으로 트렌드 분석 불가",
+            }
+
+        recent, prev = [], []
+        for row in rows:
+            months_ago = (now.year - row["period_year"]) * 12 + (now.month - row["period_month"])
+            if months_ago < 3:
+                recent.append(row)
+            elif months_ago < 6:
+                prev.append(row)
+
+        if not recent:
+            return {
+                "direction": "stable", "delta": 0.0,
+                "recent_mean": 0.0, "prev_mean": None,
+                "sample_count": 0, "signal": "최근 데이터 없음",
+            }
+
+        total_recent = sum(r["sample_count"] for r in recent)
+        if total_recent > 0:
+            recent_mean = sum(r["srate_mean"] * r["sample_count"] for r in recent) / total_recent
+        else:
+            recent_mean = sum(r["srate_mean"] for r in recent) / len(recent)
+        sample_count = total_recent or len(recent)
+
+        if not prev:
+            return {
+                "direction": "stable", "delta": 0.0,
+                "recent_mean": round(recent_mean, 4), "prev_mean": None,
+                "sample_count": sample_count, "signal": "이전 기간 데이터 부족",
+            }
+
+        total_prev = sum(r["sample_count"] for r in prev)
+        if total_prev > 0:
+            prev_mean = sum(r["srate_mean"] * r["sample_count"] for r in prev) / total_prev
+        else:
+            prev_mean = sum(r["srate_mean"] for r in prev) / len(prev)
+
+        delta = recent_mean - prev_mean
+
+        if delta > self.THRESHOLD:
+            direction = "up"
+            signal = f"최근 3개월 사정율 +{delta*100:.2f}%p 상승 중 → 균형형 이상 추천"
+        elif delta < -self.THRESHOLD:
+            direction = "down"
+            signal = f"최근 3개월 사정율 {delta*100:.2f}%p 하락 중 → 안정형 또는 낮게 입찰 추천"
+        else:
+            direction = "stable"
+            signal = f"사정율 변화 미미 ({delta*100:+.2f}%p) → 균형형 전략 유지"
+
+        return {
+            "direction": direction,
+            "delta": round(delta, 6),
+            "recent_mean": round(recent_mean, 4),
+            "prev_mean": round(prev_mean, 4),
+            "sample_count": sample_count,
+            "signal": signal,
+        }
+
+
+# ==================================================
 # 하이브리드 추천 서비스 (v2)
 # ==================================================
 

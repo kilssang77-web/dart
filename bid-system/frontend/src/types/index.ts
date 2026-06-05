@@ -539,6 +539,22 @@ export interface PersonalCorrection {
   narrative:         string
 }
 
+// ── 사정율 트렌드 ─────────────────────────────────────────
+
+export interface SrateTrendResponse {
+  direction: 'up' | 'down' | 'stable'
+  delta: number
+  recent_mean: number
+  prev_mean: number | null
+  sample_count: number
+  signal: string
+}
+
+export interface TopSrateTrend extends SrateTrendResponse {
+  agency_id: number
+  agency_name: string
+}
+
 // ── A값·낙찰하한가 ─────────────────────────────────────────
 
 export interface BidRangeResponse {

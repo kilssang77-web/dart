@@ -6,7 +6,7 @@ import {
   Clock, Search, BookmarkCheck,
 } from 'lucide-react'
 import { bidsApi, recommendApi, statsApi, myBidsApi } from '@/api'
-import type { RecommendV2Result, BidDetail, BidRangeResponse } from '@/types'
+import type { RecommendV2Result, BidDetail, BidRangeResponse, SrateTrendResponse } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -141,6 +141,16 @@ export default function RecommendPage() {
     setAgencySearch(name)
     setShowAgencyList(false)
   }
+
+  // 사정율 트렌드
+  const trendAgencyId  = Number(form.agency_id)   > 0 ? Number(form.agency_id)   : undefined
+  const trendIndustryId = Number(form.industry_id) > 0 ? Number(form.industry_id) : undefined
+  const { data: srateTrend } = useQuery<SrateTrendResponse>({
+    queryKey: ['srate-trend', trendAgencyId, trendIndustryId],
+    queryFn: () => statsApi.srateTrend(trendAgencyId, trendIndustryId),
+    enabled: !!(trendAgencyId || trendIndustryId),
+    staleTime: 60_000,
+  })
 
   // 사정율 분포 (Top 10 구간 추천용)
   const { data: srateDist } = useQuery({
@@ -454,6 +464,22 @@ export default function RecommendPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* ── 사정율 트렌드 알림 ── */}
+      {srateTrend && srateTrend.sample_count > 0 && (
+        <div className={cn(
+          'flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm',
+          srateTrend.direction === 'up'   ? 'border-red-200  bg-red-50  text-red-700'  :
+          srateTrend.direction === 'down' ? 'border-blue-200 bg-blue-50 text-blue-700' :
+                                            'border-slate-200 bg-slate-50 text-slate-600',
+        )}>
+          {srateTrend.direction === 'up'   ? <TrendingUp   className="h-4 w-4 shrink-0" /> :
+           srateTrend.direction === 'down' ? <TrendingDown className="h-4 w-4 shrink-0" /> :
+                                             <Minus        className="h-4 w-4 shrink-0" />}
+          <span>{srateTrend.signal}</span>
+          <span className="ml-auto text-xs opacity-70 shrink-0">표본 {srateTrend.sample_count.toLocaleString()}건</span>
+        </div>
+      )}
 
       {/* ── A값 계산 카드 (기초금액 입력 시 실시간 표시) ── */}
       {bidRange && (

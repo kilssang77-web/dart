@@ -1,5 +1,5 @@
 ﻿import { api } from './client'
-import type { MetaData, RecommendResult, Competitor, WatchKeyword, SystemStatus, AdminUser, RegionStat, IndustryStat, ClusterResult, ModelInfo, IndustryFilterItem, MyBidAnalysis, OverviewStatsWithChange, CollectionLogOut, BidRangeResponse } from '../types'
+import type { MetaData, RecommendResult, Competitor, WatchKeyword, SystemStatus, AdminUser, RegionStat, IndustryStat, ClusterResult, ModelInfo, IndustryFilterItem, MyBidAnalysis, OverviewStatsWithChange, CollectionLogOut, BidRangeResponse, SrateTrendResponse, TopSrateTrend } from '../types'
 
 type KeywordUpdateBody = Partial<Pick<WatchKeyword, 'keyword' | 'kw_type' | 'is_active' | 'note'>>
 
@@ -109,6 +109,10 @@ export const statsApi = {
     api.get('/stats/cluster', { params }).then((r) => r.data),
   modelInfo: (months = 12): Promise<ModelInfo> =>
     api.get('/stats/model-info', { params: { months } }).then((r) => r.data),
+  srateTrend: (agencyId?: number, industryId?: number): Promise<SrateTrendResponse> =>
+    api.get('/stats/srate-trend', { params: { agency_id: agencyId, industry_id: industryId } }).then((r) => r.data),
+  topSrateTrends: (limit = 3): Promise<TopSrateTrend[]> =>
+    api.get('/stats/top-srate-trends', { params: { limit } }).then((r) => r.data),
 }
 
 // -- 키워드 --------------------------------------------------
