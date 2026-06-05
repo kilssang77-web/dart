@@ -7,10 +7,10 @@ import {
 } from 'recharts'
 import {
   FileText, Users, TrendingUp, TrendingDown, Activity, ArrowUp, ArrowDown,
-  Trophy, Building2, Clock, Zap,
+  Trophy, Building2, Clock, Zap, Star, Info,
 } from 'lucide-react'
 import { statsApi, bidsApi } from '@/api'
-import type { OverviewStatsWithChange, Bid, TopSrateTrend } from '@/types'
+import type { OverviewStatsWithChange, Bid, TopSrateTrend, BidRecommendItem } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
@@ -52,6 +52,40 @@ function ChangeBadge({ value, higherIsBetter }: { value: number | null | undefin
   )
 }
 
+const GRADE_STYLE: Record<string, string> = {
+  A: 'bg-green-100 text-green-700 border-green-300',
+  B: 'bg-blue-100 text-blue-700 border-blue-300',
+  C: 'bg-yellow-100 text-yellow-700 border-yellow-300',
+  D: 'bg-gray-100 text-gray-500 border-gray-300',
+}
+
+function GradeBadge({ grade }: { grade: string | null }) {
+  if (!grade) return null
+  return (
+    <span className={cn('inline-flex items-center justify-center w-6 h-6 rounded text-[11px] font-bold border shrink-0', GRADE_STYLE[grade] ?? GRADE_STYLE.D)}>
+      {grade}
+    </span>
+  )
+}
+
+function scoreBarColor(score: number | null) {
+  if (!score) return 'bg-gray-300'
+  if (score >= 75) return 'bg-green-500'
+  if (score >= 55) return 'bg-blue-500'
+  if (score >= 35) return 'bg-yellow-500'
+  return 'bg-gray-400'
+}
+
+function breakdownTooltip(b: BidRecommendItem['score_breakdown']): string {
+  if (!b) return ''
+  return [
+    `경쟁강도: ${b.competition.pts}/${b.competition.max}pt — ${b.competition.note}`,
+    `발주처이력: ${b.personal_track.pts}/${b.personal_track.max}pt — ${b.personal_track.note}`,
+    `시장추세: ${b.market_trend.pts}/${b.market_trend.max}pt — ${b.market_trend.note}`,
+    `금액적합: ${b.amount_fit.pts}/${b.amount_fit.max}pt — ${b.amount_fit.note}`,
+  ].join('\n')
+}
+
 function fmtAmt(n: number) {
   if (n >= 1e12) return (n / 1e12).toFixed(1) + '조'
   if (n >= 1e8)  return (n / 1e8).toFixed(0) + '억'
@@ -87,6 +121,12 @@ export default function DashboardPage() {
   const { data: topTrends } = useQuery<TopSrateTrend[]>({
     queryKey: ['top-srate-trends'],
     queryFn: () => statsApi.topSrateTrends(3),
+    staleTime: 300_000,
+  })
+
+  const { data: recommendedBids, isLoading: isLoadingRecommended } = useQuery<BidRecommendItem[]>({
+    queryKey: ['recommended-bids'],
+    queryFn: () => bidsApi.recommended(5),
     staleTime: 300_000,
   })
 
@@ -158,6 +198,70 @@ export default function DashboardPage() {
           )
         })}
       </div>
+
+      {/* 이번 주 추천 공고 */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center gap-2">
+            <Star className="h-4 w-4 text-yellow-500" />
+            <CardTitle className="text-sm font-semibold">이번 주 추천 공고</CardTitle>
+            <Badge variant="secondary" className="text-[10px] ml-auto">개찰 7일 이내 · AI 점수 순</Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {isLoadingRecommended ? (
+            <div className="p-4 space-y-2">
+              {[0, 1, 2].map((i) => <Skeleton key={i} className="h-14 w-full" />)}
+            </div>
+          ) : recommendedBids && recommendedBids.length > 0 ? (
+            <div className="divide-y">
+              {recommendedBids.map((b) => (
+                <div
+                  key={b.bid_id}
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-accent cursor-pointer transition-colors"
+                  onClick={() => navigate(`/bids/${b.bid_id}`)}
+                >
+                  <GradeBadge grade={b.grade} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{b.title}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <Building2 className="h-3 w-3 text-muted-foreground shrink-0" />
+                      <span className="text-xs text-muted-foreground truncate">{b.agency_name}</span>
+                      {b.open_date && (
+                        <span className="text-[10px] text-muted-foreground shrink-0">
+                          · {new Date(b.open_date).toLocaleDateString('ko-KR')}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-1.5">
+                      <div className="flex-1 bg-muted rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className={cn('h-1.5 rounded-full transition-all', scoreBarColor(b.score))}
+                          style={{ width: `${b.score ?? 0}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] font-mono text-muted-foreground shrink-0 w-8 text-right">
+                        {b.score?.toFixed(0) ?? '-'}점
+                      </span>
+                      {b.score_breakdown && (
+                        <Info
+                          className="h-3 w-3 text-muted-foreground shrink-0 cursor-help"
+                          title={breakdownTooltip(b.score_breakdown)}
+                        />
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-[10px] text-muted-foreground">{fmtAmt(b.base_amount)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-center text-muted-foreground text-sm py-8">이번 주 개찰 예정 공고가 없습니다</p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* 월별 추이 */}
       <Card>

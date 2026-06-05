@@ -5,7 +5,7 @@ from datetime import date
 
 from ...database import get_db
 from ...models import User, Agency, Industry, Region
-from ...schemas import BidCreate, BidResultCreate, BookmarkResponse, OpportunityScoreResponse
+from ...schemas import BidCreate, BidResultCreate, BookmarkResponse, OpportunityScoreResponse, BidRecommendItem
 from ...services import BidService, BookmarkService, get_active_industry_ids, OpportunityScoreService
 from ...common.security import get_current_user
 
@@ -56,6 +56,15 @@ def get_meta(db: Session = Depends(get_db), _: User = Depends(get_current_user))
 def keyword_matches(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     """활성 키워드별 매칭 공고 수 + 최근 공고 반환."""
     return svc.get_keyword_matches(db)
+
+
+@router.get("/recommended", response_model=list[BidRecommendItem])
+def recommended_bids(
+    limit: int = Query(5, ge=1, le=20),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return OpportunityScoreService(db).get_top_recommended(user.id, limit)
 
 
 @router.get("/{bid_id}")

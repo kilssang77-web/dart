@@ -718,3 +718,13 @@ class OpportunityScoreResponse(BaseModel):
     recommendation: Optional[str]   = None
     error:          Optional[str]   = None
 
+class BidRecommendItem(BaseModel):
+    bid_id:          int
+    title:           str
+    agency_name:     str
+    score:           Optional[float]
+    grade:           Optional[str]
+    open_date:       Optional[str]
+    base_amount:     int
+    score_breakdown: Optional[dict]
+

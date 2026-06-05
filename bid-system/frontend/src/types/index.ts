@@ -541,6 +541,24 @@ export interface OpportunityScore {
   error?:         string
 }
 
+// ── 공고 자동 추천 타입 ──────────────────────────────────
+
+export interface BidRecommendItem {
+  bid_id:          number
+  title:           string
+  agency_name:     string
+  score:           number | null
+  grade:           'A' | 'B' | 'C' | 'D' | null
+  open_date:       string | null
+  base_amount:     number
+  score_breakdown: {
+    competition:    ScoreComponent
+    personal_track: ScoreComponent
+    market_trend:   ScoreComponent
+    amount_fit:     ScoreComponent
+  } | null
+}
+
 // ── RecommendV2 개인화 보정 타입 ────────────────────────
 
 export interface PersonalCorrection {

@@ -2287,6 +2287,44 @@ class OpportunityScoreService:
             "recommendation": self._grade_message(grade, comp_score, agency_score),
         }
 
+    def get_top_recommended(self, user_id: int, limit: int = 5) -> list:
+        """7일 이내 개찰 예정 open 공고 중 점수 상위 limit개 반환."""
+        now = datetime.now()
+        cutoff = now + timedelta(days=7)
+
+        q = self.db.query(Bid).filter(
+            Bid.status == "open",
+            Bid.bid_open_date >= now,
+            Bid.bid_open_date <= cutoff,
+        )
+
+        active_ids = get_active_industry_ids(self.db)
+        if active_ids is not None:
+            if not active_ids:
+                return []
+            q = q.filter(Bid.industry_id.in_(active_ids))
+
+        bids = q.all()
+
+        results = []
+        for bid in bids:
+            scored = self.score(bid.id, user_id)
+            if scored.get("error"):
+                continue
+            results.append({
+                "bid_id": bid.id,
+                "title": bid.title,
+                "agency_name": bid.agency.name if bid.agency else "",
+                "score": scored["score"],
+                "grade": scored["grade"],
+                "open_date": bid.bid_open_date.isoformat() if bid.bid_open_date else None,
+                "base_amount": bid.base_amount,
+                "score_breakdown": scored["breakdown"],
+            })
+
+        results.sort(key=lambda x: (x["score"] or 0), reverse=True)
+        return results[:limit]
+
     def _competition_score(self, bid: "Bid") -> dict:
         # 최근 해당 발주처 + 업종 낙찰 데이터로 경쟁강도 추정
         cutoff = datetime.now() - timedelta(days=180)
