@@ -39,7 +39,7 @@
       "file": "step4.md",
       "status": "completed",
       "started_at": "2026-06-05T21:37:55+0900",
-      "completed_at": "2026-06-05T22:10:00+0900",
+      "completed_at": "2026-06-05T21:46:08+0900",
       "summary": "CompetitorZoneService(get_recent_zones·0.005버킷·peak_zone), GET /competitors/{id}/zones, CompetitorZoneItem·CompetitorZoneResponse 스키마/타입, competitorsApi.zones, CompetitorPage 투찰구간 탭(BarChart·피크주황강조·회피추천뱃지·90일/180일 토글), 테스트 5건 전통과"
     },
     {
