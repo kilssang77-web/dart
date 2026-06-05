@@ -6,7 +6,7 @@ import math
 import logging
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func, and_, or_, desc
@@ -2373,7 +2373,7 @@ class OpportunityScoreService:
 
     def get_top_recommended(self, user_id: int, limit: int = 5) -> list:
         """7일 이내 개찰 예정 open 공고 중 점수 상위 limit개 반환."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         cutoff = now + timedelta(days=7)
 
         q = self.db.query(Bid).filter(
@@ -2411,7 +2411,7 @@ class OpportunityScoreService:
 
     def _competition_score(self, bid: "Bid") -> dict:
         # 최근 해당 발주처 + 업종 낙찰 데이터로 경쟁강도 추정
-        cutoff = datetime.now() - timedelta(days=180)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=180)
         rows = self.db.execute(text("""
             SELECT COUNT(r.id) as comp_count
             FROM bids b
@@ -2462,8 +2462,8 @@ class OpportunityScoreService:
         return {"pts": round(min(30.0, pts), 1), "max": 30, "note": note}
 
     def _trend_score(self, bid: "Bid") -> dict:
-        cutoff = datetime.now() - timedelta(days=60)
-        prev   = datetime.now() - timedelta(days=120)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=60)
+        prev   = datetime.now(timezone.utc) - timedelta(days=120)
         rows = self.db.execute(text("""
             SELECT b.bid_open_date, r.bid_rate
             FROM bids b
@@ -2701,18 +2701,17 @@ class JointQualService:
         )
 
         rows = (
-            self.db.query(Competitor, stats_subq)
+            self.db.query(Competitor, stats_subq.c.total_bids, stats_subq.c.win_count, stats_subq.c.avg_rate)
             .outerjoin(stats_subq, Competitor.id == stats_subq.c.competitor_id)
             .limit(500)
             .all()
         )
 
         partners = []
-        for competitor, stats_row in rows:
-            total_bids = int(stats_row.total_bids or 0) if stats_row else 0
-            win_count  = int(stats_row.win_count  or 0) if stats_row else 0
-            avg_rate   = float(stats_row.avg_rate or 0) if stats_row else 0.0
-
+        for competitor, _tb, _wc, _ar in rows:
+            total_bids = int(_tb or 0) if _tb is not None else 0
+            win_count  = int(_wc or 0) if _wc is not None else 0
+            avg_rate   = float(_ar or 0) if _ar is not None else 0.0
             win_rate = win_count / total_bids if total_bids > 0 else 0.0
 
             # 적격심사 통과 예상: 낙찰 이력 존재 + 최소 입찰 건수 기준

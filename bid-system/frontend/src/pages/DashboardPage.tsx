@@ -1,4 +1,4 @@
-import React from 'react'
+﻿import React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -244,10 +244,9 @@ export default function DashboardPage() {
                         {b.score?.toFixed(0) ?? '-'}점
                       </span>
                       {b.score_breakdown && (
-                        <Info
-                          className="h-3 w-3 text-muted-foreground shrink-0 cursor-help"
-                          title={breakdownTooltip(b.score_breakdown)}
-                        />
+                        <span title={breakdownTooltip(b.score_breakdown)} className="inline-flex shrink-0">
+                          <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                        </span>
                       )}
                     </div>
                   </div>
