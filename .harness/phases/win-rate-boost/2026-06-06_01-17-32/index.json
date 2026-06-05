@@ -12,7 +12,8 @@
       "name": "수집기 현황 개선 + 투찰이력 빠른입력 폼",
       "status": "completed",
       "summary": "GET /admin/collector-status(today_notices/today_results/last_run_at/next_run_at), GET /bids/search(공고번호 자동완성), MyBidRecordCreate에 announcement_no·actual_winner_rate·result 추가 및 rate_diff 자동계산, AdminPage 수집기 카드 4필드 표시, MyBidsPage 공고번호 자동완성+결과·낙찰자사정율·rate_diff 실시간표시 모달 구현",
-      "started_at": "2026-06-06T01:22:30+0900"
+      "started_at": "2026-06-06T01:22:30+0900",
+      "completed_at": "2026-06-06T01:30:25+0900"
     },
     {
       "step": 2,
