@@ -62,6 +62,22 @@ class BatchScanner:
     # 진입점
     # ─────────────────────────────────────────────────────────────
 
+    async def _fetch_today_detections(self, today: date) -> set[tuple[str, str]]:
+        """detector가 오늘 이미 기록한 (code, event_type) 집합 — 배치 중복 방지용."""
+        try:
+            rows = await self.db.fetch(
+                """
+                SELECT DISTINCT code, event_type
+                FROM feature_events
+                WHERE detected_at::date = $1
+                """,
+                today,
+            )
+            return {(r["code"], r["event_type"]) for r in rows}
+        except Exception as e:
+            logger.debug(f"[BatchScan] fetch today detections error: {e}")
+            return set()
+
     async def run(self, all_codes: list[str]) -> list[dict]:
         today = date.today()
         logger.info(f"[BatchScan] Start — {len(all_codes)} stocks, date={today}")
@@ -75,23 +91,30 @@ class BatchScanner:
         live_codes = list(today_map.keys())
         logger.info(f"[BatchScan] {len(live_codes)} stocks have today bars")
 
-        # 2. 신고가 기준 이전 고가 (DB 단일 쿼리)
+        # 2. 이미 탐지된 (code, event_type) 집합 로드 — detector 중복 방지
+        already_detected = await self._fetch_today_detections(today)
+        if already_detected:
+            logger.info(f"[BatchScan] Skipping {len(already_detected)} already-detected signals")
+
+        # 3. 신고가 기준 이전 고가 (DB 단일 쿼리)
         highs_map = await self._fetch_breakout_highs(live_codes, today)
 
-        # 3. 거래량·수급 평균 (Redis 파이프라인)
+        # 4. 거래량·수급 평균 (Redis 파이프라인)
         avgs_map = await self._fetch_redis_avgs(live_codes)
 
-        # 4. 시그널 판정
+        # 5. 시그널 판정 (detector 중복 제외)
         events: list[dict] = []
         for code in live_codes:
             bar   = today_map[code]
             highs = highs_map.get(code, {})
             avgs  = avgs_map.get(code, {})
-            events.extend(self._detect(code, bar, highs, avgs))
+            for ev in self._detect(code, bar, highs, avgs):
+                if (ev["code"], ev["event_type"]) not in already_detected:
+                    events.append(ev)
 
-        logger.info(f"[BatchScan] Detected {len(events)} signals")
+        logger.info(f"[BatchScan] Detected {len(events)} new signals (deduped)")
 
-        # 5. DB 저장 + Kafka 발행
+        # 6. DB 저장 + Kafka 발행
         if events:
             await self._write_events(events)
             for ev in events:
@@ -100,7 +123,7 @@ class BatchScanner:
                 except Exception as e:
                     logger.debug(f"[BatchScan] Kafka send error {ev['code']}: {e}")
 
-        # 6. active_codes 갱신
+        # 7. active_codes 갱신
         await self._update_active_codes(events)
 
         return events

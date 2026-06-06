@@ -33,6 +33,7 @@ async def list_disclosures(
     if flagged is True:
         where.append("d.is_flagged = TRUE")
 
+    params.append(limit)
     rows = await db.fetch(
         f"""
         SELECT
@@ -46,7 +47,7 @@ async def list_disclosures(
         LEFT JOIN stocks s ON s.code = d.code
         WHERE {' AND '.join(where)}
         ORDER BY d.disclosed_at DESC
-        LIMIT {limit}
+        LIMIT ${len(params)}
         """,
         *params,
     )

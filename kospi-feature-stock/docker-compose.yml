@@ -146,6 +146,7 @@ services:
       SERVICE_NAME: collector
     volumes:
       - ./services/collector:/app
+      - ./scripts:/scripts
     restart: unless-stopped
     logging:
       driver: json-file
@@ -203,9 +204,13 @@ services:
     env_file: .env
     environment:
       SERVICE_NAME: ml
+      ML_API_PORT: "8001"
+    ports:
+      - "8001:8001"
     volumes:
       - ./services/ml:/app
       - model_cache:/models
+      - ./scripts:/scripts
     restart: unless-stopped
 
   recommender:
@@ -220,7 +225,11 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      ml:
+        condition: service_started
     env_file: .env
+    environment:
+      ML_SERVICE_URL: "http://ml:8001"
     volumes:
       - ./services/recommender:/app
       - model_cache:/models

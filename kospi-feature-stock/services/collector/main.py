@@ -124,6 +124,8 @@ class StockCollector:
 
         # 전체 종목 과거 일봉 백필 (시작 시 1회)
         asyncio.create_task(self._backfill_daily_bars(all_codes))
+        # 최근 5 영업일 수급 데이터 백필 (시작 시 1회)
+        asyncio.create_task(self._backfill_supply_demand(active_codes))
 
         await asyncio.gather(
             self._tick_loop(active_codes),
@@ -131,6 +133,7 @@ class StockCollector:
             self._dynamic_tick_loop(),
             self._minute_bar_loop(active_codes),
             self._supply_demand_loop(active_codes),
+            self._supply_demand_eod_loop(all_codes),  # 장 마감 후 전체 종목 확정 수급
             self._daily_bar_loop(all_codes),          # 전체 종목 일봉
             self._batch_scan_loop(all_codes),          # 전체 종목 배치 탐지
             self._news_loop(active_codes),
@@ -246,23 +249,63 @@ class StockCollector:
                 await asyncio.sleep(0.15)
             await asyncio.sleep(MINUTE_INTERVAL)
 
-    # ── 수급 수집 (REST, 30분) ───────────────────────────────
+    # ── 수급 수집 (REST, 30분, 장중) ────────────────────────
     async def _supply_demand_loop(self, codes: list[str]):
         while True:
             if not is_market_open():
                 await asyncio.sleep(300)
                 continue
             today = datetime.now().strftime("%Y%m%d")
+            success, empty, fail = 0, 0, 0
             for code in codes:
                 try:
                     sd = await self.rest.get_supply_demand(code, today)
                     if sd:
                         await self.kafka.send("supply-demand", sd, key=code)
                         await write_supply_demand(self.db, sd)
+                        success += 1
+                    else:
+                        empty += 1
                 except Exception as e:
-                    logger.error(f"SD {code}: {e}")
+                    logger.warning(f"[SD] {code}: {e}")
+                    fail += 1
                 await asyncio.sleep(0.2)
+            logger.info(f"[SD] Cycle done: success={success}, empty={empty}, error={fail}")
             await asyncio.sleep(SUPPLY_INTERVAL)
+
+    # ── 수급 수집 (EOD, 장 마감 후 전체 종목) ───────────────
+    async def _supply_demand_eod_loop(self, all_codes: list[str]):
+        """장 마감 후 전체 종목 확정 수급 1회 수집 (active_codes 외 종목 포함)."""
+        last_run_date: str = ""
+        while True:
+            await asyncio.sleep(60)
+            if not is_after_close():
+                continue
+            today = datetime.now(_KST).strftime("%Y%m%d")
+            if last_run_date == today:
+                continue
+            # 일봉 수집 완료 후 실행 (최대 1시간 대기)
+            try:
+                await asyncio.wait_for(asyncio.shield(self._daily_bars_done.wait()), timeout=3600)
+            except asyncio.TimeoutError:
+                logger.warning("[SD-EOD] Timed out waiting for daily bars — proceeding anyway")
+
+            last_run_date = today
+            logger.info(f"[SD-EOD] Starting EOD supply_demand for {len(all_codes)} stocks")
+            success, empty, fail = 0, 0, 0
+            for code in all_codes:
+                try:
+                    sd = await self.rest.get_supply_demand(code, today)
+                    if sd:
+                        await write_supply_demand(self.db, sd)
+                        success += 1
+                    else:
+                        empty += 1
+                except Exception as e:
+                    logger.warning(f"[SD-EOD] {code}: {e}")
+                    fail += 1
+                await asyncio.sleep(0.3)
+            logger.info(f"[SD-EOD] Done: success={success}, empty={empty}, error={fail}")
 
     # ── 일봉 수집 (장 마감 후 1회, 전체 종목) ──────────────
     async def _daily_bar_loop(self, codes: list[str]):
@@ -287,12 +330,71 @@ class StockCollector:
                 await asyncio.sleep(0.3)
 
             logger.info(f"[DailyBar] Written {total} rows for {len(codes)} stocks")
+
+            # KOSPI/KOSDAQ 지수 일봉 수집
+            for mkt_code in ["0001", "1001"]:
+                try:
+                    idx_bars = await self.rest.get_index_bars(mkt_code, start, today)
+                    if idx_bars:
+                        n = await write_daily_bars(self.db, idx_bars)
+                        logger.info(f"[DailyBar] Index {mkt_code}: {n} rows")
+                except Exception as e:
+                    logger.error(f"[DailyBar] Index {mkt_code}: {e}")
+
             last_run_date = today
 
             # Redis 통계 갱신 후 배치 탐지에 신호
             await self._update_redis_stats(codes)
             self._daily_bars_done.set()
             logger.info("[DailyBar] stats updated — batch scan signal sent")
+
+    async def _backfill_supply_demand(self, codes: list[str]):
+        """시작 시 최근 5 영업일 수급 데이터 백필 (누락된 날짜만 대상)."""
+        await asyncio.sleep(30)
+        from datetime import date as date_cls
+        today = datetime.now(_KST).date()
+        # 최근 10 달력일에서 평일만 추출 → 최대 5 영업일
+        biz_days: list[str] = []
+        for offset in range(1, 11):
+            d = today - timedelta(days=offset)
+            if d.weekday() < 5:
+                biz_days.append(d.strftime("%Y%m%d"))
+            if len(biz_days) >= 5:
+                break
+
+        try:
+            async with self.db.acquire() as conn:
+                existing = await conn.fetch(
+                    "SELECT DISTINCT code, date::text AS date FROM supply_demand "
+                    "WHERE code = ANY($1::text[]) AND date >= $2",
+                    codes, today - timedelta(days=10),
+                )
+            existing_set = {(r["code"], r["date"][:10].replace("-", "")) for r in existing}
+        except Exception as e:
+            logger.error(f"[SD-Backfill] check error: {e}")
+            return
+
+        missing = [(c, d) for c in codes for d in biz_days if (c, d) not in existing_set]
+        if not missing:
+            logger.info("[SD-Backfill] All recent supply_demand data present")
+            return
+
+        logger.info(f"[SD-Backfill] Backfilling {len(missing)} (code, date) combinations")
+        success, empty, fail = 0, 0, 0
+        for code, date_str in missing:
+            try:
+                sd = await self.rest.get_supply_demand(code, date_str)
+                if sd:
+                    await write_supply_demand(self.db, sd)
+                    success += 1
+                else:
+                    empty += 1
+            except Exception as e:
+                logger.debug(f"[SD-Backfill] {code}/{date_str}: {e}")
+                fail += 1
+            await asyncio.sleep(0.3)
+
+        logger.info(f"[SD-Backfill] Done: success={success}, empty={empty}, error={fail}")
 
     async def _backfill_daily_bars(self, codes: list[str]):
         """시작 시 과거 {BACKFILL_DAYS}일 일봉 백필.
@@ -337,6 +439,23 @@ class StockCollector:
                 logger.info(f"[Backfill] Progress {i+1}/{len(to_backfill)}, {total} rows so far")
 
         logger.info(f"[Backfill] Complete — {total} rows for {len(to_backfill)} stocks")
+
+        # KOSPI/KOSDAQ 지수 백필
+        for mkt_code in ["0001", "1001"]:
+            try:
+                idx_rows = await self.db.fetch(
+                    "SELECT COUNT(*) AS cnt FROM daily_bars WHERE code=$1", mkt_code
+                )
+                if idx_rows and idx_rows[0]["cnt"] > 0:
+                    logger.info(f"[Backfill] Index {mkt_code} already has data, skipping")
+                    continue
+                idx_bars = await self.rest.get_index_bars(mkt_code, start, end)
+                if idx_bars:
+                    n = await write_daily_bars(self.db, idx_bars)
+                    logger.info(f"[Backfill] Index {mkt_code}: {n} rows")
+            except Exception as e:
+                logger.error(f"[Backfill] Index {mkt_code}: {e}")
+
         await self._update_redis_stats(codes)
 
     # ── 배치 탐지 루프 (전체 종목, 장 마감 후 1회) ───────────

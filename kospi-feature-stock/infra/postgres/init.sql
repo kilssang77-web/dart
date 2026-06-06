@@ -179,7 +179,7 @@ CREATE TABLE IF NOT EXISTS disclosures (
     post_1h_change  DECIMAL(7,2),
     post_1d_change  DECIMAL(7,2),
     post_3d_change  DECIMAL(7,2),
-    embedding       vector(384),
+    embedding       vector(768),
     raw_json        JSONB,
     is_flagged      BOOLEAN DEFAULT FALSE,
     created_at      TIMESTAMPTZ DEFAULT NOW()
@@ -223,7 +223,7 @@ CREATE TABLE IF NOT EXISTS news (
     sentiment_score DECIMAL(5,3),
     keywords        JSONB DEFAULT '[]'::JSONB,
     themes          JSONB DEFAULT '[]'::JSONB,
-    embedding       vector(384),
+    embedding       vector(768),
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 

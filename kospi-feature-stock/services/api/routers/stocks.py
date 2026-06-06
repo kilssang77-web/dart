@@ -30,9 +30,10 @@ async def list_stocks(
         p_code = len(params)
         where.append(f"(name ILIKE ${p_name} OR code ILIKE ${p_code})")
 
+    params.append(limit)
     rows = await db.fetch(
         f"SELECT code, name, market, sector, industry FROM stocks "
-        f"WHERE {' AND '.join(where)} ORDER BY market, code LIMIT {limit}",
+        f"WHERE {' AND '.join(where)} ORDER BY market, code LIMIT ${len(params)}",
         *params,
     )
     return [dict(r) for r in rows]

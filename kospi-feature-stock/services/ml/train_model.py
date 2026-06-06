@@ -13,7 +13,7 @@ import numpy as np
 from datetime import date as date_type
 from pathlib import Path
 from sklearn.model_selection import TimeSeriesSplit
-from sklearn.metrics import roc_auc_score, classification_report
+from sklearn.metrics import roc_auc_score, classification_report, brier_score_loss
 
 sys.path.insert(0, "/app")
 from features.technical import TechnicalFeatureExtractor
@@ -125,14 +125,18 @@ async def main(args):
     Path(model_dir).mkdir(parents=True, exist_ok=True)
 
     logger.info("Training entry model ...")
-    entry_m = tr.train_entry(X_tr, le_tr, X_va, le_va, model_dir)
-    auc_e   = roc_auc_score(le_va, entry_m.predict_proba(X_va)[:, 1])
-    logger.info(f"Entry AUC: {auc_e:.4f}")
+    entry_m   = tr.train_entry(X_tr, le_tr, X_va, le_va, model_dir)
+    entry_raw = entry_m.predict_proba(X_va)[:, 1]
+    auc_e     = roc_auc_score(le_va, entry_raw)
+    brier_e   = brier_score_loss(le_va, entry_raw)
+    logger.info(f"Entry AUC: {auc_e:.4f}  Brier: {brier_e:.4f}")
 
     logger.info("Training risk model ...")
-    risk_m  = tr.train_risk(X_tr, lr_tr, X_va, lr_va, model_dir)
-    auc_r   = roc_auc_score(lr_va, risk_m.predict_proba(X_va)[:, 1])
-    logger.info(f"Risk  AUC: {auc_r:.4f}")
+    risk_m   = tr.train_risk(X_tr, lr_tr, X_va, lr_va, model_dir)
+    risk_raw = risk_m.predict_proba(X_va)[:, 1]
+    auc_r    = roc_auc_score(lr_va, risk_raw)
+    brier_r  = brier_score_loss(lr_va, risk_raw)
+    logger.info(f"Risk  AUC: {auc_r:.4f}  Brier: {brier_r:.4f}")
 
     logger.info("\n--- Entry Model Classification Report ---")
     y_pred = (entry_m.predict_proba(X_va)[:, 1] >= 0.5).astype(int)

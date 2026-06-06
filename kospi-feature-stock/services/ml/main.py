@@ -3,8 +3,13 @@ import logging
 import os
 import asyncpg
 import redis.asyncio as redis_lib
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone, date
 from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI
+from pydantic import BaseModel
 from models.lgbm_predictor import LGBMPredictor
 
 logging.basicConfig(
@@ -16,22 +21,95 @@ logger = logging.getLogger("ml-service")
 KST = timezone(timedelta(hours=9))
 _MODEL_DIR = os.environ.get("LGBM_MODEL_DIR", "/models/lgbm")
 
+# 전역 predictor (HTTP API + 내부 루프 공유)
+_predictor: LGBMPredictor | None = None
+_db_pool: asyncpg.Pool | None = None
 
-async def run():
-    db = await asyncpg.create_pool(
+
+# ── Pydantic 스키마 ────────────────────────────────────────────
+class PredictRequest(BaseModel):
+    features: dict[str, Any]
+
+class PredictResponse(BaseModel):
+    success_prob: float
+    risk_score: float
+    expected_return: float
+    hold_days: int
+    confidence: float
+    model_used: bool
+
+
+# ── FastAPI 앱 ─────────────────────────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _predictor, _db_pool
+    _db_pool = await asyncpg.create_pool(
         dsn=os.environ["POSTGRES_DSN"].replace("+asyncpg", ""),
-        min_size=3,
-        max_size=10,
+        min_size=3, max_size=10,
     )
-    redis = redis_lib.from_url(os.environ["REDIS_URL"])
-    predictor = LGBMPredictor()
-    predictor.load()
+    _predictor = LGBMPredictor()
+    _predictor.load()
     logger.info("ML service ready")
 
-    await asyncio.gather(
-        _result_update_loop(db),
-        _weekly_retrain_loop(db, predictor),
+    # 백그라운드 루프 시작
+    asyncio.create_task(_result_update_loop(_db_pool))
+    asyncio.create_task(_weekly_retrain_loop(_db_pool, _predictor))
+    yield
+    if _db_pool:
+        await _db_pool.close()
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "ok",
+        "model_loaded": _predictor.is_ready() if _predictor else False,
+    }
+
+
+@app.post("/predict", response_model=PredictResponse)
+async def predict(req: PredictRequest):
+    """피처 딕셔너리 → ML 추론 결과."""
+    if _predictor is None or not _predictor.is_ready():
+        return PredictResponse(
+            success_prob=0.5, risk_score=0.4,
+            expected_return=0.0, hold_days=5,
+            confidence=0.0, model_used=False,
+        )
+    result = _predictor.predict_one(req.features)
+    return PredictResponse(
+        success_prob=result.success_prob,
+        risk_score=result.risk_score,
+        expected_return=result.expected_return,
+        hold_days=result.hold_days,
+        confidence=result.confidence,
+        model_used=result.model_loaded,
     )
+
+
+@app.post("/reload")
+async def reload_model():
+    """재학습 완료 후 모델 핫스왑 (atomic)."""
+    if _predictor is None:
+        return {"status": "error", "message": "predictor not initialized"}
+    loaded = _predictor.load()
+    logger.info(f"[API] Model reloaded: {loaded}")
+    return {"status": "ok", "model_loaded": loaded}
+
+
+async def run():
+    import uvicorn
+    config = uvicorn.Config(
+        app,
+        host="0.0.0.0",
+        port=int(os.environ.get("ML_API_PORT", "8001")),
+        log_level="info",
+    )
+    server = uvicorn.Server(config)
+    await server.serve()
 
 
 async def _result_update_loop(pool: asyncpg.Pool):
@@ -66,7 +144,7 @@ async def _run_retrain(pool: asyncpg.Pool, predictor: LGBMPredictor):
     sys.path.insert(0, "/app")
     import pandas as pd
     from sklearn.model_selection import TimeSeriesSplit
-    from sklearn.metrics import roc_auc_score
+    from sklearn.metrics import roc_auc_score, brier_score_loss
     from features.technical import TechnicalFeatureExtractor
     from features.supply_demand import SupplyDemandFeatureExtractor
     from models.lgbm_predictor import FEATURE_COLUMNS
@@ -158,16 +236,24 @@ async def _run_retrain(pool: asyncpg.Pool, predictor: LGBMPredictor):
     entry_m = tr.train_entry(X_tr, le_tr, X_va, le_va, str(tmp_dir))
     risk_m  = tr.train_risk(X_tr,  lr_tr, X_va, lr_va, str(tmp_dir))
 
-    auc_e = roc_auc_score(le_va, entry_m.predict_proba(X_va)[:, 1])
-    auc_r = roc_auc_score(lr_va, risk_m.predict_proba(X_va)[:, 1])
+    entry_raw = entry_m.predict_proba(X_va)[:, 1]
+    risk_raw  = risk_m.predict_proba(X_va)[:, 1]
+    auc_e     = roc_auc_score(le_va, entry_raw)
+    auc_r     = roc_auc_score(lr_va, risk_raw)
+    brier_e   = brier_score_loss(le_va, entry_raw)
+    brier_r   = brier_score_loss(lr_va, risk_raw)
 
     # atomic 교체 (tmp → 실제 경로)
     model_dir = Path(_MODEL_DIR)
-    (tmp_dir / "entry_model.lgb").rename(model_dir / "entry_model.lgb")
-    (tmp_dir / "risk_model.lgb").rename(model_dir / "risk_model.lgb")
+    for fname in ["entry_model.lgb", "risk_model.lgb", "entry_calibrator.pkl", "risk_calibrator.pkl"]:
+        src = tmp_dir / fname
+        if src.exists():
+            src.rename(model_dir / fname)
 
-    predictor.load()
-    logger.info(f"Weekly retrain done, Entry AUC={auc_e:.4f}, Risk AUC={auc_r:.4f}")
+    # atomic 교체 완료 후 전역 predictor 핫스왑
+    if _predictor is not None:
+        _predictor.load()
+    logger.info(f"Weekly retrain done, Entry AUC={auc_e:.4f} Brier={brier_e:.4f}, Risk AUC={auc_r:.4f} Brier={brier_r:.4f}")
 
 
 async def _update_event_results(pool: asyncpg.Pool):
@@ -217,4 +303,10 @@ async def _update_event_results(pool: asyncpg.Pool):
 
 
 if __name__ == "__main__":
-    asyncio.run(run())
+    import uvicorn
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=int(os.environ.get("ML_API_PORT", "8001")),
+        log_level="info",
+    )

@@ -102,9 +102,13 @@ async def write_daily_bars(pool: asyncpg.Pool, bars: list[dict]) -> int:
     ]
     if not rows:
         return 0
+
+    codes = list({r[1] for r in rows})
+    dates = list({r[0] for r in rows})
+
     try:
         async with pool.acquire() as conn:
-            result = await conn.executemany(
+            await conn.executemany(
                 """
                 INSERT INTO daily_bars
                     (date, code, open, high, low, close, volume, amount, change_rate)
@@ -116,6 +120,56 @@ async def write_daily_bars(pool: asyncpg.Pool, bars: list[dict]) -> int:
                     change_rate=EXCLUDED.change_rate
                 """,
                 rows,
+            )
+            # change_rate 재계산: KIS API가 0을 반환하는 경우 전일 종가 기준으로 보정
+            await conn.execute(
+                """
+                WITH prev AS (
+                    SELECT date, code,
+                           LAG(close) OVER (PARTITION BY code ORDER BY date) AS prev_close
+                    FROM daily_bars WHERE code = ANY($1)
+                )
+                UPDATE daily_bars d
+                SET change_rate = ROUND(
+                    (d.close::NUMERIC - p.prev_close::NUMERIC)
+                    / p.prev_close::NUMERIC * 100, 2
+                )
+                FROM prev p
+                WHERE d.date = p.date AND d.code = p.code
+                  AND p.prev_close IS NOT NULL AND p.prev_close > 0
+                  AND d.date = ANY($2)
+                """,
+                codes, dates,
+            )
+            # 이동평균선 계산 (MA5/20/60/120)
+            await conn.execute(
+                """
+                WITH ma AS (
+                    SELECT date, code,
+                        AVG(close::NUMERIC) OVER (
+                            PARTITION BY code ORDER BY date
+                            ROWS BETWEEN 4 PRECEDING AND CURRENT ROW)   AS ma5,
+                        AVG(close::NUMERIC) OVER (
+                            PARTITION BY code ORDER BY date
+                            ROWS BETWEEN 19 PRECEDING AND CURRENT ROW)  AS ma20,
+                        AVG(close::NUMERIC) OVER (
+                            PARTITION BY code ORDER BY date
+                            ROWS BETWEEN 59 PRECEDING AND CURRENT ROW)  AS ma60,
+                        AVG(close::NUMERIC) OVER (
+                            PARTITION BY code ORDER BY date
+                            ROWS BETWEEN 119 PRECEDING AND CURRENT ROW) AS ma120
+                    FROM daily_bars WHERE code = ANY($1)
+                )
+                UPDATE daily_bars d
+                SET ma5   = ROUND(m.ma5,   2),
+                    ma20  = ROUND(m.ma20,  2),
+                    ma60  = ROUND(m.ma60,  2),
+                    ma120 = ROUND(m.ma120, 2)
+                FROM ma m
+                WHERE d.date = m.date AND d.code = m.code
+                  AND d.date = ANY($2)
+                """,
+                codes, dates,
             )
         return len(rows)
     except Exception as e:
@@ -168,10 +222,18 @@ async def write_feature_events(pool: asyncpg.Pool, events: list[dict]) -> int:
 
 async def write_supply_demand(pool: asyncpg.Pool, sd: dict) -> None:
     """수급 데이터를 daily_bars 업데이트 + supply_demand 테이블 UPSERT"""
+    from datetime import date as _date, datetime as _dt
     if not sd or not sd.get("code") or not sd.get("date"):
         return
     code           = sd["code"]
-    date_val       = sd["date"]
+    raw_date       = sd["date"]
+    if isinstance(raw_date, str):
+        try:
+            date_val = _dt.strptime(raw_date, "%Y%m%d").date()
+        except ValueError:
+            date_val = _date.fromisoformat(raw_date[:10])
+    else:
+        date_val = raw_date
     foreign_net    = int(sd.get("foreign_net", 0))
     inst_net       = int(sd.get("inst_net", 0))
     indiv_net      = int(sd.get("indiv_net", 0))
@@ -186,7 +248,7 @@ async def write_supply_demand(pool: asyncpg.Pool, sd: dict) -> None:
                     inst_net_buy    = $4,
                     indiv_net_buy   = $5,
                     prog_net_buy    = $6
-                WHERE code = $1 AND date = $2::DATE
+                WHERE code = $1 AND date = $2
                 """,
                 code, date_val, foreign_net, inst_net, indiv_net, prog_net,
             )
@@ -195,7 +257,7 @@ async def write_supply_demand(pool: asyncpg.Pool, sd: dict) -> None:
                 INSERT INTO supply_demand
                     (date, code, foreign_net, inst_net, indiv_net,
                      prog_arbitrage_net, pension_net)
-                VALUES ($1::DATE, $2, $3, $4, $5, $6, $7)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT (date, code) DO UPDATE SET
                     foreign_net        = EXCLUDED.foreign_net,
                     inst_net           = EXCLUDED.inst_net,
@@ -206,4 +268,4 @@ async def write_supply_demand(pool: asyncpg.Pool, sd: dict) -> None:
                 date_val, code, foreign_net, inst_net, indiv_net, prog_net, pension_net,
             )
     except Exception as e:
-        logger.debug(f"supply_demand write error {code}: {e}")
+        logger.warning(f"supply_demand write error {code}/{date_val}: {e}")

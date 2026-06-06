@@ -120,6 +120,19 @@ class DARTPoller:
             is_flagged = self._check_flagged(parsed)
             parsed["is_flagged"] = is_flagged
 
+            # 호재·플래그 공시: 본문 fetch로 키워드/금액 재분석
+            if parsed.get("category") == "favorable" or is_flagged:
+                try:
+                    body = await self.client.get_disclosure_body(rcept_no)
+                    if body:
+                        full_text = parsed["title"] + " " + body
+                        category, score = self.client.classify(full_text)
+                        parsed["category"]        = category
+                        parsed["sentiment_score"] = score
+                        parsed["body_preview"]    = body[:500]
+                except Exception as e:
+                    logger.debug(f"Body fetch failed {rcept_no}: {e}")
+
             await self.kafka.send("disclosure", parsed, key=parsed.get("code") or "UNKNOWN")
             await self._write_to_db(parsed)
             new_count += 1

@@ -1,6 +1,5 @@
 import logging
 from dataclasses import dataclass, field
-from typing import Callable
 import numpy as np
 import pandas as pd
 
@@ -68,10 +67,11 @@ class BacktestEngine:
         signals: pd.DataFrame,
         bars: pd.DataFrame,
     ) -> BacktestResult:
-        """
-        signals: DataFrame with columns [code, date, close]
-        bars:    MultiIndex DataFrame or pivot with columns = codes, index = date
-        """
+        # Pre-index bars by code for O(1) lookup instead of O(n) per signal
+        bars_by_code: dict[str, pd.DataFrame] = {}
+        for code, grp in bars.groupby("code"):
+            bars_by_code[code] = grp.sort_values("date").reset_index(drop=True)
+
         trades = []
         for _, sig in signals.iterrows():
             code  = sig["code"]
@@ -86,27 +86,33 @@ class BacktestEngine:
                 stop_loss_price=stop,
             )
 
-            future = self._get_future_bars(bars, code, str(sig["date"]))
-            for i, (d, row) in enumerate(future.iterrows()):
+            code_bars = bars_by_code.get(code)
+            if code_bars is None:
+                trades.append(trade)
+                continue
+
+            sig_date = str(sig["date"])
+            future = code_bars[code_bars["date"] >= sig_date]
+            for i, (_, row) in enumerate(future.iterrows()):
                 if i == 0:
                     continue
-                h = float(row.get("high", row.get(code, {}).get("high", entry)))
-                l = float(row.get("low",  row.get(code, {}).get("low", entry)))
-                c = float(row.get("close",row.get(code, {}).get("close", entry)))
+                h = float(row.get("high", entry))
+                l = float(row.get("low",  entry))
+                c = float(row.get("close", entry))
 
                 if l <= stop:
                     trade.exit_price = stop * (1 - self.commission)
-                    trade.exit_date  = str(d)
+                    trade.exit_date  = str(row["date"])
                     trade.status     = "loss"
                     break
                 if h >= target:
                     trade.exit_price = target * (1 - self.commission)
-                    trade.exit_date  = str(d)
+                    trade.exit_date  = str(row["date"])
                     trade.status     = "win"
                     break
                 if i >= self.max_hold_days:
                     trade.exit_price = c * (1 - self.commission)
-                    trade.exit_date  = str(d)
+                    trade.exit_date  = str(row["date"])
                     trade.status     = "timeout"
                     break
 
@@ -115,13 +121,6 @@ class BacktestEngine:
             trades.append(trade)
 
         return self._stats(trades)
-
-    def _get_future_bars(self, bars: pd.DataFrame, code: str, from_date: str):
-        try:
-            subset = bars[bars["code"] == code].sort_values("date")
-            return subset[subset["date"] >= from_date].iterrows()
-        except Exception:
-            return iter([])
 
     def _stats(self, trades: list[Trade]) -> BacktestResult:
         closed = [t for t in trades if t.exit_price > 0]

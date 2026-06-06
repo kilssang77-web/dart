@@ -36,6 +36,7 @@ async def list_recommendations(
         params.append(market.upper())
         where.append(f"s.market = ${len(params)}")
 
+    params.append(limit)
     rows = await db.fetch(
         f"""
         SELECT
@@ -50,7 +51,7 @@ async def list_recommendations(
         LEFT JOIN stocks s ON s.code = r.code
         WHERE {' AND '.join(where)}
         ORDER BY r.success_prob DESC, r.created_at DESC
-        LIMIT {limit}
+        LIMIT ${len(params)}
         """,
         *params,
     )

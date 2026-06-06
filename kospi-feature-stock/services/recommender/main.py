@@ -64,10 +64,10 @@ class RecommenderService:
                 if not event or not event.get("code"):
                     continue
                 try:
-                    await self._save_feature_event(event)
+                    event_id = await self._save_feature_event(event)
                     rec = await self._generate(event, recommender)
                     if rec:
-                        await self._emit(rec, event, producer)
+                        await self._emit(rec, event, producer, feature_event_id=event_id)
                 except Exception as e:
                     logger.error(f"Recommend error {event.get('code')}: {e}")
         finally:
@@ -92,9 +92,7 @@ class RecommenderService:
                 WHERE fe.detected_at >= $1
                   AND NOT EXISTS (
                       SELECT 1 FROM recommendations r
-                      WHERE r.code = fe.code
-                        AND r.created_at >= fe.detected_at - INTERVAL '1 minute'
-                        AND r.created_at <= fe.detected_at + INTERVAL '10 minutes'
+                      WHERE r.feature_event_id = fe.id
                   )
                 ORDER BY fe.detected_at ASC
                 LIMIT 500
@@ -128,16 +126,17 @@ class RecommenderService:
                 }
                 rec = await self._generate(event, recommender)
                 if rec:
-                    await self._emit(rec, event, producer)
+                    await self._emit(rec, event, producer, feature_event_id=row["id"])
                     processed += 1
+                asyncio.create_task(update_pattern_vector(self._db, row["id"], row["code"]))
             except Exception as e:
                 logger.error(f"Recovery error {row['code']}: {e}\n{traceback.format_exc()}")
 
         logger.info(f"Recovery: completed {processed}/{len(rows)} events")
 
-    async def _emit(self, rec: dict, event: dict, producer):
+    async def _emit(self, rec: dict, event: dict, producer, feature_event_id: int | None = None):
         await producer.send("recommendation", value=rec, key=rec["code"])
-        await self._save(rec)
+        await self._save(rec, feature_event_id=feature_event_id)
         await self._publish_redis(rec)
         await self._redis.publish("channel:features", orjson.dumps(event).decode())
 
@@ -223,7 +222,7 @@ class RecommenderService:
             logger.error(f"Feature event save error {code}: {e}")
             return None
 
-    async def _save(self, rec: dict):
+    async def _save(self, rec: dict, feature_event_id: int | None = None):
         async with self._db.acquire() as conn:
             await conn.execute(
                 """
@@ -233,9 +232,9 @@ class RecommenderService:
                     target_price, stop_loss_price, expected_hold_days,
                     success_prob, expected_return, risk_score,
                     risk_reward_ratio, rationale, similar_cases,
-                    expired_at
+                    expired_at, feature_event_id
                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
-                    NOW() + ($16 * INTERVAL '1 day'))
+                    NOW() + ($16 * INTERVAL '1 day'), $17)
                 ON CONFLICT DO NOTHING
                 """,
                 rec["code"], rec["created_at"], rec["action"],
@@ -246,6 +245,7 @@ class RecommenderService:
                 orjson.dumps(rec["rationale"]).decode(),
                 orjson.dumps(rec["similar_cases"]).decode(),
                 float(rec["expected_hold_days"]),
+                feature_event_id,
             )
 
     async def _publish_redis(self, rec: dict):

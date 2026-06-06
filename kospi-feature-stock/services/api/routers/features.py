@@ -43,6 +43,9 @@ async def list_features(
 
     where_clause = " AND ".join(where)
 
+    params.append(limit)
+    limit_placeholder = f"${len(params)}"
+
     if dedupe:
         query = f"""
         WITH base AS (
@@ -83,7 +86,7 @@ async def list_features(
                all_event_types
         FROM ranked WHERE rn = 1
         ORDER BY signal_score DESC
-        LIMIT {limit}
+        LIMIT {limit_placeholder}
         """
     else:
         query = f"""
@@ -107,7 +110,7 @@ async def list_features(
         ) db ON true
         WHERE {where_clause}
         ORDER BY fe.signal_score DESC, fe.detected_at DESC
-        LIMIT {limit}
+        LIMIT {limit_placeholder}
         """
 
     rows = await db.fetch(query, *params)

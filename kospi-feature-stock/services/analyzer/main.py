@@ -142,6 +142,18 @@ class AnalyzerService:
         if not title:
             return
 
+        # published_at: 문자열 → datetime 변환
+        raw_pub = data.get("published_at", "")
+        try:
+            if raw_pub and isinstance(raw_pub, str):
+                pub_dt = datetime.fromisoformat(raw_pub[:19])
+            elif isinstance(raw_pub, datetime):
+                pub_dt = raw_pub
+            else:
+                pub_dt = datetime.now()
+        except Exception:
+            pub_dt = datetime.now()
+
         # 감성 분석
         sentiment = news_sentiment(title, content)
 
@@ -158,7 +170,7 @@ class AnalyzerService:
                 RETURNING id
                 """,
                 data.get("source"),
-                data.get("published_at"),
+                pub_dt,
                 title,
                 content,
                 data.get("url"),

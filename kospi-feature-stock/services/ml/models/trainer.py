@@ -1,7 +1,10 @@
 import logging
 from pathlib import Path
+import joblib
 import pandas as pd
 import lightgbm as lgb
+import numpy as np
+from sklearn.isotonic import IsotonicRegression
 from sklearn.metrics import roc_auc_score
 
 logger = logging.getLogger(__name__)
@@ -45,11 +48,18 @@ class LGBMTrainer:
             ],
         )
 
-        auc = roc_auc_score(y_val, model.predict_proba(X_val)[:, 1])
+        raw_proba = model.predict_proba(X_val)[:, 1]
+        auc = roc_auc_score(y_val, raw_proba)
         logger.info(f"Entry model AUC: {auc:.4f}")
 
         Path(model_dir).mkdir(parents=True, exist_ok=True)
         model.booster_.save_model(f"{model_dir}/entry_model.lgb")
+
+        cal = IsotonicRegression(out_of_bounds="clip")
+        cal.fit(raw_proba, np.array(y_val))
+        joblib.dump(cal, f"{model_dir}/entry_calibrator.pkl")
+        logger.info("Entry calibrator saved")
+
         return model
 
     def train_risk(
@@ -67,7 +77,14 @@ class LGBMTrainer:
             eval_set=[(X_val, y_val)],
             callbacks=[lgb.early_stopping(100, verbose=False)],
         )
+        raw_proba = model.predict_proba(X_val)[:, 1]
         model.booster_.save_model(f"{model_dir}/risk_model.lgb")
+
+        cal = IsotonicRegression(out_of_bounds="clip")
+        cal.fit(raw_proba, np.array(y_val))
+        joblib.dump(cal, f"{model_dir}/risk_calibrator.pkl")
+        logger.info("Risk calibrator saved")
+
         return model
 
     @staticmethod

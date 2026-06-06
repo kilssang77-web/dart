@@ -137,5 +137,5 @@ async def update_pattern_vector(pool: asyncpg.Pool, event_id: int, code: str) ->
             return True
 
     except Exception as e:
-        logger.debug(f"pattern_vector update error (event_id={event_id}): {e}")
+        logger.warning(f"[PatternVector] update failed event_id={event_id} code={code}: {e}")
         return False

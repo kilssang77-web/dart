@@ -138,6 +138,43 @@ class KISRestClient:
         )
         return data.get("output", [])
 
+    async def get_index_bars(self, market_code: str, start: str, end: str) -> list[dict]:
+        """
+        KOSPI/KOSDAQ 지수 일봉 조회.
+        market_code: "0001" (KOSPI) / "1001" (KOSDAQ)
+        start/end: "YYYYMMDD"
+        """
+        try:
+            data = await self._get(
+                "/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice",
+                "FHKUP03500100",
+                {
+                    "FID_COND_MRKT_DIV_CODE": "U",
+                    "FID_INPUT_ISCD": market_code,
+                    "FID_INPUT_DATE_1": start,
+                    "FID_INPUT_DATE_2": end,
+                    "FID_PERIOD_DIV_CODE": "D",
+                },
+            )
+        except KISAPIError as e:
+            logger.debug(f"get_index_bars [{market_code}]: {e}")
+            return []
+        return [
+            {
+                "code":        market_code,
+                "date":        r.get("stck_bsop_date"),
+                "open":        int(float(r.get("bstp_nmix_oprc", 0) or 0)),
+                "high":        int(float(r.get("bstp_nmix_hgpr", 0) or 0)),
+                "low":         int(float(r.get("bstp_nmix_lwpr", 0) or 0)),
+                "close":       int(float(r.get("bstp_nmix_prpr", 0) or 0)),
+                "volume":      int(r.get("acml_vol", 0) or 0),
+                "amount":      int(r.get("acml_tr_pbmn", 0) or 0) if r.get("acml_tr_pbmn") else 0,
+                "change_rate": float(r.get("bstp_nmix_prdy_ctrt", 0) or 0),
+            }
+            for r in data.get("output2", [])
+            if r.get("stck_bsop_date") and r.get("bstp_nmix_prpr")
+        ]
+
     async def get_short_sell(self, code: str, start: str, end: str) -> list[dict]:
         data = await self._get(
             "/uapi/domestic-stock/v1/quotations/inquire-daily-shortsale",

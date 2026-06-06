@@ -15,9 +15,10 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 _MODEL_DIR = os.environ.get("LGBM_MODEL_DIR", "/models/lgbm")
+_ML_SERVICE_URL = os.environ.get("ML_SERVICE_URL", "")  # e.g. "http://ml:8001"
 
-# lgbm_predictor.py 와 동일한 feature 목록
-FEATURE_COLUMNS = [
+# 기본값 (모델 미로드 시 fallback — lgbm_predictor.py와 동일하게 유지)
+_FEATURE_COLUMNS_DEFAULT = [
     "return_1d", "return_3d", "return_5d",
     "ma5_ratio", "ma20_ratio", "ma60_ratio",
     "ma5_slope", "ma20_slope",
@@ -39,6 +40,7 @@ FEATURE_COLUMNS = [
     "rel_strength_5d",
     "market_vol_ratio",
 ]
+FEATURE_COLUMNS: list[str] = _FEATURE_COLUMNS_DEFAULT
 
 
 @dataclass
@@ -59,7 +61,7 @@ _model_checked = False
 
 
 def _try_load_models():
-    global _entry_model, _risk_model, _model_checked
+    global _entry_model, _risk_model, _model_checked, FEATURE_COLUMNS
     if _model_checked:
         return
     _model_checked = True
@@ -69,7 +71,13 @@ def _try_load_models():
         rp = Path(_MODEL_DIR) / "risk_model.lgb"
         if ep.exists():
             _entry_model = lgb.Booster(model_file=str(ep))
-            logger.info(f"[MLClient] entry_model loaded from {ep}")
+            # 모델에서 직접 피처명 로드 — lgbm_predictor.py와 동기화 불필요
+            model_features = _entry_model.feature_name()
+            if model_features:
+                FEATURE_COLUMNS = model_features
+                logger.info(f"[MLClient] entry_model loaded, features={len(FEATURE_COLUMNS)}")
+            else:
+                logger.warning("[MLClient] entry_model has no feature names — using default list")
         else:
             logger.warning(f"[MLClient] entry_model NOT found at {ep} — rule-based fallback 사용")
         if rp.exists():
@@ -266,7 +274,29 @@ async def get_ml_result(event: dict, db: asyncpg.Pool) -> MLResult:
 
     feats = _compute_features(bars, sd, [dict(r) for r in disc_rows])
 
-    # ── LightGBM 추론 ──
+    # ── ML 서비스 HTTP 추론 (우선) ──
+    if _ML_SERVICE_URL:
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.post(
+                    f"{_ML_SERVICE_URL}/predict",
+                    json={"features": feats},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return MLResult(
+                        success_prob=data["success_prob"],
+                        risk_score=data["risk_score"],
+                        expected_return=data["expected_return"],
+                        hold_days=data["hold_days"],
+                        confidence=data["confidence"],
+                        model_used=data["model_used"],
+                    )
+        except Exception as e:
+            logger.warning(f"[MLClient] HTTP inference failed {code}, falling back to local: {e}")
+
+    # ── LightGBM 직접 추론 (fallback) ──
     if _entry_model is not None:
         try:
             import pandas as pd

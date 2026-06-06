@@ -1,7 +1,14 @@
 import logging
+import re
 import httpx
 from datetime import datetime, timedelta
 from tenacity import retry, stop_after_attempt, wait_exponential
+
+try:
+    from bs4 import BeautifulSoup
+    _BS4_AVAILABLE = True
+except ImportError:
+    _BS4_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +76,36 @@ class DARTClient:
         )
         resp.raise_for_status()
         return resp.json()
+
+    async def get_disclosure_body(self, rcept_no: str, max_chars: int = 2000) -> str:
+        """DART 공시 본문 텍스트 추출 (HTML 파싱). 실패 시 빈 문자열."""
+        if not _BS4_AVAILABLE:
+            return ""
+        url = f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
+        try:
+            resp = await self._client.get(url, timeout=15)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, "html.parser")
+            # iframe src 추출 → 실제 본문 문서 URL
+            iframe = soup.find("iframe", {"id": "ifrm"}) or soup.find("iframe")
+            if iframe and iframe.get("src"):
+                doc_url = iframe["src"]
+                if not doc_url.startswith("http"):
+                    doc_url = "https://dart.fss.or.kr" + doc_url
+                try:
+                    doc_resp = await self._client.get(doc_url, timeout=15)
+                    doc_resp.raise_for_status()
+                    soup = BeautifulSoup(doc_resp.text, "html.parser")
+                except Exception:
+                    pass  # iframe 실패 시 메인 페이지 텍스트 사용
+
+            for tag in soup(["script", "style", "head", "nav", "header", "footer"]):
+                tag.decompose()
+            text = re.sub(r"\s+", " ", soup.get_text(separator=" ", strip=True))
+            return text[:max_chars]
+        except Exception as e:
+            logger.debug(f"Disclosure body fetch error {rcept_no}: {e}")
+            return ""
 
     def classify(self, title: str) -> tuple[str, float]:
         for kw in FAVORABLE_KEYWORDS:
