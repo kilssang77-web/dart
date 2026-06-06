@@ -1,4 +1,4 @@
-"""
+﻿"""
 비즈니스 로직 서비스 레이어.
 Controller(API) -> Service -> Repository(DB) 방향 준수.
 """
@@ -1413,6 +1413,9 @@ class HybridRecommendService:
         except Exception as _e:
             logger.debug("inpo21c 실증 분포 조회 실패 (무시): %s", _e)
 
+        _yega_stats  = load_inpo21c_yega_stats(db, req.agency_id or 0)
+        _pos_weights = _yega_stats.get("pos_weights")
+
         sim_result = recommend_with_simulation(
             base_amount=req.base_amount,
             industry_name=industry_name,
@@ -1425,6 +1428,7 @@ class HybridRecommendService:
             ens_upper=ens_upper,
             empirical_comp_rates=inpo_rates,
             expected_n_comp=expected_n if inpo_rates is not None else 0,
+            pos_weights=_pos_weights,
         )
         strategies = sim_result["strategies"]
 

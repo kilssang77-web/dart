@@ -1,4 +1,4 @@
-"""
+﻿"""
 프리즘 2.0 — 구간별 낙찰확률 스캔 (0.860~0.930 × 0.001 = 70구간)
 inpo21c 실증 분포 기반 Monte Carlo win_prob 계산, 상위 10개 추출.
 """
@@ -10,6 +10,7 @@ from .simulation import simulate_yejung, monte_carlo_win_prob_empirical, monte_c
 from .a_value import calc_floor_rate
 from .assessment import load_srate_stats, predict_srate
 from .rank_model import get_inpo_raw_rates
+from .yega import load_inpo21c_yega_stats
 
 SCAN_START = 0.860
 SCAN_END   = 0.930
@@ -53,8 +54,12 @@ def scan_prism_zones(
         or 8
     )
 
+    # inpo21c 위치 가중치 로드
+    _yega_stats  = load_inpo21c_yega_stats(db, agency_id) if agency_id else {}
+    _pos_weights = _yega_stats.get("pos_weights")
+
     # 사정율 분포 시뮬레이션 (1회만 — 모든 구간 공유)
-    srate_dist = simulate_yejung(base_amount, srate_center, srate_std, n_sim, rng)
+    srate_dist = simulate_yejung(base_amount, srate_center, srate_std, n_sim, rng, _pos_weights)
 
     # inpo21c 실증 분포
     inpo_rates: Optional[np.ndarray] = None
