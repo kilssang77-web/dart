@@ -1,0 +1,13 @@
+﻿{
+  "step": 6,
+  "status": "completed",
+  "completed_at": "2026-06-06T23:45:00+09:00",
+  "files_changed": [
+    "bid-system/MANUAL.md",
+    ".harness/release-notes/2026-06-06_21-56-43_smart-notify.md",
+    ".harness/release-notes/INDEX.md",
+    ".harness/phases/index.json",
+    ".harness/phases/smart-notify/2026-06-06_21-56-43/index.json"
+  ],
+  "summary": "MANUAL.md v2.2: 섹션 15 신규(인앱 알림), 1.1/1.3 업데이트, 섹션 재번호. 릴리즈 노트 작성. 140 unit tests passing. TypeScript 빌드 통과."
+}

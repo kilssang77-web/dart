@@ -40,8 +40,8 @@
     {
       "step": 6,
       "name": "MANUAL.md v2.2 + 릴리즈 노트",
-      "status": "pending",
-      "summary": ""
+      "status": "completed",
+      "summary": "MANUAL.md v2.1→v2.2: 인앱 알림 섹션 15 신규, 1.1/1.3 업데이트, 기존 섹션 재번호. 릴리즈 노트 작성. 140 unit tests passing."
     }
   ]
 }

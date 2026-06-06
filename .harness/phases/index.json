@@ -48,6 +48,16 @@
       "status": "completed",
       "created_at": "2026-06-06T01:17:32+09:00",
       "completed_at": "2026-06-06T11:30:00+09:00"
+    },
+    {
+      "task": "smart-notify",
+      "runId": "2026-06-06_21-56-43",
+      "branch": "feat/smart-notify-2026-06-06_21-56-43",
+      "stage": "mvp",
+      "author": "kil0410@a2m.co.kr",
+      "status": "completed",
+      "created_at": "2026-06-06T21:56:43+09:00",
+      "completed_at": "2026-06-06T23:45:00+09:00"
     }
   ]
 }
