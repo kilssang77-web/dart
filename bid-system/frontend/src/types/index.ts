@@ -742,6 +742,17 @@ export interface BidRangeResponse {
   confidence?:   number | null
 }
 
+// ── 발주처 예가 패턴 ────────────────────────────────────────────
+
+export interface AgencyYegaPattern {
+  agency_id:   number
+  agency_name: string
+  sample_n:    number
+  spread_half: number
+  pos_weights: number[] | null  // 15개 위치별 추첨 가중치 (합=1.0)
+  has_data:    boolean
+}
+
 // ── 공동도급 적격심사 AI 매칭 ───────────────────────────────────
 
 export interface JointPartnerItem {

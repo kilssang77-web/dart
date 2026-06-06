@@ -1,4 +1,4 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronLeft, Building2 } from 'lucide-react'
@@ -7,7 +7,7 @@ import {
   LineChart, Line, ReferenceLine, ComposedChart, Area, Cell,
 } from 'recharts'
 import { bidsApi, recommendApi, statsApi, agenciesApi } from '@/api'
-import type { MetaData, SrateHistogramResponse, AgencyRecentResultsResponse } from '@/types'
+import type { MetaData, SrateHistogramResponse, AgencyRecentResultsResponse, AgencyYegaPattern } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/table'
 
 const FLOOR_RATE = 0.87745
-const TABS = ['개요', '공고목록', '심층분석'] as const
+const TABS = ['개요', '공고목록', '심층분석', '예가패턴'] as const
 type Tab = (typeof TABS)[number]
 
 interface SrateStatItem {
@@ -122,6 +122,13 @@ export default function AgencyDetailPage() {
     queryKey: ['agency-recent-results', agencyId],
     queryFn: () => agenciesApi.recentResults(agencyId),
     enabled: !!agencyId && activeTab === '심층분석',
+  })
+
+  const { data: yegaPattern } = useQuery<AgencyYegaPattern>({
+    queryKey: ['agency-yega-pattern', agencyId],
+    queryFn: () => agenciesApi.yegaPattern(agencyId),
+    enabled: !!agencyId && activeTab === '예가패턴',
+    staleTime: 300_000,
   })
 
   const agencyStat = agencyStatsList.find((a) => a.agency_id === agencyId)
@@ -557,6 +564,96 @@ export default function AgencyDetailPage() {
                 )}
               </CardContent>
             </Card>
+          )}
+        </div>
+      )}
+
+      {/* ── 예가패턴 탭 ── */}
+      {activeTab === '예가패턴' && (
+        <div className="space-y-4">
+          {!yegaPattern ? (
+            <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">로딩 중…</CardContent></Card>
+          ) : !yegaPattern.has_data ? (
+            <Card>
+              <CardContent className="py-10 text-center">
+                <p className="text-sm text-muted-foreground">수집된 inpo21c 예가 데이터가 없습니다.</p>
+                <p className="text-xs text-muted-foreground mt-1">인포21c에서 예가 데이터 수집 후 사용 가능합니다.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              {/* 요약 카드 */}
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <Card>
+                  <CardContent className="pt-4 pb-3">
+                    <p className="text-xs text-muted-foreground">수집 공고 수</p>
+                    <p className="text-lg font-bold">{yegaPattern.sample_n}건</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">inpo21c 실측</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4 pb-3">
+                    <p className="text-xs text-muted-foreground">예가 후보 범위</p>
+                    <p className="text-lg font-bold">±{(yegaPattern.spread_half * 100).toFixed(2)}%</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">기초금액 대비</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4 pb-3">
+                    <p className="text-xs text-muted-foreground">선호 위치 TOP 3</p>
+                    <p className="text-lg font-bold">
+                      {yegaPattern.pos_weights
+                        ? [...yegaPattern.pos_weights]
+                            .map((w, i) => ({ pos: i + 1, w }))
+                            .sort((a, b) => b.w - a.w)
+                            .slice(0, 3)
+                            .map((x) => `#${x.pos}`)
+                            .join(' · ')
+                        : '-'}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">추첨 확률 상위</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* 위치별 추첨 확률 막대차트 */}
+              {yegaPattern.pos_weights && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">위치별 추첨 확률 (1~15번)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart
+                        data={yegaPattern.pos_weights.map((w, i) => ({
+                          pos: `${i + 1}번`,
+                          pct: +(w * 100).toFixed(1),
+                          isTop: w >= [...yegaPattern.pos_weights!].sort((a, b) => b - a)[2],
+                        }))}
+                        margin={{ top: 8, right: 8, left: -20, bottom: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="pos" tick={{ fontSize: 10 }} />
+                        <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `${v}%`} domain={[0, 12]} />
+                        <Tooltip formatter={(v: number) => [`${v}%`, '추첨 확률']} />
+                        <ReferenceLine y={+(1 / 15 * 100).toFixed(1)} stroke="#94a3b8"
+                          strokeDasharray="4 2"
+                          label={{ value: '균등 6.7%', position: 'insideTopRight', fontSize: 9, fill: '#94a3b8' }} />
+                        <Bar dataKey="pct" radius={[3, 3, 0, 0]}>
+                          {yegaPattern.pos_weights.map((w, i) => {
+                            const top3Threshold = [...yegaPattern.pos_weights!].sort((a, b) => b - a)[2]
+                            return <Cell key={i} fill={w >= top3Threshold ? '#2563eb' : '#93c5fd'} />
+                          })}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <p className="text-xs text-muted-foreground mt-2 text-center">
+                      파란 막대: 상위 3개 선호 위치 · 점선: 균등 확률 기준선
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+            </>
           )}
         </div>
       )}

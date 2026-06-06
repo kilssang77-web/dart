@@ -1,4 +1,4 @@
-import { api } from './client'
+﻿import { api } from './client'
 import type { MetaData, RecommendResult, Competitor, WatchKeyword, SystemStatus, AdminUser, RegionStat, IndustryStat, ClusterResult, ModelInfo, IndustryFilterItem, MyBidAnalysis, OverviewStatsWithChange, CollectionLogOut, BidRangeResponse, SrateTrendResponse, TopSrateTrend, PrismResponse, CompetitorZoneResponse, BidRecommendItem, JointPartnersResponse, JointSimRequest, JointSimResponse, CollectorStatus, BidSearchItem, FinalRecommendResult } from '../types'
 
 type KeywordUpdateBody = Partial<Pick<WatchKeyword, 'keyword' | 'kw_type' | 'is_active' | 'note'>>
@@ -208,7 +208,6 @@ export const agenciesApi = {
     api.get(`/agencies/${id}/srate-histogram`, { params: { months } }).then((r) => r.data),
   recentResults: (id: number, limit = 20): Promise<import('../types').AgencyRecentResultsResponse> =>
     api.get(`/agencies/${id}/recent-results`, { params: { limit } }).then((r) => r.data),
+  yegaPattern: (id: number): Promise<import('../types').AgencyYegaPattern> =>
+    api.get(`/agencies/${id}/yega-pattern`).then((r) => r.data),
 }
-
-
-
