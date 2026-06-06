@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard, FileText, Sparkles, Users, BarChart2, Building2,
-  ClipboardList, LogOut, BookMarked, ShieldCheck, TrendingUp, Calculator, Handshake, Bell,
+  ClipboardList, LogOut, BookMarked, ShieldCheck, TrendingUp, Calculator, Handshake, Bell, Globe,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { authApi, notificationsApi } from '@/api'
@@ -34,6 +34,12 @@ const NAV_GROUPS = [
     items: [
       { to: '/competitors', label: '경쟁사 분석',    icon: Users },
       { to: '/keywords',    label: '키워드 관리',    icon: BookMarked },
+    ],
+  },
+  {
+    label: '시장 인텔리전스',
+    items: [
+      { to: '/market-intel', label: '시장 인텔리전스', icon: Globe },
     ],
   },
   {

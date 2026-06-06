@@ -95,6 +95,25 @@ def run_inpo21c_job() -> None:
         db.close()
 
 
+def run_post_open_collect_job() -> None:
+    """개찰 후 6시간 내 결과 수집 트리거 — 매일 10:00/16:00/22:00 KST 실행."""
+    from app.config import get_settings
+    from app.database import SessionLocal
+    from app.collector.client import NarajangterClient
+    from app.collector.service import collect_results
+
+    settings = get_settings()
+    db = SessionLocal()
+    try:
+        client = NarajangterClient(api_key=settings.g2b_api_key)
+        result = collect_results(db, client, days_back=3)
+        logger.info("개찰 후 결과 수집 완료: 성공=%d, 실패=%d", result.success_count, result.fail_count)
+    except Exception as exc:
+        logger.error("개찰 후 결과 수집 실패: %s", exc)
+    finally:
+        db.close()
+
+
 def run_srate_spike_check_job() -> None:
     """사정율 급변 탐지 후 전체 공지 알림 생성 (매일 07:00 KST)."""
     SPIKE_THRESHOLD_PCT = 2.0  # ±2%p 이상이면 급변 알림
@@ -168,5 +187,13 @@ def create_scheduler() -> BackgroundScheduler:
         name="사정율 급변 알림 탐지 (매일 07:00 KST)",
         replace_existing=True,
     )
+    for hr in (10, 16, 22):
+        scheduler.add_job(
+            run_post_open_collect_job,
+            trigger=CronTrigger(hour=hr, minute=0, timezone="Asia/Seoul"),
+            id=f"post_open_collect_{hr}",
+            name=f"개찰 후 결과 수집 ({hr:02d}:00 KST)",
+            replace_existing=True,
+        )
 
     return scheduler

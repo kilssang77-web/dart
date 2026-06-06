@@ -6,7 +6,7 @@ from datetime import date
 from ...database import get_db
 from ...models import User, Agency, Industry, Region, Bid
 from ...schemas import BidCreate, BidResultCreate, BookmarkResponse, OpportunityScoreResponse, BidRecommendItem, JointPartnersResponse, JointSimRequest, JointSimResponse, FinalRecommendResponse
-from ...services import BidService, BookmarkService, get_active_industry_ids, OpportunityScoreService, JointQualService, JointSimulateService, FinalRecommendService
+from ...services import BidService, BookmarkService, get_active_industry_ids, OpportunityScoreService, JointQualService, JointSimulateService, FinalRecommendService, InpoParticipantService, RivalRadarService, ActualWinZoneService
 from ...common.security import get_current_user
 
 router = APIRouter(prefix="/bids", tags=["입찰"])
@@ -190,3 +190,34 @@ def final_recommend(
 ):
     """사정율통계·프리즘·예가·트렌드·개인화를 합산한 최종 투찰 사정율 종합 추천."""
     return FinalRecommendService(db).get(bid_id, user.id)
+
+
+@router.get("/{bid_id}/inpo-participants")
+def inpo_participants(
+    bid_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """inpo21c 실측 전참여자 목록 반환."""
+    return InpoParticipantService().get(db, bid_id)
+
+
+@router.get("/{bid_id}/rival-radar")
+def rival_radar(
+    bid_id: int,
+    top_k: int = Query(15, ge=1, le=30),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """공고 참여 경쟁사 레이더 — 동반입찰 패턴 분석."""
+    return RivalRadarService().get(db, bid_id, top_k)
+
+
+@router.get("/{bid_id}/actual-win-zones")
+def actual_win_zones(
+    bid_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """inpo21c 실측 낙찰 구간 분포."""
+    return ActualWinZoneService().get(db, bid_id)

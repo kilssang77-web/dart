@@ -8,7 +8,7 @@ import io
 from ...database import get_db
 from ...models import MyBidRecord, User
 from ...schemas import MyBidRecordCreate, MyBidRecordUpdate, MyBidRecordOut, MyBidAnalysisResponse, DefeatAnalysisResponse, GapAnalysisResponse, WinPatternResponse
-from ...services import MyBidAnalysisService, DefeatAnalysisService, WinPatternService
+from ...services import MyBidAnalysisService, DefeatAnalysisService, WinPatternService, SekihaiService
 from ...common.security import get_current_user
 
 router = APIRouter(prefix="/my-bids", tags=["투찰이력"])
@@ -237,3 +237,26 @@ def delete_my_bid(
         raise HTTPException(status_code=404, detail="기록을 찾을 수 없습니다.")
     db.delete(rec)
     db.commit()
+
+
+@router.get("/inpo-rank")
+def get_inpo_rank(
+    announcement_no: str = Query(..., min_length=1),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """announcement_no 기준 inpo21c 실측 순위 조회 (惜敗 분석)."""
+    return SekihaiService().get_rank(db, announcement_no)
+
+
+@router.post("/inpo-rank-batch")
+def get_inpo_rank_batch(
+    body: dict,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """여러 announcement_no 일괄 inpo21c 순위 조회."""
+    announcement_nos = body.get("announcement_nos", [])
+    if not isinstance(announcement_nos, list) or len(announcement_nos) > 50:
+        raise HTTPException(status_code=400, detail="announcement_nos는 최대 50개.")
+    return SekihaiService().batch_ranks(db, announcement_nos)

@@ -53,6 +53,23 @@ export const bidsApi = {
     api.get(`/bids/${bidId}/final-recommend`).then((r) => r.data),
   jointSimulate: (bidId: number, body: JointSimRequest): Promise<JointSimResponse> =>
     api.post(`/bids/${bidId}/joint-simulate`, body).then((r) => r.data),
+  inpoParticipants: (bidId: number): Promise<import('../types').InpoParticipant[]> =>
+    api.get(`/bids/${bidId}/inpo-participants`).then((r) => r.data),
+  rivalRadar: (bidId: number, topK = 15): Promise<import('../types').RivalRadarResponse> =>
+    api.get(`/bids/${bidId}/rival-radar`, { params: { top_k: topK } }).then((r) => r.data),
+  actualWinZones: (bidId: number): Promise<import('../types').ActualWinZonesResponse> =>
+    api.get(`/bids/${bidId}/actual-win-zones`).then((r) => r.data),
+}
+
+// -- 시장 인텔리전스 --------------------------------------------------
+
+export const marketIntelApi = {
+  agencyHeatmap: (months = 12, topN = 20): Promise<import('../types').MarketIntelHeatmap> =>
+    api.get('/market-intel/agency-heatmap', { params: { months, top_n: topN } }).then((r) => r.data),
+  winnerTrend: (agencyName?: string): Promise<{ agency_name: string | null; trend: import('../types').WinnerTrendItem[] }> =>
+    api.get('/market-intel/winner-trend', { params: { agency_name: agencyName } }).then((r) => r.data),
+  topWinners: (agencyName?: string, topN = 10): Promise<import('../types').TopWinnerItem[]> =>
+    api.get('/market-intel/top-winners', { params: { agency_name: agencyName, top_n: topN } }).then((r) => r.data),
 }
 
 // -- 추천 --------------------------------------------------
@@ -197,6 +214,10 @@ export const myBidsApi = {
     api.get('/my-bids/win-pattern').then((r) => r.data),
   exportExcel: (): Promise<Blob> =>
     api.get('/my-bids/export/excel', { responseType: 'blob' }).then((r) => r.data),
+  inpoRank: (announcementNo: string): Promise<import('../types').SekihaiInfo> =>
+    api.get('/my-bids/inpo-rank', { params: { announcement_no: announcementNo } }).then((r) => r.data),
+  inpoRankBatch: (announcementNos: string[]): Promise<Record<string, import('../types').SekihaiInfo>> =>
+    api.post('/my-bids/inpo-rank-batch', { announcement_nos: announcementNos }).then((r) => r.data),
 }
 
 // -- 발주기관 --------------------------------------------------

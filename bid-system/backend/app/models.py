@@ -337,3 +337,20 @@ class Notification(Base):
     is_read    = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+
+class BidParticipant(Base):
+    """inpo21c_participants ORM 매핑 — 읽기 전용 (기존 테이블 참조, 마이그레이션 없음)."""
+    __tablename__ = "inpo21c_participants"
+
+    id              = Column(Integer, primary_key=True)
+    inpo21c_bid_id  = Column(String(60), nullable=False, index=True)
+    rank            = Column(Integer)
+    biz_reg_no      = Column(String(20))
+    company_name    = Column(String(200))
+    bid_amount      = Column(BigInteger)
+    bid_rate        = Column(Numeric(8, 6))
+    base_ratio      = Column(Numeric(8, 6))
+    assessment_rate = Column(Numeric(8, 6))
+    is_winner       = Column(Boolean)
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())
+

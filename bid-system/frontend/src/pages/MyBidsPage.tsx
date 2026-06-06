@@ -1,12 +1,12 @@
-﻿import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, CheckCircle2, XCircle, Clock, Trash2, Edit2, Search, Download, Loader2 } from 'lucide-react'
+import { Plus, CheckCircle2, XCircle, Clock, Trash2, Edit2, Search, Download, Loader2, AlertCircle } from 'lucide-react'
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, BarChart, Bar, ReferenceLine, Cell, PieChart, Pie, Legend
 } from 'recharts'
 import { myBidsApi, bidsApi } from '@/api'
-import type { MyBidRecord, MyBidAnalysis, DefeatAnalysis, GapAnalysisResponse, BidSearchItem, WinPattern } from '@/types'
+import type { MyBidRecord, MyBidAnalysis, DefeatAnalysis, GapAnalysisResponse, BidSearchItem, WinPattern, SekihaiInfo } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -142,6 +142,18 @@ export default function MyBidsPage() {
   const { data: records = [], isLoading } = useQuery<MyBidRecord[]>({
     queryKey: ['my-bids', resultFilter],
     queryFn: () => myBidsApi.list({ result: resultFilter === 'all' ? undefined : resultFilter }),
+  })
+
+  const annoNos = useMemo(
+    () => records.filter((r) => r.announcement_no && r.result === 'lost').map((r) => r.announcement_no!).slice(0, 30),
+    [records],
+  )
+
+  const { data: sekihaiMap = {} } = useQuery<Record<string, SekihaiInfo>>({
+    queryKey: ['inpo-rank-batch', annoNos],
+    queryFn: () => myBidsApi.inpoRankBatch(annoNos),
+    enabled: annoNos.length > 0,
+    staleTime: 600_000,
   })
 
   const createMut = useMutation({
@@ -346,7 +358,23 @@ export default function MyBidsPage() {
                         {pct(rec.actual_winner_rate)}
                       </TableCell>
                       <TableCell className="text-center">
-                        <ResultBadge result={rec.result as ResultType} />
+                        <div className="flex flex-col items-center gap-0.5">
+                          <ResultBadge result={rec.result as ResultType} />
+                          {rec.result === 'lost' && rec.announcement_no && sekihaiMap[rec.announcement_no]?.found && (() => {
+                            const info = sekihaiMap[rec.announcement_no!]!
+                            const myRate = rec.submitted_rate
+                            const winnerRate = info.winner_rate
+                            if (!winnerRate) return null
+                            const diff = Math.abs(myRate - winnerRate) * 100
+                            const rank2 = info.participants?.find(p => p.rank === 2)
+                            const isSekihai = diff < 1.0
+                            return isSekihai ? (
+                              <Badge variant="outline" className="text-[9px] px-1 py-0 text-orange-600 border-orange-400 gap-0.5">
+                                <AlertCircle className="h-2.5 w-2.5" />惜敗 {diff.toFixed(2)}%p
+                              </Badge>
+                            ) : null
+                          })()}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1 justify-end">

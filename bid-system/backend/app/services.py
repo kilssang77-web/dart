@@ -2735,6 +2735,10 @@ class G2BSyncService:
             else:
                 rec.result = "lost"
                 lost += 1
+                # 惜敗 알림: 낙찰자와 근소한 차이(1%p 이내) — 2위 가능성
+                rate_diff_pct = abs(submitted_rate - winner_rate) * 100
+                if rate_diff_pct < 1.0:
+                    self._notify_seikihai(db, rec, winner_rate, rate_diff_pct)
 
         try:
             db.commit()
@@ -2745,6 +2749,21 @@ class G2BSyncService:
 
         logger.info("G2B 자동 연계: won=%d, lost=%d, skipped=%d", won, lost, skipped)
         return {"won": won, "lost": lost, "skipped": skipped}
+
+    def _notify_seikihai(self, db: Session, rec, winner_rate: float, diff_pct: float) -> None:
+        try:
+            title = f"[惜敗 알림] {rec.title[:40]}"
+            body = (
+                f"낙찰자와 {diff_pct:.2f}%p 차이로 아깝게 패찰했습니다. "
+                f"낙찰율: {winner_rate*100:.3f}%, 귀사 투찰율: {float(rec.submitted_rate)*100:.3f}%"
+            )
+            link = f"/my-bids"
+            users = db.query(User).filter(User.is_active == True).all()
+            for u in users:
+                n = Notification(user_id=u.id, ntype="seikihai", title=title, body=body, link=link)
+                db.add(n)
+        except Exception as exc:
+            logger.warning("惜敗 알림 생성 실패: %s", exc)
 
 
 class AgencyYegaService:
@@ -3063,10 +3082,18 @@ class FinalRecommendService:
 
         prism_top = top10[0] if top10 else None
 
-        # 4. 예가 빈도 top1 (크로스체크 근거)
+        # 4. 예가 빈도 top1 (크로스체크 근거) — yega_range를 inpo21c_bid_notices에서 동적 조회
         try:
-            a_val  = int(bid.a_value) if bid.a_value else None
-            yega   = calc_yega_frequency(base_amount, a_value=a_val, srate_center=srate_mean)
+            a_val = int(bid.a_value) if bid.a_value else None
+            spread_half = 0.028  # fallback
+            if bid.announcement_no:
+                ibn_row = self.db.execute(text(
+                    "SELECT yega_range_max FROM inpo21c_bid_notices "
+                    "WHERE announcement_no LIKE :ano ORDER BY announcement_no LIMIT 1"
+                ), {"ano": bid.announcement_no + "%"}).fetchone()
+                if ibn_row and ibn_row[0] is not None:
+                    spread_half = abs(int(ibn_row[0])) / 100.0
+            yega   = calc_yega_frequency(base_amount, a_value=a_val, srate_center=srate_mean, spread_half=spread_half)
             yega_rows     = yega.get("frequency", [])
             yega_top_rate = float(yega_rows[0]["rate"])        if yega_rows else None
             yega_top_prob = float(yega_rows[0]["probability"]) if yega_rows else None
@@ -3392,3 +3419,354 @@ class NotificationService:
         self.db.commit()
         self.db.refresh(n)
         return [n]
+
+
+# ==================================================
+# 전참여자 조회 서비스 (inpo21c_participants)
+# ==================================================
+
+class InpoParticipantService:
+    """inpo21c_participants → 공고별 전체 참여자 목록 반환."""
+
+    def get(self, db: Session, bid_id: int) -> list:
+        bid = db.query(Bid).filter(Bid.id == bid_id).first()
+        if not bid or not bid.announcement_no:
+            return []
+        rows = db.execute(text("""
+            SELECT ip.rank, ip.company_name, ip.biz_reg_no,
+                   ip.bid_rate, ip.base_ratio, ip.is_winner
+            FROM inpo21c_participants ip
+            JOIN inpo21c_bids ib USING (inpo21c_bid_id)
+            WHERE ib.announcement_no LIKE :ano
+            ORDER BY ip.rank
+        """), {"ano": bid.announcement_no + "%"}).fetchall()
+        return [
+            {
+                "rank":         r[0],
+                "company_name": r[1],
+                "biz_reg_no":   r[2],
+                "bid_rate":     float(r[3]) if r[3] is not None else None,
+                "base_ratio":   float(r[4]) if r[4] is not None else None,
+                "is_winner":    bool(r[5]),
+            }
+            for r in rows
+        ]
+
+
+# ==================================================
+# 惜敗 분석 서비스 — my_bid_records × inpo21c_participants
+# ==================================================
+
+class SekihaiService:
+    """자사 투찰이력 × inpo21c 실측 순위 교차 분석."""
+
+    def get_rank(self, db: Session, announcement_no: str) -> dict:
+        """announcement_no 기준 inpo21c 참여자 목록에서 모든 순위 반환."""
+        rows = db.execute(text("""
+            SELECT ip.rank, ip.company_name, ip.bid_rate, ip.is_winner,
+                   ib.base_amount, ib.estimated_amount
+            FROM inpo21c_participants ip
+            JOIN inpo21c_bids ib USING (inpo21c_bid_id)
+            WHERE ib.announcement_no LIKE :ano
+            ORDER BY ip.rank
+        """), {"ano": announcement_no + "%"}).fetchall()
+        if not rows:
+            return {"found": False, "participants": []}
+        winner = next((r for r in rows if r[3]), None)
+        return {
+            "found": True,
+            "total_count": len(rows),
+            "winner_rate": float(winner[2]) if winner and winner[2] else None,
+            "base_amount": int(rows[0][4]) if rows[0][4] else None,
+            "participants": [
+                {
+                    "rank":         r[0],
+                    "company_name": r[1],
+                    "bid_rate":     float(r[2]) if r[2] is not None else None,
+                    "is_winner":    bool(r[3]),
+                }
+                for r in rows[:20]
+            ],
+        }
+
+    def batch_ranks(self, db: Session, announcement_nos: list[str]) -> dict:
+        """여러 announcement_no에 대한 순위 정보 일괄 반환."""
+        result: dict = {}
+        for ano in announcement_nos:
+            if not ano:
+                continue
+            rows = db.execute(text("""
+                SELECT ip.rank, ip.company_name, ip.bid_rate, ip.is_winner
+                FROM inpo21c_participants ip
+                JOIN inpo21c_bids ib USING (inpo21c_bid_id)
+                WHERE ib.announcement_no LIKE :ano
+                ORDER BY ip.rank
+            """), {"ano": ano + "%"}).fetchall()
+            if rows:
+                winner = next((r for r in rows if r[3]), None)
+                result[ano] = {
+                    "found": True,
+                    "total_count": len(rows),
+                    "winner_rate": float(winner[2]) if winner and winner[2] else None,
+                    "top5": [
+                        {"rank": r[0], "company_name": r[1], "bid_rate": float(r[2]) if r[2] else None, "is_winner": bool(r[3])}
+                        for r in rows[:5]
+                    ],
+                }
+            else:
+                result[ano] = {"found": False}
+        return result
+
+
+# ==================================================
+# 경쟁 레이더 서비스 — 동반 입찰 경쟁사 분석
+# ==================================================
+
+class RivalRadarService:
+    """inpo21c_participants 기반 동반 입찰 경쟁사 레이더."""
+
+    def get(self, db: Session, bid_id: int, top_k: int = 15) -> dict:
+        bid = db.query(Bid).filter(Bid.id == bid_id).first()
+        if not bid or not bid.announcement_no:
+            return {"rivals": [], "bid_id": bid_id}
+
+        # 이 공고에 참여한 업체들
+        participants = db.execute(text("""
+            SELECT ip.company_name, ip.biz_reg_no, ip.bid_rate, ip.rank, ip.is_winner
+            FROM inpo21c_participants ip
+            JOIN inpo21c_bids ib USING (inpo21c_bid_id)
+            WHERE ib.announcement_no LIKE :ano
+            ORDER BY ip.rank
+        """), {"ano": bid.announcement_no + "%"}).fetchall()
+
+        if not participants:
+            return {"rivals": [], "bid_id": bid_id, "announcement_no": bid.announcement_no}
+
+        # 같은 업체들이 함께 참여한 다른 공고 수 (동반 빈도)
+        biz_nos = [r[1] for r in participants if r[1]]
+        if not biz_nos:
+            company_names = [r[0] for r in participants if r[0]]
+            freq_rows = db.execute(text("""
+                SELECT ip2.company_name, COUNT(DISTINCT ib2.inpo21c_bid_id) as co_count,
+                       AVG(ip2.bid_rate::numeric) as avg_rate,
+                       SUM(CASE WHEN ip2.is_winner THEN 1 ELSE 0 END) as win_count
+                FROM inpo21c_participants ip2
+                JOIN inpo21c_bids ib2 USING (inpo21c_bid_id)
+                WHERE ip2.company_name = ANY(:names)
+                  AND ib2.announcement_no NOT LIKE :ano
+                  AND ib2.agency_name = :agency
+                GROUP BY ip2.company_name
+                ORDER BY co_count DESC
+                LIMIT :k
+            """), {
+                "names": company_names,
+                "ano": bid.announcement_no + "%",
+                "agency": bid.agency.name if bid.agency else "",
+                "k": top_k,
+            }).fetchall()
+        else:
+            freq_rows = db.execute(text("""
+                SELECT ip2.company_name, COUNT(DISTINCT ib2.inpo21c_bid_id) as co_count,
+                       AVG(ip2.bid_rate::numeric) as avg_rate,
+                       SUM(CASE WHEN ip2.is_winner THEN 1 ELSE 0 END) as win_count
+                FROM inpo21c_participants ip2
+                JOIN inpo21c_bids ib2 USING (inpo21c_bid_id)
+                WHERE ip2.biz_reg_no = ANY(:nos)
+                  AND ib2.announcement_no NOT LIKE :ano
+                GROUP BY ip2.company_name
+                ORDER BY co_count DESC
+                LIMIT :k
+            """), {
+                "nos": biz_nos,
+                "ano": bid.announcement_no + "%",
+                "k": top_k,
+            }).fetchall()
+
+        rivals = [
+            {
+                "company_name": r[0],
+                "co_bid_count": int(r[1]),
+                "avg_bid_rate": float(r[2]) if r[2] else None,
+                "win_count":    int(r[3]),
+            }
+            for r in freq_rows
+        ]
+
+        winner = next((r for r in participants if r[4]), None)
+        return {
+            "bid_id": bid_id,
+            "announcement_no": bid.announcement_no,
+            "total_participants": len(participants),
+            "winner_company": winner[0] if winner else None,
+            "winner_rate":    float(winner[2]) if winner and winner[2] else None,
+            "rivals": rivals,
+            "current_participants": [
+                {"rank": r[3], "company_name": r[0], "bid_rate": float(r[2]) if r[2] else None, "is_winner": bool(r[4])}
+                for r in participants[:20]
+            ],
+        }
+
+
+# ==================================================
+# 실측 낙찰 구간 서비스 — inpo21c 기반 실측 분포
+# ==================================================
+
+class ActualWinZoneService:
+    """inpo21c_participants의 낙찰자 투찰률 실측 분포 산출."""
+
+    def get(self, db: Session, bid_id: int) -> dict:
+        bid = db.query(Bid).filter(Bid.id == bid_id).first()
+        if not bid:
+            return {"zones": [], "sample_count": 0}
+
+        # 유사 공고(같은 발주처 or 공종) 낙찰율 분포
+        agency_name = bid.agency.name if bid.agency else None
+        industry_id = bid.industry_id
+
+        rows = db.execute(text("""
+            SELECT ip.bid_rate::numeric
+            FROM inpo21c_participants ip
+            JOIN inpo21c_bids ib USING (inpo21c_bid_id)
+            JOIN agencies a ON a.name = ib.agency_name
+            WHERE ip.is_winner = TRUE
+              AND (:agency_name IS NULL OR ib.agency_name = :agency_name)
+            ORDER BY ip.bid_rate
+            LIMIT 500
+        """), {"agency_name": agency_name}).fetchall()
+
+        rates = [float(r[0]) for r in rows if r[0] is not None]
+        if not rates:
+            return {"zones": [], "sample_count": 0, "message": "충분한 실측 데이터 없음"}
+
+        # 0.2%p 구간으로 빈도 집계
+        import math
+        step = 0.002
+        lo = math.floor(min(rates) / step) * step
+        hi = math.ceil(max(rates) / step) * step
+        buckets: dict = {}
+        for rate in rates:
+            key = round(math.floor(rate / step) * step, 4)
+            buckets[key] = buckets.get(key, 0) + 1
+
+        total = len(rates)
+        zones = [
+            {
+                "range_lo":   k,
+                "range_hi":   round(k + step, 4),
+                "count":      v,
+                "probability": round(v / total * 100, 1),
+            }
+            for k, v in sorted(buckets.items())
+        ]
+
+        mean_rate = round(sum(rates) / total, 5)
+        peak_zone = max(zones, key=lambda z: z["count"]) if zones else None
+
+        return {
+            "sample_count": total,
+            "mean_winner_rate": mean_rate,
+            "peak_zone":    peak_zone,
+            "zones":        zones,
+            "agency_name":  agency_name,
+        }
+
+
+# ==================================================
+# 시장 인텔리전스 서비스
+# ==================================================
+
+class MarketIntelService:
+    """inpo21c_participants 기반 시장 인텔리전스 — 발주처×사정율 히트맵."""
+
+    def agency_heatmap(self, db: Session, months: int = 12, top_n: int = 20) -> dict:
+        """발주처별 낙찰율 분포 히트맵 데이터."""
+        months_safe = max(1, min(int(months), 60))
+        top_n_safe  = max(5, min(int(top_n), 100))
+        rows = db.execute(text(f"""
+            SELECT ib.agency_name,
+                   COUNT(DISTINCT ib.inpo21c_bid_id)          AS bid_count,
+                   AVG(ip.bid_rate::numeric)                  AS avg_winner_rate,
+                   PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ip.bid_rate::numeric) AS p25,
+                   PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ip.bid_rate::numeric) AS p75,
+                   MIN(ip.bid_rate::numeric)                  AS min_rate,
+                   MAX(ip.bid_rate::numeric)                  AS max_rate
+            FROM inpo21c_participants ip
+            JOIN inpo21c_bids ib USING (inpo21c_bid_id)
+            WHERE ip.is_winner = TRUE
+              AND (ib.open_datetime IS NULL OR ib.open_datetime >= NOW() - INTERVAL '{months_safe} months')
+            GROUP BY ib.agency_name
+            HAVING COUNT(*) >= 3
+            ORDER BY bid_count DESC
+            LIMIT {top_n_safe}
+        """)).fetchall()
+
+        return {
+            "months":  months,
+            "agencies": [
+                {
+                    "agency_name":    r[0],
+                    "bid_count":      int(r[1]),
+                    "avg_rate":       float(r[2]) if r[2] else None,
+                    "p25":            float(r[3]) if r[3] else None,
+                    "p75":            float(r[4]) if r[4] else None,
+                    "min_rate":       float(r[5]) if r[5] else None,
+                    "max_rate":       float(r[6]) if r[6] else None,
+                }
+                for r in rows
+            ],
+        }
+
+    def winner_rate_trend(self, db: Session, agency_name: Optional[str] = None) -> dict:
+        """월별 낙찰율 추세 (open_datetime 우선, 없으면 created_at 사용)."""
+        rows = db.execute(text("""
+            SELECT EXTRACT(YEAR  FROM COALESCE(ib.open_datetime, ib.created_at))  AS yr,
+                   EXTRACT(MONTH FROM COALESCE(ib.open_datetime, ib.created_at))  AS mo,
+                   COUNT(DISTINCT ib.inpo21c_bid_id)    AS bid_count,
+                   AVG(ip.bid_rate::numeric)             AS avg_rate
+            FROM inpo21c_participants ip
+            JOIN inpo21c_bids ib USING (inpo21c_bid_id)
+            WHERE ip.is_winner = TRUE
+              AND (:agency IS NULL OR ib.agency_name = :agency)
+            GROUP BY yr, mo
+            ORDER BY yr, mo
+            LIMIT 36
+        """), {"agency": agency_name}).fetchall()
+        return {
+            "agency_name": agency_name,
+            "trend": [
+                {
+                    "year":       int(r[0]),
+                    "month":      int(r[1]),
+                    "bid_count":  int(r[2]),
+                    "avg_rate":   float(r[3]) if r[3] else None,
+                }
+                for r in rows
+            ],
+        }
+
+    def top_winner_companies(self, db: Session, agency_name: Optional[str] = None, top_n: int = 10) -> list:
+        """낙찰 다발 업체 순위."""
+        rows = db.execute(text("""
+            SELECT ip.company_name,
+                   COUNT(*) as win_count,
+                   AVG(ip.bid_rate::numeric) as avg_rate,
+                   MIN(ip.bid_rate::numeric) as min_rate,
+                   MAX(ip.bid_rate::numeric) as max_rate
+            FROM inpo21c_participants ip
+            JOIN inpo21c_bids ib USING (inpo21c_bid_id)
+            WHERE ip.is_winner = TRUE
+              AND (:agency IS NULL OR ib.agency_name = :agency)
+            GROUP BY ip.company_name
+            ORDER BY win_count DESC
+            LIMIT :n
+        """), {"agency": agency_name, "n": top_n}).fetchall()
+        return [
+            {
+                "company_name": r[0],
+                "win_count":    int(r[1]),
+                "avg_rate":     float(r[2]) if r[2] else None,
+                "min_rate":     float(r[3]) if r[3] else None,
+                "max_rate":     float(r[4]) if r[4] else None,
+            }
+            for r in rows
+        ]

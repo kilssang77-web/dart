@@ -1,9 +1,9 @@
 ﻿import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Trophy, ExternalLink, Sparkles, Target, Handshake } from 'lucide-react'
+import { ArrowLeft, Trophy, ExternalLink, Sparkles, Target, Handshake, Radar } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { bidsApi, statsApi } from '@/api'
-import type { BidDetail, BidResultItem, MetaData, OpportunityScore } from '@/types'
+import type { BidDetail, BidResultItem, MetaData, OpportunityScore, InpoParticipant, ActualWinZonesResponse } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 export default function BidDetailPage() {
   const { id } = useParams()
@@ -47,6 +48,20 @@ export default function BidDetailPage() {
     queryKey: ['opportunity-score', id],
     queryFn: () => bidsApi.opportunityScore(Number(id)),
     enabled: !!id && bid?.status === 'open',
+    staleTime: 300_000,
+  })
+
+  const { data: inpoParticipants } = useQuery<InpoParticipant[]>({
+    queryKey: ['inpo-participants', id],
+    queryFn: () => bidsApi.inpoParticipants(Number(id)),
+    enabled: !!id,
+    staleTime: 300_000,
+  })
+
+  const { data: actualWinZones } = useQuery<ActualWinZonesResponse>({
+    queryKey: ['actual-win-zones', id],
+    queryFn: () => bidsApi.actualWinZones(Number(id)),
+    enabled: !!id,
     staleTime: 300_000,
   })
 
@@ -192,45 +207,148 @@ export default function BidDetailPage() {
         </Card>
       )}
 
-      {/* 참여업체 */}
+      {/* 참여업체 탭 (G2B 수집 + inpo21c 실측) */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold">
-            참여업체 현황 ({bid.competitor_count}개사)
-          </CardTitle>
+          <CardTitle className="text-sm font-semibold">참여업체 현황</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>순위</TableHead>
-                <TableHead>업체명</TableHead>
-                <TableHead className="text-right">투찰금액</TableHead>
-                <TableHead className="text-right">투찰률</TableHead>
-                <TableHead className="text-center">낙찰</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {bid.results?.map((r: BidResultItem) => (
-                <TableRow key={r.id} className={cn(r.is_winner && 'bg-red-50/50 font-semibold')}>
-                  <TableCell>{r.rank}</TableCell>
-                  <TableCell>
-                    <span className="flex items-center gap-1.5">
-                      {r.is_winner && <Trophy className="h-3.5 w-3.5 text-yellow-500" />}
-                      {r.competitor_name}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right">{(r.bid_amount / 1e8).toFixed(2)}억</TableCell>
-                  <TableCell className="text-right font-mono">{(r.bid_rate * 100).toFixed(2)}%</TableCell>
-                  <TableCell className="text-center">
-                    {r.is_winner && <Badge variant="success" className="text-[10px] px-1.5 py-0">낙찰</Badge>}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <Tabs defaultValue="g2b" className="w-full">
+            <div className="px-4 pt-1 pb-2">
+              <TabsList className="h-8">
+                <TabsTrigger value="g2b" className="text-xs">G2B 수집 ({bid.competitor_count}개사)</TabsTrigger>
+                <TabsTrigger value="inpo" className="text-xs">
+                  실측 전참여자 {inpoParticipants && inpoParticipants.length > 0 ? `(${inpoParticipants.length}개사)` : ''}
+                </TabsTrigger>
+              </TabsList>
+            </div>
+
+            <TabsContent value="g2b" className="mt-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>순위</TableHead>
+                    <TableHead>업체명</TableHead>
+                    <TableHead className="text-right">투찰금액</TableHead>
+                    <TableHead className="text-right">투찰률</TableHead>
+                    <TableHead className="text-center">낙찰</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {bid.results?.map((r: BidResultItem) => (
+                    <TableRow key={r.id} className={cn(r.is_winner && 'bg-red-50/50 font-semibold')}>
+                      <TableCell>{r.rank}</TableCell>
+                      <TableCell>
+                        <span className="flex items-center gap-1.5">
+                          {r.is_winner && <Trophy className="h-3.5 w-3.5 text-yellow-500" />}
+                          {r.competitor_name}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">{(r.bid_amount / 1e8).toFixed(2)}억</TableCell>
+                      <TableCell className="text-right font-mono">{(r.bid_rate * 100).toFixed(2)}%</TableCell>
+                      <TableCell className="text-center">
+                        {r.is_winner && <Badge variant="success" className="text-[10px] px-1.5 py-0">낙찰</Badge>}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TabsContent>
+
+            <TabsContent value="inpo" className="mt-0">
+              {!inpoParticipants || inpoParticipants.length === 0 ? (
+                <div className="p-6 text-center text-sm text-muted-foreground">
+                  inpo21c 실측 데이터 없음 (R-prefix 공고번호만 지원)
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>순위</TableHead>
+                      <TableHead>업체명</TableHead>
+                      <TableHead className="text-right">투찰률</TableHead>
+                      <TableHead className="text-right">사정율</TableHead>
+                      <TableHead className="text-center">낙찰</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {inpoParticipants.map((r: InpoParticipant) => (
+                      <TableRow key={r.rank} className={cn(r.is_winner && 'bg-red-50/50 font-semibold')}>
+                        <TableCell>{r.rank}</TableCell>
+                        <TableCell>
+                          <span className="flex items-center gap-1.5">
+                            {r.is_winner && <Trophy className="h-3.5 w-3.5 text-yellow-500" />}
+                            {r.company_name}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right font-mono">
+                          {r.bid_rate != null ? (r.bid_rate * 100).toFixed(3) + '%' : '-'}
+                        </TableCell>
+                        <TableCell className="text-right font-mono">
+                          {r.base_ratio != null ? (r.base_ratio * 100).toFixed(3) + '%' : '-'}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {r.is_winner && <Badge variant="success" className="text-[10px] px-1.5 py-0">낙찰</Badge>}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+              <div className="px-4 pb-2 pt-1">
+                <button
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => navigate(`/bids/${id}/rival-radar`)}
+                >
+                  <Radar className="h-3 w-3 inline mr-1" />경쟁 레이더 보기 →
+                </button>
+              </div>
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
+
+      {/* 실측 낙찰 구간 */}
+      {actualWinZones && actualWinZones.sample_count > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-semibold">실측 낙찰 구간 분포</CardTitle>
+              <span className="text-xs text-muted-foreground">
+                {actualWinZones.agency_name} · {actualWinZones.sample_count}건 · 평균 {(actualWinZones.mean_winner_rate * 100).toFixed(3)}%
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={120}>
+              <BarChart data={actualWinZones.zones} margin={{ left: -20, right: 0, top: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="range_lo" tickFormatter={(v: number) => (v * 100).toFixed(1) + '%'} tick={{ fontSize: 9 }} />
+                <YAxis tick={{ fontSize: 9 }} />
+                <Tooltip
+                  formatter={(v: number) => [v + '건', '빈도']}
+                  labelFormatter={(l: number) => `구간 ${(l * 100).toFixed(1)}%~`}
+                />
+                <Bar dataKey="count" radius={[2, 2, 0, 0]}>
+                  {actualWinZones.zones.map((z, i) => (
+                    <Cell
+                      key={i}
+                      fill={actualWinZones.peak_zone && z.range_lo === actualWinZones.peak_zone.range_lo
+                        ? '#ef4444'
+                        : 'hsl(var(--primary)/0.5)'}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            {actualWinZones.peak_zone && (
+              <p className="text-xs text-muted-foreground mt-1">
+                <span className="text-red-500 font-semibold">최빈 구간</span>: {(actualWinZones.peak_zone.range_lo * 100).toFixed(1)}%–{(actualWinZones.peak_zone.range_hi * 100).toFixed(1)}% ({actualWinZones.peak_zone.probability}%)
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* 발주처 사정율 미니차트 */}
       {agencySrateDist?.bins && agencySrateDist.bins.length > 0 && (

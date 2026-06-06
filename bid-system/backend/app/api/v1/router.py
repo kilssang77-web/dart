@@ -9,6 +9,7 @@ from .admin import router as admin_router
 from .my_bids import router as my_bids_router
 from .agencies import router as agencies_router
 from .notifications import router as notifications_router
+from .market_intel import router as market_intel_router
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -22,3 +23,4 @@ api_router.include_router(admin_router)
 api_router.include_router(my_bids_router)
 api_router.include_router(agencies_router)
 api_router.include_router(notifications_router)
+api_router.include_router(market_intel_router)

@@ -897,3 +897,82 @@ export interface NotificationListResponse {
   unread_count: number
 }
 
+export interface InpoParticipant {
+  rank: number
+  company_name: string
+  biz_reg_no: string | null
+  bid_rate: number | null
+  base_ratio: number | null
+  is_winner: boolean
+}
+
+export interface SekihaiInfo {
+  found: boolean
+  total_count?: number
+  winner_rate?: number | null
+  base_amount?: number | null
+  participants?: { rank: number; company_name: string; bid_rate: number | null; is_winner: boolean }[]
+}
+
+export interface RivalItem {
+  company_name: string
+  co_bid_count: number
+  avg_bid_rate: number | null
+  win_count: number
+}
+
+export interface RivalRadarResponse {
+  bid_id: number
+  announcement_no: string
+  total_participants: number
+  winner_company: string | null
+  winner_rate: number | null
+  rivals: RivalItem[]
+  current_participants: { rank: number; company_name: string; bid_rate: number | null; is_winner: boolean }[]
+}
+
+export interface ActualWinZone {
+  range_lo: number
+  range_hi: number
+  count: number
+  probability: number
+}
+
+export interface ActualWinZonesResponse {
+  sample_count: number
+  mean_winner_rate: number
+  peak_zone: ActualWinZone | null
+  zones: ActualWinZone[]
+  agency_name: string | null
+}
+
+export interface AgencyHeatmapItem {
+  agency_name: string
+  bid_count: number
+  avg_rate: number | null
+  p25: number | null
+  p75: number | null
+  min_rate: number | null
+  max_rate: number | null
+}
+
+export interface MarketIntelHeatmap {
+  months: number
+  agencies: AgencyHeatmapItem[]
+}
+
+export interface WinnerTrendItem {
+  year: number
+  month: number
+  bid_count: number
+  avg_rate: number | null
+}
+
+export interface TopWinnerItem {
+  company_name: string
+  win_count: number
+  avg_rate: number | null
+  min_rate: number | null
+  max_rate: number | null
+}
+

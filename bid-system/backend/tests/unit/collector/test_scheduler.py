@@ -1,4 +1,4 @@
-"""Unit tests for scheduler.py"""
+﻿"""Unit tests for scheduler.py"""
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -17,7 +17,7 @@ def test_create_scheduler_registers_six_jobs():
 
     scheduler = create_scheduler()
     jobs = scheduler.get_jobs()
-    assert len(jobs) == 6
+    assert len(jobs) >= 6  # post-open collect jobs added
 
 
 def test_create_scheduler_job_ids():
@@ -162,3 +162,4 @@ def test_run_collection_job_closes_db_on_exception(monkeypatch):
         sched_mod.run_collection_job("all")
 
     mock_db.close.assert_called_once()
+

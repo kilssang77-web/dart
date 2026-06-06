@@ -19,6 +19,8 @@ import JointSimPage from '@/pages/JointSimPage'
 import YegaPage from '@/pages/YegaPage'
 import TenderRecommendPage from '@/pages/TenderRecommendPage'
 import NotificationsPage from '@/pages/NotificationsPage'
+import RivalRadarPage from '@/pages/RivalRadarPage'
+import MarketIntelPage from '@/pages/MarketIntelPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -56,6 +58,8 @@ export default function App() {
           <Route path="joint-bid"     element={<JointBidPage />} />
           <Route path="yega"          element={<YegaPage />} />
           <Route path="notifications" element={<NotificationsPage />} />
+          <Route path="bids/:id/rival-radar" element={<RivalRadarPage />} />
+          <Route path="market-intel"          element={<MarketIntelPage />} />
         </Route>
       </Routes>
     </BrowserRouter>
