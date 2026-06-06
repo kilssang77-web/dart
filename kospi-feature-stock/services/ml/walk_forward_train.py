@@ -46,10 +46,31 @@ logger = logging.getLogger("walk_forward")
 
 # ── 데이터 로딩 ──────────────────────────────────────────────────────────────
 
-async def load_daily_bars(pool: asyncpg.Pool, start: str, end: str) -> pd.DataFrame:
-    """daily_bars + supply_demand join으로 원시 데이터 로드."""
+async def get_liquid_codes(pool: asyncpg.Pool, start, end, max_codes: int) -> list[str]:
+    """거래대금 상위 max_codes개 종목 코드 반환 (메모리 절감용)."""
     rows = await pool.fetch(
         """
+        SELECT code, AVG(amount) AS avg_amount
+        FROM daily_bars
+        WHERE date BETWEEN $1::date AND $2::date
+          AND code NOT IN ('0001','1001')
+          AND close > 0
+        GROUP BY code
+        HAVING COUNT(*) >= 100
+        ORDER BY avg_amount DESC
+        LIMIT $3
+        """,
+        start, end, max_codes,
+    )
+    return [r["code"] for r in rows]
+
+
+async def load_daily_bars(pool: asyncpg.Pool, start, end, codes: list[str] | None = None) -> pd.DataFrame:
+    """daily_bars + supply_demand join으로 원시 데이터 로드."""
+    code_filter = "AND d.code = ANY($3::text[])" if codes else ""
+    params = [start, end] + ([codes] if codes else [])
+    rows = await pool.fetch(
+        f"""
         SELECT
             d.code, d.date,
             d.open, d.high, d.low, d.close, d.volume, d.amount,
@@ -61,11 +82,12 @@ async def load_daily_bars(pool: asyncpg.Pool, start: str, end: str) -> pd.DataFr
         FROM daily_bars d
         LEFT JOIN supply_demand sd ON sd.code=d.code AND sd.date=d.date
         WHERE d.date BETWEEN $1::date AND $2::date
-          AND d.code NOT IN ('0001','1001')   -- KOSPI/KOSDAQ 지수 제외
+          AND d.code NOT IN ('0001','1001')
           AND d.close > 0
+          {code_filter}
         ORDER BY d.code, d.date
         """,
-        start, end,
+        *params,
     )
     return pd.DataFrame([dict(r) for r in rows])
 
@@ -324,26 +346,40 @@ def report(name: str, model, X: pd.DataFrame, y: pd.Series, threshold: float = 0
 # ── 메인 ──────────────────────────────────────────────────────────────────────
 
 async def main(args):
+    from datetime import date as _date
+    def _d(s: str) -> _date:
+        return _date.fromisoformat(s)
+
+    # 문자열 → datetime.date 변환 (asyncpg는 date 객체를 요구)
+    train_start = _d(args.train_start); train_end = _d(args.train_end)
+    val_start   = _d(args.val_start);   val_end   = _d(args.val_end)
+    test_start  = _d(args.test_start);  test_end  = _d(args.test_end)
+    all_start   = min(train_start, val_start, test_start)
+    all_end     = max(train_end,   val_end,   test_end)
+
     pool = await asyncpg.create_pool(
         dsn=os.environ["POSTGRES_DSN"].replace("+asyncpg", ""),
         min_size=3, max_size=10,
     )
     logger.info("=== Walk-Forward Training ===")
-    logger.info(f"Train: {args.train_start} ~ {args.train_end}")
-    logger.info(f"Val:   {args.val_start} ~ {args.val_end}")
-    logger.info(f"Test:  {args.test_start} ~ {args.test_end}")
+    logger.info(f"Train: {train_start} ~ {train_end}")
+    logger.info(f"Val:   {val_start} ~ {val_end}")
+    logger.info(f"Test:  {test_start} ~ {test_end}")
+
+    # 거래대금 상위 종목 선정 (메모리 제한: 훈련 기간 기준)
+    logger.info(f"Selecting top {args.max_codes} liquid codes by train-period avg amount...")
+    codes = await get_liquid_codes(pool, train_start, train_end, args.max_codes)
+    logger.info(f"Selected {len(codes)} codes")
 
     # 데이터 로드
     logger.info("Loading data...")
-    tr_raw   = await load_daily_bars(pool, args.train_start, args.train_end)
-    va_raw   = await load_daily_bars(pool, args.val_start,   args.val_end)
-    te_raw   = await load_daily_bars(pool, args.test_start,  args.test_end)
-    kospi_tr = await load_kospi(pool, args.train_start, args.train_end)
-    kospi_va = await load_kospi(pool, args.val_start,   args.val_end)
-    kospi_te = await load_kospi(pool, args.test_start,  args.test_end)
-    disc_all = await load_disclosures(pool,
-                    min(args.train_start, args.val_start, args.test_start),
-                    max(args.train_end,   args.val_end,   args.test_end))
+    tr_raw   = await load_daily_bars(pool, train_start, train_end, codes)
+    va_raw   = await load_daily_bars(pool, val_start,   val_end,   codes)
+    te_raw   = await load_daily_bars(pool, test_start,  test_end,  codes)
+    kospi_tr = await load_kospi(pool, train_start, train_end)
+    kospi_va = await load_kospi(pool, val_start,   val_end)
+    kospi_te = await load_kospi(pool, test_start,  test_end)
+    disc_all = await load_disclosures(pool, all_start, all_end)
     await pool.close()
 
     logger.info(f"Raw data: train={len(tr_raw)} val={len(va_raw)} test={len(te_raw)}")
@@ -433,4 +469,6 @@ if __name__ == "__main__":
                         help="리스크 레이블 임계 손실률 %%")
     parser.add_argument("--smote",       action="store_true",
                         help="SMOTE 오버샘플링 적용")
+    parser.add_argument("--max-codes",   type=int, default=600,
+                        help="거래대금 상위 N개 종목만 사용 (메모리 절감, 기본 600)")
     asyncio.run(main(parser.parse_args()))
