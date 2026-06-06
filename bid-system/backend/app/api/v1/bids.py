@@ -94,6 +94,17 @@ def recommended_bids(
     return OpportunityScoreService(db).get_top_recommended(user.id, limit)
 
 
+@router.get("/bookmarks")
+def list_bookmarks(
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    svc_bm = BookmarkService(db)
+    return svc_bm.list_bookmarks(user.id, page=page, size=size)
+
+
 @router.get("/{bid_id}")
 def get_bid(bid_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     result = svc.get_bid_detail(db, bid_id)
@@ -106,17 +117,6 @@ def get_bid(bid_id: int, db: Session = Depends(get_db), _: User = Depends(get_cu
 def similar_bids(bid_id: int, top_k: int = Query(8, ge=1, le=20),
                  db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     return svc.find_similar_bids(db, bid_id, top_k)
-
-
-@router.get("/bookmarks")
-def list_bookmarks(
-    page: int = Query(1, ge=1),
-    size: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    svc_bm = BookmarkService(db)
-    return svc_bm.list_bookmarks(user.id, page=page, size=size)
 
 
 @router.post("/{bid_id}/bookmark", status_code=204)
