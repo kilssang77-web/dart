@@ -1,0 +1,10 @@
+﻿{
+  "step": 5,
+  "status": "completed",
+  "completed_at": "2026-06-06T23:35:00+09:00",
+  "files_changed": [
+    "bid-system/frontend/src/pages/NotificationsPage.tsx",
+    "bid-system/frontend/src/App.tsx"
+  ],
+  "summary": "NotificationsPage.tsx 구현: 알림 목록(최대 50개), 읽음/미읽음 구분, 개별 읽음 처리, 모두 읽음 버튼, ntype 뱃지(키워드/사정율/시스템), link 클릭 시 페이지 이동. App.tsx /notifications 라우트 등록. TypeScript 빌드 통과."
+}

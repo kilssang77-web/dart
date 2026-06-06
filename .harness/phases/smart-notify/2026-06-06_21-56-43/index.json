@@ -34,8 +34,8 @@
     {
       "step": 5,
       "name": "알림 드롭다운 + 읽음 처리 + 알림 목록 페이지",
-      "status": "pending",
-      "summary": ""
+      "status": "completed",
+      "summary": "NotificationsPage.tsx: 목록/읽음처리/모두읽음/ntype뱃지/link이동. App.tsx /notifications 라우트. TypeScript 빌드 통과."
     },
     {
       "step": 6,
