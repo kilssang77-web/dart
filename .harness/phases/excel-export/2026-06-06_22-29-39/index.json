@@ -1,0 +1,35 @@
+﻿{
+  "task": "excel-export",
+  "run_id": "2026-06-06_22-29-39",
+  "stage": "mvp",
+  "branch": "feat/excel-export-2026-06-06_22-29-39",
+  "created_at": "2026-06-06T22:29:39+09:00",
+  "author": "kil0410@a2m.co.kr",
+  "description": "투찰 이력 Excel 다운로드 + 최종 추천 레포트 PDF + 통계 CSV 내보내기",
+  "steps": [
+    {
+      "step": 1,
+      "name": "투찰 이력 Excel 내보내기 (My Bids)",
+      "status": "pending",
+      "summary": ""
+    },
+    {
+      "step": 2,
+      "name": "최종 추천 레포트 PDF 출력 (TenderRecommendPage)",
+      "status": "pending",
+      "summary": ""
+    },
+    {
+      "step": 3,
+      "name": "통계 CSV 내보내기 (StatisticsPage)",
+      "status": "pending",
+      "summary": ""
+    },
+    {
+      "step": 4,
+      "name": "MANUAL.md v2.3 + 릴리즈 노트",
+      "status": "pending",
+      "summary": ""
+    }
+  ]
+}

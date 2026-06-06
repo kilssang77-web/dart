@@ -1,7 +1,9 @@
 ﻿from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
+import io
 
 from ...database import get_db
 from ...models import MyBidRecord, User
@@ -91,6 +93,72 @@ def win_pattern(
     user: User = Depends(get_current_user),
 ):
     return WinPatternService(db).analyze(user.id)
+
+
+@router.get("/export/excel")
+def export_excel(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    records = (
+        db.query(MyBidRecord)
+        .filter(MyBidRecord.user_id == user.id)
+        .order_by(MyBidRecord.bid_date.desc().nullslast(), MyBidRecord.created_at.desc())
+        .all()
+    )
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "투찰이력"
+
+    HEADERS = [
+        "공고번호", "공고제목", "발주처", "입찰일", "기초금액",
+        "제출투찰률", "추천투찰률", "결과", "실제낙찰률", "격차(제출-낙찰)", "비고",
+    ]
+
+    header_fill = PatternFill(start_color="1E40AF", end_color="1E40AF", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=10)
+
+    for col_idx, header in enumerate(HEADERS, 1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+
+    RESULT_MAP = {"won": "낙찰", "lost": "유찰", "pending": "진행중"}
+
+    for row_idx, r in enumerate(records, 2):
+        ws.cell(row=row_idx, column=1,  value=r.announcement_no or "")
+        ws.cell(row=row_idx, column=2,  value=r.title)
+        ws.cell(row=row_idx, column=3,  value=r.agency_name or "")
+        ws.cell(row=row_idx, column=4,  value=str(r.bid_date) if r.bid_date else "")
+        ws.cell(row=row_idx, column=5,  value=r.base_amount or 0)
+        ws.cell(row=row_idx, column=6,  value=float(r.submitted_rate) if r.submitted_rate else "")
+        ws.cell(row=row_idx, column=7,  value=float(r.recommendation_rate) if r.recommendation_rate else "")
+        ws.cell(row=row_idx, column=8,  value=RESULT_MAP.get(r.result or "pending", r.result or ""))
+        ws.cell(row=row_idx, column=9,  value=float(r.actual_winner_rate) if r.actual_winner_rate else "")
+        ws.cell(row=row_idx, column=10, value=float(r.rate_diff) if r.rate_diff else "")
+        ws.cell(row=row_idx, column=11, value=r.note or "")
+
+    COL_WIDTHS = [18, 50, 25, 12, 16, 14, 14, 10, 14, 16, 30]
+    for i, w in enumerate(COL_WIDTHS, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    from urllib.parse import quote
+    filename = quote("투찰이력.xlsx")
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
 
 
 @router.post("", response_model=MyBidRecordOut, status_code=201)

@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, CheckCircle2, XCircle, Clock, Trash2, Edit2, Search } from 'lucide-react'
+import { Plus, CheckCircle2, XCircle, Clock, Trash2, Edit2, Search, Download, Loader2 } from 'lucide-react'
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, BarChart, Bar, ReferenceLine, Cell, PieChart, Pie, Legend
@@ -58,6 +58,32 @@ const emptyForm = {
   actual_winner_rate: '',
   result: 'pending',
   note: '',
+}
+
+function ExcelDownloadButton() {
+  const [loading, setLoading] = useState(false)
+
+  const handleDownload = async () => {
+    setLoading(true)
+    try {
+      const blob = await myBidsApi.exportExcel()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = '투찰이력.xlsx'
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Button variant="outline" onClick={handleDownload} disabled={loading} className="gap-2">
+      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+      Excel
+    </Button>
+  )
 }
 
 export default function MyBidsPage() {
@@ -219,10 +245,13 @@ export default function MyBidsPage() {
           <h1 className="text-2xl font-bold tracking-tight">투찰 이력</h1>
           <p className="text-muted-foreground text-sm mt-1">자사 투찰 기록 및 낙찰률 추적</p>
         </div>
-        <Button onClick={() => setShowAdd(true)} className="gap-2">
-          <Plus className="h-4 w-4" />
-          이력 추가
-        </Button>
+        <div className="flex gap-2">
+          <ExcelDownloadButton />
+          <Button onClick={() => setShowAdd(true)} className="gap-2">
+            <Plus className="h-4 w-4" />
+            이력 추가
+          </Button>
+        </div>
       </div>
 
       {/* 통계 카드 */}

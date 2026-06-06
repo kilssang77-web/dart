@@ -195,6 +195,8 @@ export const myBidsApi = {
     api.get('/my-bids/gap-analysis').then((r) => r.data),
   winPattern: (): Promise<import('../types').WinPattern> =>
     api.get('/my-bids/win-pattern').then((r) => r.data),
+  exportExcel: (): Promise<Blob> =>
+    api.get('/my-bids/export/excel', { responseType: 'blob' }).then((r) => r.data),
 }
 
 // -- 발주기관 --------------------------------------------------
@@ -213,6 +215,7 @@ export const agenciesApi = {
 }
 
 // -- 알림 --------------------------------------------------
+
 
 export const notificationsApi = {
   list: (params?: { unread_only?: boolean; limit?: number }): Promise<import('../types').NotificationListResponse> =>
