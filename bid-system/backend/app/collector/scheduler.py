@@ -95,6 +95,32 @@ def run_inpo21c_job() -> None:
         db.close()
 
 
+def run_srate_spike_check_job() -> None:
+    """사정율 급변 탐지 후 전체 공지 알림 생성 (매일 07:00 KST)."""
+    SPIKE_THRESHOLD_PCT = 2.0  # ±2%p 이상이면 급변 알림
+
+    from app.database import SessionLocal
+    from app.services import SrateTrendService, NotificationService
+
+    db = SessionLocal()
+    try:
+        trends = SrateTrendService().get_top_trends(db, limit=10)
+        svc = NotificationService(db)
+        fired = 0
+        for t in trends:
+            delta_pct = abs(t.get("delta", 0)) * 100
+            if delta_pct >= SPIKE_THRESHOLD_PCT:
+                agency_name = t.get("agency_name", "발주처 미상")
+                direction = t.get("direction", "up")
+                svc.create_srate_spike(agency_name, "전체", direction, delta_pct)
+                fired += 1
+        logger.info("사정율 급변 알림: %d건 발송", fired)
+    except Exception as exc:
+        logger.error("사정율 급변 알림 실패: %s", exc)
+    finally:
+        db.close()
+
+
 def create_scheduler() -> BackgroundScheduler:
     """BackgroundScheduler 생성 및 작업 등록."""
     scheduler = BackgroundScheduler(timezone="Asia/Seoul")
@@ -133,6 +159,13 @@ def create_scheduler() -> BackgroundScheduler:
         trigger=CronTrigger(day_of_week="mon", hour=2, minute=0, timezone="Asia/Seoul"),
         id="collect_inpo21c_weekly",
         name="inpo21c 전참여자+예가 수집 (매주 월 02:00 KST)",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_srate_spike_check_job,
+        trigger=CronTrigger(hour=7, minute=0, timezone="Asia/Seoul"),
+        id="srate_spike_check_daily",
+        name="사정율 급변 알림 탐지 (매일 07:00 KST)",
         replace_existing=True,
     )
 

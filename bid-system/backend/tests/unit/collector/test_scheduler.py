@@ -12,12 +12,12 @@ def test_create_scheduler_returns_background_scheduler():
     assert isinstance(scheduler, BackgroundScheduler)
 
 
-def test_create_scheduler_registers_five_jobs():
+def test_create_scheduler_registers_six_jobs():
     from app.collector.scheduler import create_scheduler
 
     scheduler = create_scheduler()
     jobs = scheduler.get_jobs()
-    assert len(jobs) == 5
+    assert len(jobs) == 6
 
 
 def test_create_scheduler_job_ids():
@@ -30,6 +30,7 @@ def test_create_scheduler_job_ids():
     assert "collect_scsbid_daily" in job_ids
     assert "collect_bid_notices_inpo21c_daily" in job_ids
     assert "collect_inpo21c_weekly" in job_ids
+    assert "srate_spike_check_daily" in job_ids
 
 
 def test_create_scheduler_job_args():

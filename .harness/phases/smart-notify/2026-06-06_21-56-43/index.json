@@ -22,8 +22,8 @@
     {
       "step": 3,
       "name": "사정율 급변 알림 자동 생성",
-      "status": "pending",
-      "summary": ""
+      "status": "completed",
+      "summary": "run_srate_spike_check_job() 추가, 매일 07:00 KST ±2%p 이상 급변 탐지 후 전체 공지 알림 생성. scheduler 6-jobs. 140 unit tests passing."
     },
     {
       "step": 4,
