@@ -527,7 +527,7 @@ if __name__ == "__main__":
     parser.add_argument("--test-start",  default="2025-01-01")
     parser.add_argument("--test-end",    default="2026-06-06")
     parser.add_argument("--model-dir",   default="/models/lgbm")
-    parser.add_argument("--entry-pct",   type=float, default=3.0,
+    parser.add_argument("--entry-pct",   type=float, default=5.0,
                         help="진입 레이블 임계 수익률 %%")
     parser.add_argument("--risk-pct",    type=float, default=5.0,
                         help="리스크 레이블 임계 손실률 %%")

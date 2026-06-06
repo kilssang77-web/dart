@@ -291,7 +291,7 @@ services:
         --val-start   2024-01-01 --val-end   2024-12-31
         --test-start  2025-01-01 --test-end  2025-12-31
         --smote
-        --max-codes 400
+        --max-codes 500
         --model-dir /models
     profiles:
       - tools

@@ -11,8 +11,8 @@ logger = logging.getLogger(__name__)
 
 _BASE_PARAMS = {
     "boosting_type": "gbdt",
-    "num_leaves": 31,
-    "max_depth": 6,
+    "num_leaves": 48,
+    "max_depth": 7,
     "learning_rate": 0.03,
     "n_estimators": 3000,
     "min_child_samples": 50,
