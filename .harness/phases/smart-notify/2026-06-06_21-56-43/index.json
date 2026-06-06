@@ -16,8 +16,8 @@
     {
       "step": 2,
       "name": "키워드 매칭 공고 알림 자동 생성 (수집기 연동)",
-      "status": "pending",
-      "summary": ""
+      "status": "completed",
+      "summary": "_check_keyword_match() 추가, collect_notices 신규 공고에 한해 WatchKeyword 매칭 후 알림 생성. 140 unit tests passing."
     },
     {
       "step": 3,

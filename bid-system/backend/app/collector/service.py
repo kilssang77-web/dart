@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 from app.collector.client import BidNotice
 from app.collector.client import BidResult as BidResultData
 from app.collector.client import NarajangterClient
-from app.models import Agency, Bid, BidResult, Competitor, CollectionLog
+from app.models import Agency, Bid, BidResult, Competitor, CollectionLog, WatchKeyword
+from app.services import NotificationService
 
 CollectType = Literal["notice_cnstwk", "notice_servc", "notice_thng"]
 
@@ -159,6 +160,19 @@ def _record_log(
     return log
 
 
+def _check_keyword_match(db: Session, bid: Bid) -> None:
+    keywords = db.query(WatchKeyword).filter(WatchKeyword.is_active == True).all()
+    if not keywords:
+        return
+    title_lower = bid.title.lower()
+    matched = [kw.keyword for kw in keywords if kw.keyword.lower() in title_lower]
+    if matched:
+        try:
+            NotificationService(db).create_keyword_match(bid, matched)
+        except Exception as exc:
+            logger.warning("keyword notify failed bid={}: {}", bid.id, exc)
+
+
 # ------------------------------------------------------------------ #
 # 怨듦컻 ?쒕퉬???⑥닔                                                     #
 # ------------------------------------------------------------------ #
@@ -187,14 +201,16 @@ def collect_notices(
             for notice in page:
                 try:
                     agency = _upsert_agency(db, notice.agency_name)
-                    _upsert_bid(db, notice, agency.id)
+                    bid, is_new = _upsert_bid(db, notice, agency.id)
                     db.commit()
+                    if is_new:
+                        _check_keyword_match(db, bid)
                     success += 1
                 except Exception as exc:
                     db.rollback()
                     fail += 1
                     errors.append(str(exc)[:200])
-                    logger.warning("怨듦퀬 ????ㅽ뙣 {}: {}", notice.announcement_no, exc)
+                    logger.warning("bid upsert failed {}: {}", notice.announcement_no, exc)
     except Exception as exc:
         errors.append(f"?섏씠吏?ㅼ씠???ㅻ쪟: {str(exc)[:200]}")
         logger.error("怨듦퀬 ?섏쭛 以묐떒: {}", exc)
