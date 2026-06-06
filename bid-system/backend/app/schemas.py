@@ -293,17 +293,10 @@ class WatchKeywordOut(BaseModel):
     keyword: str
     kw_type: str
     is_active: bool
-    note: Optional[str]
-    announcement_no: Optional[str]
-    floor_rate: Optional[float]
-    a_value: Optional[int]
-    rate_diff: Optional[float]
-    winner_biz_no: Optional[str]
-    winner_name: Optional[str]
+    note: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 # -- ????? ?? v2 --------------------------------------------------
 
 class RecommendV2Request(BaseModel):

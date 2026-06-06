@@ -832,7 +832,7 @@ class StatisticsService:
 
     def industry_stats(self, db: Session, months: int = 12) -> List[dict]:
         cutoff = datetime.now() - timedelta(days=months * 30)
-        ind_sql = _build_ind_sql(get_active_industry_ids(db), alias="ind")
+        ind_sql = _build_ind_sql(get_active_industry_ids(db), alias="b")
         rows = db.execute(text(f"""
             SELECT ind.id, ind.name,
                    COUNT(DISTINCT b.id)   AS bid_count,
