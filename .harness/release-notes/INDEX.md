@@ -6,6 +6,7 @@
 
 | 파일 | task | stage | 날짜 | synced |
 |------|------|-------|------|--------|
+| [2026-06-06_01-17-32_win-rate-boost.md](2026-06-06_01-17-32_win-rate-boost.md) | win-rate-boost | mvp | 2026-06-06 | ❌ |
 | [2026-06-06_00-06-01_bugfix-enhance2.md](2026-06-06_00-06-01_bugfix-enhance2.md) | bugfix-enhance2 | mvp | 2026-06-06 | ✅ |
 | [2026-06-05_21-00-28_mvp-enhance2.md](2026-06-05_21-00-28_mvp-enhance2.md) | mvp-enhance2 | mvp | 2026-06-05 | ✅ |
 | [2026-06-04_11-01-01_mvp-collector.md](2026-06-04_11-01-01_mvp-collector.md) | mvp-collector | mvp | 2026-06-04 | ✅ |
