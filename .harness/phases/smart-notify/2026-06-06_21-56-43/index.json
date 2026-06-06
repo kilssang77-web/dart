@@ -1,0 +1,47 @@
+{
+  "task": "smart-notify",
+  "run_id": "2026-06-06_21-56-43",
+  "stage": "mvp",
+  "branch": "feat/smart-notify-2026-06-06_21-56-43",
+  "created_at": "2026-06-06T21:56:43+09:00",
+  "author": "kil0410@a2m.co.kr",
+  "description": "인앱 스마트 알림 시스템 — 키워드 매칭 공고 알림, 사정율 급변 알림, 헤더 알림 뱃지 + 드롭다운",
+  "steps": [
+    {
+      "step": 1,
+      "name": "Notification 모델 + 알림 생성 서비스",
+      "status": "completed",
+      "summary": "models.py Notification 모델, schemas.py NotificationOut/NotificationListResponse, services.py NotificationService 7개 메서드 구현. 140 unit tests passing."
+    },
+    {
+      "step": 2,
+      "name": "키워드 매칭 공고 알림 자동 생성 (수집기 연동)",
+      "status": "pending",
+      "summary": ""
+    },
+    {
+      "step": 3,
+      "name": "사정율 급변 알림 자동 생성",
+      "status": "pending",
+      "summary": ""
+    },
+    {
+      "step": 4,
+      "name": "Notification API + 헤더 알림 뱃지 UI",
+      "status": "pending",
+      "summary": ""
+    },
+    {
+      "step": 5,
+      "name": "알림 드롭다운 + 읽음 처리 + 알림 목록 페이지",
+      "status": "pending",
+      "summary": ""
+    },
+    {
+      "step": 6,
+      "name": "MANUAL.md v2.2 + 릴리즈 노트",
+      "status": "pending",
+      "summary": ""
+    }
+  ]
+}

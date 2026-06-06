@@ -14,7 +14,7 @@ from sqlalchemy import text, func, and_, or_, desc
 from .models import (
     Bid, BidResult, Competitor, Agency, Industry, Region,
     FeatureStore, PredictionLog, PredictionLogV2, CompetitorStat, User, AuditLog,
-    IndustryFilter, BidBookmark, CollectionLog, MyBidRecord,
+    IndustryFilter, BidBookmark, CollectionLog, MyBidRecord, Notification,
 )
 from .schemas import (
     BidCreate, BidResultCreate, RecommendRequest, RecommendResponse,
@@ -3306,3 +3306,89 @@ class WinPatternService:
                 else:
                     below_winner += 1
         return {"above_winner": above_winner, "below_floor": below_floor, "below_winner": below_winner}
+
+
+class NotificationService:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def create(
+        self,
+        user_id: Optional[int],
+        ntype: str,
+        title: str,
+        body: Optional[str] = None,
+        link: Optional[str] = None,
+    ) -> Notification:
+        n = Notification(user_id=user_id, ntype=ntype, title=title, body=body, link=link)
+        self.db.add(n)
+        self.db.commit()
+        self.db.refresh(n)
+        return n
+
+    def list_for_user(
+        self, user_id: int, unread_only: bool = False, limit: int = 20
+    ) -> list:
+        q = self.db.query(Notification).filter(
+            or_(Notification.user_id == user_id, Notification.user_id.is_(None))
+        )
+        if unread_only:
+            q = q.filter(Notification.is_read == False)
+        return q.order_by(Notification.created_at.desc()).limit(limit).all()
+
+    def mark_read(self, notification_id: int, user_id: int) -> None:
+        n = self.db.query(Notification).filter(
+            Notification.id == notification_id,
+            or_(Notification.user_id == user_id, Notification.user_id.is_(None)),
+        ).first()
+        if n:
+            n.is_read = True
+            self.db.commit()
+
+    def mark_all_read(self, user_id: int) -> None:
+        self.db.query(Notification).filter(
+            or_(Notification.user_id == user_id, Notification.user_id.is_(None)),
+            Notification.is_read == False,
+        ).update({"is_read": True}, synchronize_session=False)
+        self.db.commit()
+
+    def unread_count(self, user_id: int) -> int:
+        return self.db.query(Notification).filter(
+            or_(Notification.user_id == user_id, Notification.user_id.is_(None)),
+            Notification.is_read == False,
+        ).count()
+
+    def create_keyword_match(self, bid, matched_keywords: list) -> list:
+        kw_str = ", ".join(matched_keywords)
+        title = f"[키워드 매칭] {bid.title[:60]}"
+        body = f"키워드 '{kw_str}' 에 매칭된 공고입니다."
+        link = f"/bids/{bid.id}"
+        users = self.db.query(User).filter(User.is_active == True).all()
+        results = []
+        for u in users:
+            n = Notification(
+                user_id=u.id, ntype="keyword_match",
+                title=title, body=body, link=link,
+            )
+            self.db.add(n)
+            results.append(n)
+        self.db.commit()
+        for n in results:
+            self.db.refresh(n)
+        return results
+
+    def create_srate_spike(
+        self,
+        agency_name: str,
+        industry_name: str,
+        direction: str,
+        delta_pct: float,
+    ) -> list:
+        arrow = "▲" if direction == "up" else "▼"
+        title = f"[사정율 급변] {agency_name} {arrow}{abs(delta_pct):.1f}%"
+        body = f"{industry_name} 공종 사정율이 {arrow}{abs(delta_pct):.1f}% 변동했습니다."
+        n = Notification(user_id=None, ntype="srate_spike", title=title, body=body)
+        self.db.add(n)
+        self.db.commit()
+        self.db.refresh(n)
+        return [n]
