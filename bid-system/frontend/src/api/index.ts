@@ -1,4 +1,4 @@
-﻿import { api } from './client'
+import { api } from './client'
 import type { MetaData, RecommendResult, Competitor, WatchKeyword, SystemStatus, AdminUser, RegionStat, IndustryStat, ClusterResult, ModelInfo, IndustryFilterItem, MyBidAnalysis, OverviewStatsWithChange, CollectionLogOut, BidRangeResponse, SrateTrendResponse, TopSrateTrend, PrismResponse, CompetitorZoneResponse, BidRecommendItem, JointPartnersResponse, JointSimRequest, JointSimResponse, CollectorStatus, BidSearchItem, FinalRecommendResult } from '../types'
 
 type KeywordUpdateBody = Partial<Pick<WatchKeyword, 'keyword' | 'kw_type' | 'is_active' | 'note'>>
@@ -184,6 +184,7 @@ export const myBidsApi = {
   create: (body: {
     title: string; agency_name?: string; bid_date?: string
     base_amount?: number; submitted_rate: number; recommendation_rate?: number; note?: string; bid_id?: number
+    announcement_no?: string; actual_winner_rate?: number; result?: string
   }) => api.post('/my-bids', body).then((r) => r.data),
   update: (id: number, body: { result?: string; actual_winner_rate?: number; note?: string; submitted_rate?: number }) =>
     api.put(`/my-bids/${id}`, body).then((r) => r.data),

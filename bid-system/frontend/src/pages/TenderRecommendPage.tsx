@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from 'react-router-dom'
+﻿import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   ArrowLeft, Target, AlertTriangle,
@@ -235,7 +235,7 @@ export default function TenderRecommendPage() {
               match={Math.abs(rec.evidence.prism_top.rate - rec.recommended_rate) < 0.003}
             />
           ) : (
-            <EvidenceRow label="프리즘" value="-" sub="데이터 부족" />
+            <EvidenceRow label="프리즘" value="-" sub="데이터 부족" match={null} />
           )}
 
           {/* 예가 top1 */}
@@ -247,7 +247,7 @@ export default function TenderRecommendPage() {
               match={Math.abs(rec.evidence.yega_top.rate - rec.recommended_rate) < 0.003}
             />
           ) : (
-            <EvidenceRow label="예가 분석" value="-" sub="데이터 부족" />
+            <EvidenceRow label="예가 분석" value="-" sub="데이터 부족" match={null} />
           )}
 
           {/* 개인화 편향 */}

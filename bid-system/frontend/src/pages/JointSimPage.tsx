@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+﻿import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import {
@@ -243,7 +243,7 @@ export default function JointSimPage() {
                     {(searchResults.items ?? []).map((c) => (
                       <TableRow key={c.id} className="cursor-pointer hover:bg-muted/50" onClick={() => addCompetitor(c)}>
                         <TableCell className="text-sm">{c.name}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{c.biz_reg_no ?? '-'}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{c.aggression_score?.toFixed(2) ?? '-'}</TableCell>
                         <TableCell className="text-right text-xs">{(c.win_rate * 100).toFixed(1)}%</TableCell>
                         <TableCell>
                           <Plus className="h-3.5 w-3.5 text-muted-foreground" />
