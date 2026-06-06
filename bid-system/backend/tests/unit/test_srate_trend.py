@@ -21,16 +21,16 @@ FIXED_NOW = datetime(2026, 6, 5)
 
 
 def _rows(prev_mean: float, recent_mean: float, count: int = 100) -> list:
-    """최근 3개월(Apr-Jun 2026) vs 이전 3개월(Jan-Mar 2026) 가상 데이터."""
+    """prev = Jul-Sep 2025 (months_ago 9-11), recent = Jan-Mar 2026 (months_ago 3-5) for FIXED_NOW=2026-06-05."""
     return [
-        # 이전 3개월 (months_ago 3, 4, 5)
-        {"period_year": 2026, "period_month": 1, "srate_mean": prev_mean, "sample_count": count},
-        {"period_year": 2026, "period_month": 2, "srate_mean": prev_mean, "sample_count": count},
-        {"period_year": 2026, "period_month": 3, "srate_mean": prev_mean, "sample_count": count},
-        # 최근 3개월 (months_ago 0, 1, 2)
-        {"period_year": 2026, "period_month": 4, "srate_mean": recent_mean, "sample_count": count},
-        {"period_year": 2026, "period_month": 5, "srate_mean": recent_mean, "sample_count": count},
-        {"period_year": 2026, "period_month": 6, "srate_mean": recent_mean, "sample_count": count},
+        # prev period (months_ago 9-11)
+        {"period_year": 2025, "period_month": 7, "srate_mean": prev_mean, "sample_count": count},
+        {"period_year": 2025, "period_month": 8, "srate_mean": prev_mean, "sample_count": count},
+        {"period_year": 2025, "period_month": 9, "srate_mean": prev_mean, "sample_count": count},
+        # recent period (months_ago 3-5)
+        {"period_year": 2026, "period_month": 1, "srate_mean": recent_mean, "sample_count": count},
+        {"period_year": 2026, "period_month": 2, "srate_mean": recent_mean, "sample_count": count},
+        {"period_year": 2026, "period_month": 3, "srate_mean": recent_mean, "sample_count": count},
     ]
 
 
@@ -61,13 +61,15 @@ class TestBuildResult:
 
     def test_weighted_average(self):
         rows = [
-            {"period_year": 2026, "period_month": 3, "srate_mean": 0.880, "sample_count": 200},
-            {"period_year": 2026, "period_month": 3, "srate_mean": 0.890, "sample_count": 0},
+            # prev period: Sep 2025 (months_ago=9), count=200 dominates
+            {"period_year": 2025, "period_month": 9, "srate_mean": 0.880, "sample_count": 200},
+            {"period_year": 2025, "period_month": 9, "srate_mean": 0.890, "sample_count": 0},
+            # recent period: May-Jun 2026 (months_ago=0,1)
             {"period_year": 2026, "period_month": 5, "srate_mean": 0.895, "sample_count": 100},
             {"period_year": 2026, "period_month": 6, "srate_mean": 0.895, "sample_count": 100},
         ]
         result = svc._build_result(rows, FIXED_NOW)
-        # prev: only month 3 with count=200 (count=0 row ignored in weighted avg)
+        # prev: only Sep 2025 with count=200 (count=0 row ignored in weighted avg)
         assert result["prev_mean"] == pytest.approx(0.880, abs=1e-4)
         assert result["direction"] == "up"
 
@@ -83,12 +85,12 @@ def _make_mock_db(rows_as_tuples):
 class TestGetTrend:
     def test_uses_assessment_stats(self):
         db = _make_mock_db([
-            (2026, 1, 0.885, 100),
-            (2026, 2, 0.885, 100),
-            (2026, 3, 0.885, 100),
-            (2026, 4, 0.892, 100),
-            (2026, 5, 0.892, 100),
-            (2026, 6, 0.892, 100),
+            (2025, 7, 0.885, 100),
+            (2025, 8, 0.885, 100),
+            (2025, 9, 0.885, 100),
+            (2026, 1, 0.892, 100),
+            (2026, 2, 0.892, 100),
+            (2026, 3, 0.892, 100),
         ])
         result = svc.get_trend(db, agency_id=1, industry_id=None)
         assert result["direction"] == "up"
@@ -100,12 +102,12 @@ class TestGetTrend:
         empty_result.fetchall.return_value = []
         fallback_result = MagicMock()
         fallback_result.fetchall.return_value = [
-            (2026, 1, 0.890, 50),
-            (2026, 2, 0.890, 50),
-            (2026, 3, 0.890, 50),
-            (2026, 4, 0.884, 50),
-            (2026, 5, 0.884, 50),
-            (2026, 6, 0.884, 50),
+            (2025, 7, 0.890, 50),
+            (2025, 8, 0.890, 50),
+            (2025, 9, 0.890, 50),
+            (2026, 1, 0.884, 50),
+            (2026, 2, 0.884, 50),
+            (2026, 3, 0.884, 50),
         ]
 
         db = MagicMock()

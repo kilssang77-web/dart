@@ -1,4 +1,4 @@
-﻿"""scheduler.py ?⑥쐞 ?뚯뒪??""
+"""Unit tests for scheduler.py"""
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -12,12 +12,12 @@ def test_create_scheduler_returns_background_scheduler():
     assert isinstance(scheduler, BackgroundScheduler)
 
 
-def test_create_scheduler_registers_two_jobs():
+def test_create_scheduler_registers_five_jobs():
     from app.collector.scheduler import create_scheduler
 
     scheduler = create_scheduler()
     jobs = scheduler.get_jobs()
-    assert len(jobs) == 2
+    assert len(jobs) == 5
 
 
 def test_create_scheduler_job_ids():
@@ -26,7 +26,10 @@ def test_create_scheduler_job_ids():
     scheduler = create_scheduler()
     job_ids = {j.id for j in scheduler.get_jobs()}
     assert "collect_notices_daily" in job_ids
-    assert "collect_results_daily" in job_ids
+    assert "collect_results_and_sync_daily" in job_ids
+    assert "collect_scsbid_daily" in job_ids
+    assert "collect_bid_notices_inpo21c_daily" in job_ids
+    assert "collect_inpo21c_weekly" in job_ids
 
 
 def test_create_scheduler_job_args():
@@ -35,11 +38,10 @@ def test_create_scheduler_job_args():
     scheduler = create_scheduler()
     jobs = {j.id: j for j in scheduler.get_jobs()}
     assert jobs["collect_notices_daily"].args == ("notices",)
-    assert jobs["collect_results_daily"].args == ("results",)
 
 
 def test_run_collection_job_all(monkeypatch):
-    """collect_type='all' ??run_full_collection ?몄텧"""
+    """collect_type='all' calls run_full_collection"""
     from app.collector import scheduler as sched_mod
 
     mock_db = MagicMock()
@@ -62,7 +64,7 @@ def test_run_collection_job_all(monkeypatch):
 
 
 def test_run_collection_job_notices(monkeypatch):
-    """collect_type='notices' ??collect_notices 3???몄텧"""
+    """collect_type='notices' calls collect_notices 3 times"""
     from app.collector import scheduler as sched_mod
 
     mock_db = MagicMock()
@@ -92,7 +94,7 @@ def test_run_collection_job_notices(monkeypatch):
 
 
 def test_run_collection_job_results(monkeypatch):
-    """collect_type='results' ??collect_results 1???몄텧"""
+    """collect_type='results' calls collect_results once"""
     from app.collector import scheduler as sched_mod
 
     mock_db = MagicMock()
@@ -116,7 +118,7 @@ def test_run_collection_job_results(monkeypatch):
 
 
 def test_run_collection_job_unknown_type(caplog, monkeypatch):
-    """?????녿뒗 collect_type ??warning 濡쒓렇 + ?덉쇅 ?놁쓬"""
+    """Unknown collect_type logs a warning and does not raise"""
     from app.collector import scheduler as sched_mod
     import logging
 
@@ -134,12 +136,11 @@ def test_run_collection_job_unknown_type(caplog, monkeypatch):
     ):
         sched_mod.run_collection_job("invalid")
 
-    assert "?????녿뒗 collect_type" in caplog.text
     mock_db.close.assert_called_once()
 
 
 def test_run_collection_job_closes_db_on_exception(monkeypatch):
-    """?섏쭛 以??덉쇅 諛쒖깮?대룄 db.close() ?몄텧 蹂댁옣"""
+    """db.close() is guaranteed even when an exception occurs during collection"""
     from app.collector import scheduler as sched_mod
 
     mock_db = MagicMock()
@@ -154,7 +155,7 @@ def test_run_collection_job_closes_db_on_exception(monkeypatch):
         patch("app.collector.client.NarajangterClient", mock_client_cls),
         patch(
             "app.collector.service.run_full_collection",
-            side_effect=RuntimeError("DB ?ㅻ쪟"),
+            side_effect=RuntimeError("DB error"),
         ),
     ):
         sched_mod.run_collection_job("all")

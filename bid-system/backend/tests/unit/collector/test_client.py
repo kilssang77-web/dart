@@ -74,14 +74,14 @@ RESULT_ITEM = {
 
 
 def test_missing_api_key_raises_value_error(monkeypatch):
-    """NARA_API_KEY 미설정 시 ValueError 발생 확인"""
-    monkeypatch.setenv("NARA_API_KEY", "")
+    """G2B_API_KEY 미설정 시 ValueError 발생 확인"""
+    monkeypatch.setenv("G2B_API_KEY", "")
 
     # lru_cache 무력화
     from app import config as cfg
     cfg.get_settings.cache_clear()
 
-    with pytest.raises(ValueError, match="NARA_API_KEY"):
+    with pytest.raises(ValueError, match="G2B_API_KEY"):
         NarajangterClient()
 
     cfg.get_settings.cache_clear()

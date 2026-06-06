@@ -84,8 +84,7 @@ class TestFindMatchingPartners:
     def test_returns_partners_with_correct_structure(self):
         bid = _make_bid(base_amount=300_000_000)
         competitor = _make_competitor(cid=10, name="(주)테스트건설")
-        stats = _make_stats(total_bids=20, win_count=5, avg_rate=0.882)
-        rows = [(competitor, stats)]
+        rows = [(competitor, 20, 5, 0.882)]  # (Competitor, total_bids, win_count, avg_rate)
 
         db = MagicMock()
         db.query.return_value.filter.return_value.first.return_value = bid
@@ -107,8 +106,7 @@ class TestFindMatchingPartners:
     def test_qualification_ok_false_when_no_win(self):
         bid = _make_bid()
         competitor = _make_competitor(cid=20, name="신생업체")
-        stats = _make_stats(total_bids=2, win_count=0, avg_rate=0.88)
-        rows = [(competitor, stats)]
+        rows = [(competitor, 2, 0, 0.88)]
 
         db = MagicMock()
         db.query.return_value.filter.return_value.first.return_value = bid
@@ -124,8 +122,7 @@ class TestFindMatchingPartners:
         """참여지분율 80%로도 파트너 최소 지분은 30% 이상."""
         bid = _make_bid()
         competitor = _make_competitor(cid=30, name="협력사")
-        stats = _make_stats(total_bids=10, win_count=3)
-        rows = [(competitor, stats)]
+        rows = [(competitor, 10, 3, 0.885)]
 
         db = MagicMock()
         db.query.return_value.filter.return_value.first.return_value = bid
@@ -141,10 +138,8 @@ class TestFindMatchingPartners:
         """적격 업체가 비적격 업체보다 앞에 위치해야 한다."""
         bid = _make_bid()
         c_ok = _make_competitor(cid=1, name="적격업체")
-        s_ok = _make_stats(total_bids=30, win_count=5)
         c_no = _make_competitor(cid=2, name="비적격업체")
-        s_no = _make_stats(total_bids=1, win_count=0)
-        rows = [(c_no, s_no), (c_ok, s_ok)]  # 의도적으로 비적격 먼저
+        rows = [(c_no, 1, 0, 0.88), (c_ok, 30, 5, 0.885)]  # 의도적으로 비적격 먼저
 
         db = MagicMock()
         db.query.return_value.filter.return_value.first.return_value = bid
