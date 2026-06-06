@@ -122,34 +122,47 @@ class BacktestEngine:
 
         return self._stats(trades)
 
-    def _stats(self, trades: list[Trade]) -> BacktestResult:
-        closed = [t for t in trades if t.exit_price > 0]
+    def _stats(self, trades: list) -> "BacktestResult":
+        closed = [t for t in trades if getattr(t, "exit_price", 0) > 0 and getattr(t, "pnl_pct", None) is not None]
         if not closed:
             return BacktestResult(total_trades=len(trades), trades=trades)
 
-        ret = [t.pnl_pct for t in closed]
+        ret    = [float(t.pnl_pct) for t in closed]
         wins   = [r for r in ret if r > 0]
         losses = [r for r in ret if r <= 0]
+
+        # Equity curve: cumulative product starting at 1.0
+        equity      = np.cumprod([1.0 + r / 100.0 for r in ret])
+        running_max = np.maximum.accumulate(equity)
+        drawdowns   = (equity - running_max) / running_max * 100
+        mdd         = float(drawdowns.min())
+
+        # Sharpe: annualise from per-trade returns
+        try:
+            avg_hold_days = np.mean([
+                (pd.Timestamp(t.exit_date) - pd.Timestamp(t.entry_date)).days
+                for t in closed
+                if getattr(t, "exit_date", None) and getattr(t, "entry_date", None)
+            ])
+        except Exception:
+            avg_hold_days = getattr(self, "max_hold_days", 5)
+        trades_per_year = 252.0 / max(float(avg_hold_days), 1.0)
+        r_arr  = np.array(ret)
+        sharpe = float((r_arr.mean() / (r_arr.std(ddof=1) + 1e-8)) * np.sqrt(trades_per_year))
+
         gross_profit = sum(wins)
         gross_loss   = abs(sum(losses)) + 1e-8
-
-        cum = np.cumsum(ret)
-        peak = np.maximum.accumulate(cum)
-        mdd  = float((cum - peak).min())
-
-        r_arr  = np.array(ret)
-        sharpe = float(r_arr.mean() / (r_arr.std() + 1e-8) * np.sqrt(252 / max(self.max_hold_days, 1)))
 
         return BacktestResult(
             total_trades  = len(closed),
             win_trades    = len(wins),
             loss_trades   = len(losses),
-            win_rate      = len(wins) / len(closed),
-            avg_return    = float(np.mean(ret)),
-            avg_win       = float(np.mean(wins)) if wins else 0.0,
-            avg_loss      = float(np.mean(losses)) if losses else 0.0,
-            profit_factor = gross_profit / gross_loss,
-            max_drawdown  = mdd,
-            sharpe        = sharpe,
+            win_rate      = round(len(wins) / len(closed), 4),
+            avg_return    = round(float(np.mean(ret)), 3),
+            avg_win       = round(float(np.mean(wins)),   3) if wins   else 0.0,
+            avg_loss      = round(float(np.mean(losses)), 3) if losses else 0.0,
+            profit_factor = round(gross_profit / gross_loss, 3),
+            max_drawdown  = round(mdd, 3),
+            sharpe        = round(sharpe, 3),
             trades        = closed,
         )

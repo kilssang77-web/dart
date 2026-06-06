@@ -36,11 +36,39 @@ class LGBMTrainer:
         X_val: pd.DataFrame,
         y_val: pd.Series,
         model_dir: str = "/models/lgbm",
+        use_smote: bool = False,
     ) -> lgb.LGBMClassifier:
-        params = {**_BASE_PARAMS, "objective": "binary", "metric": ["binary_logloss", "auc"]}
+        pos_count = int(y_train.sum())
+        neg_count = int((y_train == 0).sum())
+        scale_pos = neg_count / max(pos_count, 1)
+        logger.info(
+            f"[Trainer] Entry class: pos={pos_count} neg={neg_count} "
+            f"ratio={pos_count/max(pos_count+neg_count,1):.3f} scale_pos_weight={scale_pos:.2f}"
+        )
+
+        X_tr, y_tr = X_train, y_train
+
+        if use_smote and pos_count >= 10:
+            try:
+                from imblearn.over_sampling import SMOTE
+                sm = SMOTE(random_state=42, k_neighbors=min(5, pos_count - 1))
+                X_tr, y_tr = sm.fit_resample(X_train, y_train)
+                scale_pos  = 1.0   # SMOTE already balanced
+                logger.info(f"[Trainer] SMOTE applied: {X_train.shape} → {X_tr.shape}")
+            except ImportError:
+                logger.warning("[Trainer] imbalanced-learn not installed, skipping SMOTE")
+            except Exception as e:
+                logger.warning(f"[Trainer] SMOTE failed: {e}")
+
+        # Merge scale_pos_weight into params
+        params = dict(_BASE_PARAMS)
+        params["objective"] = "binary"
+        params["metric"] = ["binary_logloss", "auc"]
+        params["scale_pos_weight"] = scale_pos
+
         model = lgb.LGBMClassifier(**params)
         model.fit(
-            X_train, y_train,
+            X_tr, y_tr,
             eval_set=[(X_val, y_val)],
             callbacks=[
                 lgb.early_stopping(100, verbose=False),
@@ -69,11 +97,39 @@ class LGBMTrainer:
         X_val: pd.DataFrame,
         y_val: pd.Series,
         model_dir: str = "/models/lgbm",
+        use_smote: bool = False,
     ) -> lgb.LGBMClassifier:
-        params = {**_BASE_PARAMS, "objective": "binary", "metric": "auc"}
+        pos_count = int(y_train.sum())
+        neg_count = int((y_train == 0).sum())
+        scale_pos = neg_count / max(pos_count, 1)
+        logger.info(
+            f"[Trainer] Risk class: pos={pos_count} neg={neg_count} "
+            f"ratio={pos_count/max(pos_count+neg_count,1):.3f} scale_pos_weight={scale_pos:.2f}"
+        )
+
+        X_tr, y_tr = X_train, y_train
+
+        if use_smote and pos_count >= 10:
+            try:
+                from imblearn.over_sampling import SMOTE
+                sm = SMOTE(random_state=42, k_neighbors=min(5, pos_count - 1))
+                X_tr, y_tr = sm.fit_resample(X_train, y_train)
+                scale_pos  = 1.0   # SMOTE already balanced
+                logger.info(f"[Trainer] SMOTE applied: {X_train.shape} → {X_tr.shape}")
+            except ImportError:
+                logger.warning("[Trainer] imbalanced-learn not installed, skipping SMOTE")
+            except Exception as e:
+                logger.warning(f"[Trainer] SMOTE failed: {e}")
+
+        # Merge scale_pos_weight into params
+        params = dict(_BASE_PARAMS)
+        params["objective"] = "binary"
+        params["metric"] = "auc"
+        params["scale_pos_weight"] = scale_pos
+
         model = lgb.LGBMClassifier(**params)
         model.fit(
-            X_train, y_train,
+            X_tr, y_tr,
             eval_set=[(X_val, y_val)],
             callbacks=[lgb.early_stopping(100, verbose=False)],
         )

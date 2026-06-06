@@ -275,7 +275,8 @@ CREATE INDEX IF NOT EXISTS idx_fevent_code    ON feature_events(code, detected_a
 CREATE INDEX IF NOT EXISTS idx_fevent_type    ON feature_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_fevent_score   ON feature_events(signal_score DESC);
 CREATE INDEX IF NOT EXISTS idx_fevent_pattern ON feature_events
-    USING ivfflat (pattern_vector vector_cosine_ops) WITH (lists = 100);
+    USING hnsw (pattern_vector vector_cosine_ops)
+    WITH (m = 16, ef_construction = 64);
 
 -- ────────────────────────────────────────────────────────────
 -- 매매 추천

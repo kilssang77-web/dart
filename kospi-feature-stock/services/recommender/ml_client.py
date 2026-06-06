@@ -98,7 +98,7 @@ def _safe(v, default=0.0) -> float:
         return default
 
 
-def _compute_features(rows: list, sd_rows: list, disc_rows: list) -> dict:
+def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: list = None) -> dict:
     """daily_bars rows(최신 → 과거 순) + 수급 + 공시 → FEATURE_COLUMNS dict."""
     if not rows:
         return {k: 0.0 for k in FEATURE_COLUMNS}
@@ -210,10 +210,15 @@ def _compute_features(rows: list, sd_rows: list, disc_rows: list) -> dict:
         disc_sentiment = float(np.mean(scores)) if scores else 0.0
         has_favorable  = 1.0 if any(s >= 0.3 for s in scores) else 0.0
 
-    # ── KOSPI 대비 (간략 — 별도 쿼리 없이 ma60_ratio 활용) ──
-    kospi_return_1d = 0.0   # 별도 KOSPI 데이터 쿼리 없이 0 유지
-    kospi_return_5d = 0.0
-    rel_strength_5d = return_5d - kospi_return_5d
+    # ── KOSPI/시장 대비 상대강도 ──────────────────────────────
+    kc = [float(r["close"]) for r in (kospi_rows or []) if r.get("close")]
+    if len(kc) >= 6:
+        kospi_return_1d = (kc[0] / kc[1] - 1) * 100 if kc[1] else 0.0
+        kospi_return_5d = (kc[0] / kc[5] - 1) * 100 if kc[5] else 0.0
+    else:
+        kospi_return_1d = 0.0
+        kospi_return_5d = 0.0
+    rel_strength_5d  = return_5d - kospi_return_5d
     market_vol_ratio = vol_ratio_20d
 
     return {k: locals().get(k, 0.0) for k in FEATURE_COLUMNS}
@@ -254,6 +259,13 @@ async def get_ml_result(event: dict, db: asyncpg.Pool) -> MLResult:
                 """,
                 code,
             )
+            kospi_rows = await conn.fetch(
+                """
+                SELECT close FROM daily_bars
+                WHERE code = '0001'
+                ORDER BY date DESC LIMIT 10
+                """,
+            )
     except Exception as e:
         logger.error(f"[MLClient] DB query error {code}: {e}")
         return MLResult()
@@ -272,7 +284,7 @@ async def get_ml_result(event: dict, db: asyncpg.Pool) -> MLResult:
         await _short_increasing(db, code, bars)
     )
 
-    feats = _compute_features(bars, sd, [dict(r) for r in disc_rows])
+    feats = _compute_features(bars, sd, [dict(r) for r in disc_rows], kospi_rows=[dict(r) for r in kospi_rows])
 
     # ── ML 서비스 HTTP 추론 (우선) ──
     if _ML_SERVICE_URL:
@@ -371,45 +383,78 @@ async def _short_increasing(db: asyncpg.Pool, code: str, bars: list[dict]) -> in
 
 
 async def get_similar_cases(event: dict, db: asyncpg.Pool) -> tuple[list, dict]:
-    """벡터 기반 유사사례 검색 (pattern_vector 없으면 동종 종목 이력)."""
+    """pgvector HNSW 인덱스를 사용한 실제 유사사례 검색."""
     code = event.get("code", "")
     try:
         async with db.acquire() as conn:
-            rows = await conn.fetch(
+            # Step 1: 현재 종목의 최신 패턴 벡터 조회
+            anchor = await conn.fetchrow(
                 """
-                SELECT id, code, detected_at::TEXT, event_type,
-                    CASE WHEN pattern_vector IS NOT NULL
-                         THEN ROUND((1 - (pattern_vector <=> (
-                             SELECT pattern_vector FROM feature_events
-                             WHERE code=$1 AND pattern_vector IS NOT NULL
-                             ORDER BY detected_at DESC LIMIT 1
-                         )))::NUMERIC, 4)
-                         ELSE NULL
-                    END AS similarity,
-                    result_5d
-                FROM feature_events
-                WHERE code != $1
-                  AND result_5d IS NOT NULL
-                ORDER BY detected_at DESC
-                LIMIT 20
+                SELECT pattern_vector FROM feature_events
+                WHERE code=$1 AND pattern_vector IS NOT NULL
+                ORDER BY detected_at DESC LIMIT 1
                 """,
                 code,
             )
 
-        cases = [dict(r) for r in rows if r["result_5d"] is not None]
-        sim_cases = [c for c in cases if c.get("similarity") is not None and c["similarity"] > 0.6]
-        use = sim_cases if sim_cases else cases[:10]
+            if anchor and anchor["pattern_vector"] is not None:
+                # Step 2: HNSW ANN 검색 — ORDER BY <=> 가 인덱스를 활용
+                rows = await conn.fetch(
+                    """
+                    SELECT id, code, detected_at::TEXT, event_type,
+                           ROUND((1 - (pattern_vector <=> $2::vector))::NUMERIC, 4) AS similarity,
+                           result_1d, result_3d, result_5d
+                    FROM feature_events
+                    WHERE code != $1
+                      AND pattern_vector IS NOT NULL
+                      AND result_5d IS NOT NULL
+                    ORDER BY pattern_vector <=> $2::vector
+                    LIMIT 20
+                    """,
+                    code,
+                    anchor["pattern_vector"],
+                )
+                search_method = "hnsw_ann"
+            else:
+                # fallback: 같은 이벤트 타입 최근 이력
+                rows = await conn.fetch(
+                    """
+                    SELECT id, code, detected_at::TEXT, event_type,
+                           NULL::NUMERIC AS similarity,
+                           result_1d, result_3d, result_5d
+                    FROM feature_events
+                    WHERE code != $1
+                      AND event_type = $2
+                      AND result_5d IS NOT NULL
+                    ORDER BY detected_at DESC
+                    LIMIT 20
+                    """,
+                    code,
+                    event.get("event_type", ""),
+                )
+                search_method = "recency_fallback"
 
-        if not use:
-            return [], {"success_rate": 0.5, "avg_return_5d": 0.0, "count": 0}
+        cases = [dict(r) for r in rows]
+        if not cases:
+            return [], {"success_rate": 0.5, "avg_return_5d": 0.0, "avg_return_1d": 0.0, "count": 0, "search_method": search_method}
 
-        returns = [float(c["result_5d"]) for c in use]
-        success_rate = sum(1 for r in returns if r >= 5.0) / max(len(returns), 1)
-        return use, {
-            "success_rate":  round(success_rate, 4),
-            "avg_return_5d": round(float(np.mean(returns)), 2),
-            "count":         len(use),
+        returns_5d = [float(c["result_5d"]) for c in cases if c.get("result_5d") is not None]
+        returns_1d = [float(c["result_1d"]) for c in cases if c.get("result_1d") is not None]
+        sims       = [float(c["similarity"]) for c in cases if c.get("similarity") is not None]
+
+        success_rate = sum(1 for r in returns_5d if r >= 5.0) / max(len(returns_5d), 1)
+
+        stats = {
+            "success_rate":    round(success_rate, 4),
+            "avg_return_5d":   round(float(np.mean(returns_5d)), 2) if returns_5d else 0.0,
+            "std_return_5d":   round(float(np.std(returns_5d)), 2)  if len(returns_5d) > 1 else 0.0,
+            "avg_return_1d":   round(float(np.mean(returns_1d)), 2) if returns_1d else 0.0,
+            "avg_similarity":  round(float(np.mean(sims)), 4)       if sims else 0.0,
+            "count":           len(cases),
+            "search_method":   search_method,
         }
+        return cases, stats
+
     except Exception as e:
         logger.error(f"[MLClient] similar cases error: {e}")
-        return [], {"success_rate": 0.5, "avg_return_5d": 0.0, "count": 0}
+        return [], {"success_rate": 0.5, "avg_return_5d": 0.0, "avg_return_1d": 0.0, "count": 0, "search_method": "error"}

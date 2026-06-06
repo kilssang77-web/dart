@@ -129,11 +129,12 @@ services:
     restart: unless-stopped
 
   # ── Application Services ────────────────────────────────────────────────────
-  collector:
+  # ── Collector: 실시간 틱 + 분봉 (WebSocket 중심) ──────────────────────────
+  collector-tick:
     build:
       context: ./services/collector
       dockerfile: Dockerfile
-    container_name: fstock-collector
+    container_name: fstock-collector-tick
     depends_on:
       postgres:
         condition: service_healthy
@@ -143,7 +144,7 @@ services:
         condition: service_healthy
     env_file: .env
     environment:
-      SERVICE_NAME: collector
+      SERVICE_NAME: collector-tick
     volumes:
       - ./services/collector:/app
       - ./scripts:/scripts
@@ -153,6 +154,97 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
+
+  # ── Collector: 일봉 수집 + 기술지표 + EOD 수급 ────────────────────────────
+  collector-daily:
+    build:
+      context: ./services/collector
+      dockerfile: Dockerfile
+    container_name: fstock-collector-daily
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      SERVICE_NAME: collector-daily
+    volumes:
+      - ./services/collector:/app
+      - ./scripts:/scripts
+    command: ["python", "entrypoints/daily_bar_worker.py"]
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "30m"
+        max-file: "3"
+
+  # ── Collector: 장중 수급 (30분 간격) ────────────────────────────────────────
+  collector-supply:
+    build:
+      context: ./services/collector
+      dockerfile: Dockerfile
+    container_name: fstock-collector-supply
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      SERVICE_NAME: collector-supply
+    volumes:
+      - ./services/collector:/app
+    command: ["python", "entrypoints/supply_worker.py"]
+    restart: unless-stopped
+
+  # ── Collector: 뉴스 + 공시 (DART/KIND) ──────────────────────────────────────
+  collector-news:
+    build:
+      context: ./services/collector
+      dockerfile: Dockerfile
+    container_name: fstock-collector-news
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      SERVICE_NAME: collector-news
+    volumes:
+      - ./services/collector:/app
+    command: ["python", "entrypoints/news_worker.py"]
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "30m"
+        max-file: "3"
+
+  # ── Collector: 배치 탐지 (장 마감 후) ───────────────────────────────────────
+  collector-batch:
+    build:
+      context: ./services/collector
+      dockerfile: Dockerfile
+    container_name: fstock-collector-batch
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      SERVICE_NAME: collector-batch
+    volumes:
+      - ./services/collector:/app
+    command: ["python", "entrypoints/batch_worker.py"]
+    restart: unless-stopped
 
   detector:
     build:

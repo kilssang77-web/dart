@@ -1,10 +1,103 @@
 """DB 저장 헬퍼 — tick_data / minute_bars / daily_bars / supply_demand / feature_events"""
 import json
 import logging
+import math as _math
 from datetime import datetime, date as date_type, timezone
 import asyncpg
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_float(v):
+    """Convert value to float, return None for NaN/inf/None."""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+        return None if (_math.isnan(f) or _math.isinf(f)) else f
+    except (TypeError, ValueError):
+        return None
+
+
+async def _update_technical_indicators(pool: asyncpg.Pool, code: str) -> None:
+    """
+    pandas-ta로 RSI/MACD/BB/ATR 계산 후 daily_bars에 업데이트.
+    KIS API 응답값 대신 직접 계산하므로 신뢰도가 높음.
+    최소 30개 바 필요.
+    """
+    try:
+        import pandas as pd
+        import pandas_ta as ta
+    except ImportError:
+        logger.warning("pandas-ta not installed, skipping indicator calculation")
+        return
+
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT date, open, high, low, close, volume
+                FROM daily_bars WHERE code=$1
+                ORDER BY date ASC
+                """,
+                code,
+            )
+        if len(rows) < 30:
+            return
+
+        df = pd.DataFrame([dict(r) for r in rows])
+        df["close"]  = df["close"].astype(float)
+        df["high"]   = df["high"].astype(float)
+        df["low"]    = df["low"].astype(float)
+        df["open"]   = df["open"].astype(float)
+        df["volume"] = df["volume"].astype(float)
+
+        # RSI(14)
+        rsi = ta.rsi(df["close"], length=14)
+        # MACD(12,26,9)
+        macd_df = ta.macd(df["close"], fast=12, slow=26, signal=9)
+        # Bollinger Bands(20,2)
+        bb_df = ta.bbands(df["close"], length=20, std=2)
+        # ATR(14)
+        atr = ta.atr(df["high"], df["low"], df["close"], length=14)
+
+        updates = []
+        for i in range(len(df)):
+            rsi_val   = _safe_float(rsi.iloc[i]                          if rsi is not None else None)
+            macd_val  = _safe_float(macd_df["MACD_12_26_9"].iloc[i]      if macd_df is not None else None)
+            macds_val = _safe_float(macd_df["MACDs_12_26_9"].iloc[i]     if macd_df is not None else None)
+            bb_up     = _safe_float(bb_df["BBU_20_2.0"].iloc[i]          if bb_df is not None else None)
+            bb_lo     = _safe_float(bb_df["BBL_20_2.0"].iloc[i]          if bb_df is not None else None)
+            bb_mid    = _safe_float(bb_df["BBM_20_2.0"].iloc[i]          if bb_df is not None else None)
+            atr_val   = _safe_float(atr.iloc[i]                          if atr is not None else None)
+
+            # Only update rows where at least one indicator is available
+            if any(v is not None for v in [rsi_val, macd_val, bb_up, atr_val]):
+                updates.append((
+                    rsi_val, macd_val, macds_val, bb_up, bb_lo, bb_mid, atr_val,
+                    code, df["date"].iloc[i],
+                ))
+
+        if updates:
+            async with pool.acquire() as conn:
+                await conn.executemany(
+                    """
+                    UPDATE daily_bars SET
+                        rsi14        = COALESCE($1, rsi14),
+                        macd         = COALESCE($2, macd),
+                        macd_signal  = COALESCE($3, macd_signal),
+                        bb_upper     = COALESCE($4, bb_upper),
+                        bb_lower     = COALESCE($5, bb_lower),
+                        ma20         = COALESCE($6, ma20),
+                        atr14        = COALESCE($7, atr14)
+                    WHERE code=$8 AND date=$9
+                    """,
+                    updates,
+                )
+            logger.debug(f"[Indicators] Updated {len(updates)} rows for {code}")
+
+    except Exception as e:
+        logger.warning(f"[Indicators] Failed for {code}: {e}")
 
 
 async def write_tick(pool: asyncpg.Pool, ticks: list[dict]) -> None:
@@ -171,6 +264,12 @@ async def write_daily_bars(pool: asyncpg.Pool, bars: list[dict]) -> int:
                 """,
                 codes, dates,
             )
+
+        # 기술지표 사후 계산 (KIS API 값 보완)
+        codes_in_batch = list({r[1] for r in rows})
+        for c in codes_in_batch:
+            await _update_technical_indicators(pool, c)
+
         return len(rows)
     except Exception as e:
         logger.error(f"daily_bar write error: {e}")

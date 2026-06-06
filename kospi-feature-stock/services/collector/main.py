@@ -108,6 +108,19 @@ class StockCollector:
         self.dart.db = self.db   # DB 풀 주입 — 공시 직접 저장 + 필터 매칭 활성화
         logger.info("DB pool created")
 
+    async def run_tick_only(self):
+        """실시간 틱 + 분봉만 수집 (ticker 전용 컨테이너용)."""
+        await self.setup()
+        active_codes = await load_active_stocks(self.redis)
+        logger.info(f"[tick] Starting tick+minute collection for {len(active_codes)} stocks")
+        await asyncio.gather(
+            self._tick_loop(active_codes),
+            self._tick_db_writer(),
+            self._dynamic_tick_loop(),
+            self._minute_bar_loop(active_codes),
+            return_exceptions=True,
+        )
+
     async def run(self):
         await self.setup()
 
@@ -601,4 +614,9 @@ class StockCollector:
 
 
 if __name__ == "__main__":
-    asyncio.run(StockCollector().run())
+    service = os.environ.get("SERVICE_NAME", "collector")
+    svc = StockCollector()
+    if service == "collector-tick":
+        asyncio.run(svc.run_tick_only())
+    else:
+        asyncio.run(svc.run())
