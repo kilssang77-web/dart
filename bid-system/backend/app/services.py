@@ -28,7 +28,7 @@ from .ml.simulation  import recommend_with_simulation
 from .ml.rank_model  import get_inpo_raw_rates
 from .ml.personal    import PersonalBiasAnalyzer
 from .ml.prism       import scan_prism_zones
-from .ml.yega        import calc_yega_frequency
+from .ml.yega        import calc_yega_frequency, get_inpo21c_pattern_direct, load_inpo21c_yega_stats
 from .ml.a_value     import calc_floor_rate
 
 logger = logging.getLogger(__name__)
@@ -2752,6 +2752,14 @@ class AgencyYegaService:
     def get_pattern(self, agency_id: int, industry_id: Optional[int] = None, months: int = 12) -> dict:
         from .ml.yega import get_agency_yega_pattern
 
+        # inpo21c 실측 데이터 우선 (역산 방식보다 정확)
+        try:
+            direct = get_inpo21c_pattern_direct(self.db, agency_id)
+            if direct.get("sample_count", 0) >= 3:
+                return {**direct, "source": "inpo21c_direct"}
+        except Exception:
+            pass
+
         cutoff = datetime.utcnow() - timedelta(days=months * 30)
 
         query = (
@@ -2782,7 +2790,8 @@ class AgencyYegaService:
             for r in rows
         ]
 
-        return get_agency_yega_pattern(bid_data)
+        result = get_agency_yega_pattern(bid_data)
+        return {**result, "source": "reverse_calc"}
 
 
 # ==================================================

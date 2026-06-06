@@ -31,6 +31,7 @@ SRATE_FEATURE_COLS = [
     "global_srate_mean", "global_srate_std",
     "amount_log10", "amount_bucket",
     "month_of_year", "quarter", "is_q4",
+    "inpo21c_srate_mean", "inpo21c_srate_std", "inpo21c_srate_n",
 ]
 
 
@@ -71,6 +72,21 @@ def load_srate_stats(
         elif amt < 5e9:  return 4
         else:            return 5
 
+    # inpo21c 실측 사정율: 기관별 (agency_name 매칭) + 전국 평균
+    inpo_ag = db.execute(text("""
+        SELECT AVG(ib.yega_ratio / 100.0), STDDEV(ib.yega_ratio / 100.0), COUNT(*)
+        FROM inpo21c_bids ib
+        JOIN agencies a ON a.name = ib.agency_name
+        WHERE a.id = :aid
+          AND ib.yega_ratio BETWEEN 87 AND 105
+    """), {"aid": agency_id}).fetchone() if agency_id else None
+
+    inpo_glb = db.execute(text("""
+        SELECT AVG(yega_ratio / 100.0), STDDEV(yega_ratio / 100.0)
+        FROM inpo21c_bids
+        WHERE yega_ratio BETWEEN 87 AND 105
+    """)).fetchone()
+
     return {
         "agency_srate_mean":   float(ag[0])   if ag  else None,
         "agency_srate_std":    float(ag[1])   if ag  else 0.012,
@@ -88,6 +104,11 @@ def load_srate_stats(
         "month_of_year":       dt.month,
         "quarter":             (dt.month - 1) // 3 + 1,
         "is_q4":               int(dt.month >= 10),
+        # inpo21c 실측값 (복수예가 건설공사 기준)
+        "inpo21c_srate_mean":  float(inpo_ag[0])  if inpo_ag and inpo_ag[0]  else None,
+        "inpo21c_srate_std":   float(inpo_ag[1])  if inpo_ag and inpo_ag[1]  else 0.007,
+        "inpo21c_srate_n":     int(inpo_ag[2])    if inpo_ag and inpo_ag[2]  else 0,
+        "inpo21c_global_mean": float(inpo_glb[0]) if inpo_glb and inpo_glb[0] else None,
     }
 
 
@@ -216,6 +237,9 @@ def train_srate_model(db: Session) -> bool:
             ars_r.srate_mean   AS region_srate_mean,
             ars_g.srate_mean   AS global_srate_mean,
             ars_g.srate_std    AS global_srate_std,
+            inpo_ag.avg_srate  AS inpo21c_srate_mean,
+            inpo_ag.std_srate  AS inpo21c_srate_std,
+            inpo_ag.cnt        AS inpo21c_srate_n,
             (b.estimated_price::numeric / b.base_amount) AS srate
         FROM bids b
         LEFT JOIN assessment_rate_stats ars_a
@@ -226,6 +250,16 @@ def train_srate_model(db: Session) -> bool:
                ON ars_r.group_type='region'   AND ars_r.group_id=b.region_id
         LEFT JOIN assessment_rate_stats ars_g
                ON ars_g.group_type='global'   AND ars_g.group_id IS NULL
+        LEFT JOIN (
+            SELECT a.id AS agency_id,
+                   AVG(ib.yega_ratio / 100.0)    AS avg_srate,
+                   STDDEV(ib.yega_ratio / 100.0) AS std_srate,
+                   COUNT(*)                       AS cnt
+            FROM inpo21c_bids ib
+            JOIN agencies a ON a.name = ib.agency_name
+            WHERE ib.yega_ratio BETWEEN 87 AND 105
+            GROUP BY a.id
+        ) inpo_ag ON inpo_ag.agency_id = b.agency_id
         WHERE b.estimated_price IS NOT NULL
           AND b.base_amount > 0
           -- 부가세 제외 고정비율(base×10/11≈0.9091) 공고 제거
@@ -241,7 +275,9 @@ def train_srate_model(db: Session) -> bool:
                   "month_of_year","quarter","is_q4",
                   "agency_srate_mean","agency_srate_std","agency_srate_trend","agency_srate_n",
                   "industry_srate_mean","industry_srate_std","region_srate_mean",
-                  "global_srate_mean","global_srate_std","srate"]
+                  "global_srate_mean","global_srate_std",
+                  "inpo21c_srate_mean","inpo21c_srate_std","inpo21c_srate_n",
+                  "srate"]
     df["amount_log10"]  = df["base_amount"].apply(lambda x: math.log10(max(float(x),1)))
     df["amount_bucket"] = df["base_amount"].apply(lambda x: _bucket(float(x)))
     df["srate"] = pd.to_numeric(df["srate"], errors="coerce")
@@ -344,6 +380,32 @@ def predict_srate(features_a: dict, base_amount: int) -> dict:
         upper = center + std * 0.8
         p10   = center - std * 1.5
         p90   = center + std * 1.5
+
+    # inpo21c 실측 사정율로 보정 (복수예가 건설공사 기준)
+    inpo_mean = features_a.get("inpo21c_srate_mean")
+    inpo_n    = features_a.get("inpo21c_srate_n", 0)
+    inpo_std  = features_a.get("inpo21c_srate_std") or 0.007
+    inpo_glb  = features_a.get("inpo21c_global_mean")
+
+    if inpo_mean and inpo_n >= 3:
+        # 기관별 실측값: Bayesian 블렌딩 (n=3→23%, n=10→50%, n=20→67%, n=50→83%)
+        w = min(0.85, inpo_n / (inpo_n + 10))
+        old_c  = center
+        center = old_c * (1.0 - w) + inpo_mean * w
+        delta  = center - old_c
+        lower += delta;  upper += delta;  p10 += delta;  p90 += delta
+        eff_std  = std * (1.0 - w) + inpo_std * w
+        new_half = max(eff_std * 1.0, min((upper - lower) / 2, eff_std * 2.5))
+        lower = center - new_half;  upper = center + new_half
+        confidence = min(0.95, confidence + 0.25)
+    elif inpo_glb:
+        # 기관별 없음 — 전국 inpo21c 평균으로 가볍게 보정
+        w      = 0.25
+        old_c  = center
+        center = old_c * (1.0 - w) + inpo_glb * w
+        delta  = center - old_c
+        lower += delta;  upper += delta;  p10 += delta;  p90 += delta
+        confidence = min(0.95, confidence + 0.05)
 
     # 사정율 범위 클램핑 (실제 데이터 기반: 0.87 ~ 1.05)
     lower  = max(0.87, lower)

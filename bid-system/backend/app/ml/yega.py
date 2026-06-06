@@ -26,6 +26,7 @@ def calc_yega_frequency(
     base_amount: int,
     a_value: Optional[int] = None,
     srate_center: Optional[float] = None,
+    spread_half: float = 0.028,
 ) -> dict:
     """
     복수예가 예비가격 C(15,4) 조합 빈도 분석.
@@ -55,10 +56,13 @@ def calc_yega_frequency(
 
     ru = _round_unit(center)
 
-    # ── 15개 예비가격 후보 생성 (A값 ±2%, 균등 간격) ──
+    # ── 15개 예비가격 후보 생성 (A값 ±spread_half, 균등 간격) ──
+    # spread_half 실측값: inpo21c 데이터 기준 ±2.8% (기존 이론값 ±2.0%)
+    lo = center * (1.0 - spread_half)
+    hi = center * (1.0 + spread_half)
     candidates_raw = []
     for k in range(15):
-        raw = center * (0.98 + k * 0.04 / 14.0)
+        raw = lo + (hi - lo) * k / 14.0
         rounded = round(raw / ru) * ru
         candidates_raw.append(int(rounded))
 
@@ -215,4 +219,111 @@ def get_agency_yega_pattern(bid_data: List[dict]) -> dict:
         "top3_numbers":  top3_numbers,
         "dominant_zone": dominant_zone,
         "sample_count":  sample_count,
+    }
+
+
+def load_inpo21c_yega_stats(db, agency_id: int) -> dict:
+    """
+    inpo21c_yega 실측 통계 조회.
+    - 기관별 yega spread (base_ratio 분포)
+    - position 추첨 빈도 (1~15번 위치별 is_selected 비율)
+
+    Returns:
+        spread_half  : 실측 반확산 (default 0.028)
+        pos_weights  : 15개 위치별 추첨 가중치 (합=1.0)
+        sample_n     : 샘플 수
+    """
+    from sqlalchemy import text as _text
+
+    # 1. 기관별 yega spread
+    spread_row = db.execute(_text("""
+        SELECT
+            STDDEV(iy.base_ratio / 100.0) AS spread_std,
+            PERCENTILE_CONT(0.02) WITHIN GROUP(ORDER BY iy.base_ratio / 100.0) AS p02,
+            PERCENTILE_CONT(0.98) WITHIN GROUP(ORDER BY iy.base_ratio / 100.0) AS p98,
+            COUNT(*) AS n
+        FROM inpo21c_yega iy
+        JOIN inpo21c_bids ib USING (inpo21c_bid_id)
+        JOIN agencies a ON a.name = ib.agency_name
+        WHERE a.id = :aid
+    """), {"aid": agency_id}).fetchone() if agency_id else None
+
+    spread_half = 0.028  # inpo21c 전국 실측 기본값
+    if spread_row and spread_row[1] is not None and spread_row[2] is not None:
+        measured = (abs(float(spread_row[1])) + abs(float(spread_row[2]))) / 2
+        if measured > 0.010:
+            spread_half = round(measured, 4)
+
+    # 2. position 추첨 빈도 (is_selected=TRUE 위치별)
+    pos_rows = db.execute(_text("""
+        SELECT iy.yega_no, COUNT(*) AS cnt
+        FROM inpo21c_yega iy
+        JOIN inpo21c_bids ib USING (inpo21c_bid_id)
+        JOIN agencies a ON a.name = ib.agency_name
+        WHERE a.id = :aid AND iy.is_selected = TRUE
+        GROUP BY iy.yega_no
+        ORDER BY iy.yega_no
+    """), {"aid": agency_id}).fetchall() if agency_id else []
+
+    pos_weights = None
+    if pos_rows and sum(r[1] for r in pos_rows) >= 20:
+        total = sum(r[1] for r in pos_rows)
+        raw   = {r[0]: r[1] / total for r in pos_rows}
+        uniform = 1.0 / 15
+        # 관측값과 균등분포 블렌딩 (과적합 방지)
+        n_bids = total // 4
+        alpha  = min(0.6, n_bids / (n_bids + 30))
+        pos_weights = [
+            alpha * raw.get(i, 0.0) + (1 - alpha) * uniform
+            for i in range(1, 16)
+        ]
+        s = sum(pos_weights)
+        pos_weights = [w / s for w in pos_weights]
+
+    return {
+        "spread_half": spread_half,
+        "pos_weights": pos_weights,
+        "sample_n":    int(spread_row[3]) if spread_row and spread_row[3] else 0,
+    }
+
+
+def get_inpo21c_pattern_direct(db, agency_id: int) -> dict:
+    """
+    inpo21c is_selected 데이터로 기관별 복수예가 추첨 패턴 직접 조회.
+    get_agency_yega_pattern()의 역산 방식 대신 실측 DB 값 사용.
+    """
+    from sqlalchemy import text as _text
+
+    rows = db.execute(_text("""
+        SELECT iy.yega_no, COUNT(*) AS cnt
+        FROM inpo21c_yega iy
+        JOIN inpo21c_bids ib USING (inpo21c_bid_id)
+        JOIN agencies a ON a.name = ib.agency_name
+        WHERE a.id = :aid AND iy.is_selected = TRUE
+        GROUP BY iy.yega_no
+    """), {"aid": agency_id}).fetchall() if agency_id else []
+
+    if not rows:
+        return {"pattern": [], "top3_numbers": [], "dominant_zone": None, "sample_count": 0}
+
+    total = sum(r[1] for r in rows)
+    if total < 4:
+        return {"pattern": [], "top3_numbers": [], "dominant_zone": None, "sample_count": 0}
+
+    freq_map = {r[0]: r[1] for r in rows}
+    pattern = sorted(
+        [{"number": n, "freq_pct": round(freq_map.get(n, 0) / total * 100, 1)}
+         for n in range(1, 16)],
+        key=lambda x: x["freq_pct"],
+        reverse=True,
+    )
+    top3 = [p["number"] for p in pattern[:3]]
+    avg_top3 = sum(top3) / 3
+    zone = "low" if avg_top3 <= 5 else "high" if avg_top3 > 10 else "mid"
+
+    return {
+        "pattern":       pattern,
+        "top3_numbers":  top3,
+        "dominant_zone": zone,
+        "sample_count":  total // 4,
     }

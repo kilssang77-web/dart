@@ -40,8 +40,9 @@ def simulate_yejung(
 
     sigma = max(0.002, min(srate_std, 0.010))
 
+    # inpo21c 실측 spread: p02=-2.77%, p98=2.76% → ±2.8% 클램프 (기존 ±2.0%에서 확대)
     candidates = rng.normal(loc=srate_center, scale=sigma, size=(n_sim, 15))
-    candidates = np.clip(candidates, srate_center - 0.02, srate_center + 0.02)
+    candidates = np.clip(candidates, srate_center - 0.028, srate_center + 0.028)
 
     # 각 행에서 4개 무작위 선택 (noise 정렬로 벡터화)
     noise = rng.random((n_sim, 15))
