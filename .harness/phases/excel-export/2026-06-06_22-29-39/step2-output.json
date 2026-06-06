@@ -1,0 +1,9 @@
+﻿{
+  "step": 2,
+  "status": "completed",
+  "completed_at": "2026-06-06T23:00:00+09:00",
+  "files_changed": [
+    "bid-system/frontend/src/pages/TenderRecommendPage.tsx"
+  ],
+  "summary": "TenderRecommendPage 헤더에 PDF 출력 버튼 추가. jsPDF+html2canvas, A4 다중 페이지. 파일명 투찰추천_{id}.pdf. TS 빌드 통과."
+}

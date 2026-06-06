@@ -1,8 +1,8 @@
-﻿import { useParams, useNavigate } from 'react-router-dom'
+﻿import { useParams, useNavigate, useRef, useState } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   ArrowLeft, Target, AlertTriangle,
-  TrendingUp, TrendingDown, Minus, CheckCircle2, XCircle,
+  TrendingUp, TrendingDown, Minus, CheckCircle2, XCircle, Printer, Loader2,
 } from 'lucide-react'
 import { bidsApi } from '@/api'
 import type { BidDetail, FinalRecommendResult } from '@/types'
@@ -38,6 +38,38 @@ function fmtAmtKo(v: number) { return v.toLocaleString('ko-KR') + '원' }
 export default function TenderRecommendPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const printRef = useRef<HTMLDivElement>(null)
+  const [printing, setPrinting] = useState(false)
+
+  const handlePdf = async () => {
+    if (!printRef.current) return
+    setPrinting(true)
+    try {
+      const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
+        import('jspdf'),
+        import('html2canvas'),
+      ])
+      const canvas = await html2canvas(printRef.current, { scale: 2, useCORS: true })
+      const imgData = canvas.toDataURL('image/png')
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const pageW = pdf.internal.pageSize.getWidth()
+      const pageH = pdf.internal.pageSize.getHeight()
+      const margin = 10
+      const imgW = pageW - margin * 2
+      const imgH = (canvas.height * imgW) / canvas.width
+      let offset = 0
+      let page = 0
+      while (offset < imgH) {
+        if (page > 0) pdf.addPage()
+        pdf.addImage(imgData, 'PNG', margin, margin - offset, imgW, imgH)
+        offset += pageH - margin * 2
+        page++
+      }
+      pdf.save(`투찰추천_${id}.pdf`)
+    } finally {
+      setPrinting(false)
+    }
+  }
 
   const { data: bid, isLoading: bidLoading } = useQuery<BidDetail>({
     queryKey: ['bid', id],
@@ -84,16 +116,24 @@ export default function TenderRecommendPage() {
   return (
     <div className="p-6 space-y-5 max-w-3xl mx-auto">
       {/* 헤더 */}
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="gap-1.5">
-          <ArrowLeft className="h-4 w-4" /> 돌아가기
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="gap-1.5">
+            <ArrowLeft className="h-4 w-4" /> 돌아가기
+          </Button>
+          <span className="text-muted-foreground text-sm">/</span>
+          <span className="text-sm font-medium flex items-center gap-1.5">
+            <Target className="h-4 w-4 text-primary" />
+            투찰가 종합 분석
+          </span>
+        </div>
+        <Button variant="outline" size="sm" onClick={handlePdf} disabled={printing} className="gap-1.5">
+          {printing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+          PDF 출력
         </Button>
-        <span className="text-muted-foreground text-sm">/</span>
-        <span className="text-sm font-medium flex items-center gap-1.5">
-          <Target className="h-4 w-4 text-primary" />
-          투찰가 종합 분석
-        </span>
       </div>
+
+      <div ref={printRef}>
 
       {/* 공고 요약 */}
       <Card>
@@ -264,6 +304,7 @@ export default function TenderRecommendPage() {
           />
         </CardContent>
       </Card>
+      </div>{/* /printRef */}
     </div>
   )
 }

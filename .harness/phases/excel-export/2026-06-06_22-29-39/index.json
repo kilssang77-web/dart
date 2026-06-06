@@ -10,7 +10,7 @@
     {
       "step": 1,
       "name": "투찰 이력 Excel 내보내기 (My Bids)",
-      "status": "pending",
+      "status": "completed",
       "summary": ""
     },
     {
@@ -33,3 +33,4 @@
     }
   ]
 }
+
