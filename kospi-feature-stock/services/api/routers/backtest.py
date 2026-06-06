@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, Query, Body
+from fastapi import APIRouter, Depends, Body
+from datetime import date
 import asyncpg
 import pandas as pd
 from deps import get_db
-import sys, os
-sys.path.insert(0, "/app")
+from backtest.engine import BacktestEngine
 
 router = APIRouter()
 
@@ -18,9 +18,11 @@ async def run_backtest(
     target_pct: float = Body(default=0.10),
     db: asyncpg.Pool = Depends(get_db),
 ):
-    from ml.backtest.engine import BacktestEngine
 
     # 시그널 로드
+    start_d = date.fromisoformat(start)
+    end_d   = date.fromisoformat(end)
+
     sig_rows = await db.fetch(
         """
         SELECT fe.code, fe.detected_at::TEXT AS date, db.close
@@ -32,7 +34,7 @@ async def run_backtest(
           AND DATE(fe.detected_at) BETWEEN $3 AND $4
         ORDER BY fe.detected_at
         """,
-        event_type, min_score, start, end,
+        event_type, min_score, start_d, end_d,
     )
     if not sig_rows:
         return {"error": "No signals found for the given period"}
@@ -48,7 +50,7 @@ async def run_backtest(
         WHERE code = ANY($1) AND date BETWEEN $2 AND $3
         ORDER BY code, date
         """,
-        codes, start, end,
+        codes, start_d, end_d,
     )
     bars = pd.DataFrame([dict(r) for r in bar_rows])
 

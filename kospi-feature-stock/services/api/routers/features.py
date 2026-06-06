@@ -7,7 +7,7 @@ router = APIRouter()
 
 EVENT_TYPES = [
     "VOLUME_SURGE", "AMOUNT_SURGE",
-    "BREAKOUT_52W", "BREAKOUT_26W", "BREAKOUT_20D",
+    "BREAKOUT_52W", "BREAKOUT_26W", "BREAKOUT_13W", "BREAKOUT_20D",
     "VI_TRIGGERED", "LONG_WHITE_CANDLE", "HAMMER_CANDLE", "MORNING_STAR",
     "SUPPLY_ANOMALY", "POST_DISCLOSURE_SURGE",
 ]
@@ -130,6 +130,7 @@ async def today_summary(db: asyncpg.Pool = Depends(get_db)):
             COUNT(*) FILTER (WHERE event_type = 'AMOUNT_SURGE')          AS amount_surge,
             COUNT(*) FILTER (WHERE event_type = 'BREAKOUT_52W')          AS breakout_52w,
             COUNT(*) FILTER (WHERE event_type = 'BREAKOUT_26W')          AS breakout_26w,
+            COUNT(*) FILTER (WHERE event_type = 'BREAKOUT_13W')          AS breakout_13w,
             COUNT(*) FILTER (WHERE event_type = 'BREAKOUT_20D')          AS breakout_20d,
             COUNT(*) FILTER (WHERE event_type = 'VI_TRIGGERED')          AS vi_triggered,
             COUNT(*) FILTER (WHERE event_type = 'LONG_WHITE_CANDLE')     AS long_white_candle,
@@ -148,6 +149,7 @@ async def today_summary(db: asyncpg.Pool = Depends(get_db)):
         "AMOUNT_SURGE":          d.pop("amount_surge", 0),
         "BREAKOUT_52W":          d.pop("breakout_52w", 0),
         "BREAKOUT_26W":          d.pop("breakout_26w", 0),
+        "BREAKOUT_13W":          d.pop("breakout_13w", 0),
         "BREAKOUT_20D":          d.pop("breakout_20d", 0),
         "VI_TRIGGERED":          d.pop("vi_triggered", 0),
         "LONG_WHITE_CANDLE":     d.pop("long_white_candle", 0),
