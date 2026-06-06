@@ -260,6 +260,47 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
                 kr1d = kr5d = 0.0
             rel5 = r5d - kr5d
 
+            # Medium-term momentum
+            r10d = ret(10) if i >= 10 else 0.0
+            r20d = ret(20) if i >= 20 else 0.0
+
+            # Price acceleration: recent 5d momentum vs prior 5d momentum
+            prior5 = (closes[i-5]/closes[i-10]-1)*100 if (i >= 10 and closes[i-10] > 0) else 0.0
+            price_accel = r5d - prior5
+
+            # Gap: today open vs yesterday close
+            gap_pct = (opens[i]/closes[i-1]-1)*100 if (i >= 1 and closes[i-1] > 0) else 0.0
+
+            # Consecutive up/down days (last 10)
+            consec_up = 0; consec_down = 0
+            for j in range(i, max(i-10, 0), -1):
+                if j > 0 and closes[j] > closes[j-1]:
+                    consec_up += 1
+                else:
+                    break
+            for j in range(i, max(i-10, 0), -1):
+                if j > 0 and closes[j] < closes[j-1]:
+                    consec_down += 1
+                else:
+                    break
+
+            # Volume on up vs down days ratio (last 10 days)
+            up_vol = sum(volumes[j] for j in range(max(i-9,1), i+1) if closes[j] > closes[j-1])
+            dn_vol = sum(volumes[j] for j in range(max(i-9,1), i+1) if closes[j] < closes[j-1])
+            vol_ud_r = up_vol / dn_vol if dn_vol > 0 else 1.0
+
+            # MA crossover signals
+            ma5_prev  = float(closes[max(0,i-5):i].mean())   if i >= 1 else c
+            ma20_prev = float(closes[max(0,i-20):i].mean())  if i >= 1 else c
+            ma60_prev = float(closes[max(0,i-60):i].mean())  if i >= 1 else c
+            ma5_ma20_cross  = 1.0 if (ma5 >= ma20 and ma5_prev < ma20_prev) else 0.0
+            ma20_ma60_cross = 1.0 if (ma20 >= ma60 and ma20_prev < ma60_prev) else 0.0
+
+            # Normalized net buy (divide by 20d avg amount to make cross-stock comparable)
+            a20_safe = a20 if a20 > 0 else 1.0
+            foreign_net_ratio = f5 / a20_safe
+            inst_net_ratio    = i5 / a20_safe
+
             feat = {
                 "return_1d":r1d, "return_3d":r3d, "return_5d":r5d,
                 "ma5_ratio":ma5_r, "ma20_ratio":ma20_r, "ma60_ratio":ma60_r,
@@ -279,6 +320,13 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
                 "disclosure_sentiment":disc_s, "has_favorable_disclosure":has_fav,
                 "kospi_return_1d":kr1d, "kospi_return_5d":kr5d,
                 "rel_strength_5d":rel5, "market_vol_ratio":vr20,
+                "return_10d": r10d, "return_20d": r20d,
+                "price_accel": price_accel,
+                "gap_pct": gap_pct,
+                "consec_up": float(consec_up), "consec_down": float(consec_down),
+                "vol_up_down_ratio": vol_ud_r,
+                "ma5_ma20_cross": ma5_ma20_cross, "ma20_ma60_cross": ma20_ma60_cross,
+                "foreign_net_ratio": foreign_net_ratio, "inst_net_ratio": inst_net_ratio,
                 "__code": code, "__date": date_val, "__close": c,
             }
             rows_feat.append(feat)
@@ -454,6 +502,15 @@ async def main(args):
 ║ Best Risk  Threshold: {best_t_r:.3f}                          ║
 ╚══════════════════════════════════════════════════════════╝
 """)
+    # Feature importance
+    if entry_model is not None:
+        imp = pd.Series(
+            entry_model.feature_importances_,
+            index=[c for c in FEATURE_COLUMNS if c in Xtr_e.columns],
+        ).sort_values(ascending=False)
+        print("\n=== Entry Model Top-20 Feature Importance ===")
+        print(imp.head(20).to_string())
+
     logger.info(f"Models saved to {args.model_dir}")
 
 
@@ -466,7 +523,7 @@ if __name__ == "__main__":
     parser.add_argument("--test-start",  default="2025-01-01")
     parser.add_argument("--test-end",    default="2026-06-06")
     parser.add_argument("--model-dir",   default="/models/lgbm")
-    parser.add_argument("--entry-pct",   type=float, default=5.0,
+    parser.add_argument("--entry-pct",   type=float, default=3.0,
                         help="진입 레이블 임계 수익률 %%")
     parser.add_argument("--risk-pct",    type=float, default=5.0,
                         help="리스크 레이블 임계 손실률 %%")

@@ -37,6 +37,13 @@ FEATURE_COLUMNS = [
     "kospi_return_1d", "kospi_return_5d",
     "rel_strength_5d",
     "market_vol_ratio",
+    "return_10d", "return_20d",
+    "price_accel",
+    "gap_pct",
+    "consec_up", "consec_down",
+    "vol_up_down_ratio",
+    "ma5_ma20_cross", "ma20_ma60_cross",
+    "foreign_net_ratio", "inst_net_ratio",
 ]
 
 
