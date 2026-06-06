@@ -19,6 +19,17 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select'
+import { Download } from 'lucide-react'
+
+function downloadCsv(filename: string, rows: string[][]) {
+  const bom = '\uFEFF'
+  const csv = bom + rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = filename; a.click()
+  URL.revokeObjectURL(url)
+}
 
 const COLORS = ['#2563eb','#16a34a','#d97706','#dc2626','#7c3aed','#0891b2','#be185d','#65a30d']
 const PERIOD_OPTIONS = [3, 6, 12, 24]
@@ -107,6 +118,29 @@ export default function StatisticsPage() {
     return n.toLocaleString()
   }
 
+  function handleCsvDownload() {
+    if (tab === 'overview') {
+      const headers = ['발주처', '입찰건수', '평균낙찰률(%)', '평균경쟁사수']
+      const rows = [headers, ...(agencies as AgencyStatItem[]).map((a) => [
+        a.agency_name,
+        String(a.bid_count),
+        a.avg_rate ? (a.avg_rate * 100).toFixed(2) : '',
+        a.avg_competitor_count ? a.avg_competitor_count.toFixed(1) : '',
+      ])]
+      downloadCsv(`발주처통계_${months}개월.csv`, rows)
+    } else if (tab === 'level1') {
+      const headers = ['공종명', '입찰건수', '평균낙찰률(%)', '평균경쟁사수', '총금액']
+      const rows = [headers, ...industries.map((ind) => [
+        ind.industry_name,
+        String(ind.bid_count),
+        ind.avg_rate ? (ind.avg_rate * 100).toFixed(2) : '',
+        ind.avg_competitor_count ? ind.avg_competitor_count.toFixed(1) : '',
+        String(ind.total_amount),
+      ])]
+      downloadCsv(`공종별통계_${months}개월.csv`, rows)
+    }
+  }
+
   return (
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -119,6 +153,12 @@ export default function StatisticsPage() {
             <Button key={m} variant={months === m ? 'default' : 'outline'} size="sm"
               onClick={() => setMonths(m)} className="h-8 px-3 text-xs">{m}개월</Button>
           ))}
+          {(tab === 'overview' || tab === 'level1') && (
+            <Button variant="outline" size="sm" onClick={handleCsvDownload} className="h-8 px-3 text-xs gap-1.5 ml-1">
+              <Download className="h-3.5 w-3.5" />
+              CSV
+            </Button>
+          )}
         </div>
       </div>
 
