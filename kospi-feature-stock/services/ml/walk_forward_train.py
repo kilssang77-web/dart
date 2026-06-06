@@ -290,37 +290,36 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
 def make_labels(feat_df: pd.DataFrame, raw_df: pd.DataFrame,
                 entry_pct: float = 5.0, risk_pct: float = 5.0) -> tuple[pd.Series, pd.Series]:
     """
-    5일 후 수익률 기반 레이블 생성.
-    entry: return_5d_fwd >= entry_pct
-    risk:  return_5d_fwd <= -risk_pct
-    데이터 누수 방지: 미래 수익률은 raw_df에서 직접 계산.
+    5일 후 수익률 기반 레이블 생성 (벡터화).
+    entry: return_5d_fwd >= entry_pct  /  risk: return_5d_fwd <= -risk_pct
+    데이터 누수 없음: 미래 수익률은 raw_df groupby.shift(-5)로 계산.
     """
-    # close by (code, date)
-    pivot = raw_df.pivot_table(index="date", columns="code", values="close")
+    rdf = raw_df[["code", "date", "close"]].copy()
+    rdf["date"] = pd.to_datetime(rdf["date"])
+    rdf = rdf.sort_values(["code", "date"])
+    rdf["fwd5_close"] = rdf.groupby("code")["close"].shift(-5)
+    rdf["ret5"] = (rdf["fwd5_close"] / rdf["close"].replace(0, np.nan) - 1) * 100
 
-    entry_labels = []
-    risk_labels  = []
+    fdf = feat_df.copy()
+    fdf["date"] = pd.to_datetime(fdf["__date"])
+    fdf["code"] = fdf["__code"]
 
-    for _, row in feat_df.iterrows():
-        code  = row["__code"]
-        date  = row["__date"]
-        close = row["__close"]
-        try:
-            col   = pivot[code]
-            idx   = col.index.searchsorted(pd.Timestamp(date))
-            fwd5  = col.iloc[idx+5] if idx+5 < len(col) else None
-            if fwd5 and close > 0 and not pd.isna(fwd5):
-                ret5 = (float(fwd5)/float(close)-1)*100
-                entry_labels.append(1 if ret5 >= entry_pct else 0)
-                risk_labels.append(1 if ret5 <= -risk_pct else 0)
-            else:
-                entry_labels.append(None)
-                risk_labels.append(None)
-        except Exception:
-            entry_labels.append(None)
-            risk_labels.append(None)
+    merged = fdf[["code", "date"]].merge(
+        rdf[["code", "date", "ret5"]],
+        on=["code", "date"],
+        how="left",
+    )
 
-    return pd.Series(entry_labels, dtype="float64"), pd.Series(risk_labels, dtype="float64")
+    ret = merged["ret5"]
+    entry_labels = pd.Series(
+        np.where(ret.notna(), (ret >= entry_pct).astype(float), np.nan),
+        dtype="float64",
+    )
+    risk_labels = pd.Series(
+        np.where(ret.notna(), (ret <= -risk_pct).astype(float), np.nan),
+        dtype="float64",
+    )
+    return entry_labels, risk_labels
 
 
 # ── 검증 리포트 ───────────────────────────────────────────────────────────────
