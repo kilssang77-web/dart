@@ -175,6 +175,9 @@ def bid_range(
         srate_p90     = ep["srate_range"]["p90"],
     )
     result["industry_name"] = industry_name
+    result["srate_source"]   = ep.get("srate_source")
+    result["inpo21c_n"]      = ep.get("inpo21c_n", 0)
+    result["confidence"]     = ep.get("confidence")
     return result
 
 

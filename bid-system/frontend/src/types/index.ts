@@ -737,6 +737,9 @@ export interface BidRangeResponse {
     p90: number
   }
   industry_name: string | null
+  srate_source?: string | null   // 'inpo21c' | 'lgbm' | 'global'
+  inpo21c_n?:    number | null
+  confidence?:   number | null
 }
 
 // ── 공동도급 적격심사 AI 매칭 ───────────────────────────────────

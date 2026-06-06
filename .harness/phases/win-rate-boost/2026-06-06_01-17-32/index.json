@@ -52,6 +52,14 @@
       "name": "怨듬룞?꾧툒 ?곴꺽?ъ궗 ?쒕??덉씠??怨좊룄??,
       "status": "completed",
       "summary": "JointSimulateService(기초금액 구간별 threshold 12~18점·귀사/경쟁사 perf_score 계산·합산 통과 판정), JointSim 스키마 5종 추가, POST /bids/{bid_id}/joint-simulate, JointSimPage(/bids/:bidId/joint-sim: 파트너 구성패널+지분율슬라이더+경쟁사검색Dialog+실시간 결과패널), BidDetailPage 공동도급 시뮬레이터 버튼, 단위 테스트 9건 추가"
+    },
+    {
+      "step": 7,
+      "name": "inpo21c 실측 사정율로 ML 예정가격 예측 정확도 향상",
+      "status": "completed",
+      "summary": "SRATE_FEATURE_COLS inpo21c 3개 특성 추가, train_srate_model() inpo21c JOIN, simulate_yejung() spread +-2.8%, predict_srate() Bayesian 블렌딩(n>=3: w=min(0.85,n/(n+10))), get_inpo21c_pattern_direct() 신규, ML 재훈련(8801건), 대전광역시 srate 0.874->0.9854(실측 0.9983 오차 -1.3%p)",
+      "started_at": "2026-06-06T09:30:00+0900",
+      "completed_at": "2026-06-06T09:50:00+0900"
     }
   ]
 }

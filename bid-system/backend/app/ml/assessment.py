@@ -383,12 +383,14 @@ def predict_srate(features_a: dict, base_amount: int) -> dict:
 
     # inpo21c 실측 사정율로 보정 (복수예가 건설공사 기준)
     inpo_mean = features_a.get("inpo21c_srate_mean")
-    inpo_n    = features_a.get("inpo21c_srate_n", 0)
+    inpo_n    = features_a.get("inpo21c_srate_n", 0) or 0
     inpo_std  = features_a.get("inpo21c_srate_std") or 0.007
     inpo_glb  = features_a.get("inpo21c_global_mean")
+    srate_source = "lgbm" if srate_models_path.exists() else "global"
 
     if inpo_mean and inpo_n >= 3:
         # 기관별 실측값: Bayesian 블렌딩 (n=3→23%, n=10→50%, n=20→67%, n=50→83%)
+        srate_source = "inpo21c"
         w = min(0.85, inpo_n / (inpo_n + 10))
         old_c  = center
         center = old_c * (1.0 - w) + inpo_mean * w
@@ -428,6 +430,8 @@ def predict_srate(features_a: dict, base_amount: int) -> dict:
         "confidence": round(confidence, 3),
         "used_model": srate_models_path.exists(),
         "sample_count": n,
+        "srate_source": srate_source,
+        "inpo21c_n": int(inpo_n),
     }
 
 

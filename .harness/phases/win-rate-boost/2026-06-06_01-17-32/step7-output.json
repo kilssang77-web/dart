@@ -1,0 +1,9 @@
+{
+  "step": 7,
+  "name": "inpo21c 실측 사정율로 ML 예정가격 예측 정확도 향상",
+  "exitCode": 0,
+  "commit": "7f224e3",
+  "stdout_summary": "Step 7 완료.\n\n구현 요약:\n- SRATE_FEATURE_COLS에 inpo21c_srate_mean/std/n 3개 특성 추가\n- train_srate_model() SQL에 inpo21c_bids→agencies LEFT JOIN 추가\n- simulate_yejung() yega spread ±2.0% → ±2.8% (실측 기반)\n- load_inpo21c_yega_stats(), get_inpo21c_pattern_direct() 신규 함수\n- predict_srate() Bayesian 블렌딩 로직 (n≥3: weight=min(0.85,n/(n+10)))\n- YegaPatternService: inpo21c direct 우선, reverse_calc fallback\n- ML 재훈련 완료: srate_stats=8801건, srate_model=trained\n- 검증: 대전광역시 srate 0.874→0.9854 (실측 0.9983, 오차 -1.3%p)",
+  "stderr": "",
+  "stdout_log": ""
+}

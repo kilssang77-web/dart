@@ -558,6 +558,31 @@ export default function RecommendPage() {
             </div>
             {/* 사정율 예측 범위 P10~P90 바 */}
             <SratePercentileBar srate={bidRange.srate_range} center={bidRange.srate_center} />
+            {/* 실측 근거 배지 + 신뢰도 */}
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              {bidRange.srate_source === 'inpo21c' ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 font-medium">
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                  inpo21c 실측 {bidRange.inpo21c_n}건 기반
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 text-gray-500 px-2 py-0.5">
+                  G2B 통계 기반 (실측 없음)
+                </span>
+              )}
+              {bidRange.confidence != null && (
+                <div className="flex items-center gap-1.5 flex-1 min-w-[120px]">
+                  <span className="text-muted-foreground shrink-0">예측 신뢰도</span>
+                  <div className="flex-1 h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-blue-500 transition-all"
+                      style={{ width: `${Math.round((bidRange.confidence ?? 0) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="text-blue-700 font-medium shrink-0">{Math.round((bidRange.confidence ?? 0) * 100)}%</span>
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}

@@ -416,6 +416,9 @@ class BidRangeResponse(BaseModel):
     srate_center:  float
     srate_range:   dict
     industry_name: Optional[str] = None
+    srate_source:  Optional[str] = None   # "inpo21c" | "lgbm" | "global"
+    inpo21c_n:     Optional[int] = None
+    confidence:    Optional[float] = None
 
 
 # -- ?? ?? --------------------------------------------------
