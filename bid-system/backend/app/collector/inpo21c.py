@@ -1,12 +1,16 @@
-﻿"""
-inpo21c 전 참여자 수집 모듈.
+"""
+inpo21c 수집 모듈.
 
-cloud.info21c.net에서 낙찰 목록 → 각 공고 전체 참가업체 데이터 수집.
+cloud.info21c.net에서 낙찰/입찰 데이터 수집:
+  - /suc/con  : 낙찰 목록 -> 전 참여자 + 복수예가 분포 + 공고 헤더
+  - /bid/con  : 입찰공고 중 목록 -> 개찰 전 사전정보(예가방법, 낙찰하한율 등)
 쿠키는 settings.inpo21c_cookie (환경변수 INPO21C_COOKIE)에서 읽는다.
+자동 로그인: settings.inpo21c_id / settings.inpo21c_pw
 """
 import re
 import time
 import logging
+from datetime import datetime
 from urllib.request import Request, urlopen
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -16,47 +20,111 @@ logger = logging.getLogger(__name__)
 BASE = "https://cloud.info21c.net"
 UA   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
-# 로그인 페이지 특징 문자열 (세션 만료 시 리다이렉트되는 페이지에 포함)
 _LOGIN_SIGNALS = ["login", "sign_in", "로그인", "세션이 만료", "인증이 필요"]
+
+_AUTH_BASE      = "https://infose.info21c.net"
+_LOGIN_URL      = f"{_AUTH_BASE}/info21c/member/login/index"
+_LOGIN_EXEC_URL = f"{_AUTH_BASE}/info21c/member/login/loginexec"
+
+
+def auto_login(user_id: str, password: str) -> str | None:
+    import http.cookiejar
+    import urllib.parse
+    from urllib.request import build_opener, HTTPCookieProcessor
+
+    if not user_id or not password:
+        logger.warning("INPO21C_ID 또는 INPO21C_PW 미설정 -- 자동 로그인 불가")
+        return None
+
+    cj     = http.cookiejar.CookieJar()
+    opener = build_opener(HTTPCookieProcessor(cj))
+
+    try:
+        refurl  = urllib.parse.quote(BASE + "/suc/con")
+        req     = Request(
+            f"{_LOGIN_URL}?refurl={refurl}",
+            headers={"User-Agent": UA, "Accept": "text/html", "Referer": BASE},
+        )
+        resp    = opener.open(req, timeout=15)
+        html    = resp.read().decode("utf-8", errors="replace")
+
+        csrf_match = re.search(
+            r'name="_csrf-frontend"[^>]+value="([^"]+)"', html, re.IGNORECASE
+        )
+        if not csrf_match:
+            logger.error("inpo21c CSRF 토큰 취득 실패")
+            return None
+        csrf_token = csrf_match.group(1)
+
+        signed_match = re.search(
+            r'name="signeddata"[^>]*value="([^"]*)"', html, re.IGNORECASE
+        )
+        signed_data = signed_match.group(1) if signed_match else ""
+
+        payload = urllib.parse.urlencode({
+            "_csrf-frontend": csrf_token,
+            "refurl":         f"{BASE}/suc/con",
+            "signeddata":     signed_data,
+            "PlainData":      "info21c",
+            "id":             user_id,
+            "pass":           password,
+        }).encode()
+
+        post_req = Request(
+            _LOGIN_EXEC_URL,
+            data=payload,
+            headers={
+                "User-Agent":   UA,
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Referer":      _LOGIN_URL,
+                "Origin":       _AUTH_BASE,
+            },
+        )
+        post_resp = opener.open(post_req, timeout=15)
+        post_resp.read()
+
+        sess_id = next((c.value for c in cj if c.name == "INFO21CSESSID"), None)
+        if not sess_id:
+            logger.error("inpo21c 로그인 실패 -- INFO21CSESSID 없음")
+            return None
+
+        cookie_parts = [f"INFO21CSESSID={sess_id}"]
+        for c in cj:
+            if c.name != "INFO21CSESSID" and "info21c.net" in (c.domain or ""):
+                cookie_parts.append(f"{c.name}={c.value}")
+        cookie_str = "; ".join(cookie_parts)
+        logger.info("inpo21c 자동 로그인 성공 (SESSID 취득)")
+        return cookie_str
+
+    except Exception as exc:
+        logger.error("inpo21c 자동 로그인 실패: %s", exc)
+        return None
 
 
 def check_cookie_valid(cookie: str) -> bool:
-    """
-    inpo21c 쿠키 유효성 사전 검증.
-
-    낙찰결과 목록 1페이지를 fetch해 실제 데이터가 있으면 True,
-    로그인 리다이렉트 또는 빈 응답이면 False를 반환한다.
-    """
     if not cookie:
         return False
     html = _fetch(f"{BASE}/suc/con?division=1&page=1", cookie)
     if not html:
-        logger.error("inpo21c 쿠키 검증 실패 — 응답 없음 (서버 다운 또는 네트워크 오류)")
+        logger.error("inpo21c 쿠키 검증 실패 — 응답 없음")
         return False
+    if "/suc/view/con/" in html:
+        return True
     html_lower = html.lower()
     if any(sig in html_lower for sig in _LOGIN_SIGNALS):
-        logger.error(
-            "inpo21c 쿠키 만료 — 로그인 페이지로 리다이렉트됨. "
-            "INPO21C_COOKIE 환경변수를 갱신하세요."
-        )
+        logger.error("inpo21c 쿠키 만료 — 로그인 페이지로 리다이렉트됨.")
         return False
-    # 실제 낙찰 목록이면 /suc/view/con/ 패턴 링크가 있어야 함
-    if "/suc/view/con/" not in html:
-        logger.error(
-            "inpo21c 쿠키 만료 추정 — 낙찰 목록 미확인 (응답 길이: %d bytes). "
-            "INPO21C_COOKIE를 확인하세요.", len(html)
-        )
-        return False
-    return True
+    logger.error("inpo21c 쿠키 만료 추정 — 낙실 목록 미확인 (응답 길이: %d bytes).", len(html))
+    return False
 
 
 def _fetch(url: str, cookie: str, referer: str = BASE) -> str:
     req = Request(url, headers={
-        "Cookie":          cookie,
-        "User-Agent":      UA,
-        "Referer":         referer,
-        "sec-fetch-mode":  "cors",
-        "sec-fetch-site":  "same-origin",
+        "Cookie":         cookie,
+        "User-Agent":     UA,
+        "Referer":        referer,
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
     })
     try:
         with urlopen(req, timeout=15) as r:
@@ -66,32 +134,136 @@ def _fetch(url: str, cookie: str, referer: str = BASE) -> str:
         return ""
 
 
-def _get_bid_ids(page: int, cookie: str) -> list:
-    html = _fetch(f"{BASE}/suc/con?division=1&page={page}", cookie)
+def _ensure_tables(db: Session) -> None:
+    db.execute(text("""
+        CREATE TABLE IF NOT EXISTS inpo21c_bids (
+            inpo21c_bid_id   VARCHAR(30)  PRIMARY KEY,
+            announcement_no  VARCHAR(50),
+            industry         VARCHAR(200),
+            region           VARCHAR(200),
+            agency_name      VARCHAR(200),
+            open_datetime    TIMESTAMP,
+            base_amount      BIGINT,
+            estimated_amount BIGINT,
+            min_bid_rate     NUMERIC(8,4),
+            preset_amount    BIGINT,
+            yega_ratio       NUMERIC(8,4),
+            net_cost         BIGINT,
+            created_at       TIMESTAMP DEFAULT now()
+        )
+    """))
+    db.execute(text("CREATE INDEX IF NOT EXISTS idx_inpo21c_bids_announcement ON inpo21c_bids(announcement_no)"))
+    db.execute(text("""
+        CREATE TABLE IF NOT EXISTS inpo21c_yega (
+            id              SERIAL PRIMARY KEY,
+            inpo21c_bid_id  VARCHAR(30)  NOT NULL,
+            yega_no         SMALLINT     NOT NULL,
+            amount          BIGINT,
+            base_ratio      NUMERIC(8,4),
+            base_ratio_pct  NUMERIC(8,4),
+            is_selected     BOOLEAN DEFAULT FALSE,
+            UNIQUE(inpo21c_bid_id, yega_no)
+        )
+    """))
+    db.execute(text("CREATE INDEX IF NOT EXISTS idx_inpo21c_yega_bid ON inpo21c_yega(inpo21c_bid_id)"))
+    db.execute(text("""
+        CREATE TABLE IF NOT EXISTS inpo21c_bid_notices (
+            inpo21c_bid_id   VARCHAR(30)  PRIMARY KEY,
+            announcement_no  VARCHAR(50),
+            industry         VARCHAR(200),
+            region           VARCHAR(200),
+            agency_name      VARCHAR(200),
+            yega_method      VARCHAR(100),
+            yega_draw_count  SMALLINT,
+            yega_total_count SMALLINT,
+            yega_range_min   SMALLINT,
+            yega_range_max   SMALLINT,
+            min_bid_rate     NUMERIC(8,4),
+            contract_method  VARCHAR(100),
+            reg_deadline     TIMESTAMP,
+            bid_deadline     TIMESTAMP,
+            open_datetime    TIMESTAMP,
+            base_amount      BIGINT,
+            estimated_amount BIGINT,
+            created_at       TIMESTAMP DEFAULT now(),
+            updated_at       TIMESTAMP DEFAULT now()
+        )
+    """))
+    db.execute(text("CREATE INDEX IF NOT EXISTS idx_inpo21c_notices_announcement ON inpo21c_bid_notices(announcement_no)"))
+    db.commit()
+
+
+def _get_bid_ids(page: int, cookie: str, division: int = 1) -> list:
+    html = _fetch(f"{BASE}/suc/con?division={division}&page={page}", cookie)
     return [m.group(1) for m in re.finditer(r'/suc/view/con/([^"]+)"', html)]
+
+
+def _txt(s: str) -> str:
+    return re.sub(r"<[^>]+>", "", s).strip()
+
+
+def _parse_amount(s: str) -> int | None:
+    if not s:
+        return None
+    clean = re.sub(r"[^\d]", "", s.split("원")[0])
+    return int(clean) if clean else None
+
+
+def _parse_rate(s: str) -> float | None:
+    m = re.match(r"[\d.]+", s.strip()) if s else None
+    return float(m.group()) if m else None
+
+
+def _parse_dt(s: str) -> datetime | None:
+    if not s:
+        return None
+    m = re.search(r"(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\s*(\d{1,2})시\s*(\d{2})분", s)
+    if m:
+        try:
+            return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)),
+                            int(m.group(4)), int(m.group(5)))
+        except ValueError:
+            pass
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(s[:len(fmt)], fmt)
+        except ValueError:
+            continue
+    return None
 
 
 def _parse_participants(html: str) -> list:
     rows = []
     for tr in re.finditer(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL):
         cells = re.findall(r"<td[^>]*>(.*?)</td>", tr.group(1), re.DOTALL)
-        if len(cells) < 8:
-            continue
+        c0 = _txt(cells[0]) if cells else ""
+        is_winner_row = len(cells) >= 9 and "순위업체" in c0
 
-        def txt(s):
-            return re.sub(r"<[^>]+>", "", s).strip()
+        if is_winner_row:
+            rank_s   = _txt(cells[1])
+            biz_no   = _txt(cells[2])
+            name_m   = re.search(r'data-officenm="([^"]+)"', cells[3])
+            name     = name_m.group(1) if name_m else _txt(cells[3])
+            amt_s    = _txt(cells[5]).replace(",", "")
+            rate_s   = _txt(cells[6])
+            base_s   = _txt(cells[7])
+            assess_m = re.match(r"[\d.]+", _txt(cells[8]))
+            is_winner = True
+        else:
+            rank_s = c0
+            if not rank_s.isdigit() or len(cells) < 8:
+                continue
+            biz_no   = _txt(cells[1])
+            name_m   = re.search(r'data-officenm="([^"]+)"', cells[2])
+            name     = name_m.group(1) if name_m else _txt(cells[2])
+            amt_s    = _txt(cells[4]).replace(",", "")
+            rate_s   = _txt(cells[5])
+            base_s   = _txt(cells[6])
+            assess_m = re.match(r"[\d.]+", _txt(cells[7]))
+            is_winner = "1순위" in _txt(cells[8]) if len(cells) > 8 else False
 
-        rank_s = txt(cells[0])
         if not rank_s.isdigit():
             continue
-        biz_no    = txt(cells[1])
-        name_m    = re.search(r'data-officenm="([^"]+)"', cells[2])
-        name      = name_m.group(1) if name_m else txt(cells[2])
-        amt_s     = txt(cells[4]).replace(",", "")
-        rate_s    = txt(cells[5])
-        base_s    = txt(cells[6])
-        assess_m  = re.match(r"[\d.]+", txt(cells[7]))
-        is_winner = "1순위" in txt(cells[8]) if len(cells) > 8 else False
         try:
             rows.append({
                 "rank":            int(rank_s),
@@ -108,6 +280,115 @@ def _parse_participants(html: str) -> list:
     return rows
 
 
+def _parse_bid_header(html: str) -> dict | None:
+    pairs: dict[str, str] = {}
+    for m in re.finditer(r"<th>([^<]+)</th>\s*<td[^>]*>(.*?)</td>", html, re.DOTALL):
+        key = m.group(1).strip()
+        val = _txt(m.group(2)).strip()
+        pairs[key] = val
+    if not pairs:
+        return None
+
+    yega_ratio = None
+    raw_yr = pairs.get("예가/기초", "")
+    if raw_yr:
+        m2 = re.match(r"[\d.]+", raw_yr.strip())
+        if m2:
+            yega_ratio = float(m2.group())
+
+    return {
+        "announcement_no":  pairs.get("공고번호", "").strip(),
+        "industry":         pairs.get("공고업종", "").strip(),
+        "region":           pairs.get("지역", "").strip(),
+        "agency_name":      pairs.get("발주기관", "").strip(),
+        "open_datetime":    _parse_dt(pairs.get("개찰일시", "")),
+        "base_amount":      _parse_amount(pairs.get("기초금액", "")),
+        "estimated_amount": _parse_amount(pairs.get("추정가격", "")),
+        "min_bid_rate":     _parse_rate(pairs.get("낙찰하한율", "")),
+        "preset_amount":    _parse_amount(pairs.get("예정가격", "")),
+        "yega_ratio":       yega_ratio,
+        "net_cost":         _parse_amount(pairs.get("순공사원가", "")),
+    }
+
+
+def _parse_yega(html: str) -> list:
+    rows = []
+    yega_match = re.search(r'id="multispare_list_num"(.*?)</tbody>', html, re.DOTALL)
+    if not yega_match:
+        return rows
+
+    for tr in re.finditer(r"<tr([^>]*)>(.*?)</tr>", yega_match.group(1), re.DOTALL):
+        tr_attrs = tr.group(1)
+        tr_inner = tr.group(2)
+        cells    = re.findall(r"<td[^>]*>(.*?)</td>", tr_inner, re.DOTALL)
+        if len(cells) < 4:
+            continue
+
+        # text-orange appears on individual <td> tags, not on <tr> — check full row HTML
+        is_selected = "text-orange" in tr_inner
+        no_s    = _txt(cells[0])
+        amt_s   = _txt(cells[1]).replace(",", "")
+        ratio_s = _txt(cells[2])
+        pct_s   = _txt(cells[3])
+
+        if not no_s.isdigit():
+            continue
+        try:
+            rows.append({
+                "yega_no":        int(no_s),
+                "amount":         int(amt_s) if amt_s else None,
+                "base_ratio":     float(ratio_s) if ratio_s else None,
+                "base_ratio_pct": float(pct_s) if pct_s else None,
+                "is_selected":    is_selected,
+            })
+        except Exception:
+            continue
+    return rows
+
+
+def _parse_bid_notice(html: str) -> dict | None:
+    pairs: dict[str, str] = {}
+    for m in re.finditer(r"<th>([^<]+)</th>\s*<td[^>]*>(.*?)</td>", html, re.DOTALL):
+        key = m.group(1).strip()
+        val = _txt(m.group(2)).strip()
+        pairs[key] = val
+    if not pairs:
+        return None
+
+    yega_method   = pairs.get("예가방법", "")
+    yega_draw_cnt = yega_total_cnt = None
+    m_yega = re.search(r"복수예가:(\d+)[^/]*/(\d+)", yega_method)
+    if m_yega:
+        yega_draw_cnt  = int(m_yega.group(1))
+        yega_total_cnt = int(m_yega.group(2))
+
+    yega_rmin = yega_rmax = None
+    raw_range = pairs.get("예가변동폭", "")
+    m_range = re.search(r"(-?\d+)\s*~\s*[+\-]?(\d+)", raw_range)
+    if m_range:
+        yega_rmin = int(m_range.group(1))
+        yega_rmax = int(m_range.group(2))
+
+    return {
+        "announcement_no":  pairs.get("공고번호", "").strip(),
+        "industry":         pairs.get("업종", "").strip(),
+        "region":           pairs.get("지역", "").strip(),
+        "agency_name":      (pairs.get("수요기관", "") or pairs.get("발주기관", "")).strip(),
+        "yega_method":      yega_method,
+        "yega_draw_count":  yega_draw_cnt,
+        "yega_total_count": yega_total_cnt,
+        "yega_range_min":   yega_rmin,
+        "yega_range_max":   yega_rmax,
+        "min_bid_rate":     _parse_rate(pairs.get("낙찰하한율", "")),
+        "contract_method":  pairs.get("계약방법", "").strip(),
+        "reg_deadline":     _parse_dt(pairs.get("참가등록마감", "")),
+        "bid_deadline":     _parse_dt(pairs.get("투찰마감일시", "")),
+        "open_datetime":    _parse_dt(pairs.get("개찰일시", "")),
+        "base_amount":      _parse_amount(pairs.get("기초금액", "")),
+        "estimated_amount": _parse_amount(pairs.get("추정가격", "")),
+    }
+
+
 def _upsert_participants(db: Session, bid_id: str, rows: list) -> int:
     count = 0
     for r in rows:
@@ -120,6 +401,7 @@ def _upsert_participants(db: Session, bid_id: str, rows: list) -> int:
                     (:bid_id, :rank, :biz_reg_no, :company_name,
                      :bid_amount, :bid_rate, :base_ratio, :assessment_rate, :is_winner)
                 ON CONFLICT (inpo21c_bid_id, biz_reg_no) DO UPDATE SET
+                    rank            = EXCLUDED.rank,
                     bid_rate        = EXCLUDED.bid_rate,
                     base_ratio      = EXCLUDED.base_ratio,
                     assessment_rate = EXCLUDED.assessment_rate,
@@ -127,55 +409,243 @@ def _upsert_participants(db: Session, bid_id: str, rows: list) -> int:
             """), {"bid_id": bid_id, **r})
             count += 1
         except Exception as e:
-            logger.debug("upsert 실패 [%s/%s]: %s", bid_id, r.get("biz_reg_no"), e)
+            logger.debug("participants upsert 실패 [%s/%s]: %s", bid_id, r.get("biz_reg_no"), e)
     db.commit()
     return count
 
 
+def _upsert_bid_header(db: Session, bid_id: str, data: dict) -> None:
+    try:
+        db.execute(text("""
+            INSERT INTO inpo21c_bids
+                (inpo21c_bid_id, announcement_no, industry, region, agency_name,
+                 open_datetime, base_amount, estimated_amount, min_bid_rate,
+                 preset_amount, yega_ratio, net_cost)
+            VALUES
+                (:bid_id, :announcement_no, :industry, :region, :agency_name,
+                 :open_datetime, :base_amount, :estimated_amount, :min_bid_rate,
+                 :preset_amount, :yega_ratio, :net_cost)
+            ON CONFLICT (inpo21c_bid_id) DO UPDATE SET
+                announcement_no  = EXCLUDED.announcement_no,
+                industry         = EXCLUDED.industry,
+                region           = EXCLUDED.region,
+                agency_name      = EXCLUDED.agency_name,
+                open_datetime    = EXCLUDED.open_datetime,
+                base_amount      = EXCLUDED.base_amount,
+                estimated_amount = EXCLUDED.estimated_amount,
+                min_bid_rate     = EXCLUDED.min_bid_rate,
+                preset_amount    = EXCLUDED.preset_amount,
+                yega_ratio       = EXCLUDED.yega_ratio,
+                net_cost         = EXCLUDED.net_cost
+        """), {"bid_id": bid_id, **data})
+        db.commit()
+    except Exception as e:
+        logger.debug("bid_header upsert 실패 [%s]: %s", bid_id, e)
+        db.rollback()
+
+
+def _upsert_yega(db: Session, bid_id: str, rows: list) -> int:
+    count = 0
+    for r in rows:
+        try:
+            db.execute(text("""
+                INSERT INTO inpo21c_yega
+                    (inpo21c_bid_id, yega_no, amount, base_ratio, base_ratio_pct, is_selected)
+                VALUES
+                    (:bid_id, :yega_no, :amount, :base_ratio, :base_ratio_pct, :is_selected)
+                ON CONFLICT (inpo21c_bid_id, yega_no) DO UPDATE SET
+                    amount         = EXCLUDED.amount,
+                    base_ratio     = EXCLUDED.base_ratio,
+                    base_ratio_pct = EXCLUDED.base_ratio_pct,
+                    is_selected    = EXCLUDED.is_selected
+            """), {"bid_id": bid_id, **r})
+            count += 1
+        except Exception as e:
+            logger.debug("yega upsert 실패 [%s/%s]: %s", bid_id, r.get("yega_no"), e)
+    db.commit()
+    return count
+
+
+def _upsert_bid_notice(db: Session, bid_id: str, data: dict) -> None:
+    try:
+        db.execute(text("""
+            INSERT INTO inpo21c_bid_notices
+                (inpo21c_bid_id, announcement_no, industry, region, agency_name,
+                 yega_method, yega_draw_count, yega_total_count,
+                 yega_range_min, yega_range_max, min_bid_rate, contract_method,
+                 reg_deadline, bid_deadline, open_datetime, base_amount, estimated_amount,
+                 updated_at)
+            VALUES
+                (:bid_id, :announcement_no, :industry, :region, :agency_name,
+                 :yega_method, :yega_draw_count, :yega_total_count,
+                 :yega_range_min, :yega_range_max, :min_bid_rate, :contract_method,
+                 :reg_deadline, :bid_deadline, :open_datetime, :base_amount, :estimated_amount,
+                 now())
+            ON CONFLICT (inpo21c_bid_id) DO UPDATE SET
+                announcement_no  = EXCLUDED.announcement_no,
+                yega_method      = EXCLUDED.yega_method,
+                yega_draw_count  = EXCLUDED.yega_draw_count,
+                yega_total_count = EXCLUDED.yega_total_count,
+                yega_range_min   = EXCLUDED.yega_range_min,
+                yega_range_max   = EXCLUDED.yega_range_max,
+                min_bid_rate     = EXCLUDED.min_bid_rate,
+                open_datetime    = EXCLUDED.open_datetime,
+                updated_at       = now()
+        """), {"bid_id": bid_id, **data})
+        db.commit()
+    except Exception as e:
+        logger.debug("bid_notice upsert 실패 [%s]: %s", bid_id, e)
+        db.rollback()
+
+
+def _get_valid_cookie(settings) -> str | None:
+    import os
+    from app.config import get_settings as _gs
+
+    cookie = getattr(settings, "inpo21c_cookie", "")
+    if cookie and check_cookie_valid(cookie):
+        return cookie
+
+    logger.info("inpo21c 쿠키 만료 — 자동 로그인 시도")
+    uid = getattr(settings, "inpo21c_id", "")
+    pw  = getattr(settings, "inpo21c_pw", "")
+    new_c = auto_login(uid, pw)
+    if new_c:
+        os.environ["INPO21C_COOKIE"] = new_c
+        _gs.cache_clear()
+        logger.info("inpo21c 쿠키 자동 갱신 완료")
+        return new_c
+
+    logger.error("inpo21c 자동 로그인 실패 — INPO21C_ID/PW 확인 필요")
+    return None
+
+
 def collect_inpo21c(db: Session, max_pages: int = 4) -> dict:
     """
-    inpo21c 낙찰 목록을 순회하며 전 참여자 데이터를 수집.
-
-    Returns:
-        {"bids": int, "participants": int, "skipped": int}
+    inpo21c 낙찰 목록을 순회하며 세 가지 데이터를 함께 수집:
+      1) 전 참여자 (inpo21c_participants) — 낙쳀업체(1순위) 포함 버그 수정
+      2) 복수예가 15개 분포 (inpo21c_yega)
+      3) 공고 헤더 메타데이터 (inpo21c_bids) — 나라장터 공고번호 포함
+    division=1,2,3 (맞춤설정 필터) 모두 순회하여 커버리지 확대.
     """
     from app.config import get_settings
     settings = get_settings()
-    cookie   = getattr(settings, "inpo21c_cookie", "")
+
+    cookie = _get_valid_cookie(settings)
     if not cookie:
-        logger.warning("INPO21C_COOKIE 미설정 — inpo21c 수집 건너뜀")
-        return {"bids": 0, "participants": 0, "skipped": 0, "cookie_valid": False}
+        return {
+            "bids": 0, "participants": 0, "yega": 0, "skipped": 0,
+            "cookie_valid": False,
+            "error": "자동 로그인 실패 — INPO21C_ID/PW 확인 또는 INPO21C_COOKIE 수동 갱신 필요",
+        }
 
-    if not check_cookie_valid(cookie):
-        return {"bids": 0, "participants": 0, "skipped": 0, "cookie_valid": False,
-                "error": "쿠키 만료 또는 인증 실패 — INPO21C_COOKIE 갱신 필요"}
+    _ensure_tables(db)
 
-    # 기존 수집된 bid_id 목록 캐싱 (중복 스킵)
+    # 각 테이블별 기존 수집 여부를 독립적으로 추적
+    existing_parts  = {r[0] for r in db.execute(text("SELECT DISTINCT inpo21c_bid_id FROM inpo21c_participants")).fetchall()}
+    existing_bids   = {r[0] for r in db.execute(text("SELECT inpo21c_bid_id FROM inpo21c_bids")).fetchall()}
+    existing_yega   = {r[0] for r in db.execute(text("SELECT DISTINCT inpo21c_bid_id FROM inpo21c_yega")).fetchall()}
+
+    total_bids = total_participants = total_yega = skipped = 0
+
+    for division in (1, 2, 3):
+        for page in range(1, max_pages + 1):
+            bid_ids = list(dict.fromkeys(_get_bid_ids(page, cookie, division)))
+            if not bid_ids:
+                break
+
+            for bid_id in bid_ids:
+                needs_parts  = bid_id not in existing_parts
+                needs_header = bid_id not in existing_bids
+                needs_yega   = bid_id not in existing_yega
+
+                if not needs_parts and not needs_header and not needs_yega:
+                    skipped += 1
+                    continue
+
+                detail_url  = f"{BASE}/suc/view/con/{bid_id}"
+                detail_html = _fetch(detail_url, cookie, referer=f"{BASE}/suc/con?division={division}")
+
+                if not detail_html:
+                    continue
+
+                if needs_parts:
+                    participant_rows = _parse_participants(detail_html)
+                    if participant_rows:
+                        cnt = _upsert_participants(db, bid_id, participant_rows)
+                        total_participants += cnt
+                        total_bids += 1
+                        existing_parts.add(bid_id)
+
+                if needs_header:
+                    header = _parse_bid_header(detail_html)
+                    if header:
+                        _upsert_bid_header(db, bid_id, header)
+                        existing_bids.add(bid_id)
+
+                if needs_yega:
+                    yega_rows = _parse_yega(detail_html)
+                    if yega_rows:
+                        yc = _upsert_yega(db, bid_id, yega_rows)
+                        total_yega += yc
+                        existing_yega.add(bid_id)
+
+                time.sleep(0.5)
+
+    logger.info(
+        "inpo21c 수집 완료: %d건 공고, %d명 참여자, %d개 예가, %d건 스킵",
+        total_bids, total_participants, total_yega, skipped,
+    )
+    return {
+        "bids":         total_bids,
+        "participants": total_participants,
+        "yega":         total_yega,
+        "skipped":      skipped,
+        "cookie_valid": True,
+    }
+
+
+def collect_bid_notices_inpo21c(db: Session, max_pages: int = 5) -> dict:
+    """
+    입산공고 중 목록(/bid/con)에서 개찰 전 사전정보를 수집.
+    예가방법(추첨예가 개수), 예가변동폭, 낙찰하한율, 개찰일시 등.
+    ML 모델이 복수예가 추첨 범위를 실측값으로 사용할 수 있도록 한다.
+    """
+    from app.config import get_settings
+    settings = get_settings()
+
+    cookie = _get_valid_cookie(settings)
+    if not cookie:
+        return {"notices": 0, "skipped": 0, "cookie_valid": False, "error": "로그인 실패"}
+
+    _ensure_tables(db)
+
     existing = {r[0] for r in db.execute(
-        text("SELECT DISTINCT inpo21c_bid_id FROM inpo21c_participants")
+        text("SELECT DISTINCT inpo21c_bid_id FROM inpo21c_bid_notices")
     ).fetchall()}
 
-    total_bids = total_participants = skipped = 0
+    total_notices = skipped = 0
 
     for page in range(1, max_pages + 1):
-        bid_ids = list(dict.fromkeys(_get_bid_ids(page, cookie)))
+        html    = _fetch(f"{BASE}/bid/con?division=1&page={page}", cookie)
+        bid_ids = list(dict.fromkeys(re.findall(r"/bid/view/con/([^\"]+)\"", html)))
         if not bid_ids:
             break
+
         for bid_id in bid_ids:
             if bid_id in existing:
                 skipped += 1
                 continue
-            detail_url = f"{BASE}/suc/view/con/{bid_id}"
-            html = _fetch(detail_url, cookie, referer=f"{BASE}/suc/con?division=1")
-            rows = _parse_participants(html)
-            if rows:
-                cnt = _upsert_participants(db, bid_id, rows)
-                total_participants += cnt
-                total_bids += 1
-                existing.add(bid_id)
-            time.sleep(0.5)
 
-    logger.info("inpo21c 수집 완료: %d건 공고, %d명 참여자, %d건 스킵",
-                total_bids, total_participants, skipped)
-    return {"bids": total_bids, "participants": total_participants,
-            "skipped": skipped, "cookie_valid": True}
+            detail_url  = f"{BASE}/bid/view/con/{bid_id}"
+            detail_html = _fetch(detail_url, cookie, referer=f"{BASE}/bid/con?division=1")
+            notice_data = _parse_bid_notice(detail_html)
+            if notice_data:
+                _upsert_bid_notice(db, bid_id, notice_data)
+                total_notices += 1
+                existing.add(bid_id)
+
+            time.sleep(0.3)
+
+    logger.info("inpo21c 입산공고 수집 완료: %d건 신규, %d건 스킵", total_notices, skipped)
+    return {"notices": total_notices, "skipped": skipped, "cookie_valid": True}

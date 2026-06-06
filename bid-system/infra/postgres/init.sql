@@ -209,6 +209,68 @@ CREATE TABLE IF NOT EXISTS competitor_stats (
 );
 
 -- ============================
+-- inpo21c 수집 테이블
+-- ============================
+
+CREATE TABLE IF NOT EXISTS inpo21c_bids (
+    inpo21c_bid_id   VARCHAR(30)  PRIMARY KEY,
+    announcement_no  VARCHAR(50),
+    industry         VARCHAR(200),
+    region           VARCHAR(200),
+    agency_name      VARCHAR(200),
+    open_datetime    TIMESTAMP,
+    base_amount      BIGINT,
+    estimated_amount BIGINT,
+    min_bid_rate     NUMERIC(8,4),
+    preset_amount    BIGINT,
+    yega_ratio       NUMERIC(8,4),
+    net_cost         BIGINT,
+    created_at       TIMESTAMP DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_inpo21c_bids_announcement
+    ON inpo21c_bids(announcement_no);
+
+CREATE TABLE IF NOT EXISTS inpo21c_yega (
+    id              SERIAL PRIMARY KEY,
+    inpo21c_bid_id  VARCHAR(30)  NOT NULL,
+    yega_no         SMALLINT     NOT NULL,
+    amount          BIGINT,
+    base_ratio      NUMERIC(8,4),
+    base_ratio_pct  NUMERIC(8,4),
+    is_selected     BOOLEAN DEFAULT FALSE,  -- 복수예가 추첨에서 선발된 값 (text-orange). 평균값 = preset_amount
+    UNIQUE(inpo21c_bid_id, yega_no)
+);
+
+CREATE INDEX IF NOT EXISTS idx_inpo21c_yega_bid
+    ON inpo21c_yega(inpo21c_bid_id);
+
+CREATE TABLE IF NOT EXISTS inpo21c_bid_notices (
+    inpo21c_bid_id   VARCHAR(30)  PRIMARY KEY,
+    announcement_no  VARCHAR(50),
+    industry         VARCHAR(200),
+    region           VARCHAR(200),
+    agency_name      VARCHAR(200),
+    yega_method      VARCHAR(100),
+    yega_draw_count  SMALLINT,
+    yega_total_count SMALLINT,
+    yega_range_min   SMALLINT,
+    yega_range_max   SMALLINT,
+    min_bid_rate     NUMERIC(8,4),
+    contract_method  VARCHAR(100),
+    reg_deadline     TIMESTAMP,
+    bid_deadline     TIMESTAMP,
+    open_datetime    TIMESTAMP,
+    base_amount      BIGINT,
+    estimated_amount BIGINT,
+    created_at       TIMESTAMP DEFAULT now(),
+    updated_at       TIMESTAMP DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_inpo21c_notices_announcement
+    ON inpo21c_bid_notices(announcement_no);
+
+-- ============================
 -- 기준 데이터 삽입
 -- ============================
 

@@ -1,5 +1,9 @@
 ﻿"""관리자 전용 API — 사용자 관리 + 공종 필터 + 시스템 상태 모니터링."""
+import logging
 import os
+
+logger = logging.getLogger(__name__)
+
 from typing import Optional, List
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
@@ -615,6 +619,26 @@ def trigger_inpo21c_collect(
     return {"message": f"inpo21c 수집 시작됨 (최대 {max_pages}페이지)"}
 
 
+@router.post("/collect/scsbid")
+def trigger_scsbid_collect(
+    background_tasks: BackgroundTasks,
+    days_back: int = 30,
+    _: User = Depends(require_role("admin")),
+):
+    """낙찰정보서비스(scsbid) 즉시 수집 — participant_count + 낙찰율 보강 (백그라운드)."""
+    def _run():
+        from ...database import SessionLocal
+        from ...collector.service import collect_scsbid_results
+        _db = SessionLocal()
+        try:
+            collect_scsbid_results(_db, days_back=days_back)
+        finally:
+            _db.close()
+
+    background_tasks.add_task(_run)
+    return {"message": f"scsbid 수집 시작됨 (최근 {days_back}일)"}
+
+
 @router.post("/sync-my-bids")
 def sync_my_bids(
     _: User = Depends(require_role("admin")),
@@ -624,3 +648,121 @@ def sync_my_bids(
     from ...services import G2BSyncService
     result = G2BSyncService().sync(db)
     return result
+
+
+# ------------------------------------------------------------------ #
+# G2B 백필                                                            #
+# ------------------------------------------------------------------ #
+
+@router.post("/backfill/start")
+def start_backfill(
+    background_tasks: BackgroundTasks,
+    start_year: int = 2016,
+    delay: float = 1.2,
+    _: User = Depends(require_role("admin")),
+):
+    """G2B 과거 데이터 백필 시작 (백그라운드). start_year~오늘까지 30일 청크 수집."""
+    from ...collector.backfill import run_backfill, get_status
+    from ...database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        status = get_status(db)
+    finally:
+        db.close()
+
+    if status.get("status") == "running":
+        raise HTTPException(status_code=409, detail="백필이 이미 실행 중입니다")
+
+    background_tasks.add_task(run_backfill, start_year, delay)
+    return {"message": f"{start_year}년부터 백필 시작됨 (딜레이={delay}s)", "start_year": start_year}
+
+
+@router.get("/backfill/status")
+def backfill_status(
+    _: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """백필 진행 상황 조회."""
+    from ...collector.backfill import get_status
+    return get_status(db)
+
+
+@router.post("/backfill/stop")
+def stop_backfill(
+    _: User = Depends(require_role("admin")),
+):
+    """실행 중인 백필 중단 요청 (현재 청크 완료 후 멈춤)."""
+    from ...collector.backfill import request_stop
+    return {"message": request_stop()}
+
+@router.post("/backfill/inpo21c")
+def start_inpo21c_backfill(
+    background_tasks: BackgroundTasks,
+    max_pages: int = 500,
+    _: User = Depends(require_role("admin")),
+):
+    """inpo21c 전 참여자 과거 데이터 대량 수집 (백그라운드). max_pages 페이지까지 순회."""
+    def _run():
+        from ...database import SessionLocal
+        from ...collector.inpo21c import collect_inpo21c
+        _db = SessionLocal()
+        try:
+            result = collect_inpo21c(_db, max_pages=max_pages)
+            logger.info("inpo21c 백필 완료: %s", result)
+        finally:
+            _db.close()
+
+    background_tasks.add_task(_run)
+    return {"message": f"inpo21c 백필 시작됨 (최대 {max_pages}페이지)"}
+
+@router.post("/inpo21c/collect-notices")
+def trigger_inpo21c_bid_notices(
+    background_tasks: BackgroundTasks,
+    max_pages: int = 5,
+    _: User = Depends(require_role("admin")),
+):
+    """inpo21c 입찰공고 중 사전정보 즉시 수집 -- 예가방법, 낙찰하한율 등 개찰 전 파악 (백그라운드)."""
+    def _run():
+        from ...database import SessionLocal
+        from ...collector.inpo21c import collect_bid_notices_inpo21c
+        _db = SessionLocal()
+        try:
+            result = collect_bid_notices_inpo21c(_db, max_pages=max_pages)
+            logger.info("inpo21c 입찰공고 수집 완료: %s", result)
+        finally:
+            _db.close()
+
+    background_tasks.add_task(_run)
+    return {"message": f"inpo21c 입찰공고 수집 시작됨 (최대 {max_pages}페이지)"}
+
+
+@router.get("/inpo21c/stats")
+def inpo21c_stats(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin")),
+):
+    """inpo21c 수집 데이터 통계 조회."""
+    row = db.execute(text("""
+        SELECT
+            (SELECT COUNT(*)                           FROM inpo21c_participants)           AS participants,
+            (SELECT COUNT(DISTINCT inpo21c_bid_id)     FROM inpo21c_participants)           AS suc_bids,
+            (SELECT COUNT(*)                           FROM inpo21c_bids)                  AS bids_with_header,
+            (SELECT COUNT(*)                           FROM inpo21c_yega)                  AS yega_entries,
+            (SELECT COUNT(DISTINCT inpo21c_bid_id)     FROM inpo21c_yega)                  AS bids_with_yega,
+            (SELECT COUNT(*)                           FROM inpo21c_bid_notices)            AS bid_notices,
+            (SELECT COUNT(*) FROM inpo21c_bids WHERE announcement_no != '')                AS linked_to_g2b
+    """)).fetchone()
+
+    if not row:
+        return {}
+
+    return {
+        "participants":     row[0] or 0,
+        "suc_bids":         row[1] or 0,
+        "bids_with_header": row[2] or 0,
+        "yega_entries":     row[3] or 0,
+        "bids_with_yega":   row[4] or 0,
+        "bid_notices":      row[5] or 0,
+        "linked_to_g2b":    row[6] or 0,
+    }
