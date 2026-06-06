@@ -882,3 +882,18 @@ export interface AgencyRecentResultsResponse {
   total: number
 }
 
+export interface Notification {
+  id: number
+  ntype: string
+  title: string
+  body: string | null
+  link: string | null
+  is_read: boolean
+  created_at: string
+}
+
+export interface NotificationListResponse {
+  items: Notification[]
+  unread_count: number
+}
+

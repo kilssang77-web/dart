@@ -211,3 +211,16 @@ export const agenciesApi = {
   yegaPattern: (id: number): Promise<import('../types').AgencyYegaPattern> =>
     api.get(`/agencies/${id}/yega-pattern`).then((r) => r.data),
 }
+
+// -- 알림 --------------------------------------------------
+
+export const notificationsApi = {
+  list: (params?: { unread_only?: boolean; limit?: number }): Promise<import('../types').NotificationListResponse> =>
+    api.get('/notifications', { params }).then((r) => r.data),
+  unreadCount: (): Promise<{ count: number }> =>
+    api.get('/notifications/unread-count').then((r) => r.data),
+  markRead: (id: number): Promise<void> =>
+    api.post(`/notifications/${id}/read`).then(() => undefined),
+  markAllRead: (): Promise<void> =>
+    api.post('/notifications/read-all').then(() => undefined),
+}

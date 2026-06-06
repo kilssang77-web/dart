@@ -3,10 +3,10 @@ import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard, FileText, Sparkles, Users, BarChart2, Building2,
-  ClipboardList, LogOut, BookMarked, ShieldCheck, TrendingUp, Calculator, Handshake,
+  ClipboardList, LogOut, BookMarked, ShieldCheck, TrendingUp, Calculator, Handshake, Bell,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
-import { authApi } from '@/api'
+import { authApi, notificationsApi } from '@/api'
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
@@ -74,6 +74,14 @@ export default function AppLayout() {
     retry: false,
   })
 
+  const { data: notifData } = useQuery({
+    queryKey: ['notifications', 'unread-count'],
+    queryFn: notificationsApi.unreadCount,
+    refetchInterval: 60_000,
+    enabled: !!user,
+  })
+  const unreadCount = notifData?.count ?? 0
+
   useEffect(() => { if (user) setUser(user) }, [user, setUser])
 
   const initials = (user?.name || user?.email || 'U').slice(0, 2).toUpperCase()
@@ -140,6 +148,18 @@ export default function AppLayout() {
               </p>
               <p className="text-[10px] text-sidebar-foreground/40 mt-0.5">{roleLabel}</p>
             </div>
+            <button
+              onClick={() => navigate('/notifications')}
+              className="relative text-sidebar-foreground/40 hover:text-sidebar-foreground transition-colors p-0.5 rounded"
+              title="알림"
+            >
+              <Bell className="h-3.5 w-3.5" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white leading-none">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
             <button
               onClick={() => { logout(); navigate('/login') }}
               className="text-sidebar-foreground/40 hover:text-sidebar-foreground transition-colors p-0.5 rounded"

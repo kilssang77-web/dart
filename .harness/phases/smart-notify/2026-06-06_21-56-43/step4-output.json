@@ -1,0 +1,13 @@
+﻿{
+  "step": 4,
+  "status": "completed",
+  "completed_at": "2026-06-06T23:20:00+09:00",
+  "files_changed": [
+    "bid-system/backend/app/api/v1/notifications.py",
+    "bid-system/backend/app/api/v1/router.py",
+    "bid-system/frontend/src/api/index.ts",
+    "bid-system/frontend/src/types/index.ts",
+    "bid-system/frontend/src/components/layout/AppLayout.tsx"
+  ],
+  "summary": "Notification API 4개 엔드포인트(GET /notifications, GET /unread-count, POST /{id}/read, POST /read-all) 추가. 프론트엔드 타입/API 레이어 추가. 헤더 사이드바 벨 아이콘 + 미읽음 뱃지(60초 폴링). TypeScript 빌드 통과. 140 unit tests passing."
+}
