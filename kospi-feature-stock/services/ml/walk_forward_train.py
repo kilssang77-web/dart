@@ -136,7 +136,7 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
     daily_bars DataFrame → 특징 행렬 (FEATURE_COLUMNS 기준).
     종목별 순서 정렬 후 롤링 계산.
     """
-    df = df.copy().sort_values(["code", "date"]).reset_index(drop=True)
+    df = df.sort_values(["code", "date"]).reset_index(drop=True)
 
     results = []
     for code, grp in df.groupby("code"):
@@ -332,7 +332,11 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
             rows_feat.append(feat)
         results.extend(rows_feat)
 
-    return pd.DataFrame(results)
+    feat_df = pd.DataFrame(results)
+    # Downcast float64 → float32 to halve feature matrix memory
+    float_cols = [c for c in feat_df.columns if c not in ("__code", "__date")]
+    feat_df[float_cols] = feat_df[float_cols].astype("float32")
+    return feat_df
 
 
 def make_labels(feat_df: pd.DataFrame, raw_df: pd.DataFrame,
