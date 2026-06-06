@@ -28,6 +28,9 @@ class KafkaConsumerWrapper:
             enable_auto_commit=True,
             max_poll_records=batch_size,
             fetch_max_wait_ms=timeout_ms,
+            max_poll_interval_ms=600_000,   # 10분 — 탐지 처리 지연 시 rebalance 방지
+            session_timeout_ms=30_000,
+            heartbeat_interval_ms=10_000,
         )
         await consumer.start()
         logger.info(f"Kafka consumer started: {topics}")
