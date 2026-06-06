@@ -1,0 +1,4 @@
+{
+  "_comment": "외부 참고 프로젝트 목록. python3 scripts/references.py add <url-or-path> 명령으로 추가합니다.",
+  "references": []
+}

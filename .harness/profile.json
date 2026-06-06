@@ -1,0 +1,52 @@
+{
+  "_comment": "프로젝트 단계(stage)와 기본 메타데이터. /a2m_start 또는 /a2m_docs 실행 시 자동 생성됩니다.",
+  "_schema": {
+    "stage": "prototype | mvp | production",
+    "project_name": "프로젝트 이름",
+    "tech": {
+      "backend": "spring-boot-3 | nestjs | fastapi | ...",
+      "frontend": "react-18 | nextjs | vue3 | ..."
+    },
+    "updated_at": "ISO 8601",
+    "context": {
+      "always_inject_docs": "매 step에 항상 전문 주입할 문서 이름 목록 (기본: [\"PRD\", \"CODING_CONVENTION\"])",
+      "max_doc_kb_per_step": "문서 1개당 최대 주입 크기(KB). 초과분은 잘림 (기본: 64)"
+    }
+  },
+  "stage": "mvp",
+  "project_name": "kospi-feature-stock",
+  "tech": {
+    "backend": "fastapi",
+    "runtime": "python-3.12",
+    "streaming": "kafka",
+    "db": "postgresql-16+timescaledb+pgvector",
+    "cache": "redis-7",
+    "ml": "lightgbm+sentence-transformers",
+    "infra": "docker-compose"
+  },
+  "context": {
+    "always_inject_docs": ["PRD", "CODING_CONVENTION"],
+    "max_doc_kb_per_step": 64
+  },
+  "architecture": {
+    "style": "microservices",
+    "services": ["collector", "detector", "analyzer", "ml", "recommender", "api"],
+    "frontend_router": "",
+    "frontend_renderer": ""
+  },
+  "review": {
+    "_comment": "페르소나 docs 충실도 평가 설정",
+    "thresholds": {
+      "prototype": 70,
+      "mvp": 80,
+      "production": 90
+    },
+    "critical_min": {
+      "prototype": 50,
+      "mvp": 60,
+      "production": 70
+    },
+    "max_iterations": 3
+  },
+  "updated_at": "2026-06-05T22:36:06+09:00"
+}

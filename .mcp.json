@@ -1,0 +1,212 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    },
+    "git": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-git", "--repository", "."]
+    },
+    "sequential-thinking": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+    },
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    },
+    "fetch": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-fetch"]
+    },
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    }
+  },
+  "_disabled_mcpServers": {
+
+    "_comment_browser": "=== 브라우저 / 테스트 ===",
+
+    "playwright": {
+      "_description": "E2E 테스트, 브라우저 자동화. 설치 후 npx playwright install 로 브라우저 다운로드 필요",
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp"]
+    },
+    "chrome-devtools": {
+      "_description": "Chrome DevTools 접근. 네트워크 요청 분석, 콘솔 로그 확인. Chrome 설치 필요",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-chrome"]
+    },
+
+    "_comment_db": "=== 데이터베이스 ===  같은 DB를 여러 개 연결할 경우: 키 이름을 'postgres-main', 'postgres-analytics' 등으로 구분하고 각각 다른 환경변수를 사용하세요.",
+
+    "postgres": {
+      "_description": "PostgreSQL 스키마 조회·쿼리 (공식). 여러 DB 연결 시 키를 'postgres-main' 등으로 복제하여 사용",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres"],
+      "env": {
+        "DATABASE_URL": "${DATABASE_URL}"
+      }
+    },
+    "mysql": {
+      "_description": "MySQL / MariaDB 스키마 조회·쿼리. MariaDB도 동일 패키지 사용 가능",
+      "command": "npx",
+      "args": ["-y", "@benborla29/mcp-server-mysql"],
+      "env": {
+        "MYSQL_HOST": "${MYSQL_HOST}",
+        "MYSQL_PORT": "${MYSQL_PORT}",
+        "MYSQL_USER": "${MYSQL_USER}",
+        "MYSQL_PASS": "${MYSQL_PASS}",
+        "MYSQL_DB": "${MYSQL_DB}"
+      }
+    },
+    "oracle": {
+      "_description": "Oracle DB 스키마 조회·쿼리. 사용 전 최신 패키지명 확인 권장 (Oracle 공식 MCP)",
+      "command": "npx",
+      "args": ["-y", "@oracle/mcp-server-oracle"],
+      "env": {
+        "ORACLE_CONNECTION_STRING": "${ORACLE_CONNECTION_STRING}",
+        "ORACLE_USER": "${ORACLE_USER}",
+        "ORACLE_PASSWORD": "${ORACLE_PASSWORD}"
+      }
+    },
+    "mongodb": {
+      "_description": "MongoDB 컬렉션 조회·집계 (MongoDB 공식 MCP)",
+      "command": "npx",
+      "args": ["-y", "mongodb-mcp-server"],
+      "env": {
+        "MDB_MCP_CONNECTION_STRING": "${MONGODB_URI}"
+      }
+    },
+    "redis": {
+      "_description": "Redis 키 조회·명령 실행. 캐시 디버깅, Pub/Sub 확인 용도",
+      "command": "npx",
+      "args": ["-y", "mcp-server-redis"],
+      "env": {
+        "REDIS_URL": "${REDIS_URL}"
+      }
+    },
+    "elasticsearch": {
+      "_description": "Elasticsearch 인덱스 조회·검색 쿼리 (Elastic 공식 MCP)",
+      "command": "npx",
+      "args": ["-y", "@elastic/mcp-server-elasticsearch"],
+      "env": {
+        "ELASTICSEARCH_URL": "${ELASTICSEARCH_URL}",
+        "ELASTICSEARCH_API_KEY": "${ELASTICSEARCH_API_KEY}"
+      }
+    },
+
+    "_comment_vcs": "=== VCS / 코드 리뷰 ===",
+
+    "gitlab": {
+      "_description": "GitLab MR·이슈·CI 관리 (공식). GITLAB_TOKEN — Personal Access Token, api 스코프 필요",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-gitlab"],
+      "env": {
+        "GITLAB_TOKEN": "${GITLAB_TOKEN}",
+        "GITLAB_URL": "${GITLAB_URL}"
+      }
+    },
+    "github": {
+      "_description": "GitHub PR·이슈 관리 (공식). GITHUB_TOKEN — Personal Access Token 필요. GitLab 사용 시 gitlab으로 교체",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      }
+    },
+
+    "_comment_pm": "=== 프로젝트 관리 ===",
+
+    "jira-confluence": {
+      "_description": "Jira 이슈·스프린트 조회 및 Confluence 페이지 읽기·쓰기. Python 환경 필요 (uvx 사용). Atlassian Cloud와 Server 모두 지원",
+      "command": "uvx",
+      "args": ["mcp-atlassian"],
+      "env": {
+        "JIRA_URL": "${JIRA_URL}",
+        "JIRA_USERNAME": "${ATLASSIAN_EMAIL}",
+        "JIRA_API_TOKEN": "${ATLASSIAN_API_TOKEN}",
+        "CONFLUENCE_URL": "${CONFLUENCE_URL}",
+        "CONFLUENCE_USERNAME": "${ATLASSIAN_EMAIL}",
+        "CONFLUENCE_API_TOKEN": "${ATLASSIAN_API_TOKEN}"
+      }
+    },
+    "notion": {
+      "_description": "Notion 페이지·데이터베이스 읽기·쓰기 (Notion 공식 MCP). NOTION_API_KEY — Integration Token 필요",
+      "command": "npx",
+      "args": ["-y", "@notionhq/notion-mcp-server"],
+      "env": {
+        "NOTION_API_KEY": "${NOTION_API_KEY}"
+      }
+    },
+    "linear": {
+      "_description": "Linear 이슈·프로젝트·사이클 조회 및 생성 (Linear 공식 MCP). LINEAR_API_KEY 필요",
+      "command": "npx",
+      "args": ["-y", "@linear/mcp-server"],
+      "env": {
+        "LINEAR_API_KEY": "${LINEAR_API_KEY}"
+      }
+    },
+
+    "_comment_comm": "=== 커뮤니케이션 ===",
+
+    "slack": {
+      "_description": "Slack 메시지 전송·채널 조회·스레드 읽기. SLACK_BOT_TOKEN — Bot Token, chat:write 스코프 필요",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-slack"],
+      "env": {
+        "SLACK_BOT_TOKEN": "${SLACK_BOT_TOKEN}",
+        "SLACK_TEAM_ID": "${SLACK_TEAM_ID}"
+      }
+    },
+    "mattermost": {
+      "_description": "Mattermost 메시지 전송·채널 조회. 사내 설치형 Mattermost에 적합. 사용 전 최신 패키지명 확인 권장",
+      "command": "npx",
+      "args": ["-y", "mcp-server-mattermost"],
+      "env": {
+        "MATTERMOST_URL": "${MATTERMOST_URL}",
+        "MATTERMOST_TOKEN": "${MATTERMOST_TOKEN}"
+      }
+    },
+    "discord": {
+      "_description": "Discord 메시지 전송·채널 조회. 개발팀 Discord 서버 연동 시 유용. 사용 전 최신 패키지명 확인 권장",
+      "command": "npx",
+      "args": ["-y", "discord-mcp"],
+      "env": {
+        "DISCORD_TOKEN": "${DISCORD_BOT_TOKEN}"
+      }
+    },
+    "teams": {
+      "_description": "Microsoft Teams 메시지 전송. Incoming Webhook URL 방식. 사용 전 최신 패키지명 확인 권장",
+      "command": "npx",
+      "args": ["-y", "mcp-server-teams"],
+      "env": {
+        "TEAMS_WEBHOOK_URL": "${TEAMS_WEBHOOK_URL}"
+      }
+    },
+
+    "_comment_monitoring": "=== 모니터링 / 운영 ===",
+
+    "sentry": {
+      "_description": "Sentry 에러·성능 이슈 조회. 에러 원인 분석 시 유용 (공식 MCP). SENTRY_AUTH_TOKEN 필요",
+      "command": "npx",
+      "args": ["-y", "@sentry/mcp-server"],
+      "env": {
+        "SENTRY_AUTH_TOKEN": "${SENTRY_AUTH_TOKEN}",
+        "SENTRY_ORG": "${SENTRY_ORG}"
+      }
+    },
+    "datadog": {
+      "_description": "Datadog 메트릭·로그·APM 조회. 운영 이상 분석 시 유용. 사용 전 최신 패키지명 확인 권장",
+      "command": "npx",
+      "args": ["-y", "mcp-server-datadog"],
+      "env": {
+        "DATADOG_API_KEY": "${DATADOG_API_KEY}",
+        "DATADOG_APP_KEY": "${DATADOG_APP_KEY}",
+        "DATADOG_SITE": "${DATADOG_SITE}"
+      }
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "runs": [
+    {
+      "task": "p1-p2-improvements",
+      "runId": "2026-06-05_20-07-32",
+      "stage_from": "prototype",
+      "stage_to": "mvp",
+      "status": "completed",
+      "created_at": "2026-06-05T20:07:32+09:00",
+      "steps": 5
+    },
+    {
+      "task": "ml-retraining",
+      "runId": "2026-06-05_22-05-27",
+      "stage_from": "mvp",
+      "stage_to": "mvp",
+      "status": "completed",
+      "created_at": "2026-06-05T22:05:27+09:00",
+      "steps": 5
+    }
+    ,
+    {
+      "task": "p1-core-features",
+      "runId": "2026-06-05_22-51-38",
+      "stage_from": "mvp",
+      "stage_to": "mvp",
+      "status": "completed",
+      "created_at": "2026-06-05T22:51:38+09:00",
+      "completed_at": "2026-06-06T00:00:00+09:00",
+      "steps": 4
+    }
+    ,
+    {
+      "task": "p0-stability",
+      "runId": "2026-06-05_22-36-06",
+      "stage_from": "prototype",
+      "stage_to": "mvp",
+      "status": "completed",
+      "created_at": "2026-06-05T22:36:06+09:00",
+      "steps": 4
+    }
+  ]
+}
