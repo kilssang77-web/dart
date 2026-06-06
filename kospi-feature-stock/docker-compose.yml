@@ -246,6 +246,56 @@ services:
     command: ["python", "entrypoints/batch_worker.py"]
     restart: unless-stopped
 
+  # ── Collector: 히스토리 백필 (one-shot, profile=tools) ──────────────────────
+  collector-backfill:
+    build:
+      context: ./services/collector
+      dockerfile: Dockerfile
+    container_name: fstock-collector-backfill
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      SERVICE_NAME: collector-backfill
+    volumes:
+      - ./services/collector:/app
+      - backfill_ckpt:/tmp
+    command: ["python", "scripts/backfill_history.py", "--start", "20200101", "--end", "20250917", "--concurrency", "3"]
+    profiles:
+      - tools
+    restart: "no"
+
+  # ── ML: Walk-forward 훈련 (one-shot, profile=tools) ─────────────────────────
+  ml-train:
+    build:
+      context: ./services/ml
+      dockerfile: Dockerfile
+    container_name: fstock-ml-train
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      SERVICE_NAME: ml-train
+    volumes:
+      - ./services/ml:/app
+      - model_cache:/models
+    command: >
+      python walk_forward_train.py
+        --train-start 2020-01-01 --train-end 2023-12-31
+        --val-start   2024-01-01 --val-end   2024-12-31
+        --test-start  2025-01-01 --test-end  2025-12-31
+        --smote
+        --model-dir /models
+    profiles:
+      - tools
+    restart: "no"
+
   detector:
     build:
       context: ./services/detector
@@ -354,6 +404,7 @@ volumes:
   zookeeper_log:
   minio_data:
   model_cache:
+  backfill_ckpt:
 
 networks:
   default:

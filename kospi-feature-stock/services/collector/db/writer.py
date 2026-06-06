@@ -61,14 +61,29 @@ async def _update_technical_indicators(pool: asyncpg.Pool, code: str) -> None:
         # ATR(14)
         atr = ta.atr(df["high"], df["low"], df["close"], length=14)
 
+        # Resolve BB column names dynamically (pandas-ta version differences: BBU_20_2.0 vs BBU_20_2)
+        bbu_col = bbm_col = bbl_col = None
+        if bb_df is not None:
+            cols = bb_df.columns.tolist()
+            bbu_col = next((c for c in cols if c.startswith("BBU_")), None)
+            bbm_col = next((c for c in cols if c.startswith("BBM_")), None)
+            bbl_col = next((c for c in cols if c.startswith("BBL_")), None)
+
+        # Resolve MACD column names
+        macd_col = macds_col = None
+        if macd_df is not None:
+            mcols = macd_df.columns.tolist()
+            macd_col  = next((c for c in mcols if c.startswith("MACD_") and "s_" not in c and "h_" not in c), None)
+            macds_col = next((c for c in mcols if c.startswith("MACDs_")), None)
+
         updates = []
         for i in range(len(df)):
             rsi_val   = _safe_float(rsi.iloc[i]                          if rsi is not None else None)
-            macd_val  = _safe_float(macd_df["MACD_12_26_9"].iloc[i]      if macd_df is not None else None)
-            macds_val = _safe_float(macd_df["MACDs_12_26_9"].iloc[i]     if macd_df is not None else None)
-            bb_up     = _safe_float(bb_df["BBU_20_2.0"].iloc[i]          if bb_df is not None else None)
-            bb_lo     = _safe_float(bb_df["BBL_20_2.0"].iloc[i]          if bb_df is not None else None)
-            bb_mid    = _safe_float(bb_df["BBM_20_2.0"].iloc[i]          if bb_df is not None else None)
+            macd_val  = _safe_float(macd_df[macd_col].iloc[i]            if macd_df is not None and macd_col else None)
+            macds_val = _safe_float(macd_df[macds_col].iloc[i]           if macd_df is not None and macds_col else None)
+            bb_up     = _safe_float(bb_df[bbu_col].iloc[i]               if bb_df is not None and bbu_col else None)
+            bb_lo     = _safe_float(bb_df[bbl_col].iloc[i]               if bb_df is not None and bbl_col else None)
+            bb_mid    = _safe_float(bb_df[bbm_col].iloc[i]               if bb_df is not None and bbm_col else None)
             atr_val   = _safe_float(atr.iloc[i]                          if atr is not None else None)
 
             # Only update rows where at least one indicator is available
