@@ -92,7 +92,7 @@ async def load_daily_bars(pool: asyncpg.Pool, start, end, codes: list[str] | Non
     return pd.DataFrame([dict(r) for r in rows])
 
 
-async def load_kospi(pool: asyncpg.Pool, start: str, end: str) -> pd.DataFrame:
+async def load_kospi(pool: asyncpg.Pool, start, end) -> pd.DataFrame:
     rows = await pool.fetch(
         """
         SELECT date, close FROM daily_bars
@@ -101,10 +101,12 @@ async def load_kospi(pool: asyncpg.Pool, start: str, end: str) -> pd.DataFrame:
         """,
         start, end,
     )
+    if not rows:
+        return pd.DataFrame(columns=["close"])
     return pd.DataFrame([dict(r) for r in rows]).set_index("date")
 
 
-async def load_disclosures(pool: asyncpg.Pool, start: str, end: str) -> pd.DataFrame:
+async def load_disclosures(pool: asyncpg.Pool, start, end) -> pd.DataFrame:
     rows = await pool.fetch(
         """
         SELECT code, disclosed_at::date AS date, sentiment_score, category
@@ -113,6 +115,8 @@ async def load_disclosures(pool: asyncpg.Pool, start: str, end: str) -> pd.DataF
         """,
         start, end,
     )
+    if not rows:
+        return pd.DataFrame(columns=["code", "date", "sentiment_score", "category"])
     return pd.DataFrame([dict(r) for r in rows])
 
 
