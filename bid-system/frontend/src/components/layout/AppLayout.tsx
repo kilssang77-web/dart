@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard, FileText, Sparkles, Users, BarChart2, Building2,
   ClipboardList, LogOut, BookMarked, ShieldCheck, TrendingUp, Calculator, Handshake, Bell, Globe,
+  Target, ListChecks, Trophy,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { authApi, notificationsApi } from '@/api'
@@ -40,6 +41,14 @@ const NAV_GROUPS = [
     label: '시장 인텔리전스',
     items: [
       { to: '/market-intel', label: '시장 인텔리전스', icon: Globe },
+    ],
+  },
+  {
+    label: '수주율 최적화',
+    items: [
+      { to: '/kpi-dashboard',   label: 'KPI 대시보드',  icon: Trophy },
+      { to: '/bid-selection',   label: 'GO 목록',        icon: ListChecks },
+      { to: '/company-profile', label: '회사 프로파일', icon: Target },
     ],
   },
   {

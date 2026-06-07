@@ -21,6 +21,10 @@ import TenderRecommendPage from '@/pages/TenderRecommendPage'
 import NotificationsPage from '@/pages/NotificationsPage'
 import RivalRadarPage from '@/pages/RivalRadarPage'
 import MarketIntelPage from '@/pages/MarketIntelPage'
+// 수주율 최적화 시스템 신규 페이지
+import CompanyProfilePage from '@/pages/CompanyProfilePage'
+import BidSelectionPage   from '@/pages/BidSelectionPage'
+import KPIDashboardPage   from '@/pages/KPIDashboardPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -60,6 +64,10 @@ export default function App() {
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="bids/:id/rival-radar" element={<RivalRadarPage />} />
           <Route path="market-intel"          element={<MarketIntelPage />} />
+          {/* 수주율 최적화 시스템 */}
+          <Route path="company-profile" element={<CompanyProfilePage />} />
+          <Route path="bid-selection"   element={<BidSelectionPage />} />
+          <Route path="kpi-dashboard"   element={<KPIDashboardPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -235,6 +235,70 @@ export const agenciesApi = {
     api.get(`/agencies/${id}/yega-pattern`).then((r) => r.data),
 }
 
+// ── 수주율 최적화 시스템 ──────────────────────────────────────────
+
+export const companyApi = {
+  getProfile: () =>
+    api.get('/company/profile').then((r) => r.data),
+  upsertProfile: (body: Record<string, unknown>) =>
+    api.put('/company/profile', body).then((r) => r.data),
+  bondStatus: () =>
+    api.get('/company/bond-status').then((r) => r.data),
+}
+
+export const selectionApi = {
+  evaluate: (bidId: number) =>
+    api.post(`/selection/evaluate/${bidId}`).then((r) => r.data),
+  goList: (days = 7) =>
+    api.get('/selection/go-list', { params: { days } }).then((r) => r.data),
+  evaluateBatch: (bidIds: number[]) =>
+    api.post('/selection/evaluate-batch', { bid_ids: bidIds }).then((r) => r.data),
+}
+
+export const strategyApi = {
+  singleRecommend: (body: {
+    bid_id?: number
+    base_amount: number
+    agency_id: number
+    industry_id?: number
+    region_id?: number
+    min_bid_rate?: number
+    our_share_rate?: number
+  }) => api.post('/strategy/recommend', body).then((r) => r.data),
+}
+
+export const outcomesApi = {
+  record: (body: {
+    bid_id: number
+    submitted_rate: number
+    result: 'WON' | 'LOST' | 'DISQUALIFIED'
+    actual_srate?: number
+    winner_rate?: number
+    our_rank?: number
+    total_bidders?: number
+    disqualify_reason?: string
+    bid_decision_id?: number
+  }) => api.post('/outcomes', body).then((r) => r.data),
+  list: (params?: { limit?: number; result?: string }) =>
+    api.get('/outcomes', { params }).then((r) => r.data),
+  stats: () =>
+    api.get('/outcomes/stats').then((r) => r.data),
+}
+
+export const kpiApi = {
+  dashboard: (periodType: 'DAILY' | 'WEEKLY' | 'MONTHLY' = 'MONTHLY') =>
+    api.get('/kpi/dashboard', { params: { period_type: periodType } }).then((r) => r.data),
+  forceSnapshot: (periodType = 'MONTHLY') =>
+    api.post('/kpi/snapshot', null, { params: { period_type: periodType } }).then((r) => r.data),
+}
+
+export const portfolioApi = {
+  optimize: (bidIds: number[]) =>
+    api.post('/portfolio/optimize', { bid_ids: bidIds }).then((r) => r.data),
+  active: () =>
+    api.get('/portfolio/active').then((r) => r.data),
+}
+
 // -- 알림 --------------------------------------------------
 
 

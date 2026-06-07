@@ -1897,6 +1897,737 @@ class AgencyAnalysisService:
         }
 
 
+# ============================================================
+# 수주율 최적화 서비스 레이어
+# ============================================================
+
+class CompanyProfileService:
+    """회사 프로파일 CRUD + 역량 조회"""
+
+    def get_profile(self, db: Session, user_id: int):
+        from .models import CompanyProfile
+        return db.query(CompanyProfile).first()
+
+    def upsert_profile(self, db: Session, data: dict) -> "CompanyProfile":
+        from .models import CompanyProfile
+        profile = db.query(CompanyProfile).first()
+        if profile is None:
+            profile = CompanyProfile(**data)
+            db.add(profile)
+        else:
+            for k, v in data.items():
+                setattr(profile, k, v)
+        db.commit()
+        db.refresh(profile)
+        return profile
+
+    def get_remaining_bond(self, db: Session) -> dict:
+        from .models import CompanyProfile, PortfolioState
+        profile = db.query(CompanyProfile).first()
+        if not profile:
+            return {"total": 0, "used": 0, "remaining": 0, "usage_rate": 0.0}
+
+        # 현재 ACTIVE 상태 포트폴리오 보증 소요액 합산
+        active_bond = db.query(func.sum(PortfolioState.bond_exposure)).filter(
+            PortfolioState.status == "ACTIVE"
+        ).scalar() or 0
+
+        total   = profile.bond_limit_total or 0
+        used    = int(active_bond)
+        remaining = max(0, total - used)
+        rate    = used / total if total > 0 else 0.0
+        return {"total": total, "used": used, "remaining": remaining, "usage_rate": round(rate, 4)}
+
+
+class QualificationService:
+    """E2: 적격심사 엔진 서비스"""
+
+    def check(
+        self,
+        db: Session,
+        bid_id: int,
+        user_id: int,
+        our_share_rate: float = 1.0,
+        our_experience: int = 0,
+        reputation_score: float = 0.0,
+        contract_law: str = "local",
+    ) -> dict:
+        from .models import Bid, QualificationCheck, CompanyProfile
+        from .ml.qualification import check_qualification, QualificationResult
+        from .ml.assessment import predict_srate, load_srate_stats
+
+        bid = db.query(Bid).filter(Bid.id == bid_id).first()
+        if not bid:
+            from fastapi import HTTPException
+            raise HTTPException(404, "공고를 찾을 수 없습니다")
+
+        profile = db.query(CompanyProfile).first()
+
+        # 사정율 예측 (중앙값 + 표준편차)
+        features_a   = load_srate_stats(db, bid.agency_id, bid.industry_id, bid.region_id, bid.base_amount)
+        srate_result = predict_srate(features_a, bid.base_amount)
+        _rng         = srate_result["srate_range"]
+        srate_center = _rng["center"]
+        srate_std    = (_rng["upper"] - _rng["lower"]) / 2
+
+        result: QualificationResult = check_qualification(
+            base_amount=bid.base_amount,
+            estimated_price_center=srate_center,
+            estimated_price_std=srate_std,
+            our_experience=our_experience or (profile.performance_records.get("total", 0) if profile else 0),
+            annual_revenue=profile.annual_revenue if profile else 0,
+            workforce_count=profile.workforce_count if profile else 0,
+            share_rate=our_share_rate,
+            reputation_score=reputation_score,
+            contract_law=contract_law,
+        )
+
+        # DB 저장
+        check = QualificationCheck(
+            bid_id=bid_id,
+            user_id=user_id,
+            our_share_rate=our_share_rate,
+            our_experience=our_experience,
+            pass_prob=result.pass_prob,
+            min_pass_amount=result.min_pass_amount,
+            max_pass_amount=result.max_pass_amount,
+            score_breakdown=result.score_breakdown,
+            verdict=result.verdict,
+            fail_reason=result.fail_reason,
+        )
+        db.add(check)
+        db.commit()
+
+        return {
+            "bid_id":          bid_id,
+            "verdict":         result.verdict,
+            "pass_prob":       result.pass_prob,
+            "min_pass_amount": result.min_pass_amount,
+            "max_pass_amount": result.max_pass_amount,
+            "score_breakdown": result.score_breakdown,
+            "fail_reason":     result.fail_reason,
+            "criteria_type":   result.criteria_type,
+        }
+
+
+class BidSelectionService:
+    """E1: 공고 선별 엔진 서비스"""
+
+    def evaluate_bid(self, db: Session, bid_id: int, user_id: int) -> dict:
+        from .models import Bid, CompanyProfile, BidDecision, PortfolioState
+        from .ml.selection import SelectionInput, evaluate
+        from .ml.assessment import predict_srate, load_srate_stats
+        from .ml.competition import compute_competition_features
+
+        bid = db.query(Bid).filter(Bid.id == bid_id).first()
+        if not bid:
+            from fastapi import HTTPException
+            raise HTTPException(404, "공고를 찾을 수 없습니다")
+
+        profile   = db.query(CompanyProfile).first()
+        qual_svc  = QualificationService()
+
+        # 적격심사 사전 체크 (profile 없으면 기본값)
+        try:
+            qual = qual_svc.check(db, bid_id, user_id)
+            qualify_prob = qual["pass_prob"]
+        except Exception:
+            qualify_prob = 0.8
+
+        # 면허 / 지역 매칭
+        license_match = True
+        region_ok     = True
+        if profile and profile.license_codes and bid.license_codes:
+            license_match = bool(set(profile.license_codes) & set(bid.license_codes or []))
+        if bid.region_restriction and profile and profile.region_codes:
+            region_ok = bool(set(profile.region_codes) & set([str(bid.region_id or "")]))
+
+        # 경쟁 강도
+        comp = compute_competition_features(
+            db=db,
+            agency_id=bid.agency_id,
+            industry_id=bid.industry_id,
+            base_amount=bid.base_amount,
+        )
+        comp_score   = comp.get("competitor_strength_score", 5.0)
+        strong_count = sum(1 for s in comp.get("competitor_scores", []) if s >= 7.0)
+
+        # 사정율 예측
+        _fa        = load_srate_stats(db, bid.agency_id, bid.industry_id, bid.region_id, bid.base_amount)
+        _sr        = predict_srate(_fa, bid.base_amount)
+        _rng2      = _sr["srate_range"]
+        srate_info = {"center": _rng2["center"], "std": (_rng2["upper"] - _rng2["lower"]) / 2}
+        floor_rate = float(bid.min_bid_rate or 0.87745)
+        best_wp    = max(0.0, min(1.0, 1.0 - comp_score / 12.0))  # 근사값
+
+        # 전략 부합도
+        in_target_region   = bool(profile and bid.region_id and bid.region_id in (profile.target_industries or []))
+        in_target_industry = bool(profile and bid.industry_id and bid.industry_id in (profile.target_industries or []))
+
+        # 과거 승률
+        hist = db.execute(
+            text("""
+                SELECT COUNT(*) FILTER (WHERE abo.result='WON') as wins,
+                       COUNT(*) as total
+                FROM actual_bid_outcomes abo
+                JOIN bids b ON b.id = abo.bid_id
+                WHERE b.agency_id = :aid AND abo.user_id = :uid
+            """),
+            {"aid": bid.agency_id, "uid": user_id},
+        ).fetchone()
+        hist_win_rate = (hist.wins / hist.total) if hist and hist.total > 0 else 0.20
+
+        # 보증한도 현황
+        bond_svc = CompanyProfileService()
+        bond = bond_svc.get_remaining_bond(db)
+
+        # 현재 활성 투찰 건수
+        active_count = db.query(func.count(PortfolioState.id)).filter(
+            PortfolioState.status == "ACTIVE",
+        ).scalar() or 0
+
+        inp = SelectionInput(
+            bid_id=bid_id,
+            base_amount=bid.base_amount,
+            agency_id=bid.agency_id,
+            industry_id=bid.industry_id,
+            region_id=bid.region_id,
+            license_match=license_match,
+            region_restriction_ok=region_ok,
+            qualify_prob=qualify_prob,
+            expected_competitor_count=comp.get("expected_competitor_count", 5),
+            competitor_strength_score=comp_score,
+            strong_competitor_count=strong_count,
+            best_win_prob=best_wp,
+            estimated_margin=profile.target_min_margin if profile else 0.05,
+            in_target_region=in_target_region,
+            in_target_industry=in_target_industry,
+            bond_limit_total=bond["total"],
+            bond_limit_used=bond["used"],
+            max_concurrent_bids=profile.max_concurrent_bids if profile else 5,
+            current_active_bids=active_count,
+            historical_win_rate=hist_win_rate,
+        )
+
+        from .ml.selection import evaluate
+        result = evaluate(inp)
+
+        # 결과 저장
+        decision = BidDecision(
+            bid_id=bid_id,
+            user_id=user_id,
+            selection_score=result.score,
+            ev_score=result.ev_score,
+            qualify_prob=result.qualify_prob,
+            win_prob_best=result.win_prob_best,
+            expected_margin=result.expected_margin,
+            competitor_risk=result.competitor_risk,
+            verdict=result.verdict,
+            no_go_reasons=result.no_go_reasons,
+            recommended_strategy=result.recommended_strategy,
+        )
+        db.add(decision)
+        db.commit()
+        db.refresh(decision)
+
+        return {
+            "bid_id":               bid_id,
+            "verdict":              result.verdict,
+            "score":                result.score,
+            "ev_score":             result.ev_score,
+            "qualify_prob":         result.qualify_prob,
+            "win_prob_best":        result.win_prob_best,
+            "expected_margin":      result.expected_margin,
+            "competitor_risk":      result.competitor_risk,
+            "no_go_reasons":        result.no_go_reasons,
+            "score_detail":         result.score_detail,
+            "recommended_strategy": result.recommended_strategy,
+            "decision_id":          decision.id,
+        }
+
+    def get_go_list(self, db: Session, user_id: int, days: int = 7) -> dict:
+        """최근 n일 GO 목록 반환"""
+        from .models import BidDecision, Bid
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        decisions = db.query(BidDecision).filter(
+            BidDecision.user_id == user_id,
+            BidDecision.created_at >= cutoff,
+        ).order_by(BidDecision.selection_score.desc()).all()
+
+        go    = [d for d in decisions if d.verdict == "GO"]
+        watch = [d for d in decisions if d.verdict == "WATCH"]
+        no_go = [d for d in decisions if d.verdict == "NO_GO"]
+
+        def _fmt(d: BidDecision) -> dict:
+            bid = db.query(Bid).filter(Bid.id == d.bid_id).first()
+            return {
+                "bid_id":               d.bid_id,
+                "title":                bid.title if bid else "",
+                "base_amount":          bid.base_amount if bid else 0,
+                "bid_open_date":        bid.bid_open_date.isoformat() if bid and bid.bid_open_date else None,
+                "verdict":              d.verdict,
+                "score":                float(d.selection_score or 0),
+                "ev_score":             d.ev_score or 0,
+                "qualify_prob":         float(d.qualify_prob or 0),
+                "win_prob_best":        float(d.win_prob_best or 0),
+                "competitor_risk":      d.competitor_risk,
+                "no_go_reasons":        d.no_go_reasons or [],
+                "recommended_strategy": d.recommended_strategy,
+                "recommended_rate":     float(d.recommended_rate) if d.recommended_rate else None,
+                "actual_action":        d.actual_action,
+            }
+
+        return {
+            "go":         [_fmt(d) for d in go],
+            "watch":      [_fmt(d) for d in watch],
+            "no_go":      [_fmt(d) for d in no_go],
+            "total":      len(decisions),
+            "go_count":   len(go),
+            "watch_count": len(watch),
+            "no_go_count": len(no_go),
+        }
+
+
+class SingleRecommendService:
+    """E5: 단일 최적 전략 추천 서비스"""
+
+    def recommend(self, db: Session, user_id: int, req: dict) -> dict:
+        from .models import Bid, CompanyProfile, BidDecision, ActualBidOutcome
+        from .ml.assessment  import predict_srate, load_srate_stats
+        from .ml.competition import compute_competition_features, get_market_competitor_distributions
+        from .ml.simulation  import simulate_yejung
+        from .ml.personal    import PersonalBiasAnalyzer
+        from .ml.qualification import check_qualification, get_valid_bid_range
+        from .ml.strategy    import StrategyInput, recommend as strategy_recommend
+        from .ml.a_value     import calc_floor_rate
+
+        bid_id   = req.get("bid_id")
+        base_amt = req["base_amount"]
+
+        bid = db.query(Bid).filter(Bid.id == bid_id).first() if bid_id else None
+        profile = db.query(CompanyProfile).first()
+
+        # 사정율 예측
+        _fa2         = load_srate_stats(db, req["agency_id"], req.get("industry_id"), req.get("region_id"), base_amt)
+        _sr2         = predict_srate(_fa2, base_amt)
+        _rng3        = _sr2["srate_range"]
+        srate_center = _rng3["center"]
+        srate_std    = (_rng3["upper"] - _rng3["lower"]) / 2
+
+        # Monte Carlo 사정율 분포 생성
+        import numpy as np
+        rng = np.random.default_rng(42)
+        srate_dist = simulate_yejung(base_amt, srate_center, srate_std, n_sim=30_000, rng=rng)
+
+        # 경쟁사 최소 투찰률 분포
+        comp = compute_competition_features(
+            db, req["agency_id"], req.get("industry_id"), base_amt
+        )
+        comp_means, comp_stds = get_market_competitor_distributions(
+            db, req["agency_id"], req.get("industry_id")
+        )
+
+        # 경쟁사 min 분포 시뮬레이션
+        if comp_means:
+            n_sim = 30_000
+            n_comp = len(comp_means)
+            comp_matrix = np.column_stack([
+                rng.normal(m, max(s, 0.002), n_sim)
+                for m, s in zip(comp_means, comp_stds)
+            ])
+            comp_min_dist = comp_matrix.min(axis=1)
+        else:
+            comp_min_dist = None
+
+        # 낙찰하한율
+        floor_rate = calc_floor_rate(req.get("industry_id"))
+
+        # 적격심사 유효 범위
+        valid_low = valid_high = None
+        qual_result_dict = None
+        if bid_id and profile:
+            try:
+                qual_svc = QualificationService()
+                qual_result_dict = qual_svc.check(db, bid_id, user_id)
+                from .ml.qualification import QualificationResult, get_valid_bid_range
+                from .ml.qualification import QualificationResult as QR
+                qr = QR(
+                    verdict=qual_result_dict["verdict"],
+                    pass_prob=qual_result_dict["pass_prob"],
+                    min_pass_amount=qual_result_dict["min_pass_amount"],
+                    max_pass_amount=qual_result_dict["max_pass_amount"],
+                    score_breakdown=qual_result_dict["score_breakdown"],
+                    fail_reason=qual_result_dict["fail_reason"],
+                    criteria_type=qual_result_dict["criteria_type"],
+                )
+                lo_amt, hi_amt = get_valid_bid_range(qr, floor_rate, base_amt)
+                if lo_amt and hi_amt:
+                    valid_low  = lo_amt / base_amt
+                    valid_high = hi_amt / base_amt
+            except Exception:
+                pass
+
+        # 개인 편향 보정
+        bias_correction = 0.0
+        try:
+            analyzer = PersonalBiasAnalyzer()
+            bias_info = analyzer.analyze(db, user_id)
+            bias_correction = bias_info.get("correction", 0.0)
+        except Exception:
+            pass
+
+        # 월 수주 목표 현황
+        monthly_target     = profile.monthly_win_target if profile else 3
+        from .models import ActualBidOutcome
+        current_month_wins = db.execute(
+            text("SELECT COUNT(*) FROM actual_bid_outcomes WHERE result='WON' AND DATE_TRUNC('month', created_at) = DATE_TRUNC('month', NOW())")
+        ).scalar() or 0
+
+        inp = StrategyInput(
+            base_amount=base_amt,
+            floor_rate=floor_rate,
+            srate_center=srate_center,
+            srate_std=srate_std,
+            srate_dist=srate_dist,
+            competitor_means=comp_means,
+            competitor_stds=comp_stds,
+            competitor_min_dist=comp_min_dist,
+            valid_low=valid_low,
+            valid_high=valid_high,
+            bias_correction=bias_correction,
+            monthly_target=monthly_target,
+            current_month_wins=current_month_wins,
+            historical_win_rate=0.20,
+        )
+
+        from .ml.strategy import recommend as do_recommend
+        rec = do_recommend(inp)
+
+        return {
+            "rate":              rec.rate,
+            "bid_amount":        rec.bid_amount,
+            "win_prob":          rec.win_prob,
+            "expected_value":    rec.expected_value,
+            "confidence":        rec.confidence,
+            "strategy_type":     rec.strategy_type,
+            "rationale":         rec.rationale,
+            "rationale_details": rec.rationale_details,
+            "valid_range":       list(rec.valid_range),
+            "prism_top5":        rec.prism_top5,
+            "qualification":     qual_result_dict,
+        }
+
+
+class ActualOutcomeService:
+    """E6: 실제 투찰 결과 수집 및 피드백 처리"""
+
+    def record_outcome(self, db: Session, user_id: int, data: dict) -> dict:
+        from .models import ActualBidOutcome, PredictionLogV2, BidDecision
+
+        bid_id = data["bid_id"]
+
+        # 직전 예측값 조회 (캘리브레이션용)
+        pred_log = db.query(PredictionLogV2).filter(
+            PredictionLogV2.bid_id == bid_id
+        ).order_by(PredictionLogV2.created_at.desc()).first()
+
+        predicted_wp    = float(pred_log.win_prob_center) if pred_log and pred_log.win_prob_center else None
+        predicted_srate = float(pred_log.srate_pred_center) if pred_log and pred_log.srate_pred_center else None
+
+        # 사정율 오차
+        srate_error = None
+        if predicted_srate and data.get("actual_srate"):
+            srate_error = abs(predicted_srate - data["actual_srate"])
+
+        outcome = ActualBidOutcome(
+            bid_id=bid_id,
+            user_id=user_id,
+            bid_decision_id=data.get("bid_decision_id"),
+            submitted_rate=data["submitted_rate"],
+            result=data["result"],
+            disqualify_reason=data.get("disqualify_reason"),
+            actual_srate=data.get("actual_srate"),
+            winner_rate=data.get("winner_rate"),
+            winner_biz_no=data.get("winner_biz_no"),
+            our_rank=data.get("our_rank"),
+            total_bidders=data.get("total_bidders"),
+            predicted_win_prob=predicted_wp,
+            predicted_srate=predicted_srate,
+            srate_error=srate_error,
+            collected_at=datetime.utcnow(),
+        )
+        db.add(outcome)
+
+        # 포트폴리오 상태 갱신
+        from .models import PortfolioState
+        ps = db.query(PortfolioState).filter(
+            PortfolioState.bid_id == bid_id,
+            PortfolioState.user_id == user_id,
+        ).first()
+        if ps:
+            ps.status     = "WON" if data["result"] == "WON" else "LOST"
+            ps.result_date = datetime.utcnow().date()
+
+        # bid_decision actual_action 갱신
+        if data.get("bid_decision_id"):
+            dec = db.query(BidDecision).filter(
+                BidDecision.id == data["bid_decision_id"]
+            ).first()
+            if dec:
+                dec.actual_action = "BID"
+                dec.actual_rate   = data["submitted_rate"]
+
+        # my_bid_records도 같이 갱신 (기존 테이블 연동)
+        rec = db.query(MyBidRecord).filter(
+            MyBidRecord.bid_id == bid_id,
+            MyBidRecord.user_id == user_id,
+        ).first()
+        if rec:
+            rec.result            = data["result"].lower()
+            rec.actual_winner_rate = data.get("winner_rate")
+
+        db.commit()
+        db.refresh(outcome)
+
+        # 재학습 필요 여부 체크
+        self._check_retrain_trigger(db, user_id)
+
+        return {"id": outcome.id, "result": outcome.result}
+
+    def _check_retrain_trigger(self, db: Session, user_id: int):
+        from .ml.feedback import RETRAIN_THRESHOLD
+        from .models import ActualBidOutcome, ModelPerformanceLog
+
+        last_log = db.query(ModelPerformanceLog).order_by(
+            ModelPerformanceLog.created_at.desc()
+        ).first()
+        last_date = last_log.eval_date if last_log else None
+
+        # 마지막 재학습 이후 신규 결과 건수
+        cutoff = datetime.combine(last_date, datetime.min.time()) if last_date else datetime.min
+        new_count = db.query(func.count(ActualBidOutcome.id)).filter(
+            ActualBidOutcome.created_at >= cutoff,
+            ActualBidOutcome.result.in_(["WON", "LOST"]),
+        ).scalar() or 0
+
+        if new_count >= RETRAIN_THRESHOLD:
+            logger.info(f"재학습 트리거: 신규 결과 {new_count}건 누적")
+            # 비동기 재학습은 백그라운드 태스크로 처리 (실제 구현 시 Celery/APScheduler 연동)
+
+
+class KpiService:
+    """E8: KPI 집계 + 경영진 대시보드"""
+
+    def get_dashboard(self, db: Session, user_id: int, period_type: str = "MONTHLY") -> dict:
+        from .models import CompanyProfile, ActualBidOutcome, BidDecision, KpiSnapshot
+        from .ml.feedback import build_kpi_snapshot, should_alert
+
+        today = datetime.utcnow().date()
+
+        # 캐시된 스냅샷 조회
+        cached = db.query(KpiSnapshot).filter(
+            KpiSnapshot.snapshot_date == today,
+            KpiSnapshot.user_id == user_id,
+            KpiSnapshot.period_type == period_type,
+        ).first()
+
+        # 스냅샷 재계산
+        kpi = build_kpi_snapshot(db, user_id, today, period_type)
+        if not kpi:
+            kpi = {
+                "total_bids": 0, "total_wins": 0, "win_rate": 0.0,
+                "qualify_pass_rate": None, "avg_rank_at_loss": None,
+                "srate_mae": None, "win_prob_calibration": None,
+                "go_rate": None, "no_go_saved": 0,
+            }
+
+        profile    = db.query(CompanyProfile).first()
+        monthly_target = profile.monthly_win_target if profile else 3
+
+        alerts = should_alert(kpi)
+
+        # 최근 6개월 트렌드
+        trend = []
+        for i in range(5, -1, -1):
+            d = today.replace(day=1)
+            if i > 0:
+                m = d.month - i
+                y = d.year
+                while m <= 0:
+                    m += 12
+                    y -= 1
+                d = d.replace(year=y, month=m)
+            snap = db.query(KpiSnapshot).filter(
+                KpiSnapshot.snapshot_date == d,
+                KpiSnapshot.user_id == user_id,
+                KpiSnapshot.period_type == "MONTHLY",
+            ).first()
+            trend.append({
+                "month":     d.strftime("%Y-%m"),
+                "win_rate":  float(snap.win_rate) if snap and snap.win_rate else 0.0,
+                "total_bids": snap.total_bids if snap else 0,
+                "total_wins": snap.total_wins if snap else 0,
+            })
+
+        wins = kpi.get("total_wins", 0)
+        return {
+            "period_type":          period_type,
+            "snapshot_date":        today.isoformat(),
+            "total_bids":           kpi.get("total_bids", 0),
+            "total_wins":           wins,
+            "win_rate":             kpi.get("win_rate", 0.0),
+            "monthly_target":       monthly_target,
+            "target_achievement":   round(wins / monthly_target, 4) if monthly_target else 0.0,
+            "qualify_pass_rate":    kpi.get("qualify_pass_rate"),
+            "avg_rank_at_loss":     kpi.get("avg_rank_at_loss"),
+            "srate_mae":            kpi.get("srate_mae"),
+            "win_prob_calibration": kpi.get("win_prob_calibration"),
+            "go_rate":              kpi.get("go_rate"),
+            "no_go_saved":          kpi.get("no_go_saved", 0),
+            "alerts":               alerts,
+            "monthly_trend":        trend,
+        }
+
+    def upsert_snapshot(self, db: Session, kpi: dict):
+        from .models import KpiSnapshot
+        from datetime import date as date_type
+        snap_date = kpi.get("snapshot_date", datetime.utcnow().date())
+        if isinstance(snap_date, str):
+            snap_date = date_type.fromisoformat(snap_date)
+
+        existing = db.query(KpiSnapshot).filter(
+            KpiSnapshot.snapshot_date == snap_date,
+            KpiSnapshot.user_id == kpi.get("user_id"),
+            KpiSnapshot.period_type == kpi.get("period_type", "MONTHLY"),
+        ).first()
+
+        fields = {
+            "total_bids":           kpi.get("total_bids", 0),
+            "total_wins":           kpi.get("total_wins", 0),
+            "win_rate":             kpi.get("win_rate"),
+            "qualify_pass_rate":    kpi.get("qualify_pass_rate"),
+            "avg_rank_at_loss":     kpi.get("avg_rank_at_loss"),
+            "srate_mae":            kpi.get("srate_mae"),
+            "win_prob_calibration": kpi.get("win_prob_calibration"),
+            "go_rate":              kpi.get("go_rate"),
+            "no_go_saved":          kpi.get("no_go_saved", 0),
+        }
+
+        if existing:
+            for k, v in fields.items():
+                setattr(existing, k, v)
+        else:
+            snap = KpiSnapshot(
+                snapshot_date=snap_date,
+                user_id=kpi.get("user_id"),
+                period_type=kpi.get("period_type", "MONTHLY"),
+                **fields,
+            )
+            db.add(snap)
+        db.commit()
+
+
+class PortfolioService:
+    """E7: 포트폴리오 최적화 서비스"""
+
+    def optimize(self, db: Session, user_id: int, bid_ids: list) -> dict:
+        from .models import Bid, BidDecision, CompanyProfile, PortfolioState
+        from .ml.portfolio import PortfolioBidItem, PortfolioConstraints, optimize, compute_portfolio_stats
+
+        profile    = db.query(CompanyProfile).first()
+        bond_svc   = CompanyProfileService()
+        bond       = bond_svc.get_remaining_bond(db)
+        active_cnt = db.query(func.count(PortfolioState.id)).filter(
+            PortfolioState.status == "ACTIVE",
+        ).scalar() or 0
+
+        constraints = PortfolioConstraints(
+            remaining_bond=bond["remaining"],
+            max_concurrent_bids=profile.max_concurrent_bids if profile else 5,
+            active_bid_count=active_cnt,
+            weekly_prep_hours=40.0,
+            monthly_target=profile.monthly_win_target if profile else 3,
+            current_month_wins=0,
+        )
+
+        items: list[PortfolioBidItem] = []
+        sel_svc = BidSelectionService()
+
+        for bid_id in bid_ids:
+            bid = db.query(Bid).filter(Bid.id == bid_id).first()
+            if not bid:
+                continue
+
+            # 최신 선별 결과 조회 (없으면 즉시 평가)
+            dec = db.query(BidDecision).filter(
+                BidDecision.bid_id == bid_id,
+                BidDecision.user_id == user_id,
+            ).order_by(BidDecision.created_at.desc()).first()
+
+            if not dec:
+                try:
+                    sel_svc.evaluate_bid(db, bid_id, user_id)
+                    dec = db.query(BidDecision).filter(
+                        BidDecision.bid_id == bid_id,
+                        BidDecision.user_id == user_id,
+                    ).order_by(BidDecision.created_at.desc()).first()
+                except Exception:
+                    pass
+
+            verdict       = dec.verdict if dec else "WATCH"
+            sel_score     = float(dec.selection_score or 5.0) if dec else 5.0
+            ev_score      = dec.ev_score or 0 if dec else 0
+            qualify_prob  = float(dec.qualify_prob or 0.8) if dec else 0.8
+            win_prob      = float(dec.win_prob_best or 0.3) if dec else 0.3
+            rec_rate      = float(dec.recommended_rate or 0.0) if dec else 0.0
+            bond_exposure = int(bid.base_amount * 0.1)  # 기초금액의 10% 보증 근사
+
+            items.append(PortfolioBidItem(
+                bid_id=bid_id,
+                title=bid.title,
+                base_amount=bid.base_amount,
+                bid_date=bid.bid_open_date.date().isoformat() if bid.bid_open_date else "unknown",
+                verdict=verdict,
+                selection_score=sel_score,
+                ev_score=ev_score,
+                qualify_prob=qualify_prob,
+                win_prob=win_prob,
+                bond_exposure=bond_exposure,
+                recommended_rate=rec_rate,
+            ))
+
+        plan = optimize(items, constraints)
+        stats = compute_portfolio_stats(plan)
+
+        def _fmt(item: PortfolioBidItem) -> dict:
+            return {
+                "bid_id":           item.bid_id,
+                "title":            item.title,
+                "base_amount":      item.base_amount,
+                "bid_date":         item.bid_date,
+                "verdict":          item.verdict,
+                "selection_score":  item.selection_score,
+                "ev_score":         item.ev_score,
+                "qualify_prob":     item.qualify_prob,
+                "win_prob":         item.win_prob,
+                "recommended_rate": item.recommended_rate,
+            }
+
+        return {
+            "selected":             [_fmt(i) for i in plan.selected],
+            "not_selected":         [_fmt(i) for i in plan.not_selected],
+            "no_go_list":           [_fmt(i) for i in plan.no_go_list],
+            "expected_wins":        plan.expected_wins,
+            "expected_win_amount":  plan.expected_win_amount,
+            "total_ev":             plan.total_ev,
+            "bond_usage":           plan.bond_usage,
+            "remaining_bond_after": plan.remaining_bond_after,
+            "alerts":               plan.alerts,
+            "schedule":             plan.schedule,
+            "stats":                stats,
+        }
+
+
 # ==================================================
 # 경쟁사 투찰성향 분석 서비스
 # ==================================================

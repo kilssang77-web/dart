@@ -354,3 +354,244 @@ class BidParticipant(Base):
     is_winner       = Column(Boolean)
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
 
+
+# ============================================================
+# 수주율 최적화 시스템 — 신규 테이블 (8대 엔진 지원)
+# ============================================================
+
+class CompanyProfile(Base):
+    """자사 프로파일 — 수주 역량 정의 (E1/E2/E7 엔진 기반 데이터)"""
+    __tablename__ = "company_profile"
+
+    id                   = Column(Integer, primary_key=True)
+    company_name         = Column(String(200), nullable=False)
+    biz_reg_no           = Column(String(20), unique=True)
+
+    # 면허 및 등록
+    license_codes        = Column(ARRAY(Text), default=[])
+    region_codes         = Column(ARRAY(Text), default=[])
+
+    # 재무/보증
+    bond_limit_total     = Column(BigInteger, default=0)
+    bond_limit_used      = Column(BigInteger, default=0)
+    annual_revenue       = Column(BigInteger, default=0)
+
+    # 공사 역량
+    max_concurrent_bids  = Column(Integer, default=5)
+    target_min_margin    = Column(Numeric(5, 4), default=0.05)
+    target_regions       = Column(ARRAY(Text), default=[])
+    target_industries    = Column(ARRAY(Integer), default=[])
+
+    # 시공실적 (적격심사용) — {업종코드: [{amount, period, agency}]}
+    performance_records  = Column(JSON, default={})
+    workforce_count      = Column(Integer, default=0)
+
+    # 월 수주 목표
+    monthly_win_target   = Column(Integer, default=3)
+
+    updated_at           = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class QualificationCheck(Base):
+    """적격심사 체크 이력 (E2 엔진 출력 저장)"""
+    __tablename__ = "qualification_checks"
+
+    id               = Column(BigInteger, primary_key=True)
+    bid_id           = Column(BigInteger, ForeignKey("bids.id"), nullable=False, index=True)
+    user_id          = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    our_share_rate   = Column(Numeric(5, 4), default=1.0)
+    our_experience   = Column(BigInteger, default=0)
+
+    pass_prob        = Column(Numeric(5, 4))
+    min_pass_amount  = Column(BigInteger)
+    max_pass_amount  = Column(BigInteger)
+    score_breakdown  = Column(JSON, default={})
+    verdict          = Column(String(20))   # PASS / FAIL / UNCERTAIN
+    fail_reason      = Column(Text)
+
+    created_at       = Column(DateTime(timezone=True), server_default=func.now())
+
+    bid  = relationship("Bid")
+    user = relationship("User")
+
+
+class BidDecision(Base):
+    """공고 선별 의사결정 로그 (E1 엔진 출력 저장)"""
+    __tablename__ = "bid_decisions"
+
+    id                   = Column(BigInteger, primary_key=True)
+    bid_id               = Column(BigInteger, ForeignKey("bids.id"), nullable=False, index=True)
+    user_id              = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    selection_score      = Column(Numeric(6, 4))
+    ev_score             = Column(BigInteger)
+    qualify_prob         = Column(Numeric(5, 4))
+    win_prob_best        = Column(Numeric(5, 4))
+    expected_margin      = Column(Numeric(5, 4))
+    competitor_risk      = Column(String(10))   # LOW / MEDIUM / HIGH
+
+    verdict              = Column(String(10), nullable=False)  # GO / NO_GO / WATCH
+    no_go_reasons        = Column(ARRAY(Text), default=[])
+
+    recommended_strategy = Column(String(20))
+    recommended_rate     = Column(Numeric(7, 4))
+
+    actual_action        = Column(String(10))   # BID / SKIP / PENDING
+    actual_rate          = Column(Numeric(7, 4))
+
+    created_at           = Column(DateTime(timezone=True), server_default=func.now())
+
+    bid  = relationship("Bid")
+    user = relationship("User")
+
+
+class ActualBidOutcome(Base):
+    """실제 투찰 결과 — 피드백 루프 핵심 데이터 (E6 엔진 입력)"""
+    __tablename__ = "actual_bid_outcomes"
+
+    id                  = Column(BigInteger, primary_key=True)
+    bid_decision_id     = Column(BigInteger, ForeignKey("bid_decisions.id"), nullable=True)
+    bid_id              = Column(BigInteger, ForeignKey("bids.id"), nullable=False, index=True)
+    user_id             = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    submitted_rate      = Column(Numeric(7, 4), nullable=False)
+    result              = Column(String(15), nullable=False)   # WON / LOST / DISQUALIFIED
+    disqualify_reason   = Column(Text)
+
+    actual_srate        = Column(Numeric(7, 4))
+    winner_rate         = Column(Numeric(7, 4))
+    winner_biz_no       = Column(String(20))
+    our_rank            = Column(SmallInteger)
+    total_bidders       = Column(SmallInteger)
+
+    predicted_win_prob  = Column(Numeric(5, 4))
+    predicted_srate     = Column(Numeric(7, 4))
+    srate_error         = Column(Numeric(7, 4))
+
+    collected_at        = Column(DateTime(timezone=True))
+    created_at          = Column(DateTime(timezone=True), server_default=func.now())
+
+    bid          = relationship("Bid")
+    user         = relationship("User")
+    bid_decision = relationship("BidDecision")
+
+
+class PortfolioState(Base):
+    """현재 진행중 입찰 포트폴리오 상태 (E7 엔진 제약 입력)"""
+    __tablename__ = "portfolio_state"
+    __table_args__ = (UniqueConstraint("user_id", "bid_id"),)
+
+    id               = Column(Integer, primary_key=True)
+    user_id          = Column(Integer, ForeignKey("users.id"), nullable=False)
+    bid_id           = Column(BigInteger, ForeignKey("bids.id"), nullable=False)
+
+    status           = Column(String(20), default="ACTIVE")  # ACTIVE / CLOSED / WON / LOST
+    submitted_rate   = Column(Numeric(7, 4))
+    submitted_amount = Column(BigInteger)
+    bond_exposure    = Column(BigInteger, default=0)
+    bid_date         = Column(Date)
+    result_date      = Column(Date)
+
+    bid  = relationship("Bid")
+    user = relationship("User")
+
+
+class KpiSnapshot(Base):
+    """수주율 KPI 일별/주별/월별 스냅샷 (E8 경영진 대시보드 기반)"""
+    __tablename__ = "kpi_snapshots"
+    __table_args__ = (UniqueConstraint("snapshot_date", "user_id", "period_type"),)
+
+    id                    = Column(BigInteger, primary_key=True)
+    snapshot_date         = Column(Date, nullable=False)
+    user_id               = Column(Integer, ForeignKey("users.id"), nullable=True)
+    period_type           = Column(String(10), nullable=False)  # DAILY / WEEKLY / MONTHLY
+
+    total_bids            = Column(Integer, default=0)
+    total_wins            = Column(Integer, default=0)
+    win_rate              = Column(Numeric(5, 4))
+    total_bid_amount      = Column(BigInteger, default=0)
+    total_won_amount      = Column(BigInteger, default=0)
+    total_expected_profit = Column(BigInteger, default=0)
+
+    qualify_pass_rate     = Column(Numeric(5, 4))
+    avg_rank_at_loss      = Column(Numeric(5, 2))
+    srate_mae             = Column(Numeric(7, 4))
+    win_prob_calibration  = Column(Numeric(5, 4))
+
+    go_rate               = Column(Numeric(5, 4))
+    go_win_rate           = Column(Numeric(5, 4))
+    no_go_saved           = Column(Integer, default=0)
+
+    created_at            = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User")
+
+
+class ModelPerformanceLog(Base):
+    """ML 모델 성능 추적 — 수주율 기여도 측정 (E6 피드백 출력)"""
+    __tablename__ = "model_performance_log"
+
+    id                      = Column(BigInteger, primary_key=True)
+    model_name              = Column(String(50), nullable=False)
+    model_version           = Column(String(50))
+    eval_date               = Column(Date, nullable=False)
+
+    sample_count            = Column(Integer)
+    mae                     = Column(Numeric(8, 6))
+    rmse                    = Column(Numeric(8, 6))
+    calibration_ece         = Column(Numeric(8, 6))
+
+    win_rate_with_model     = Column(Numeric(5, 4))
+    win_rate_without_model  = Column(Numeric(5, 4))
+    lift                    = Column(Numeric(5, 4))
+
+    created_at              = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class CompetitorStrategyPattern(Base):
+    """경쟁사 전략 패턴 — 기관/공종/금액대별 세분화 (E4 엔진 강화)"""
+    __tablename__ = "competitor_strategy_patterns"
+    __table_args__ = (UniqueConstraint("competitor_id", "agency_id", "industry_id", "amount_bucket"),)
+
+    id                 = Column(BigInteger, primary_key=True)
+    competitor_id      = Column(Integer, ForeignKey("competitors.id"), nullable=False)
+    agency_id          = Column(Integer, ForeignKey("agencies.id"), nullable=True)
+    industry_id        = Column(Integer, ForeignKey("industries.id"), nullable=True)
+    amount_bucket      = Column(SmallInteger, nullable=False, default=0)
+
+    bid_rate_p10       = Column(Numeric(7, 4))
+    bid_rate_p25       = Column(Numeric(7, 4))
+    bid_rate_p50       = Column(Numeric(7, 4))
+    bid_rate_p75       = Column(Numeric(7, 4))
+    bid_rate_p90       = Column(Numeric(7, 4))
+    participation_rate = Column(Numeric(5, 4))
+    win_rate           = Column(Numeric(5, 4))
+
+    sample_count       = Column(Integer, default=0)
+    updated_at         = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    competitor = relationship("Competitor")
+    agency     = relationship("Agency")
+    industry   = relationship("Industry")
+
+
+class BidSelectionFeature(Base):
+    """공고 선별 피처 캐시 (E1 엔진 전용 사전 계산 결과)"""
+    __tablename__ = "bid_selection_features"
+
+    bid_id                  = Column(BigInteger, ForeignKey("bids.id"), primary_key=True)
+    historical_win_rate     = Column(Numeric(5, 4))
+    avg_competitor_count    = Column(Numeric(5, 2))
+    strong_competitor_count = Column(SmallInteger, default=0)
+    qualify_prob            = Column(Numeric(5, 4))
+    license_match           = Column(Boolean, default=False)
+    region_match            = Column(Boolean, default=False)
+    estimated_margin        = Column(Numeric(5, 4))
+    ev_score                = Column(BigInteger, default=0)
+    in_target_region        = Column(Boolean, default=False)
+    in_target_industry      = Column(Boolean, default=False)
+    computed_at             = Column(DateTime(timezone=True), server_default=func.now())
+
+    bid = relationship("Bid")
+

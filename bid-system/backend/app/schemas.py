@@ -947,3 +947,225 @@ class NotificationListResponse(BaseModel):
     items:        List[NotificationOut]
     unread_count: int
 
+
+# ============================================================
+# 수주율 최적화 시스템 — 신규 DTO
+# ============================================================
+
+# ── 회사 프로파일 ────────────────────────────────────────────
+
+class PerformanceRecord(BaseModel):
+    amount:  int
+    period:  int    # 공사 기간 (개월)
+    agency:  str
+
+class CompanyProfileRequest(BaseModel):
+    company_name:        str
+    biz_reg_no:          Optional[str] = None
+    license_codes:       List[str] = []
+    region_codes:        List[str] = []
+    bond_limit_total:    int = 0
+    bond_limit_used:     int = 0
+    annual_revenue:      int = 0
+    max_concurrent_bids: int = 5
+    target_min_margin:   float = 0.05
+    target_regions:      List[str] = []
+    target_industries:   List[int] = []
+    performance_records: dict = {}      # {업종코드: [PerformanceRecord]}
+    workforce_count:     int = 0
+    monthly_win_target:  int = 3
+
+class CompanyProfileResponse(CompanyProfileRequest):
+    id:         int
+    bond_usage_rate:     float = 0.0    # 사용률 계산값
+    remaining_bond:      int   = 0
+    updated_at:          Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── 적격심사 ────────────────────────────────────────────────
+
+class QualificationCheckRequest(BaseModel):
+    bid_id:         int
+    our_share_rate: float = 1.0
+    our_experience: int   = 0
+    reputation_score: float = 0.0
+    contract_law:   str   = "local"
+
+class QualificationCheckResponse(BaseModel):
+    bid_id:          int
+    verdict:         str       # PASS / FAIL / UNCERTAIN
+    pass_prob:       float
+    min_pass_amount: Optional[int]
+    max_pass_amount: Optional[int]
+    score_breakdown: dict
+    fail_reason:     Optional[str]
+    criteria_type:   str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── 공고 선별 ────────────────────────────────────────────────
+
+class BidSelectionResponse(BaseModel):
+    bid_id:               int
+    verdict:              str    # GO / NO_GO / WATCH
+    score:                float
+    ev_score:             int
+    qualify_prob:         float
+    win_prob_best:        float
+    expected_margin:      float
+    competitor_risk:      str
+    no_go_reasons:        List[str]
+    score_detail:         dict
+    recommended_strategy: str
+
+class GoListResponse(BaseModel):
+    go:    List[BidSelectionResponse]
+    watch: List[BidSelectionResponse]
+    no_go: List[BidSelectionResponse]
+    total: int
+    go_count:    int
+    watch_count: int
+    no_go_count: int
+
+
+# ── 투찰 결정 ────────────────────────────────────────────────
+
+class BidDecisionCreate(BaseModel):
+    bid_id:               int
+    actual_action:        str    # BID / SKIP
+    actual_rate:          Optional[float] = None
+    note:                 Optional[str]  = None
+
+class BidDecisionOut(BaseModel):
+    id:                   int
+    bid_id:               int
+    verdict:              str
+    score:                Optional[float]
+    ev_score:             Optional[int]
+    qualify_prob:         Optional[float]
+    win_prob_best:        Optional[float]
+    competitor_risk:      Optional[str]
+    no_go_reasons:        Optional[List[str]]
+    recommended_strategy: Optional[str]
+    recommended_rate:     Optional[float]
+    actual_action:        Optional[str]
+    actual_rate:          Optional[float]
+    created_at:           datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── 단일 최적 전략 추천 ──────────────────────────────────────
+
+class SingleRecommendRequest(BaseModel):
+    bid_id:          int
+    base_amount:     int
+    agency_id:       int
+    industry_id:     Optional[int] = None
+    region_id:       Optional[int] = None
+    min_bid_rate:    float = 0.87745
+    bid_open_date:   Optional[datetime] = None
+    our_share_rate:  float = 1.0
+
+class SingleRecommendResponse(BaseModel):
+    rate:               float
+    bid_amount:         int
+    win_prob:           float
+    expected_value:     int
+    confidence:         float
+    strategy_type:      str
+    rationale:          str
+    rationale_details:  List[str]
+    valid_range:        List[float]     # [low, high]
+    prism_top5:         List[dict]
+    qualification:      Optional[QualificationCheckResponse] = None
+
+
+# ── 실제 투찰 결과 (피드백) ──────────────────────────────────
+
+class ActualOutcomeCreate(BaseModel):
+    bid_id:             int
+    submitted_rate:     float
+    result:             str              # WON / LOST / DISQUALIFIED
+    actual_srate:       Optional[float] = None
+    winner_rate:        Optional[float] = None
+    winner_biz_no:      Optional[str]   = None
+    our_rank:           Optional[int]   = None
+    total_bidders:      Optional[int]   = None
+    disqualify_reason:  Optional[str]   = None
+    bid_decision_id:    Optional[int]   = None
+
+class ActualOutcomeOut(ActualOutcomeCreate):
+    id:              int
+    predicted_win_prob:  Optional[float]
+    predicted_srate:     Optional[float]
+    srate_error:         Optional[float]
+    collected_at:        Optional[datetime]
+    created_at:          datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── KPI 대시보드 ─────────────────────────────────────────────
+
+class KPIDashboardResponse(BaseModel):
+    period_type:          str
+    snapshot_date:        date
+
+    # 핵심 KPI
+    total_bids:           int
+    total_wins:           int
+    win_rate:             float
+    monthly_target:       int
+    target_achievement:   float       # 달성률 (0~1)
+
+    # 품질 지표
+    qualify_pass_rate:    Optional[float]
+    avg_rank_at_loss:     Optional[float]
+    srate_mae:            Optional[float]
+    win_prob_calibration: Optional[float]
+
+    # 선별 효과
+    go_rate:              Optional[float]
+    no_go_saved:          int
+
+    # 경고
+    alerts:               List[str]
+
+    # 월간 트렌드
+    monthly_trend:        List[dict]
+
+
+# ── 포트폴리오 최적화 ─────────────────────────────────────────
+
+class PortfolioOptimizeRequest(BaseModel):
+    bid_ids:    List[int]           # 최적화 대상 공고 ID 목록
+
+class PortfolioBidItemOut(BaseModel):
+    bid_id:           int
+    title:            str
+    base_amount:      int
+    bid_date:         Optional[str]
+    verdict:          str
+    selection_score:  float
+    ev_score:         int
+    qualify_prob:     float
+    win_prob:         float
+    recommended_rate: float
+
+class PortfolioPlanResponse(BaseModel):
+    selected:              List[PortfolioBidItemOut]
+    not_selected:          List[PortfolioBidItemOut]
+    no_go_list:            List[PortfolioBidItemOut]
+    expected_wins:         float
+    expected_win_amount:   int
+    total_ev:              int
+    bond_usage:            int
+    remaining_bond_after:  int
+    alerts:                List[str]
+    schedule:              List[dict]
+    stats:                 dict
+

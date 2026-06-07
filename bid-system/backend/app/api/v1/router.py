@@ -10,6 +10,13 @@ from .my_bids import router as my_bids_router
 from .agencies import router as agencies_router
 from .notifications import router as notifications_router
 from .market_intel import router as market_intel_router
+# 수주율 최적화 시스템 — 신규 라우터
+from .company   import router as company_router
+from .selection import router as selection_router
+from .strategy  import router as strategy_router
+from .outcomes  import router as outcomes_router
+from .kpi       import router as kpi_router
+from .portfolio import router as portfolio_router
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -24,3 +31,10 @@ api_router.include_router(my_bids_router)
 api_router.include_router(agencies_router)
 api_router.include_router(notifications_router)
 api_router.include_router(market_intel_router)
+# 수주율 최적화 시스템
+api_router.include_router(company_router)
+api_router.include_router(selection_router)
+api_router.include_router(strategy_router)
+api_router.include_router(outcomes_router)
+api_router.include_router(kpi_router)
+api_router.include_router(portfolio_router)
