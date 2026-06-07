@@ -13,6 +13,7 @@ def _mock_ml(prob=0.60, risk=0.30, hold=5, exp_ret=5.0):
     m.risk_score   = risk
     m.hold_days    = hold
     m.expected_return = exp_ret
+    m.atr_ratio = None  # MagicMock 자동 속성 생성 방지
     return m
 
 
