@@ -25,6 +25,8 @@ import MarketIntelPage from '@/pages/MarketIntelPage'
 import CompanyProfilePage from '@/pages/CompanyProfilePage'
 import BidSelectionPage   from '@/pages/BidSelectionPage'
 import KPIDashboardPage   from '@/pages/KPIDashboardPage'
+import TodayPage          from '@/pages/TodayPage'
+import PerformancePage    from '@/pages/PerformancePage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -44,8 +46,10 @@ export default function App() {
             </PrivateRoute>
           }
         >
-          <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="dashboard"   element={<DashboardPage />} />
+          <Route index element={<Navigate to="/today" replace />} />
+          <Route path="dashboard"    element={<DashboardPage />} />
+          <Route path="today"        element={<TodayPage />} />
+          <Route path="performance"  element={<PerformancePage />} />
           <Route path="bids"                       element={<BidsPage />} />
           <Route path="bids/:id"                 element={<BidDetailPage />} />
           <Route path="bids/:id/final-recommend" element={<TenderRecommendPage />} />
