@@ -25,6 +25,32 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("train")
 
 
+async def load_disclosure_sentiment(
+    pool: asyncpg.Pool, start: str, end: str
+) -> pd.DataFrame:
+    """공시 감성 점수를 (code, date) 키로 집계하여 반환."""
+    start_d, end_d = date_type.fromisoformat(start), date_type.fromisoformat(end)
+    rows = await pool.fetch(
+        """
+        SELECT
+            code,
+            disclosed_at::DATE AS date,
+            AVG(sentiment_score) AS disclosure_sentiment,
+            MAX(CASE WHEN category='favorable' THEN 1 ELSE 0 END) AS has_favorable_disclosure
+        FROM disclosures
+        WHERE code IS NOT NULL
+          AND disclosed_at::DATE BETWEEN $1 AND $2
+        GROUP BY code, disclosed_at::DATE
+        """,
+        start_d, end_d,
+    )
+    if not rows:
+        return pd.DataFrame(columns=["code", "date", "disclosure_sentiment", "has_favorable_disclosure"])
+    df = pd.DataFrame([dict(r) for r in rows])
+    df["date"] = df["date"].astype(str)
+    return df
+
+
 async def load_data(pool: asyncpg.Pool, start: str, end: str) -> pd.DataFrame:
     start_d, end_d = date_type.fromisoformat(start), date_type.fromisoformat(end)
     rows = await pool.fetch(
@@ -71,7 +97,9 @@ async def main(args):
     logger.info(f"Loading data {args.start} ~ {args.end} ...")
     raw = await load_data(pool, args.start, args.end)
     kospi_close, market_vol = await load_market_data(pool, args.start, args.end)
-    logger.info(f"Loaded {len(raw)} rows, {raw['code'].nunique()} stocks, KOSPI={len(kospi_close)} days")
+    disc_df = await load_disclosure_sentiment(pool, args.start, args.end)
+    logger.info(f"Loaded {len(raw)} rows, {raw['code'].nunique()} stocks, "
+                f"KOSPI={len(kospi_close)} days, disclosures={len(disc_df)} rows")
     await pool.close()
 
     tech = TechnicalFeatureExtractor()
@@ -90,6 +118,20 @@ async def main(args):
             if len(kospi_close) > 0:
                 f = tech.inject_market_features(f, kospi_close, market_vol if len(market_vol) > 0 else None)
             f["code"] = code
+
+            # 공시 감성 피처 주입 (해당 날짜 공시가 없으면 0/0)
+            if not disc_df.empty:
+                code_disc = disc_df[disc_df["code"] == code][["date", "disclosure_sentiment", "has_favorable_disclosure"]]
+                if not code_disc.empty:
+                    f = f.merge(code_disc, on="date", how="left")
+                    f["disclosure_sentiment"]      = f["disclosure_sentiment"].fillna(0.0)
+                    f["has_favorable_disclosure"]  = f["has_favorable_disclosure"].fillna(0).astype(int)
+                else:
+                    f["disclosure_sentiment"]     = 0.0
+                    f["has_favorable_disclosure"] = 0
+            else:
+                f["disclosure_sentiment"]     = 0.0
+                f["has_favorable_disclosure"] = 0
 
             label_e = tr.make_label_entry(f, fwd=5, thr=0.05)
             label_r = tr.make_label_risk(f,   fwd=5, loss=-0.05)
@@ -124,27 +166,82 @@ async def main(args):
     model_dir = "/models/lgbm"
     Path(model_dir).mkdir(parents=True, exist_ok=True)
 
-    logger.info("Training entry model ...")
+    # ── LightGBM ──────────────────────────────────────────────────────────────
+    logger.info("Training entry model (LightGBM)...")
     entry_m   = tr.train_entry(X_tr, le_tr, X_va, le_va, model_dir)
     entry_raw = entry_m.predict_proba(X_va)[:, 1]
-    auc_e     = roc_auc_score(le_va, entry_raw)
+    auc_lgbm  = roc_auc_score(le_va, entry_raw)
     brier_e   = brier_score_loss(le_va, entry_raw)
-    logger.info(f"Entry AUC: {auc_e:.4f}  Brier: {brier_e:.4f}")
+    logger.info(f"[LightGBM] Entry AUC: {auc_lgbm:.4f}  Brier: {brier_e:.4f}")
 
-    logger.info("Training risk model ...")
+    logger.info("Training risk model (LightGBM)...")
     risk_m   = tr.train_risk(X_tr, lr_tr, X_va, lr_va, model_dir)
     risk_raw = risk_m.predict_proba(X_va)[:, 1]
     auc_r    = roc_auc_score(lr_va, risk_raw)
     brier_r  = brier_score_loss(lr_va, risk_raw)
-    logger.info(f"Risk  AUC: {auc_r:.4f}  Brier: {brier_r:.4f}")
+    logger.info(f"[LightGBM] Risk  AUC: {auc_r:.4f}  Brier: {brier_r:.4f}")
 
-    logger.info("\n--- Entry Model Classification Report ---")
-    y_pred = (entry_m.predict_proba(X_va)[:, 1] >= 0.5).astype(int)
+    # ── CatBoost 비교 ─────────────────────────────────────────────────────────
+    auc_cat = 0.0
+    try:
+        from catboost import CatBoostClassifier
+        cat_e = CatBoostClassifier(
+            iterations=500, learning_rate=0.05, depth=6,
+            eval_metric="AUC", early_stopping_rounds=50,
+            random_seed=42, verbose=0,
+        )
+        cat_e.fit(X_tr, le_tr, eval_set=(X_va, le_va))
+        auc_cat = roc_auc_score(le_va, cat_e.predict_proba(X_va)[:, 1])
+        logger.info(f"[CatBoost]  Entry AUC: {auc_cat:.4f}")
+    except ImportError:
+        logger.warning("[CatBoost] not installed — skipping comparison")
+
+    # ── XGBoost 비교 ──────────────────────────────────────────────────────────
+    auc_xgb = 0.0
+    try:
+        import xgboost as xgb
+        xgb_e = xgb.XGBClassifier(
+            n_estimators=500, learning_rate=0.05, max_depth=6,
+            eval_metric="auc", early_stopping_rounds=50,
+            random_state=42, verbosity=0,
+        )
+        xgb_e.fit(X_tr, le_tr, eval_set=[(X_va, le_va)], verbose=False)
+        auc_xgb = roc_auc_score(le_va, xgb_e.predict_proba(X_va)[:, 1])
+        logger.info(f"[XGBoost]   Entry AUC: {auc_xgb:.4f}")
+    except ImportError:
+        logger.warning("[XGBoost] not installed — skipping comparison")
+
+    # ── 모델 선택 ─────────────────────────────────────────────────────────────
+    best_name = "LightGBM"
+    best_auc  = auc_lgbm
+    if auc_cat > best_auc:
+        best_auc  = auc_cat
+        best_name = "CatBoost"
+    if auc_xgb > best_auc:
+        best_auc  = auc_xgb
+        best_name = "XGBoost"
+
+    logger.info(f"\n{'='*50}")
+    logger.info(f"모델 비교 결과:")
+    logger.info(f"  LightGBM AUC: {auc_lgbm:.4f}")
+    logger.info(f"  CatBoost AUC: {auc_cat:.4f}")
+    logger.info(f"  XGBoost  AUC: {auc_xgb:.4f}")
+    logger.info(f"  → 선택: {best_name} (AUC {best_auc:.4f})")
+    logger.info(f"{'='*50}\n")
+
+    logger.info("\n--- Entry Model Classification Report (LightGBM) ---")
+    y_pred = (entry_raw >= 0.5).astype(int)
     print(classification_report(le_va, y_pred))
 
     # Feature importance
     fi = pd.Series(entry_m.feature_importances_, index=FEATURE_COLUMNS).sort_values(ascending=False)
     logger.info("Top 15 features:\n" + fi.head(15).to_string())
+
+    # 항상 0인 피처 경고
+    zero_features = [c for c in FEATURE_COLUMNS if X[c].std() < 1e-8]
+    if zero_features:
+        logger.warning(f"⚠️  항상 0인 피처 발견 ({len(zero_features)}개): {zero_features}")
+
     logger.info(f"\nModels saved to {model_dir}/")
 
 

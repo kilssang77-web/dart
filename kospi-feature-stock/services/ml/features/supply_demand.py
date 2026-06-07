@@ -32,4 +32,12 @@ class SupplyDemandFeatureExtractor:
             df["short_ma5"]       = df["short_ratio"].rolling(5).mean()
             df["short_increasing"] = (df["short_ratio"] > df["short_ma5"]).astype(int)
 
+        # 순매수 비율 (거래량 대비) — 수급 강도 지표
+        if "volume" in df.columns:
+            vol = df["volume"].replace(0, np.nan)
+            if "foreign_net" in df.columns:
+                df["foreign_net_ratio"] = df["foreign_net"] / vol
+            if "inst_net" in df.columns:
+                df["inst_net_ratio"] = df["inst_net"] / vol
+
         return df.replace([np.inf, -np.inf], np.nan)

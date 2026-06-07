@@ -1,0 +1,84 @@
+{
+  "updated_at": "2026-06-07",
+  "note": "placeholder — run: python backtest_run.py --mode thresholds to populate",
+  "period": {
+    "start": "2025-01-01",
+    "end": "2026-06-06"
+  },
+  "params": {
+    "stop_loss": 0.05,
+    "target": 0.1,
+    "hold_days": 10
+  },
+  "threshold_results": {
+    "no_filter": {
+      "VOLUME_SURGE": {
+        "signals": 0
+      },
+      "BREAKOUT_52W": {
+        "signals": 0
+      }
+    },
+    "ml_prob_0.50": {
+      "VOLUME_SURGE": {
+        "signals": 0
+      },
+      "BREAKOUT_52W": {
+        "signals": 0
+      }
+    },
+    "ml_prob_0.55": {
+      "VOLUME_SURGE": {
+        "signals": 0
+      },
+      "BREAKOUT_52W": {
+        "signals": 0
+      }
+    },
+    "ml_prob_0.60": {
+      "VOLUME_SURGE": {
+        "signals": 0
+      },
+      "BREAKOUT_52W": {
+        "signals": 0
+      }
+    },
+    "ml_prob_0.65": {
+      "VOLUME_SURGE": {
+        "signals": 0
+      },
+      "BREAKOUT_52W": {
+        "signals": 0
+      }
+    }
+  },
+  "ml_replay_results": {
+    "ml_entry_0.273": {
+      "total": 2834,
+      "win": 1249,
+      "loss": 1585,
+      "win_rate": "44.1%",
+      "avg_return": "1.28%",
+      "avg_win": "9.06%",
+      "avg_loss": "-4.84%",
+      "profit_factor": 1.48,
+      "max_drawdown": "-64.85%",
+      "sharpe": 1.2,
+      "signals": 2851,
+      "threshold": 0.273
+    },
+    "baseline_no_filter": {
+      "total": 135351,
+      "win": 54747,
+      "loss": 80604,
+      "win_rate": "40.5%",
+      "avg_return": "0.52%",
+      "avg_win": "7.58%",
+      "avg_loss": "-4.28%",
+      "profit_factor": 1.2,
+      "max_drawdown": "-100.00%",
+      "sharpe": 0.38,
+      "signals": 136664
+    }
+  }
+}

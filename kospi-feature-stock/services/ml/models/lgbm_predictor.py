@@ -1,12 +1,14 @@
+import json
 import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
 import joblib
+import lightgbm as lgb
 import numpy as np
 import pandas as pd
-import lightgbm as lgb
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +16,9 @@ _MODEL_DIR      = os.environ.get("LGBM_MODEL_DIR", "/models/lgbm")
 _HOLD_SQUEEZE   = int(os.environ.get("LGBM_HOLD_SQUEEZE_DAYS", "3"))
 _HOLD_VOL_HIGH  = float(os.environ.get("LGBM_VOL_HIGH_THRESH", "15.0"))
 _HOLD_DEFAULT   = int(os.environ.get("LGBM_HOLD_DEFAULT_DAYS", "5"))
-_RET_SCALE      = float(os.environ.get("LGBM_RET_SCALE", "20.0"))  # prob 대비 수익률 스케일
+_RET_SCALE      = float(os.environ.get("LGBM_RET_SCALE", "20.0"))
 
+# 기본값 — feature_columns.json 로드 성공 시 동적으로 교체됨
 FEATURE_COLUMNS = [
     "return_1d", "return_3d", "return_5d",
     "ma5_ratio", "ma20_ratio", "ma60_ratio",
@@ -69,6 +72,20 @@ class LGBMPredictor:
         self._risk_cal  = None
 
     def load(self) -> bool:
+        global FEATURE_COLUMNS
+
+        # ── feature_columns.json (단일 소스 오브 트루스) ──────
+        fc_path = self.model_dir / "feature_columns.json"
+        if fc_path.exists():
+            try:
+                with open(fc_path) as f:
+                    cols = json.load(f)
+                if cols:
+                    FEATURE_COLUMNS = cols
+                    logger.info(f"feature_columns.json loaded: {len(FEATURE_COLUMNS)} features")
+            except Exception as e:
+                logger.warning(f"Failed to load feature_columns.json: {e}")
+
         loaded = False
         for name, attr in [("entry_model.lgb", "_entry"), ("risk_model.lgb", "_risk")]:
             path = self.model_dir / name
@@ -80,7 +97,8 @@ class LGBMPredictor:
                 except Exception as e:
                     logger.error(f"Failed to load {path}: {e}")
             else:
-                logger.warning(f"Model file not found: {path} — 모델 학습 후 재시작 필요")
+                logger.warning(f"Model file not found: {path}")
+
         for name, attr in [("entry_calibrator.pkl", "_entry_cal"), ("risk_calibrator.pkl", "_risk_cal")]:
             path = self.model_dir / name
             if path.exists():
@@ -89,6 +107,7 @@ class LGBMPredictor:
                     logger.info(f"Calibrator loaded: {path}")
                 except Exception as e:
                     logger.warning(f"Failed to load calibrator {path}: {e}")
+
         return loaded
 
     def is_ready(self) -> bool:
@@ -105,7 +124,6 @@ class LGBMPredictor:
         confidence = float(X.notna().mean().mean())
         hold       = self._hold_days(X, event_type)
 
-        # 기대수익률: 모델이 있으면 prob 기반, 없으면 0
         exp_ret = (prob - 0.5) * _RET_SCALE if self._entry else 0.0
 
         return PredictionResult(
@@ -142,24 +160,22 @@ class LGBMPredictor:
         squeeze = int(X["bb_squeeze"].values[0]) if "bb_squeeze" in X.columns else 0
         vol     = float(X["vol_ratio_20d"].values[0]) if "vol_ratio_20d" in X.columns else 1.0
 
-        # 이벤트 타입별 베이스 보유기간
         _EVENT_HOLD = {
-            "VI_TRIGGERED":          1,   # VI 해제 후 당일 매매
-            "VOLUME_SURGE":          2,   # 단기 거래량 이벤트
+            "VI_TRIGGERED":          1,
+            "VOLUME_SURGE":          2,
             "AMOUNT_SURGE":          2,
-            "POST_DISCLOSURE_SURGE": 3,   # 공시 효과 3일 내 반영
-            "SUPPLY_ANOMALY":        3,   # 수급 이상 지속 기간
-            "HAMMER_CANDLE":         5,   # 반등 패턴
+            "POST_DISCLOSURE_SURGE": 3,
+            "SUPPLY_ANOMALY":        3,
+            "HAMMER_CANDLE":         5,
             "MORNING_STAR":          5,
             "LONG_WHITE_CANDLE":     5,
-            "BREAKOUT_20D":          7,   # 단기 신고가
-            "BREAKOUT_13W":         10,   # 중기 추세
+            "BREAKOUT_20D":          7,
+            "BREAKOUT_13W":         10,
             "BREAKOUT_26W":         15,
-            "BREAKOUT_52W":         20,   # 52주 신고가 = 추세 전환 가능성
+            "BREAKOUT_52W":         20,
         }
         base = _EVENT_HOLD.get(event_type, _HOLD_DEFAULT)
 
-        # 과열 시 단축, BB 수렴 시 연장
         if vol > _HOLD_VOL_HIGH:
             base = max(1, base // 2)
         if squeeze:

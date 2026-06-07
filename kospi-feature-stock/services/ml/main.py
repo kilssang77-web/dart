@@ -90,6 +90,19 @@ async def predict(req: PredictRequest):
     )
 
 
+@app.get("/metrics")
+async def get_metrics():
+    """학습된 모델 메트릭 반환 (model_metrics.json)."""
+    import json
+    metrics_path = Path(_MODEL_DIR) / "model_metrics.json"
+    if not metrics_path.exists():
+        return {"error": "model_metrics.json not found", "model_loaded": False}
+    try:
+        with open(metrics_path) as f:
+            return json.load(f)
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.post("/reload")
 async def reload_model():
     """재학습 완료 후 모델 핫스왑 (atomic)."""

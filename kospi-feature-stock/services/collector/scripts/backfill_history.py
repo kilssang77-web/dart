@@ -86,6 +86,8 @@ async def main():
                         help="comma-separated code list (default: all in DB)")
     parser.add_argument("--concurrency", type=int, default=3)
     parser.add_argument("--checkpoint",  default="/tmp/backfill_ckpt.json")
+    parser.add_argument("--index-only",  action="store_true",
+                        help="backfill only KOSPI(0001)/KOSDAQ(1001) index bars using get_index_bars")
     args = parser.parse_args()
 
     start = date.fromisoformat(
@@ -110,6 +112,32 @@ async def main():
         end = (oldest - timedelta(days=1)) if oldest else date(2025, 9, 17)
 
     logger.info(f"Backfill range: {start} → {end}")
+
+    # ── KOSPI/KOSDAQ 지수 백필 (--index-only) ──────────────────────
+    if args.index_only:
+        logger.info("Index-only mode: backfilling KOSPI(0001) and KOSDAQ(1001)")
+        cfg = KISConfig(
+            app_key=os.environ["KIS_APP_KEY"],
+            app_secret=os.environ["KIS_APP_SECRET"],
+            account_no=os.environ["KIS_ACCOUNT_NO"],
+        )
+        auth = KISAuthManager(cfg, redis_client)
+        kis  = KISRestClient(cfg, auth)
+        sem  = asyncio.Semaphore(1)
+        for mkt_code in ["0001", "1001"]:
+            total = 0
+            for chunk_start, chunk_end in _date_chunks(start, end if args.end else date.today()):
+                s = chunk_start.strftime("%Y%m%d")
+                e_str = chunk_end.strftime("%Y%m%d")
+                async with sem:
+                    bars = await kis.get_index_bars(mkt_code, s, e_str)
+                    await asyncio.sleep(RATE_DELAY)
+                if bars:
+                    n = await write_daily_bars(pool, bars)
+                    total += n
+            logger.info(f"Index {mkt_code}: {total} bars inserted/updated ({start} ~ end)")
+        await pool.close()
+        return
 
     if args.codes:
         codes = [c.strip() for c in args.codes.split(",") if c.strip()]

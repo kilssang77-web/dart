@@ -7,8 +7,6 @@ logger = logging.getLogger(__name__)
 _MIN_RR        = float(os.environ.get("REC_MIN_RISK_REWARD", "2.0"))
 _MAX_RISK      = float(os.environ.get("REC_MAX_RISK", "0.60"))
 _MIN_PROB      = float(os.environ.get("REC_MIN_PROB", "0.55"))
-_STOP_LOSS_PCT = float(os.environ.get("REC_STOP_LOSS_PCT", "0.05"))
-_TARGET_PCT    = float(os.environ.get("REC_TARGET_PCT", "0.10"))
 _ENTRY_BAND    = float(os.environ.get("REC_ENTRY_BAND", "0.015"))
 _VOL_HEAT_H    = float(os.environ.get("REC_VOL_HEAT_HIGH", "20.0"))
 _VOL_HEAT_M    = float(os.environ.get("REC_VOL_HEAT_MED", "10.0"))
@@ -17,6 +15,13 @@ _CHG_HEAT_M    = float(os.environ.get("REC_CHG_HEAT_MED", "10.0"))
 _ML_RISK_W     = float(os.environ.get("REC_ML_RISK_WEIGHT", "0.45"))
 _SIM_MAX_W     = float(os.environ.get("REC_SIM_MAX_WEIGHT", "0.40"))
 _SIM_SCALE_N   = float(os.environ.get("REC_SIM_SCALE_N", "25.0"))
+
+# ATR 기반 동적 익절/손절 파라미터
+_ATR_STOP_MULT   = float(os.environ.get("REC_ATR_STOP_MULT",   "1.5"))   # 손절: ATR × 1.5
+_ATR_TARGET_MULT = float(os.environ.get("REC_ATR_TARGET_MULT", "3.0"))   # 익절: ATR × 3.0
+_STOP_MIN_PCT    = float(os.environ.get("REC_STOP_MIN_PCT",    "0.03"))   # 최소 손절 3%
+_STOP_MAX_PCT    = float(os.environ.get("REC_STOP_MAX_PCT",    "0.12"))   # 최대 손절 12%
+_TARGET_MIN_PCT  = float(os.environ.get("REC_TARGET_MIN_PCT",  "0.06"))   # 최소 익절 6%
 
 
 @dataclass
@@ -45,15 +50,37 @@ class EntryRecommender:
         ml_result,
         sim_stats: dict,
         similar_cases: list,
+        atr14: float | None = None,
     ) -> EntryRecommendation:
+        """
+        atr14: 14일 ATR 절댓값 (daily_bars.atr14 또는 feature 딕셔너리에서 전달).
+               없으면 변동률 기반 추정값 사용.
+        """
         code  = event.get("code", "")
         price = int(event.get("price", 0))
         if not price:
             return self._skip(code, price, "price unavailable")
 
-        atr_ratio   = abs(ml_result.expected_return / 10.0) if ml_result else 0.02
-        stop_dist   = max(_STOP_LOSS_PCT, min(atr_ratio * 1.5, 0.12))
-        target_dist = max(_TARGET_PCT, stop_dist * _MIN_RR)
+        # ATR 비율 계산 (실제 ATR 우선, 없으면 feature의 atr_ratio 사용)
+        atr_val = atr14
+        if atr_val is None and ml_result:
+            # ml_result에 atr_ratio 있으면 역산
+            atr_ratio_feat = getattr(ml_result, "atr_ratio", None)
+            if atr_ratio_feat and atr_ratio_feat > 0:
+                atr_val = price * float(atr_ratio_feat)
+
+        if atr_val and atr_val > 0:
+            # ATR 기반 동적 익절/손절
+            raw_stop   = atr_val * _ATR_STOP_MULT / price
+            raw_target = atr_val * _ATR_TARGET_MULT / price
+            stop_dist   = max(_STOP_MIN_PCT, min(raw_stop,   _STOP_MAX_PCT))
+            target_dist = max(_TARGET_MIN_PCT, max(raw_target, stop_dist * _MIN_RR))
+        else:
+            # ATR 없을 때: 이벤트 변동률 기반 추정
+            chg_rate = abs(float(event.get("change_rate") or 2.0))
+            est_atr_ratio = max(0.01, chg_rate / 100 * 0.7)
+            stop_dist   = max(_STOP_MIN_PCT, min(est_atr_ratio * _ATR_STOP_MULT,   _STOP_MAX_PCT))
+            target_dist = max(_TARGET_MIN_PCT, stop_dist * _MIN_RR)
 
         stop   = int(price * (1 - stop_dist))
         target = int(price * (1 + target_dist))
@@ -90,6 +117,8 @@ class EntryRecommender:
                 "avg_sim_return":  sim_stats.get("avg_return_5d", 0),
                 "stop_dist_pct":   round(stop_dist * 100, 2),
                 "target_dist_pct": round(target_dist * 100, 2),
+                "atr_based":       atr_val is not None and atr_val > 0,
+                "atr14":           round(float(atr_val), 2) if atr_val else None,
                 "risk_factors":    self._risk_factors(event, ml_result),
             },
             similar_cases=similar_cases[:5],

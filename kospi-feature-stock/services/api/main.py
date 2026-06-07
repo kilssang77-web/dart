@@ -8,7 +8,7 @@ import redis.asyncio as redis_lib
 import os
 import logging
 
-from routers import stocks, features, recommendations, disclosures, backtest, themes, market, disclosure_filters
+from routers import stocks, features, recommendations, disclosures, backtest, themes, market, disclosure_filters, ml
 
 logger = logging.getLogger("api")
 
@@ -53,6 +53,7 @@ app.include_router(backtest.router,        prefix="/api/v1/backtest",        tag
 app.include_router(themes.router,          prefix="/api/v1/themes",           tags=["themes"])
 app.include_router(market.router,              prefix="/api/v1/market",            tags=["market"])
 app.include_router(disclosure_filters.router, prefix="/api/v1/disclosure-filters", tags=["disclosure-filters"])
+app.include_router(ml.router,               prefix="/api/v1/ml",                tags=["ml"])
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -139,3 +140,8 @@ async def ws_realtime(websocket: WebSocket):
         logger.debug(f"WS disconnected: {e}")
     finally:
         await pubsub.unsubscribe()
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def spa_fallback(full_path: str):
+    return FileResponse("static/index.html")

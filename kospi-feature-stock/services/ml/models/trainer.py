@@ -1,11 +1,17 @@
+import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
+
 import joblib
-import pandas as pd
 import lightgbm as lgb
 import numpy as np
+import pandas as pd
 from sklearn.isotonic import IsotonicRegression
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import (
+    accuracy_score, brier_score_loss, f1_score,
+    precision_score, recall_score, roc_auc_score,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,14 +60,13 @@ class LGBMTrainer:
                 from imblearn.over_sampling import SMOTE
                 sm = SMOTE(random_state=42, k_neighbors=min(5, pos_count - 1))
                 X_tr, y_tr = sm.fit_resample(X_train, y_train)
-                scale_pos  = 1.0   # SMOTE already balanced
+                scale_pos  = 1.0
                 logger.info(f"[Trainer] SMOTE applied: {X_train.shape} → {X_tr.shape}")
             except ImportError:
                 logger.warning("[Trainer] imbalanced-learn not installed, skipping SMOTE")
             except Exception as e:
                 logger.warning(f"[Trainer] SMOTE failed: {e}")
 
-        # Merge scale_pos_weight into params
         params = dict(_BASE_PARAMS)
         params["objective"] = "binary"
         params["metric"] = ["binary_logloss", "auc"]
@@ -84,10 +89,39 @@ class LGBMTrainer:
         Path(model_dir).mkdir(parents=True, exist_ok=True)
         model.booster_.save_model(f"{model_dir}/entry_model.lgb")
 
+        # ── Isotonic calibration ──────────────────────────────
         cal = IsotonicRegression(out_of_bounds="clip")
         cal.fit(raw_proba, np.array(y_val))
         joblib.dump(cal, f"{model_dir}/entry_calibrator.pkl")
-        logger.info("Entry calibrator saved")
+
+        # ── 피처 컬럼 목록 저장 (단일 소스 오브 트루스) ──────
+        feature_cols = list(X_train.columns)
+        with open(f"{model_dir}/feature_columns.json", "w") as fp:
+            json.dump(feature_cols, fp)
+        logger.info(f"feature_columns.json saved ({len(feature_cols)} features)")
+
+        # ── 모델 성능 지표 저장 ───────────────────────────────
+        cal_proba = np.clip(cal.predict(raw_proba), 0.0, 1.0)
+        y_pred    = (cal_proba >= 0.5).astype(int)
+        fi = dict(zip(X_train.columns, model.feature_importances_.tolist()))
+        top_fi = dict(sorted(fi.items(), key=lambda x: -x[1])[:30])
+        metrics = {
+            "model_type":   "LightGBM (Entry)",
+            "trained_at":   datetime.now(timezone.utc).isoformat(),
+            "n_features":   len(feature_cols),
+            "n_train":      len(X_train),
+            "n_val":        len(X_val),
+            "auc":          round(float(auc), 4),
+            "f1":           round(float(f1_score(y_val, y_pred, zero_division=0)), 4),
+            "precision":    round(float(precision_score(y_val, y_pred, zero_division=0)), 4),
+            "recall":       round(float(recall_score(y_val, y_pred, zero_division=0)), 4),
+            "accuracy":     round(float(accuracy_score(y_val, y_pred)), 4),
+            "brier_score":  round(float(brier_score_loss(y_val, cal_proba)), 4),
+            "feature_importance": top_fi,
+        }
+        with open(f"{model_dir}/model_metrics.json", "w") as fp:
+            json.dump(metrics, fp, indent=2)
+        logger.info(f"model_metrics.json saved: AUC={auc:.4f}")
 
         return model
 
@@ -115,14 +149,13 @@ class LGBMTrainer:
                 from imblearn.over_sampling import SMOTE
                 sm = SMOTE(random_state=42, k_neighbors=min(5, pos_count - 1))
                 X_tr, y_tr = sm.fit_resample(X_train, y_train)
-                scale_pos  = 1.0   # SMOTE already balanced
+                scale_pos  = 1.0
                 logger.info(f"[Trainer] SMOTE applied: {X_train.shape} → {X_tr.shape}")
             except ImportError:
                 logger.warning("[Trainer] imbalanced-learn not installed, skipping SMOTE")
             except Exception as e:
                 logger.warning(f"[Trainer] SMOTE failed: {e}")
 
-        # Merge scale_pos_weight into params
         params = dict(_BASE_PARAMS)
         params["objective"] = "binary"
         params["metric"] = "auc"

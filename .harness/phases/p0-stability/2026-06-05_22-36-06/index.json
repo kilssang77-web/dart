@@ -1,0 +1,36 @@
+{
+  "task": "p0-stability",
+  "runId": "2026-06-05_22-36-06",
+  "stage_from": "prototype",
+  "stage_to": "mvp",
+  "author": "kil0410@a2m.co.kr",
+  "created_at": "2026-06-05T22:36:06+09:00",
+  "completed_at": "2026-06-07T17:45:00+09:00",
+  "status": "completed",
+  "steps": [
+    {
+      "id": "step1",
+      "title": "Recovery 중복처리 버그 수정 — feature_event_id FK 마이그레이션",
+      "status": "completed",
+      "summary": "write_feature_events() WHERE NOT EXISTS 패턴으로 dedup 구현 (TimescaleDB 하이퍼테이블 제약으로 FK 불가). 기존 126개 중복 삭제. recommendations(feature_event_id) 조회 인덱스 추가."
+    },
+    {
+      "id": "step2",
+      "title": "KOSPI/KOSDAQ 지수 일봉 수집 추가",
+      "status": "completed",
+      "summary": "backfill_history.py --index-only 플래그 추가. KIS get_index_bars()로 KOSPI(0001)/KOSDAQ(1001) 각 1305 bars 백필 완료 (2020-01-17 ~ 2026-06-05)."
+    },
+    {
+      "id": "step3",
+      "title": "supply_demand EOD 수집 루프 + 로깅 개선",
+      "status": "completed",
+      "summary": "_supply_demand_eod_loop() 이미 구현됨: is_after_close() + _daily_bars_done 이벤트 대기 + 전체 종목 0.3s rate limit. success/empty/fail 집계 로그 완비."
+    },
+    {
+      "id": "step4",
+      "title": "pattern_vector 오류 가시화 + backfill 스크립트 신설",
+      "status": "completed",
+      "summary": "pattern_vector.py logger.warning 이미 적용. recommender/main.py _recover_missed_events() 및 신규 이벤트 저장 시 update_pattern_vector() 호출. scripts/backfill_vectors.py 존재 확인 — 기존 이벤트 모두 vector 보유."
+    }
+  ]
+}

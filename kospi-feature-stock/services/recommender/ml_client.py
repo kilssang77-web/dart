@@ -1,8 +1,9 @@
 """
 ML 추론 클라이언트.
-- /models/lgbm/{entry,risk}_model.lgb 존재 시 → LightGBM 사용
+- /models/lgbm/{entry,risk}_model.lgb 존재 시 → LightGBM + Isotonic Calibration
 - 모델 미학습 상태 시 → 규칙 기반 fallback (서비스 재시작 불필요)
 """
+import json
 import logging
 import os
 from dataclasses import dataclass
@@ -17,9 +18,9 @@ logger = logging.getLogger(__name__)
 _MODEL_DIR = os.environ.get("LGBM_MODEL_DIR", "/models/lgbm")
 _ML_SERVICE_URL = os.environ.get("ML_SERVICE_URL", "")  # e.g. "http://ml:8001"
 
-# 기본값 (모델 미로드 시 fallback — lgbm_predictor.py와 동일하게 유지)
-_FEATURE_COLUMNS_DEFAULT = [
-    "return_1d", "return_3d", "return_5d",
+# 기본값 — feature_columns.json 로드 성공 시 동적으로 교체됨 (lgbm_predictor.py와 동기화)
+FEATURE_COLUMNS: list[str] = [
+    "return_1d", "return_3d", "return_5d", "return_10d", "return_20d",
     "ma5_ratio", "ma20_ratio", "ma60_ratio",
     "ma5_slope", "ma20_slope",
     "vol_ratio_5d", "vol_ratio_20d", "vol_surge",
@@ -39,8 +40,13 @@ _FEATURE_COLUMNS_DEFAULT = [
     "kospi_return_1d", "kospi_return_5d",
     "rel_strength_5d",
     "market_vol_ratio",
+    "price_accel",
+    "gap_pct",
+    "consec_up", "consec_down",
+    "vol_up_down_ratio",
+    "ma5_ma20_cross", "ma20_ma60_cross",
+    "foreign_net_ratio", "inst_net_ratio",
 ]
-FEATURE_COLUMNS: list[str] = _FEATURE_COLUMNS_DEFAULT
 
 
 @dataclass
@@ -57,36 +63,65 @@ class MLResult:
 
 _entry_model = None
 _risk_model  = None
+_entry_cal   = None
+_risk_cal    = None
 _model_checked = False
 
 
 def _try_load_models():
-    global _entry_model, _risk_model, _model_checked, FEATURE_COLUMNS
+    global _entry_model, _risk_model, _entry_cal, _risk_cal, _model_checked, FEATURE_COLUMNS
     if _model_checked:
         return
     _model_checked = True
+    model_path = Path(_MODEL_DIR)
+
+    # feature_columns.json — 단일 소스 오브 트루스
+    fc_path = model_path / "feature_columns.json"
+    if fc_path.exists():
+        try:
+            with open(fc_path) as f:
+                cols = json.load(f)
+            if cols:
+                FEATURE_COLUMNS = cols
+                logger.info(f"[MLClient] feature_columns.json loaded: {len(FEATURE_COLUMNS)} features")
+        except Exception as e:
+            logger.warning(f"[MLClient] feature_columns.json read error: {e}")
+
     try:
         import lightgbm as lgb
-        ep = Path(_MODEL_DIR) / "entry_model.lgb"
-        rp = Path(_MODEL_DIR) / "risk_model.lgb"
+        ep = model_path / "entry_model.lgb"
+        rp = model_path / "risk_model.lgb"
         if ep.exists():
             _entry_model = lgb.Booster(model_file=str(ep))
-            # 모델에서 직접 피처명 로드 — lgbm_predictor.py와 동기화 불필요
-            model_features = _entry_model.feature_name()
-            if model_features:
-                FEATURE_COLUMNS = model_features
-                logger.info(f"[MLClient] entry_model loaded, features={len(FEATURE_COLUMNS)}")
-            else:
-                logger.warning("[MLClient] entry_model has no feature names — using default list")
+            # feature_columns.json 없을 경우 모델에서 직접 로드
+            if not fc_path.exists():
+                model_features = _entry_model.feature_name()
+                if model_features:
+                    FEATURE_COLUMNS = model_features
+            logger.info(f"[MLClient] entry_model loaded, features={len(FEATURE_COLUMNS)}")
         else:
-            logger.warning(f"[MLClient] entry_model NOT found at {ep} — rule-based fallback 사용")
+            logger.warning(f"[MLClient] entry_model NOT found at {ep} — rule-based fallback")
         if rp.exists():
             _risk_model = lgb.Booster(model_file=str(rp))
             logger.info(f"[MLClient] risk_model loaded from {rp}")
     except ImportError:
-        logger.warning("[MLClient] lightgbm not installed — rule-based fallback 사용")
+        logger.warning("[MLClient] lightgbm not installed — rule-based fallback")
     except Exception as e:
         logger.error(f"[MLClient] model load error: {e}")
+
+    # Isotonic calibrators
+    try:
+        import joblib
+        ecp = model_path / "entry_calibrator.pkl"
+        rcp = model_path / "risk_calibrator.pkl"
+        if ecp.exists():
+            _entry_cal = joblib.load(str(ecp))
+            logger.info("[MLClient] entry_calibrator loaded")
+        if rcp.exists():
+            _risk_cal = joblib.load(str(rcp))
+            logger.info("[MLClient] risk_calibrator loaded")
+    except Exception as e:
+        logger.warning(f"[MLClient] calibrator load error: {e}")
 
 
 # ── 피처 계산 ─────────────────────────────────────────────────────
@@ -116,9 +151,11 @@ def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: li
         return (closes[0] / closes[n] - 1) * 100 if len(closes) > n and closes[n] else 0.0
 
     # ── 수익률 ──
-    return_1d = ret(1)
-    return_3d = ret(3)
-    return_5d = ret(5)
+    return_1d  = ret(1)
+    return_3d  = ret(3)
+    return_5d  = ret(5)
+    return_10d = ret(10)
+    return_20d = ret(20)
 
     # ── MA 비율 / 기울기 ──
     def ma(n):
@@ -131,6 +168,26 @@ def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: li
     ma5_slope  = (ma(5) / ma(min(10, len(closes))) - 1) if len(closes) >= 5 else 0.0
     ma20_slope = (ma(20) / ma(min(40, len(closes))) - 1) if len(closes) >= 20 else 0.0
 
+    # ── 가격 가속도·갭 ──
+    price_accel = return_1d - (return_3d / 3.0)
+    gap_pct = (opens[0] / closes[1] - 1) * 100 if len(closes) > 1 and closes[1] else 0.0
+
+    # ── 연속 상승/하락 일수 ──
+    consec_up = consec_down = 0
+    for i in range(1, min(len(closes), 20)):
+        if closes[i - 1] > closes[i]:
+            if consec_down == 0:
+                consec_up += 1
+            else:
+                break
+        elif closes[i - 1] < closes[i]:
+            if consec_up == 0:
+                consec_down += 1
+            else:
+                break
+        else:
+            break
+
     # ── 거래량/거래대금 ──
     vol5   = sum(volumes[:5])  / 5  if len(volumes) >= 5  else volumes[0]
     vol20  = sum(volumes[:20]) / 20 if len(volumes) >= 20 else volumes[0]
@@ -139,6 +196,23 @@ def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: li
     vol_ratio_20d = volumes[0] / vol20 if vol20 else 1.0
     vol_surge     = 1.0 if vol_ratio_20d >= 3.0 else 0.0
     amount_ratio  = amounts[0] / amt20 if amt20 else 1.0
+
+    # 상승일/하락일 거래량 비율
+    up_vols   = [volumes[i] for i in range(1, min(20, len(volumes))) if closes[i-1] >= closes[i]]
+    down_vols = [volumes[i] for i in range(1, min(20, len(volumes))) if closes[i-1] < closes[i]]
+    avg_up   = sum(up_vols)   / len(up_vols)   if up_vols   else 1.0
+    avg_down = sum(down_vols) / len(down_vols) if down_vols else 1.0
+    vol_up_down_ratio = avg_up / avg_down if avg_down else 1.0
+
+    # ── MA 크로스 ──
+    def ma_prev(n, offset=1):
+        v = closes[offset:offset + n]
+        return sum(v) / len(v) if v else closes[offset] if len(closes) > offset else c
+    ma5_prev  = ma_prev(5)
+    ma20_prev = ma_prev(20)
+    ma60_prev = ma_prev(60)
+    ma5_ma20_cross  = 1.0 if ma5 > ma20 and ma5_prev <= ma20_prev else 0.0
+    ma20_ma60_cross = 1.0 if ma20 > ma60 and ma20_prev <= ma60_prev else 0.0
 
     # ── ATR ──
     atrs = [highs[i] - lows[i] for i in range(min(14, len(highs)))]
@@ -202,6 +276,12 @@ def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: li
     short_ratio     = short_vol / volumes[0] if volumes[0] else 0.0
     short_increasing = _safe(rows[0].get("short_increasing", 0))
 
+    # 외국인/기관 순매수 비율 (당일 거래량 대비)
+    foreign_net_today = _safe(sd_rows[0].get("foreign_net")) if sd_rows else _safe(rows[0].get("foreign_net_buy"))
+    inst_net_today    = _safe(sd_rows[0].get("inst_net"))    if sd_rows else _safe(rows[0].get("inst_net_buy"))
+    foreign_net_ratio = foreign_net_today / (volumes[0] + 1)
+    inst_net_ratio    = inst_net_today    / (volumes[0] + 1)
+
     # ── 공시 ──
     disc_sentiment = 0.0
     has_favorable  = 0.0
@@ -209,8 +289,10 @@ def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: li
         scores = [_safe(r.get("sentiment_score")) for r in disc_rows]
         disc_sentiment = float(np.mean(scores)) if scores else 0.0
         has_favorable  = 1.0 if any(s >= 0.3 for s in scores) else 0.0
+    disclosure_sentiment   = disc_sentiment
+    has_favorable_disclosure = has_favorable
 
-    # ── KOSPI/시장 대비 상대강도 ──────────────────────────────
+    # ── KOSPI/시장 대비 상대강도 ──
     kc = [float(r["close"]) for r in (kospi_rows or []) if r.get("close")]
     if len(kc) >= 6:
         kospi_return_1d = (kc[0] / kc[1] - 1) * 100 if kc[1] else 0.0
@@ -313,8 +395,20 @@ async def get_ml_result(event: dict, db: asyncpg.Pool) -> MLResult:
         try:
             import pandas as pd
             X = pd.DataFrame([feats])[FEATURE_COLUMNS].fillna(0.0)
-            prob = float(np.clip(_entry_model.predict(X)[0], 0.0, 1.0))
-            risk = float(np.clip(_risk_model.predict(X)[0], 0.0, 1.0)) if _risk_model else 0.4
+            raw_prob = float(np.clip(_entry_model.predict(X)[0], 0.0, 1.0))
+
+            # Isotonic calibration 적용
+            if _entry_cal is not None:
+                prob = float(np.clip(_entry_cal.predict([raw_prob])[0], 0.0, 1.0))
+            else:
+                prob = raw_prob
+
+            raw_risk = float(np.clip(_risk_model.predict(X)[0], 0.0, 1.0)) if _risk_model else 0.4
+            if _risk_cal is not None:
+                risk = float(np.clip(_risk_cal.predict([raw_risk])[0], 0.0, 1.0))
+            else:
+                risk = raw_risk
+
             hold = _hold_days(feats)
             return MLResult(
                 success_prob=round(prob, 4),
@@ -387,7 +481,6 @@ async def get_similar_cases(event: dict, db: asyncpg.Pool) -> tuple[list, dict]:
     code = event.get("code", "")
     try:
         async with db.acquire() as conn:
-            # Step 1: 현재 종목의 최신 패턴 벡터 조회
             anchor = await conn.fetchrow(
                 """
                 SELECT pattern_vector FROM feature_events
@@ -398,7 +491,6 @@ async def get_similar_cases(event: dict, db: asyncpg.Pool) -> tuple[list, dict]:
             )
 
             if anchor and anchor["pattern_vector"] is not None:
-                # Step 2: HNSW ANN 검색 — ORDER BY <=> 가 인덱스를 활용
                 rows = await conn.fetch(
                     """
                     SELECT id, code, detected_at::TEXT, event_type,
@@ -416,7 +508,6 @@ async def get_similar_cases(event: dict, db: asyncpg.Pool) -> tuple[list, dict]:
                 )
                 search_method = "hnsw_ann"
             else:
-                # fallback: 같은 이벤트 타입 최근 이력
                 rows = await conn.fetch(
                     """
                     SELECT id, code, detected_at::TEXT, event_type,

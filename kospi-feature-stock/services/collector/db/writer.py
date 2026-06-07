@@ -292,7 +292,11 @@ async def write_daily_bars(pool: asyncpg.Pool, bars: list[dict]) -> int:
 
 
 async def write_feature_events(pool: asyncpg.Pool, events: list[dict]) -> int:
-    """배치 탐지 이벤트를 feature_events에 저장. 중복(ON CONFLICT DO NOTHING) 허용."""
+    """배치 탐지 이벤트를 feature_events에 저장.
+    같은 (code, event_type)이 당일 이미 존재하면 삽입 생략 (중복 방지).
+    TimescaleDB 하이퍼테이블은 파티션 키(detected_at)가 포함된 복합 PK만 허용하므로
+    ON CONFLICT 대신 WHERE NOT EXISTS 패턴으로 동일 효과를 구현한다.
+    """
     if not events:
         return 0
     now = datetime.now(timezone.utc)
@@ -315,20 +319,30 @@ async def write_feature_events(pool: asyncpg.Pool, events: list[dict]) -> int:
     ]
     if not rows:
         return 0
+    inserted = 0
     try:
         async with pool.acquire() as conn:
-            await conn.executemany(
-                """
-                INSERT INTO feature_events
-                    (detected_at, code, event_type, price, change_rate,
-                     volume, volume_ratio, amount, signal_data,
-                     signal_score, risk_score)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11)
-                ON CONFLICT DO NOTHING
-                """,
-                rows,
-            )
-        return len(rows)
+            for row in rows:
+                result = await conn.execute(
+                    """
+                    INSERT INTO feature_events
+                        (detected_at, code, event_type, price, change_rate,
+                         volume, volume_ratio, amount, signal_data,
+                         signal_score, risk_score)
+                    SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM feature_events
+                        WHERE code       = $2
+                          AND event_type = $3
+                          AND detected_at >= DATE_TRUNC('day', $1)
+                          AND detected_at <  DATE_TRUNC('day', $1) + INTERVAL '1 day'
+                    )
+                    """,
+                    *row,
+                )
+                if result == "INSERT 0 1":
+                    inserted += 1
+        return inserted
     except Exception as e:
         logger.error(f"feature_events write error: {e}")
         return 0

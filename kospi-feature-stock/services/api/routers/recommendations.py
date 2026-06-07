@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 import asyncpg
 import json
 from deps import get_db
+from schemas.responses import RecommendationResponse, PerformanceStatsResponse
 
 
 def _parse_json_fields(d: dict) -> dict:
@@ -16,7 +17,7 @@ def _parse_json_fields(d: dict) -> dict:
 router = APIRouter()
 
 
-@router.get("")
+@router.get("", response_model=list[RecommendationResponse])
 async def list_recommendations(
     action: str | None = None,
     market: str | None = None,
@@ -58,7 +59,7 @@ async def list_recommendations(
     return [_parse_json_fields(dict(r)) for r in rows]
 
 
-@router.get("/buy")
+@router.get("/buy", response_model=list[RecommendationResponse])
 async def get_buy_signals(
     min_prob: float = Query(default=0.35, ge=0.0, le=1.0),
     db: asyncpg.Pool = Depends(get_db),
@@ -84,11 +85,11 @@ async def get_buy_signals(
         """,
         min_prob,
     )
-    return [dict(r) for r in rows]
+    return [RecommendationResponse(**_parse_json_fields(dict(r))) for r in rows]
 
 
 # /stats/performance 는 /{code}/latest 보다 반드시 먼저 선언해야 함
-@router.get("/stats/performance")
+@router.get("/stats/performance", response_model=PerformanceStatsResponse)
 async def performance_stats(
     days: int = Query(default=30, le=90),
     db: asyncpg.Pool = Depends(get_db),
@@ -110,10 +111,10 @@ async def performance_stats(
     result = dict(row)
     buy = result.get("buy_count") or 1
     result["success_rate"] = round((result.get("success_count") or 0) / buy, 3)
-    return result
+    return PerformanceStatsResponse(**result)
 
 
-@router.get("/{code}/latest")
+@router.get("/{code}/latest", response_model=RecommendationResponse)
 async def get_latest(code: str, db: asyncpg.Pool = Depends(get_db)):
     row = await db.fetchrow(
         """
@@ -128,4 +129,4 @@ async def get_latest(code: str, db: asyncpg.Pool = Depends(get_db)):
     )
     if not row:
         raise HTTPException(404, "No recommendation found")
-    return _parse_json_fields(dict(row))
+    return RecommendationResponse(**_parse_json_fields(dict(row)))

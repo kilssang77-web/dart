@@ -14,34 +14,65 @@ async def run_backtest(
     end: str = Body(...),
     event_type: str = Body(default="VOLUME_SURGE"),
     min_score: float = Body(default=0.6),
+    ml_min_prob: float = Body(default=0.0),
     stop_loss_pct: float = Body(default=0.05),
     target_pct: float = Body(default=0.10),
     db: asyncpg.Pool = Depends(get_db),
 ):
-
-    # 시그널 로드
     start_d = date.fromisoformat(start)
     end_d   = date.fromisoformat(end)
 
-    sig_rows = await db.fetch(
-        """
-        SELECT fe.code, fe.detected_at::TEXT AS date, db.close
-        FROM feature_events fe
-        JOIN daily_bars db ON db.code = fe.code
-            AND db.date = DATE(fe.detected_at)
-        WHERE fe.event_type = $1
-          AND fe.signal_score >= $2
-          AND DATE(fe.detected_at) BETWEEN $3 AND $4
-        ORDER BY fe.detected_at
-        """,
-        event_type, min_score, start_d, end_d,
-    )
+    if ml_min_prob > 0:
+        # ML 확률 필터 — 해당 신호에 연관된 recommendation의 success_prob 기준
+        sig_rows = await db.fetch(
+            """
+            SELECT DISTINCT ON (fe.code, DATE(fe.detected_at))
+                fe.code,
+                DATE(fe.detected_at)::TEXT AS date,
+                db.close,
+                rec.success_prob
+            FROM feature_events fe
+            JOIN daily_bars db
+                ON db.code = fe.code AND db.date = DATE(fe.detected_at)
+            JOIN LATERAL (
+                SELECT r.success_prob
+                FROM recommendations r
+                WHERE r.code = fe.code
+                  AND r.created_at BETWEEN fe.detected_at - INTERVAL '1 hour'
+                                       AND fe.detected_at + INTERVAL '4 hours'
+                ORDER BY r.created_at DESC
+                LIMIT 1
+            ) rec ON true
+            WHERE fe.event_type = $1
+              AND fe.signal_score >= $2
+              AND DATE(fe.detected_at) BETWEEN $3 AND $4
+              AND rec.success_prob >= $5
+            ORDER BY fe.code, DATE(fe.detected_at), fe.detected_at DESC
+            """,
+            event_type, min_score, start_d, end_d, ml_min_prob,
+        )
+    else:
+        sig_rows = await db.fetch(
+            """
+            SELECT DISTINCT ON (fe.code, DATE(fe.detected_at))
+                fe.code,
+                DATE(fe.detected_at)::TEXT AS date,
+                db.close
+            FROM feature_events fe
+            JOIN daily_bars db ON db.code = fe.code AND db.date = DATE(fe.detected_at)
+            WHERE fe.event_type = $1
+              AND fe.signal_score >= $2
+              AND DATE(fe.detected_at) BETWEEN $3 AND $4
+            ORDER BY fe.code, DATE(fe.detected_at), fe.detected_at DESC
+            """,
+            event_type, min_score, start_d, end_d,
+        )
+
     if not sig_rows:
         return {"error": "No signals found for the given period"}
 
     signals = pd.DataFrame([dict(r) for r in sig_rows])
 
-    # 일봉 로드
     codes = signals["code"].unique().tolist()
     bar_rows = await db.fetch(
         """
@@ -61,18 +92,19 @@ async def run_backtest(
     result = engine.run(signals, bars)
     return {
         "params": {
-            "event_type": event_type,
-            "start": start,
-            "end": end,
-            "min_score": min_score,
+            "event_type":   event_type,
+            "start":        start,
+            "end":          end,
+            "min_score":    min_score,
+            "ml_min_prob":  ml_min_prob,
         },
         "result": result.summary(),
         "sample_trades": [
             {
-                "code": t.code,
-                "entry": t.entry_date,
-                "exit": t.exit_date,
-                "pnl": round(t.pnl_pct, 2),
+                "code":   t.code,
+                "entry":  t.entry_date,
+                "exit":   t.exit_date,
+                "pnl":    round(t.pnl_pct, 2),
                 "status": t.status,
             }
             for t in result.trades[:20]

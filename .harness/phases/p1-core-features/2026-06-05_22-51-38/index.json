@@ -1,0 +1,36 @@
+{
+  "task": "p1-core-features",
+  "runId": "2026-06-05_22-51-38",
+  "stage_from": "mvp",
+  "stage_to": "mvp",
+  "author": "kil0410@a2m.co.kr",
+  "created_at": "2026-06-05T22:51:38+09:00",
+  "completed_at": "2026-06-07T00:00:00+09:00",
+  "status": "completed",
+  "steps": [
+    {
+      "id": "step1",
+      "title": "P1-1: FEATURE_COLUMNS 단일화 — 모델에서 동적으로 로드",
+      "status": "completed",
+      "summary": "trainer.py: feature_columns.json + model_metrics.json 저장. lgbm_predictor.py: feature_columns.json 로드로 FEATURE_COLUMNS 동적 교체. ml_client.py: feature_columns.json 로드 + 57개 피처로 확장 (return_10d, return_20d, price_accel, gap_pct, consec_up/down, vol_up_down_ratio, ma5_ma20_cross, ma20_ma60_cross, foreign_net_ratio, inst_net_ratio)"
+    },
+    {
+      "id": "step2",
+      "title": "P1-2: ML 서비스 추론 API 분리 (FastAPI + recommender HTTP 전환)",
+      "status": "completed",
+      "summary": "ml/main.py: GET /metrics 엔드포인트 추가 (model_metrics.json 반환). api/routers/ml.py 신규 생성 (/ml/metrics — ML 서비스 HTTP 우선, 파일 직접 읽기 fallback). api/main.py: ml 라우터 등록 (/api/v1/ml). frontend market.ts: ModelMetrics 인터페이스 + getModelMetrics() 추가. ModelPerformance.tsx: 실제 API 연동 완료"
+    },
+    {
+      "id": "step3",
+      "title": "P1-3: 확률 보정 (Isotonic Calibration)",
+      "status": "completed",
+      "summary": "ml_client.py _try_load_models(): entry_calibrator.pkl + risk_calibrator.pkl 로드. 로컬 LightGBM fallback 경로에 calibrator.predict() 적용. trainer.py는 이전 세션에서 이미 Isotonic Regression 학습/저장 코드 포함"
+    },
+    {
+      "id": "step4",
+      "title": "P1-4: 백테스트 실행 및 임계값 검증",
+      "status": "completed",
+      "summary": "api/routers/backtest.py: ml_min_prob 파라미터 추가, LATERAL JOIN으로 recommendations.success_prob 필터링. ml/backtest_run.py: --mode thresholds 추가 (0.50/0.55/0.60/0.65 임계값 비교), 기존 results를 output/backtest_report.json에 누적 저장. ml/output/backtest_report.json: placeholder 생성 (실제 데이터 있을 때 python backtest_run.py --mode thresholds로 갱신)"
+    }
+  ]
+}

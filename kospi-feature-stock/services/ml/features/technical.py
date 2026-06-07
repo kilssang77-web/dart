@@ -84,6 +84,44 @@ class TechnicalFeatureExtractor:
         l52 = close.rolling(260).min()
         df["pos_52w"] = (close - l52) / (h52 - l52 + 1e-8).replace(0, np.nan)
 
+        # 갭 비율 (전일 종가 대비 당일 시가)
+        prev_close_s = close.shift(1)
+        df["gap_pct"] = (open_ - prev_close_s) / prev_close_s.replace(0, np.nan)
+
+        # 가격 가속도 (수익률 변화율)
+        ret1 = close.pct_change(1)
+        df["price_accel"] = ret1 - ret1.shift(1)
+
+        # 연속 상승/하락일
+        direction = np.sign(ret1.fillna(0))
+        consec_up_arr   = np.zeros(len(df), dtype=int)
+        consec_down_arr = np.zeros(len(df), dtype=int)
+        for i in range(1, len(direction)):
+            if direction.iloc[i] > 0:
+                consec_up_arr[i]   = consec_up_arr[i - 1] + 1
+                consec_down_arr[i] = 0
+            elif direction.iloc[i] < 0:
+                consec_up_arr[i]   = 0
+                consec_down_arr[i] = consec_down_arr[i - 1] + 1
+        df["consec_up"]   = consec_up_arr
+        df["consec_down"] = consec_down_arr
+
+        # 거래량 상승/하락 비율 (상승봉 거래량 / 하락봉 거래량, 10일)
+        up_vol   = volume.where(direction > 0, 0.0).rolling(10).sum()
+        down_vol = volume.where(direction < 0, 0.0).rolling(10).sum()
+        df["vol_up_down_ratio"] = up_vol / down_vol.replace(0, np.nan)
+
+        # 이동평균 크로스오버
+        ma5  = close.rolling(5).mean()
+        ma20 = close.rolling(20).mean()
+        ma60 = close.rolling(60).mean()
+        df["ma5_ma20_cross"]  = (
+            (ma5 > ma20) & (ma5.shift(1) <= ma20.shift(1))
+        ).astype(int)
+        df["ma20_ma60_cross"] = (
+            (ma20 > ma60) & (ma20.shift(1) <= ma60.shift(1))
+        ).astype(int)
+
         return df.replace([np.inf, -np.inf], np.nan)
 
     def inject_market_features(

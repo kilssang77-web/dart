@@ -103,7 +103,9 @@ async def load_kospi(pool: asyncpg.Pool, start, end) -> pd.DataFrame:
     )
     if not rows:
         return pd.DataFrame(columns=["close"])
-    return pd.DataFrame([dict(r) for r in rows]).set_index("date")
+    df = pd.DataFrame([dict(r) for r in rows])
+    df["date"] = pd.to_datetime(df["date"])
+    return df.set_index("date")
 
 
 async def load_disclosures(pool: asyncpg.Pool, start, end) -> pd.DataFrame:
@@ -137,6 +139,10 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
     종목별 순서 정렬 후 롤링 계산.
     """
     df = df.sort_values(["code", "date"]).reset_index(drop=True)
+    # asyncpg returns Python date objects; convert to Timestamp for comparison
+    if len(disc_df) > 0 and "date" in disc_df.columns:
+        disc_df = disc_df.copy()
+        disc_df["date"] = pd.to_datetime(disc_df["date"])
 
     results = []
     for code, grp in df.groupby("code"):

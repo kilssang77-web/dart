@@ -393,8 +393,11 @@ services:
       kafka:
         condition: service_healthy
     env_file: .env
+    environment:
+      ML_SERVICE_URL: "http://ml:8001"
     volumes:
       - ./services/api:/app
+      - model_cache:/models
     restart: unless-stopped
 
 volumes:
