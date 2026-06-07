@@ -304,7 +304,7 @@ class RecommendV2Request(BaseModel):
     industry_id:           int
     region_id:             int
     base_amount:           int
-    min_bid_rate:          float = 0.87745
+    min_bid_rate:          float = Field(0.87745, ge=0.5, le=1.0)
     bid_open_date:         Optional[datetime] = None
     a_value:               Optional[int] = None
     construction_period:   Optional[int] = None
@@ -1066,7 +1066,7 @@ class SingleRecommendRequest(BaseModel):
     agency_id:       int
     industry_id:     Optional[int] = None
     region_id:       Optional[int] = None
-    min_bid_rate:    float = 0.87745
+    min_bid_rate:    float = Field(0.87745, ge=0.5, le=1.0)
     bid_open_date:   Optional[datetime] = None
     our_share_rate:  float = 1.0
 

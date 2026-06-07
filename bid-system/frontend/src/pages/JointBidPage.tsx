@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Handshake, Search, Shield, TrendingUp, Activity, Award, ChevronDown, ChevronUp, CheckCircle2, XCircle, Zap } from 'lucide-react'
+import { Handshake, Search, Shield, TrendingUp, Activity, Award, ChevronDown, ChevronUp, CheckCircle2, XCircle, Zap, Users } from 'lucide-react'
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer,
 } from 'recharts'
@@ -56,13 +56,14 @@ function calcCompat(c: Competitor, myTargetRate: number): CompatScore {
 }
 
 function CompatBar({ score }: { score: number }) {
-  const color = score >= 75 ? 'bg-green-500' : score >= 55 ? 'bg-yellow-400' : 'bg-red-400'
+  const color = score >= 75 ? 'bg-emerald-500' : score >= 55 ? 'bg-amber-400' : 'bg-red-400'
+  const textColor = score >= 75 ? 'text-emerald-700' : score >= 55 ? 'text-amber-700' : 'text-red-600'
   return (
     <div className="flex items-center gap-2">
-      <div className="w-24 h-2 rounded-full bg-muted overflow-hidden">
-        <div className={cn('h-2 rounded-full transition-all', color)} style={{ width: `${score}%` }} />
+      <div className="w-24 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+        <div className={cn('h-1.5 rounded-full transition-all', color)} style={{ width: `${score}%` }} />
       </div>
-      <span className={cn('text-xs font-bold tabular-nums', score >= 75 ? 'text-green-700' : score >= 55 ? 'text-yellow-700' : 'text-red-600')}>
+      <span className={cn('text-xs font-bold tabular-nums', textColor)}>
         {score}
       </span>
     </div>
@@ -71,13 +72,13 @@ function CompatBar({ score }: { score: number }) {
 
 function RiskBadge({ level }: { level: string }) {
   const map: Record<string, { label: string; className: string }> = {
-    LOW:     { label: '안정', className: 'bg-green-100 text-green-700 border-green-200' },
-    MEDIUM:  { label: '보통', className: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
-    HIGH:    { label: '위험', className: 'bg-red-100 text-red-700 border-red-200' },
-    UNKNOWN: { label: '미상', className: 'bg-gray-100 text-gray-500 border-gray-200' },
+    LOW:     { label: '안정', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+    MEDIUM:  { label: '보통', className: 'bg-amber-50 text-amber-700 border-amber-200' },
+    HIGH:    { label: '위험', className: 'bg-red-50 text-red-700 border-red-200' },
+    UNKNOWN: { label: '미상', className: 'bg-slate-100 text-slate-500 border-slate-200' },
   }
   const m = map[level] ?? map.UNKNOWN
-  return <span className={cn('text-[10px] px-1.5 py-0.5 rounded border font-medium', m.className)}>{m.label}</span>
+  return <span className={cn('text-[10px] px-1.5 py-0.5 rounded border font-semibold', m.className)}>{m.label}</span>
 }
 
 export default function JointBidPage() {
@@ -116,7 +117,7 @@ export default function JointBidPage() {
     queryFn: () => competitorsApi.list({
       keyword: search || undefined,
       page: 1,
-      size: 200,
+      size: 100,
       risk_level: riskFilter === 'all' ? undefined : riskFilter,
     }),
   })
@@ -146,405 +147,451 @@ export default function JointBidPage() {
     : null
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl">
-      {/* 헤더 */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Handshake className="h-5 w-5 text-primary" />
-          공동도급 협정사 탐색
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          경쟁사 데이터 기반 잠재 협력사 궁합 분석 — 안정성·실적·일관성·활동성 종합 평가
-        </p>
+    <div className="min-h-screen bg-slate-50">
+      {/* 스티키 헤더 */}
+      <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-sm border-b border-slate-200 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 flex items-center gap-2">
+              <Handshake className="h-5 w-5 text-blue-600" />
+              공동도급 협정사 탐색
+            </h1>
+            <p className="text-sm text-slate-500 mt-0.5">경쟁사 데이터 기반 잠재 협력사 궁합 분석 — 안정성·실적·일관성·활동성 종합 평가</p>
+          </div>
+          {scoredList.length > 0 && (
+            <div className="flex items-center gap-4 text-sm">
+              <div className="text-right">
+                <p className="text-xs text-slate-400">탐색 결과</p>
+                <p className="font-bold text-slate-900">{scoredList.length}<span className="text-xs font-normal text-slate-500 ml-0.5">개사</span></p>
+              </div>
+              {top3avg != null && (
+                <div className="text-right">
+                  <p className="text-xs text-slate-400">상위 3사 평균</p>
+                  <p className="font-bold text-blue-600">{top3avg}<span className="text-xs font-normal text-slate-500 ml-0.5">점</span></p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* 공고 연계 적격심사 AI 매칭 */}
-      <Card className="border-primary/40">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Zap className="h-4 w-4 text-primary" />
-            공고 연계 적격심사 AI 매칭
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs">공고 ID</Label>
-              <Input
-                placeholder="예: 12345"
-                value={aiBidId}
-                onChange={(e) => setAiBidId(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
+      <div className="p-6 space-y-5 max-w-5xl">
+        {/* 공고 연계 적격심사 AI 매칭 */}
+        <Card className="relative overflow-hidden bg-white border-blue-200 shadow-sm">
+          <div className="absolute top-0 left-0 right-0 h-0.5 bg-blue-500" />
+          <CardHeader className="pb-3 pt-5 px-5">
+            <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+              <div className="rounded-lg p-1.5 bg-blue-50">
+                <Zap className="h-4 w-4 text-blue-600" />
+              </div>
+              공고 연계 적격심사 AI 매칭
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-5 pb-5">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-slate-600 font-medium">공고 ID</Label>
+                <Input
+                  placeholder="예: 12345"
+                  value={aiBidId}
+                  onChange={(e) => setAiBidId(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const id = parseInt(aiBidId)
+                      if (!isNaN(id) && id > 0) setAiQueryKey({ bidId: id, track: Number(aiUserTrack), rate: Number(aiPartRate) })
+                    }
+                  }}
+                  className="border-slate-200 focus:border-blue-300"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-slate-600 font-medium">귀사 실적금액 (원)</Label>
+                <Input
+                  type="number"
+                  placeholder="예: 500000000"
+                  value={aiUserTrack}
+                  onChange={(e) => setAiUserTrack(e.target.value)}
+                  className="border-slate-200 focus:border-blue-300"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-slate-600 font-medium">귀사 참여지분율 (%)</Label>
+                <Select value={aiPartRate} onValueChange={setAiPartRate}>
+                  <SelectTrigger className="border-slate-200"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="50">50%</SelectItem>
+                    <SelectItem value="60">60%</SelectItem>
+                    <SelectItem value="70">70%</SelectItem>
+                    <SelectItem value="80">80%</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-end">
+                <Button
+                  size="sm"
+                  className="w-full bg-blue-600 hover:bg-blue-700 gap-1.5"
+                  disabled={!aiBidId || isNaN(parseInt(aiBidId)) || aiLoading}
+                  onClick={() => {
                     const id = parseInt(aiBidId)
                     if (!isNaN(id) && id > 0) setAiQueryKey({ bidId: id, track: Number(aiUserTrack), rate: Number(aiPartRate) })
-                  }
-                }}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">귀사 실적금액 (원)</Label>
-              <Input
-                type="number"
-                placeholder="예: 500000000"
-                value={aiUserTrack}
-                onChange={(e) => setAiUserTrack(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">귀사 참여지분율 (%)</Label>
-              <Select value={aiPartRate} onValueChange={setAiPartRate}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="50">50%</SelectItem>
-                  <SelectItem value="60">60%</SelectItem>
-                  <SelectItem value="70">70%</SelectItem>
-                  <SelectItem value="80">80%</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-end">
-              <Button
-                size="sm"
-                className="w-full"
-                disabled={!aiBidId || isNaN(parseInt(aiBidId)) || aiLoading}
-                onClick={() => {
-                  const id = parseInt(aiBidId)
-                  if (!isNaN(id) && id > 0) setAiQueryKey({ bidId: id, track: Number(aiUserTrack), rate: Number(aiPartRate) })
-                }}
-              >
-                {aiLoading ? '분석 중...' : '적격심사 AI 매칭'}
-              </Button>
-            </div>
-          </div>
-
-          {aiError && (
-            <p className="text-xs text-destructive">공고를 찾을 수 없습니다. 공고 ID를 확인하세요.</p>
-          )}
-
-          {aiResult && (
-            <div className="space-y-3">
-              <div className="text-xs text-muted-foreground bg-muted/40 rounded px-3 py-2">
-                <strong className="text-foreground">{aiResult.bid_title}</strong>
-                <span className="mx-2">|</span>
-                {aiResult.threshold_note}
-              </div>
-              {aiResult.partners.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-4">매칭 가능한 업체가 없습니다.</p>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>업체명</TableHead>
-                      <TableHead>사업자번호</TableHead>
-                      <TableHead className="text-center">적격 예상</TableHead>
-                      <TableHead className="text-right">파트너 지분</TableHead>
-                      <TableHead className="text-right">낙찰률</TableHead>
-                      <TableHead className="text-right">궁합점수</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {aiResult.partners.slice(0, 20).map((p) => (
-                      <TableRow key={p.competitor_id}>
-                        <TableCell className="font-medium text-sm">{p.name}</TableCell>
-                        <TableCell className="text-xs font-mono text-muted-foreground">{p.biz_reg_no ?? '-'}</TableCell>
-                        <TableCell className="text-center">
-                          {p.qualification_ok
-                            ? <CheckCircle2 className="h-4 w-4 text-green-600 mx-auto" />
-                            : <XCircle className="h-4 w-4 text-red-400 mx-auto" />}
-                        </TableCell>
-                        <TableCell className="text-right text-xs font-mono">
-                          {(p.joint_min_rate * 100).toFixed(0)}% 이상
-                        </TableCell>
-                        <TableCell className="text-right text-xs font-mono">
-                          {(p.win_rate * 100).toFixed(1)}%
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <span className={cn(
-                            'text-xs font-bold',
-                            p.compat_score >= 60 ? 'text-green-700' : p.compat_score >= 40 ? 'text-yellow-700' : 'text-muted-foreground'
-                          )}>
-                            {p.compat_score}
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-              {aiResult.partners.length > 20 && (
-                <p className="text-xs text-muted-foreground text-center">상위 20개사 표시 (전체 {aiResult.partners.length}개사)</p>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* 필터 */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">탐색 조건</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-            <div className="space-y-2 md:col-span-2">
-              <Label>업체명 검색</Label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="업체명 입력"
-                  value={keyword}
-                  onChange={(e) => setKeyword(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                />
-                <Button size="sm" onClick={handleSearch} className="shrink-0">
-                  <Search className="h-4 w-4" />
+                  }}
+                >
+                  <Zap className="h-3.5 w-3.5" />
+                  {aiLoading ? '분석 중...' : '적격심사 AI 매칭'}
                 </Button>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label>내 목표 투찰률 (%)</Label>
-              <Input
-                type="number"
-                step="0.1"
-                min="85"
-                max="100"
-                value={myTargetRate}
-                onChange={(e) => setMyTargetRate(e.target.value)}
-                placeholder="예: 90.5"
-              />
-            </div>
+            {aiError && (
+              <p className="text-xs text-red-500 bg-red-50 px-3 py-2 rounded-lg border border-red-100">
+                공고를 찾을 수 없습니다. 공고 ID를 확인하세요.
+              </p>
+            )}
 
-            <div className="space-y-2">
-              <Label>최소 궁합점수</Label>
-              <Select value={minScore} onValueChange={(v) => { setMinScore(v); setPage(1) }}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="0">전체</SelectItem>
-                  <SelectItem value="40">40점 이상</SelectItem>
-                  <SelectItem value="55">55점 이상</SelectItem>
-                  <SelectItem value="70">70점 이상</SelectItem>
-                  <SelectItem value="80">80점 이상</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label>위험등급 필터</Label>
-              <Select value={riskFilter} onValueChange={(v) => { setRiskFilter(v); setPage(1) }}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">전체</SelectItem>
-                  <SelectItem value="LOW">안정(LOW)</SelectItem>
-                  <SelectItem value="MEDIUM">보통(MEDIUM)</SelectItem>
-                  <SelectItem value="HIGH">위험(HIGH)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label>정렬 기준</Label>
-              <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="compat">궁합점수 순</SelectItem>
-                  <SelectItem value="win_rate">낙찰률 순</SelectItem>
-                  <SelectItem value="total_bids">입찰건수 순</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* 요약 KPI */}
-          {scoredList.length > 0 && (
-            <div className="flex items-center gap-6 pt-3 border-t text-sm">
-              <span className="text-muted-foreground">탐색 결과 <strong className="text-foreground">{scoredList.length}</strong>개사</span>
-              {top3avg != null && (
-                <span className="text-muted-foreground">상위 3사 평균 궁합 <strong className="text-primary">{top3avg}점</strong></span>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* 궁합 점수 기준 안내 */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          { icon: Shield, label: '안정성', desc: '위험등급 기반', max: 40, color: 'text-blue-600' },
-          { icon: Award, label: '낙찰 실적', desc: '낙찰률 정규화', max: 25, color: 'text-green-600' },
-          { icon: Activity, label: '일관성', desc: '투찰률 변동성', max: 20, color: 'text-purple-600' },
-          { icon: TrendingUp, label: '활동성', desc: '총 입찰건수', max: 15, color: 'text-orange-600' },
-        ].map(({ icon: Icon, label, desc, max, color }) => (
-          <Card key={label} className="py-0">
-            <CardContent className="pt-3 pb-3">
-              <div className="flex items-center gap-2 mb-1">
-                <Icon className={cn('h-3.5 w-3.5', color)} />
-                <span className="text-xs font-semibold">{label}</span>
-                <span className="ml-auto text-xs text-muted-foreground">{max}점</span>
-              </div>
-              <p className="text-[11px] text-muted-foreground">{desc}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* 결과 테이블 */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">후보 협정사 목록</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-8">#</TableHead>
-                <TableHead>업체명</TableHead>
-                <TableHead>위험</TableHead>
-                <TableHead className="text-right">궁합점수</TableHead>
-                <TableHead className="text-right">낙찰률</TableHead>
-                <TableHead className="text-right">평균 투찰률</TableHead>
-                <TableHead className="text-right">입찰건</TableHead>
-                <TableHead className="w-8" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading
-                ? Array.from({ length: 8 }).map((_, i) => (
-                    <TableRow key={i}>
-                      {Array.from({ length: 8 }).map((_, j) => (
-                        <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
-                      ))}
-                    </TableRow>
-                  ))
-                : paginated.map((c, idx) => {
-                    const rank = (page - 1) * PAGE_SIZE + idx + 1
-                    const expanded = expandedId === c.id
-                    const radarData = [
-                      { subject: '안정성', value: +(c._compat.stability / 40 * 100).toFixed(0) },
-                      { subject: '실적', value: +(c._compat.performance / 25 * 100).toFixed(0) },
-                      { subject: '일관성', value: +(c._compat.consistency / 20 * 100).toFixed(0) },
-                      { subject: '활동성', value: +(c._compat.activity / 15 * 100).toFixed(0) },
-                    ]
-                    return (
-                      <>
-                        <TableRow
-                          key={c.id}
-                          className="cursor-pointer hover:bg-muted/40"
-                          onClick={() => setExpandedId(expanded ? null : c.id)}
-                        >
-                          <TableCell className="text-xs text-muted-foreground font-mono">{rank}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              {rank <= 3 && <span className="text-[10px] font-bold text-primary">TOP</span>}
-                              <span className="font-medium text-sm">{c.name}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell><RiskBadge level={c.risk_level} /></TableCell>
-                          <TableCell className="text-right">
-                            <CompatBar score={c._compat.total} />
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-xs">
-                            {(c.win_rate * 100).toFixed(1)}%
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-xs">
-                            {c.avg_bid_rate != null ? (c.avg_bid_rate * 100).toFixed(3) + '%' : '-'}
-                          </TableCell>
-                          <TableCell className="text-right text-xs">{c.total_bids}건</TableCell>
-                          <TableCell>
-                            {expanded
-                              ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
-                              : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
-                          </TableCell>
+            {aiResult && (
+              <div className="space-y-3 mt-3">
+                <div className="text-xs text-slate-600 bg-blue-50 rounded-lg px-4 py-2.5 border border-blue-100">
+                  <strong className="text-slate-900">{aiResult.bid_title}</strong>
+                  <span className="mx-2 text-slate-300">|</span>
+                  <span className="text-slate-500">{aiResult.threshold_note}</span>
+                </div>
+                {aiResult.partners.length === 0 ? (
+                  <p className="text-xs text-slate-400 text-center py-6">매칭 가능한 업체가 없습니다.</p>
+                ) : (
+                  <div className="rounded-xl overflow-hidden border border-slate-200">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-slate-50">
+                          <TableHead className="text-xs text-slate-500">업체명</TableHead>
+                          <TableHead className="text-xs text-slate-500">사업자번호</TableHead>
+                          <TableHead className="text-center text-xs text-slate-500">적격 예상</TableHead>
+                          <TableHead className="text-right text-xs text-slate-500">파트너 지분</TableHead>
+                          <TableHead className="text-right text-xs text-slate-500">낙찰률</TableHead>
+                          <TableHead className="text-right text-xs text-slate-500">궁합점수</TableHead>
                         </TableRow>
-
-                        {expanded && (
-                          <TableRow key={`${c.id}-detail`} className="bg-muted/20">
-                            <TableCell colSpan={8} className="py-4 px-6">
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                {/* 레이더 차트 */}
-                                <div>
-                                  <p className="text-xs font-semibold mb-2 text-muted-foreground">궁합 구성 (각 항목 / 만점 비율)</p>
-                                  <ResponsiveContainer width="100%" height={180}>
-                                    <RadarChart data={radarData} margin={{ top: 5, right: 20, bottom: 5, left: 20 }}>
-                                      <PolarGrid stroke="hsl(var(--border))" />
-                                      <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11 }} />
-                                      <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-                                      <Radar dataKey="value" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.2} />
-                                    </RadarChart>
-                                  </ResponsiveContainer>
-                                </div>
-
-                                {/* 항목별 점수 */}
-                                <div className="space-y-3">
-                                  <p className="text-xs font-semibold text-muted-foreground">항목별 점수 (만점 기준)</p>
-                                  {[
-                                    { label: '안정성', score: c._compat.stability, max: 40 },
-                                    { label: '낙찰 실적', score: c._compat.performance, max: 25 },
-                                    { label: '일관성', score: c._compat.consistency, max: 20 },
-                                    { label: '활동성', score: c._compat.activity, max: 15 },
-                                  ].map(({ label, score, max }) => (
-                                    <div key={label}>
-                                      <div className="flex justify-between text-xs mb-1">
-                                        <span>{label}</span>
-                                        <span className="font-mono font-semibold">{score.toFixed(1)} / {max}</span>
-                                      </div>
-                                      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                                        <div
-                                          className="h-1.5 rounded-full bg-primary"
-                                          style={{ width: `${(score / max) * 100}%` }}
-                                        />
-                                      </div>
-                                    </div>
-                                  ))}
-                                  <div className="pt-2 border-t">
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-xs font-semibold">총 궁합점수</span>
-                                      <span className={cn(
-                                        'text-lg font-bold',
-                                        c._compat.total >= 75 ? 'text-green-700' : c._compat.total >= 55 ? 'text-yellow-700' : 'text-red-600'
-                                      )}>
-                                        {c._compat.total}점
-                                      </span>
-                                    </div>
-                                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                                      P25~P75 투찰구간: {c.p25_rate != null ? (c.p25_rate * 100).toFixed(3) : '-'}% ~ {c.p75_rate != null ? (c.p75_rate * 100).toFixed(3) : '-'}%
-                                    </p>
-                                  </div>
-                                </div>
-                              </div>
+                      </TableHeader>
+                      <TableBody>
+                        {aiResult.partners.slice(0, 20).map((p) => (
+                          <TableRow key={p.competitor_id} className="hover:bg-slate-50 transition-colors">
+                            <TableCell className="font-semibold text-sm text-slate-800">{p.name}</TableCell>
+                            <TableCell className="text-xs font-mono text-slate-400">{p.biz_reg_no ?? '-'}</TableCell>
+                            <TableCell className="text-center">
+                              {p.qualification_ok
+                                ? <CheckCircle2 className="h-4 w-4 text-emerald-500 mx-auto" />
+                                : <XCircle className="h-4 w-4 text-red-400 mx-auto" />}
+                            </TableCell>
+                            <TableCell className="text-right text-xs font-mono text-slate-600">
+                              {(p.joint_min_rate * 100).toFixed(0)}% 이상
+                            </TableCell>
+                            <TableCell className="text-right text-xs font-mono text-slate-600">
+                              {(p.win_rate * 100).toFixed(1)}%
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <span className={cn(
+                                'text-xs font-bold tabular-nums',
+                                p.compat_score >= 60 ? 'text-emerald-700' : p.compat_score >= 40 ? 'text-amber-700' : 'text-slate-400'
+                              )}>
+                                {p.compat_score}
+                              </span>
                             </TableCell>
                           </TableRow>
-                        )}
-                      </>
-                    )
-                  })}
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+                {aiResult.partners.length > 20 && (
+                  <p className="text-xs text-slate-400 text-center">상위 20개사 표시 (전체 {aiResult.partners.length}개사)</p>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-              {!isLoading && paginated.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground text-sm">
-                    조건에 맞는 업체가 없습니다. 필터를 조정해보세요.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+        {/* 궁합 점수 기준 안내 카드 */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[
+            { icon: Shield, label: '안정성', desc: '위험등급 기반', max: 40, color: 'text-blue-600', bg: 'bg-blue-50' },
+            { icon: Award, label: '낙찰 실적', desc: '낙찰률 정규화', max: 25, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+            { icon: Activity, label: '일관성', desc: '투찰률 변동성', max: 20, color: 'text-purple-600', bg: 'bg-purple-50' },
+            { icon: TrendingUp, label: '활동성', desc: '총 입찰건수', max: 15, color: 'text-amber-600', bg: 'bg-amber-50' },
+          ].map(({ icon: Icon, label, desc, max, color, bg }) => (
+            <Card key={label} className="bg-white border-slate-200 shadow-sm">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <div className={cn('rounded-lg p-1.5', bg)}>
+                    <Icon className={cn('h-3.5 w-3.5', color)} />
+                  </div>
+                  <span className="text-xs font-semibold text-slate-800">{label}</span>
+                  <span className="ml-auto text-xs font-bold text-slate-500">{max}점</span>
+                </div>
+                <p className="text-[11px] text-slate-400">{desc}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
 
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t">
-              <Button variant="outline" size="sm"
-                onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>이전</Button>
-              <span className="text-xs text-muted-foreground">{page} / {totalPages} ({scoredList.length}개사)</span>
-              <Button variant="outline" size="sm"
-                onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages}>다음</Button>
+        {/* 필터 카드 */}
+        <Card className="bg-white border-slate-200 shadow-sm">
+          <CardHeader className="pb-3 pt-4 px-5">
+            <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+              <Search className="h-4 w-4 text-slate-400" />
+              탐색 조건
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-5 pb-5">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="space-y-1.5 md:col-span-2">
+                <Label className="text-xs text-slate-600 font-medium">업체명 검색</Label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                    <Input
+                      placeholder="업체명 입력..."
+                      value={keyword}
+                      onChange={(e) => setKeyword(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                      className="pl-8 border-slate-200"
+                    />
+                  </div>
+                  <Button size="sm" onClick={handleSearch} className="shrink-0 bg-slate-800 hover:bg-slate-900">
+                    검색
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs text-slate-600 font-medium">내 목표 투찰률 (%)</Label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  min="85"
+                  max="100"
+                  value={myTargetRate}
+                  onChange={(e) => setMyTargetRate(e.target.value)}
+                  placeholder="예: 90.5"
+                  className="border-slate-200"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs text-slate-600 font-medium">최소 궁합점수</Label>
+                <Select value={minScore} onValueChange={(v) => { setMinScore(v); setPage(1) }}>
+                  <SelectTrigger className="border-slate-200"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">전체</SelectItem>
+                    <SelectItem value="40">40점 이상</SelectItem>
+                    <SelectItem value="55">55점 이상</SelectItem>
+                    <SelectItem value="70">70점 이상</SelectItem>
+                    <SelectItem value="80">80점 이상</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs text-slate-600 font-medium">위험등급 필터</Label>
+                <Select value={riskFilter} onValueChange={(v) => { setRiskFilter(v); setPage(1) }}>
+                  <SelectTrigger className="border-slate-200"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">전체</SelectItem>
+                    <SelectItem value="LOW">안정(LOW)</SelectItem>
+                    <SelectItem value="MEDIUM">보통(MEDIUM)</SelectItem>
+                    <SelectItem value="HIGH">위험(HIGH)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs text-slate-600 font-medium">정렬 기준</Label>
+                <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+                  <SelectTrigger className="border-slate-200"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="compat">궁합점수 순</SelectItem>
+                    <SelectItem value="win_rate">낙찰률 순</SelectItem>
+                    <SelectItem value="total_bids">입찰건수 순</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
 
-      {/* 안내 */}
-      <p className="text-xs text-muted-foreground">
-        * 궁합점수는 수집된 입찰 데이터 기반 참고 지표입니다. 실제 협정 체결 전 재무상태·면허 등을 반드시 확인하세요.
-      </p>
+        {/* 결과 테이블 */}
+        <Card className="bg-white border-slate-200 shadow-sm">
+          <CardHeader className="pb-3 pt-4 px-5">
+            <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+              <Users className="h-4 w-4 text-slate-400" />
+              후보 협정사 목록
+              {scoredList.length > 0 && (
+                <span className="ml-1 text-xs font-normal text-slate-400">— {scoredList.length}개사</span>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50 border-b border-slate-200">
+                    <TableHead className="w-8 text-xs text-slate-500">#</TableHead>
+                    <TableHead className="text-xs text-slate-500">업체명</TableHead>
+                    <TableHead className="text-xs text-slate-500">위험</TableHead>
+                    <TableHead className="text-right text-xs text-slate-500">궁합점수</TableHead>
+                    <TableHead className="text-right text-xs text-slate-500">낙찰률</TableHead>
+                    <TableHead className="text-right text-xs text-slate-500">평균 투찰률</TableHead>
+                    <TableHead className="text-right text-xs text-slate-500">입찰건</TableHead>
+                    <TableHead className="w-8" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {isLoading
+                    ? Array.from({ length: 8 }).map((_, i) => (
+                        <TableRow key={i}>
+                          {Array.from({ length: 8 }).map((_, j) => (
+                            <TableCell key={j}><Skeleton className="h-4 w-full rounded" /></TableCell>
+                          ))}
+                        </TableRow>
+                      ))
+                    : paginated.map((c, idx) => {
+                        const rank = (page - 1) * PAGE_SIZE + idx + 1
+                        const expanded = expandedId === c.id
+                        const radarData = [
+                          { subject: '안정성', value: +(c._compat.stability / 40 * 100).toFixed(0) },
+                          { subject: '실적', value: +(c._compat.performance / 25 * 100).toFixed(0) },
+                          { subject: '일관성', value: +(c._compat.consistency / 20 * 100).toFixed(0) },
+                          { subject: '활동성', value: +(c._compat.activity / 15 * 100).toFixed(0) },
+                        ]
+                        const isTop3 = rank <= 3
+                        return (
+                          <>
+                            <TableRow
+                              key={c.id}
+                              className={cn(
+                                'cursor-pointer transition-colors',
+                                isTop3 ? 'bg-blue-50/40 hover:bg-blue-50' : 'hover:bg-slate-50',
+                                expanded && 'bg-slate-50'
+                              )}
+                              onClick={() => setExpandedId(expanded ? null : c.id)}
+                            >
+                              <TableCell className="text-xs text-slate-400 font-mono">{rank}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  {isTop3 && (
+                                    <span className="inline-flex items-center text-[9px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold border border-blue-200">
+                                      TOP
+                                    </span>
+                                  )}
+                                  <span className="font-semibold text-sm text-slate-800">{c.name}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell><RiskBadge level={c.risk_level} /></TableCell>
+                              <TableCell className="text-right">
+                                <CompatBar score={c._compat.total} />
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-xs text-slate-600 tabular-nums">
+                                {(c.win_rate * 100).toFixed(1)}%
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-xs text-slate-600 tabular-nums">
+                                {c.avg_bid_rate != null ? (c.avg_bid_rate * 100).toFixed(3) + '%' : '-'}
+                              </TableCell>
+                              <TableCell className="text-right text-xs text-slate-600">{c.total_bids}건</TableCell>
+                              <TableCell>
+                                {expanded
+                                  ? <ChevronUp className="h-3.5 w-3.5 text-slate-400" />
+                                  : <ChevronDown className="h-3.5 w-3.5 text-slate-300" />}
+                              </TableCell>
+                            </TableRow>
+
+                            {expanded && (
+                              <TableRow key={`${c.id}-detail`} className="bg-slate-50/80">
+                                <TableCell colSpan={8} className="py-5 px-6">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    {/* 레이더 차트 */}
+                                    <div>
+                                      <p className="text-xs font-semibold mb-2 text-slate-500">궁합 구성 (각 항목 / 만점 비율)</p>
+                                      <ResponsiveContainer width="100%" height={180}>
+                                        <RadarChart data={radarData} margin={{ top: 5, right: 20, bottom: 5, left: 20 }}>
+                                          <PolarGrid stroke="#e2e8f0" />
+                                          <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: '#64748b' }} />
+                                          <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                                          <Radar dataKey="value" stroke="#2563eb" fill="#2563eb" fillOpacity={0.15} strokeWidth={2} />
+                                        </RadarChart>
+                                      </ResponsiveContainer>
+                                    </div>
+
+                                    {/* 항목별 점수 */}
+                                    <div className="space-y-3">
+                                      <p className="text-xs font-semibold text-slate-500">항목별 점수 (만점 기준)</p>
+                                      {[
+                                        { label: '안정성', score: c._compat.stability, max: 40, color: 'bg-blue-500' },
+                                        { label: '낙찰 실적', score: c._compat.performance, max: 25, color: 'bg-emerald-500' },
+                                        { label: '일관성', score: c._compat.consistency, max: 20, color: 'bg-purple-500' },
+                                        { label: '활동성', score: c._compat.activity, max: 15, color: 'bg-amber-500' },
+                                      ].map(({ label, score, max, color }) => (
+                                        <div key={label}>
+                                          <div className="flex justify-between text-xs mb-1">
+                                            <span className="text-slate-600">{label}</span>
+                                            <span className="font-mono font-semibold text-slate-700 tabular-nums">{score.toFixed(1)} / {max}</span>
+                                          </div>
+                                          <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                                            <div
+                                              className={cn('h-1.5 rounded-full transition-all', color)}
+                                              style={{ width: `${(score / max) * 100}%` }}
+                                            />
+                                          </div>
+                                        </div>
+                                      ))}
+                                      <div className="pt-3 border-t border-slate-200">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-xs font-semibold text-slate-700">총 궁합점수</span>
+                                          <span className={cn(
+                                            'text-2xl font-bold tabular-nums',
+                                            c._compat.total >= 75 ? 'text-emerald-600' : c._compat.total >= 55 ? 'text-amber-600' : 'text-red-500'
+                                          )}>
+                                            {c._compat.total}
+                                            <span className="text-sm font-normal text-slate-400 ml-0.5">점</span>
+                                          </span>
+                                        </div>
+                                        <p className="text-[10px] text-slate-400 mt-0.5">
+                                          P25~P75 투찰구간: {c.p25_rate != null ? (c.p25_rate * 100).toFixed(3) : '-'}% ~ {c.p75_rate != null ? (c.p75_rate * 100).toFixed(3) : '-'}%
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </>
+                        )
+                      })}
+
+                  {!isLoading && paginated.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center py-12 text-slate-400 text-sm">
+                        조건에 맞는 업체가 없습니다. 필터를 조정해보세요.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 bg-slate-50/50">
+                <Button variant="outline" size="sm" className="border-slate-200"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>이전</Button>
+                <span className="text-xs text-slate-400 tabular-nums">{page} / {totalPages} ({scoredList.length}개사)</span>
+                <Button variant="outline" size="sm" className="border-slate-200"
+                  onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages}>다음</Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* 안내 */}
+        <p className="text-xs text-slate-400 px-1">
+          * 궁합점수는 수집된 입찰 데이터 기반 참고 지표입니다. 실제 협정 체결 전 재무상태·면허 등을 반드시 확인하세요.
+        </p>
+      </div>
     </div>
   )
 }

@@ -1,4 +1,4 @@
-﻿import { useState, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Users, ShieldCheck, Activity, Plus, Pencil, Trash2, RefreshCw, Database, Layers, Search, CheckSquare, Square, Save, ChevronDown, Loader2, Zap, Download } from 'lucide-react'
 import { adminApi, statsApi } from '@/api'
@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
@@ -22,10 +22,10 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter
 } from '@/components/ui/dialog'
 
-const ROLE_LABELS: Record<string, { label: string; variant: 'destructive' | 'info' | 'secondary' }> = {
-  admin:   { label: '관리자', variant: 'destructive' },
-  analyst: { label: '분석가', variant: 'info' },
-  viewer:  { label: '뷰어',   variant: 'secondary' },
+const ROLE_CONFIG: Record<string, { label: string; cls: string }> = {
+  admin:   { label: '관리자', cls: 'bg-red-50 text-red-700 border border-red-200' },
+  analyst: { label: '분석가', cls: 'bg-blue-50 text-blue-700 border border-blue-200' },
+  viewer:  { label: '뷰어',   cls: 'bg-slate-100 text-slate-600 border border-slate-200' },
 }
 
 interface UserFormState { email: string; password: string; name: string; role: string; department: string }
@@ -61,8 +61,6 @@ export default function AdminPage() {
   const { data: industryFilters = [], isLoading: indLoading } = useQuery<IndustryFilterItem[]>({
     queryKey: ['admin-industry-filters'], queryFn: adminApi.industryFilters, enabled: tab === 'industries',
   })
-
-
   const { data: collectionLogs = [], refetch: refetchLogs } = useQuery<CollectionLogOut[]>({
     queryKey: ['admin-collection-logs'],
     queryFn: () => adminApi.collectionLogs(7),
@@ -77,6 +75,7 @@ export default function AdminPage() {
     enabled: tab === 'collection',
     staleTime: 60_000,
   })
+
   const inpoCollectMutation = useMutation({
     mutationFn: () => adminApi.triggerInpo21cCollect(4),
     onSuccess: (data) => {
@@ -88,6 +87,7 @@ export default function AdminPage() {
       setTimeout(() => setInpoCollectMsg(null), 5000)
     },
   })
+
   if (checkedIds === null && industryFilters.length > 0) {
     setCheckedIds(new Set(industryFilters.filter((i) => i.is_active).map((i) => i.industry_id)))
   }
@@ -134,7 +134,9 @@ export default function AdminPage() {
 
   function resetForm() { setShowForm(false); setEditId(null); setForm(EMPTY_FORM) }
   function handleEdit(u: AdminUser) {
-    setEditId(u.id); setForm({ email: u.email, password: '', name: u.name ?? '', role: u.role, department: u.department ?? '' }); setShowForm(true)
+    setEditId(u.id)
+    setForm({ email: u.email, password: '', name: u.name ?? '', role: u.role, department: u.department ?? '' })
+    setShowForm(true)
   }
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -146,14 +148,17 @@ export default function AdminPage() {
       createMutation.mutate({ email: form.email, password: form.password, name: form.name, role: form.role, department: form.department || undefined })
     }
   }
+
   const currentChecked = useMemo(() => {
     if (checkedIds !== null) return checkedIds
     return new Set(industryFilters.filter((i) => i.is_active).map((i) => i.industry_id))
   }, [checkedIds, industryFilters])
+
   const filteredIndustries = useMemo(() =>
     industryFilters.filter((i) => i.name.toLowerCase().includes(indSearch.toLowerCase())),
     [industryFilters, indSearch]
   )
+
   function toggleIndustry(id: number) {
     const next = new Set(currentChecked)
     if (next.has(id)) next.delete(id); else next.add(id)
@@ -166,459 +171,624 @@ export default function AdminPage() {
   const totalCount = industryFilters.length
 
   return (
-    <div className="p-6 space-y-5">
-      <div className="flex items-center gap-2">
-        <ShieldCheck className="h-5 w-5 text-destructive" />
-        <h1 className="text-2xl font-bold tracking-tight">관리자</h1>
+    <div className="min-h-screen bg-slate-50">
+      {/* Sticky Header */}
+      <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-sm border-b border-slate-200 px-6 py-4">
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 rounded-xl bg-red-50 flex items-center justify-center">
+            <ShieldCheck className="h-5 w-5 text-red-600" />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900">관리자</h1>
+            <p className="text-sm text-slate-500 mt-0.5">시스템 상태, 사용자, 공종, 수집기 관리</p>
+          </div>
+        </div>
       </div>
 
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
-          <TabsTrigger value="system" className="gap-1.5"><Activity className="h-3.5 w-3.5" />시스템 현황</TabsTrigger>
-          <TabsTrigger value="collection" className="gap-1.5"><Download className="h-3.5 w-3.5" />수집 현황</TabsTrigger>
-          <TabsTrigger value="users" className="gap-1.5"><Users className="h-3.5 w-3.5" />사용자 관리</TabsTrigger>
-          <TabsTrigger value="industries" className="gap-1.5"><Layers className="h-3.5 w-3.5" />공종 관리</TabsTrigger>
-        </TabsList>
+      <div className="p-6 space-y-5">
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList className="bg-slate-100 border border-slate-200 p-1">
+            <TabsTrigger value="system" className="gap-1.5 data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-blue-600 text-slate-600 font-medium">
+              <Activity className="h-3.5 w-3.5" />시스템 현황
+            </TabsTrigger>
+            <TabsTrigger value="collection" className="gap-1.5 data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-blue-600 text-slate-600 font-medium">
+              <Download className="h-3.5 w-3.5" />수집 현황
+            </TabsTrigger>
+            <TabsTrigger value="users" className="gap-1.5 data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-blue-600 text-slate-600 font-medium">
+              <Users className="h-3.5 w-3.5" />사용자 관리
+            </TabsTrigger>
+            <TabsTrigger value="industries" className="gap-1.5 data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-blue-600 text-slate-600 font-medium">
+              <Layers className="h-3.5 w-3.5" />공종 관리
+            </TabsTrigger>
+          </TabsList>
 
-        <TabsContent value="system" className="space-y-5 mt-4">
-          {statusLoading ? <Skeleton className="h-64 w-full" /> : stats ? (
-            <>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {[
-                  { label: '전체 공고', value: stats.total_bids.toLocaleString(), sub: `나라장터 ${stats.g2b_bids.toLocaleString()}건`, icon: Database, color: 'text-blue-600' },
-                  { label: '7일 신규', value: stats.new_bids_7d.toLocaleString(), icon: Activity, color: 'text-green-600' },
-                  { label: '개찰결과', value: stats.total_results.toLocaleString(), icon: Activity, color: 'text-purple-600' },
-                  { label: '경쟁사', value: stats.total_competitors.toLocaleString(), icon: Users, color: 'text-orange-600' },
-                ].map(({ label, value, sub, icon: Icon, color }) => (
-                  <Card key={label}>
-                    <CardContent className="pt-4 pb-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs text-muted-foreground">{label}</span>
-                        <Icon className={cn('h-4 w-4', color)} />
+          {/* 시스템 현황 탭 */}
+          <TabsContent value="system" className="space-y-5 mt-4">
+            {statusLoading ? (
+              <Skeleton className="h-64 w-full" />
+            ) : stats ? (
+              <>
+                {/* DB 통계 카드 */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[
+                    { label: '전체 공고', value: stats.total_bids.toLocaleString(), sub: `나라장터 ${stats.g2b_bids.toLocaleString()}건`, icon: Database, bar: 'bg-blue-500', iconBg: 'bg-blue-50', iconColor: 'text-blue-600' },
+                    { label: '7일 신규', value: stats.new_bids_7d.toLocaleString(), icon: Activity, bar: 'bg-emerald-500', iconBg: 'bg-emerald-50', iconColor: 'text-emerald-600' },
+                    { label: '개찰결과', value: stats.total_results.toLocaleString(), icon: Activity, bar: 'bg-violet-500', iconBg: 'bg-violet-50', iconColor: 'text-violet-600' },
+                    { label: '경쟁사', value: stats.total_competitors.toLocaleString(), icon: Users, bar: 'bg-amber-500', iconBg: 'bg-amber-50', iconColor: 'text-amber-600' },
+                  ].map(({ label, value, sub, icon: Icon, bar, iconBg, iconColor }) => (
+                    <Card key={label} className="relative overflow-hidden bg-white border-slate-200 shadow-sm">
+                      <div className={cn('absolute top-0 left-0 right-0 h-0.5', bar)} />
+                      <CardContent className="p-5">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-slate-500">{label}</p>
+                            <p className="text-2xl font-bold mt-1 tabular-nums text-slate-900">{value}</p>
+                            {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
+                          </div>
+                          <div className={cn('rounded-xl p-2.5', iconBg)}>
+                            <Icon className={cn('h-5 w-5', iconColor)} />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  {/* 수집기 상태 */}
+                  <Card className="bg-white border-slate-200 shadow-sm">
+                    <CardHeader className="border-b border-slate-100 pb-4">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                          <Activity className="h-4 w-4 text-blue-600" />수집기 상태
+                        </CardTitle>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-blue-600" onClick={() => { refetchStatus(); refetchCollectorStatus() }}>
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        </Button>
                       </div>
-                      <div className="text-2xl font-bold">{value}</div>
-                      {sub && <div className="text-xs text-muted-foreground mt-0.5">{sub}</div>}
+                    </CardHeader>
+                    <CardContent className="p-5 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-slate-500">상태</span>
+                        <span className={cn('text-xs font-semibold px-2.5 py-1 rounded-full border', collector?.enabled ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200')}>
+                          {collector?.enabled ? '활성' : '비활성'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-slate-500">오늘 수집 공고</span>
+                        <span className="text-sm font-semibold text-blue-600 tabular-nums">{(collectorStatus?.today_notices ?? 0).toLocaleString()}건</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-slate-500">오늘 수집 결과</span>
+                        <span className="text-sm font-semibold text-violet-600 tabular-nums">{(collectorStatus?.today_results ?? 0).toLocaleString()}건</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-slate-500">마지막 수집</span>
+                        <span className="text-xs text-slate-600">
+                          {collectorStatus?.last_run_at
+                            ? new Date(collectorStatus.last_run_at).toLocaleString('ko-KR')
+                            : collector?.last_g2b_collect
+                            ? new Date(collector.last_g2b_collect).toLocaleString('ko-KR')
+                            : '없음'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-slate-500">다음 수집 예정</span>
+                        <span className="text-xs text-emerald-600 font-medium">
+                          {collectorStatus?.next_run_at ? new Date(collectorStatus.next_run_at).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-slate-500">활성 키워드</span>
+                        <span className="text-sm font-medium text-slate-700">{stats.active_keywords}개</span>
+                      </div>
+                      {status?.daily_collection && status.daily_collection.length > 0 && (
+                        <div className="border-t border-slate-100 pt-3 mt-1">
+                          <div className="text-xs font-medium text-slate-500 mb-2">최근 수집 현황</div>
+                          <div className="space-y-1">
+                            {status.daily_collection.slice(0, 5).map((d) => (
+                              <div key={d.date} className="flex justify-between text-xs">
+                                <span className="text-slate-400">{d.date}</span>
+                                <span className="text-slate-600 font-medium">{d.count.toLocaleString()}건</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
-                ))}
+
+                  {/* ML 모델 상태 */}
+                  <Card className="bg-white border-slate-200 shadow-sm">
+                    <CardHeader className="border-b border-slate-100 pb-4">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                          <Zap className="h-4 w-4 text-blue-600" />ML 모델 상태
+                        </CardTitle>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs border-slate-200 text-slate-600 hover:bg-slate-50 gap-1"
+                          onClick={() => retrainMutation.mutate()}
+                          disabled={retrainMutation.isPending}
+                        >
+                          {retrainMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                          재학습
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-5">
+                      {modelInfo ? (
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-slate-500">모델 버전</span>
+                            <span className="font-mono text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded">{modelInfo.model.version}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-slate-500">학습 데이터</span>
+                            <span className="text-sm font-semibold text-slate-700">{(modelInfo.model.train_size || 0).toLocaleString()}건</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-slate-500">낙찰 데이터</span>
+                            <span className="text-sm font-semibold text-slate-700">{(modelInfo.model.winner_size || 0).toLocaleString()}건</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-slate-500">ML 준비</span>
+                            <span className={cn('text-xs font-semibold px-2.5 py-1 rounded-full border',
+                              modelInfo.data_availability.ready_for_ml
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : 'bg-amber-50 text-amber-600 border-amber-200'
+                            )}>
+                              {modelInfo.data_availability.ready_for_ml ? '가능' : `미충족 (${modelInfo.data_availability.winner_results}/20건)`}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-slate-500">30일 추천 요청</span>
+                            <span className="text-sm font-medium text-slate-700">{modelInfo.usage.predictions_30d}회</span>
+                          </div>
+                          {retrainMutation.isSuccess && (
+                            <div className="text-xs text-emerald-600 font-medium bg-emerald-50 rounded-lg px-3 py-2">재학습 완료!</div>
+                          )}
+                          {retrainMutation.isError && (
+                            <div className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">재학습 실패 (관리자 권한 필요)</div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-slate-400 py-4 text-center">정보 없음</div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* 수집 이력 테이블 */}
+                {collectionLogs.length > 0 && (
+                  <Card className="bg-white border-slate-200 shadow-sm overflow-hidden">
+                    <CardHeader className="border-b border-slate-100 pb-4">
+                      <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                        <Database className="h-4 w-4 text-blue-600" />수집 이력 (최근 7일)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-slate-50 border-b border-slate-200">
+                            <TableHead className="text-slate-600 font-semibold">수집 유형</TableHead>
+                            <TableHead className="text-slate-600 font-semibold">수집 시각</TableHead>
+                            <TableHead className="text-center text-slate-600 font-semibold">성공</TableHead>
+                            <TableHead className="text-center text-slate-600 font-semibold">실패</TableHead>
+                            <TableHead className="text-right text-slate-600 font-semibold">소요(초)</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {collectionLogs.map((log) => (
+                            <TableRow key={log.id} className="hover:bg-slate-50/50 border-b border-slate-100">
+                              <TableCell>
+                                <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full border',
+                                  log.collect_type === 'notice_cnstwk'
+                                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                    : log.collect_type === 'notice_servc'
+                                    ? 'bg-slate-100 text-slate-600 border-slate-200'
+                                    : 'bg-white text-slate-500 border-slate-200'
+                                )}>
+                                  {log.collect_type}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-xs text-slate-500 whitespace-nowrap">
+                                {new Date(log.collected_at).toLocaleString('ko-KR')}
+                              </TableCell>
+                              <TableCell className={cn('text-center font-bold text-sm', log.success_count > 0 ? 'text-emerald-600' : 'text-slate-400')}>
+                                {log.success_count}
+                              </TableCell>
+                              <TableCell className={cn('text-center font-bold text-sm', log.fail_count > 0 ? 'text-red-600' : 'text-slate-400')}>
+                                {log.fail_count}
+                              </TableCell>
+                              <TableCell className="text-right text-xs text-slate-500">{log.duration_sec?.toFixed(1) ?? '-'}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                )}
+              </>
+            ) : null}
+          </TabsContent>
+
+          {/* 수집 현황 탭 */}
+          <TabsContent value="collection" className="space-y-4 mt-4">
+            {user?.role !== 'admin' ? (
+              <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+                <ShieldCheck className="h-10 w-10 text-slate-200 mb-3" />
+                <p className="text-sm">관리자만 접근할 수 있습니다.</p>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <Card>
-                  <CardHeader className="pb-2">
+            ) : (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-semibold text-slate-700">최근 수집 이력 (7일)</h2>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-blue-600" onClick={() => refetchLogs()}>
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                  <div className="relative">
+                    <Button
+                      className="gap-2 bg-blue-600 hover:bg-blue-700"
+                      onClick={() => setDropdownOpen((v) => !v)}
+                      onBlur={() => setTimeout(() => setDropdownOpen(false), 150)}
+                      disabled={triggerMutation.isPending}
+                    >
+                      {triggerMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                      지금 수집
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </Button>
+                    {dropdownOpen && (
+                      <div className="absolute right-0 top-full mt-1 z-10 bg-white border border-slate-200 rounded-lg shadow-lg py-1 w-28">
+                        {([['all', '전체'], ['notices', '공고만'], ['results', '결과만']] as const).map(([value, label]) => (
+                          <button
+                            key={value}
+                            className="w-full text-left text-sm px-3 py-2 hover:bg-slate-50 transition-colors text-slate-700"
+                            onMouseDown={() => { setDropdownOpen(false); triggerMutation.mutate(value) }}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {triggerMsg && (
+                  <div className={cn('flex items-center gap-2 text-sm px-4 py-3 rounded-lg border',
+                    triggerMsg.type === 'success'
+                      ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                      : 'text-red-700 bg-red-50 border-red-200'
+                  )}>
+                    {triggerMsg.text}
+                  </div>
+                )}
+
+                {/* inpo21c 연동 상태 */}
+                <Card className="bg-white border-slate-200 shadow-sm">
+                  <CardHeader className="border-b border-slate-100 pb-4">
                     <div className="flex items-center justify-between">
-                      <CardTitle className="text-sm">수집기 상태</CardTitle>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { refetchStatus(); refetchCollectorStatus() }}>
+                      <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                        <Activity className="h-4 w-4 text-blue-600" />inpo21c 연동 상태
+                      </CardTitle>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-blue-600" onClick={() => refetchInpoStatus()}>
                         <RefreshCw className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </CardHeader>
-                  <CardContent className="space-y-2 text-sm">
-                    <div className="flex justify-between"><span className="text-muted-foreground">상태</span>
-                      <Badge variant={collector?.enabled ? 'success' : 'secondary'}>{collector?.enabled ? '활성' : '비활성'}</Badge>
+                  <CardContent className="p-5 space-y-4">
+                    <div className="flex items-center gap-3">
+                      <span className={cn('text-xs font-semibold px-3 py-1 rounded-full border',
+                        inpoStatus?.cookie_valid
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : inpoStatus?.has_cookie
+                          ? 'bg-red-50 text-red-700 border-red-200'
+                          : 'bg-slate-100 text-slate-500 border-slate-200'
+                      )}>
+                        {inpoStatus?.cookie_valid ? '쿠키 정상' : inpoStatus?.has_cookie ? '쿠키 만료' : '쿠키 미설정'}
+                      </span>
+                      <span className="text-sm text-slate-500">{inpoStatus?.message ?? '상태 확인 중...'}</span>
                     </div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">오늘 수집 공고</span>
-                      <span className="font-semibold text-blue-600">{(collectorStatus?.today_notices ?? 0).toLocaleString()}건</span>
+                    <div>
+                      <Button
+                        size="sm"
+                        className="gap-2 bg-blue-600 hover:bg-blue-700"
+                        disabled={!inpoStatus?.cookie_valid || inpoCollectMutation.isPending}
+                        onClick={() => inpoCollectMutation.mutate()}
+                      >
+                        {inpoCollectMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                        inpo21c 즉시 수집
+                      </Button>
                     </div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">오늘 수집 결과</span>
-                      <span className="font-semibold text-purple-600">{(collectorStatus?.today_results ?? 0).toLocaleString()}건</span>
-                    </div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">마지막 수집</span>
-                      <span className="text-xs">{collectorStatus?.last_run_at ? new Date(collectorStatus.last_run_at).toLocaleString('ko-KR') : (collector?.last_g2b_collect ? new Date(collector.last_g2b_collect).toLocaleString('ko-KR') : '없음')}</span>
-                    </div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">다음 수집 예정</span>
-                      <span className="text-xs text-green-600">{collectorStatus?.next_run_at ? new Date(collectorStatus.next_run_at).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-'}</span>
-                    </div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">활성 키워드</span><span>{stats.active_keywords}개</span></div>
-                    {status?.daily_collection && status.daily_collection.length > 0 && (
-                      <div className="border-t pt-2 mt-1">
-                        <div className="text-xs text-muted-foreground mb-1">최근 수집 현황</div>
-                        {status.daily_collection.slice(0, 5).map((d) => (
-                          <div key={d.date} className="flex justify-between text-xs">
-                            <span className="text-muted-foreground">{d.date}</span>
-                            <span>{d.count.toLocaleString()}건</span>
-                          </div>
-                        ))}
+                    {inpoCollectMsg && (
+                      <div className={cn('text-sm px-4 py-3 rounded-lg border',
+                        inpoCollectMsg.type === 'success'
+                          ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                          : 'text-red-700 bg-red-50 border-red-200'
+                      )}>
+                        {inpoCollectMsg.text}
                       </div>
                     )}
                   </CardContent>
                 </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-sm">ML 모델 상태</CardTitle>
-                      <Button size="sm" variant="outline" className="h-7 text-xs"
-                        onClick={() => retrainMutation.mutate()} disabled={retrainMutation.isPending}>
-                        {retrainMutation.isPending ? '학습 중...' : '재학습'}
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    {modelInfo ? (
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between"><span className="text-muted-foreground">모델 버전</span><span className="font-mono text-xs">{modelInfo.model.version}</span></div>
-                        <div className="flex justify-between"><span className="text-muted-foreground">학습 데이터</span><span>{(modelInfo.model.train_size || 0).toLocaleString()}건</span></div>
-                        <div className="flex justify-between"><span className="text-muted-foreground">낙찰 데이터</span><span>{(modelInfo.model.winner_size || 0).toLocaleString()}건</span></div>
-                        <div className="flex justify-between"><span className="text-muted-foreground">ML 준비</span>
-                          <Badge variant={modelInfo.data_availability.ready_for_ml ? 'success' : 'warning'}>
-                            {modelInfo.data_availability.ready_for_ml ? '가능' : `미충족 (${modelInfo.data_availability.winner_results}/20건)`}
-                          </Badge>
-                        </div>
-                        <div className="flex justify-between"><span className="text-muted-foreground">30일 추천 요청</span><span>{modelInfo.usage.predictions_30d}회</span></div>
-                      </div>
-                    ) : <div className="text-sm text-muted-foreground">정보 없음</div>}
-                    {retrainMutation.isSuccess && <div className="mt-2 text-xs text-green-600">재학습 완료!</div>}
-                    {retrainMutation.isError && <div className="mt-2 text-xs text-destructive">재학습 실패 (관리자 권한 필요)</div>}
-                  </CardContent>
-                </Card>
-              </div>
-            </>
-          ) : null}
 
-              {collectionLogs.length > 0 && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">수집 이력 (최근 7일)</CardTitle>
-                  </CardHeader>
+                {/* 수집 로그 테이블 */}
+                <Card className="bg-white border-slate-200 shadow-sm overflow-hidden">
                   <CardContent className="p-0">
                     <Table>
                       <TableHeader>
-                        <TableRow>
-                          <TableHead>수집 유형</TableHead>
-                          <TableHead>수집 시각</TableHead>
-                          <TableHead className="text-center">성공</TableHead>
-                          <TableHead className="text-center">실패</TableHead>
-                          <TableHead className="text-right">소요(초)</TableHead>
+                        <TableRow className="bg-slate-50 border-b border-slate-200">
+                          <TableHead className="text-slate-600 font-semibold">수집 일시</TableHead>
+                          <TableHead className="text-slate-600 font-semibold">유형</TableHead>
+                          <TableHead className="text-center text-slate-600 font-semibold">성공</TableHead>
+                          <TableHead className="text-center text-slate-600 font-semibold">실패</TableHead>
+                          <TableHead className="text-right text-slate-600 font-semibold">소요시간(초)</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {collectionLogs.map((log) => (
-                          <TableRow key={log.id}>
-                            <TableCell>
-                              <Badge variant={log.collect_type === 'notice_cnstwk' ? 'info' : log.collect_type === 'notice_servc' ? 'secondary' : 'outline'} className="text-[10px] px-1.5">
-                                {log.collect_type}
-                              </Badge>
+                        {collectionLogs.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={5} className="text-center py-12 text-slate-400">
+                              수집 이력이 없습니다.
                             </TableCell>
-                            <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                          </TableRow>
+                        ) : collectionLogs.map((log) => (
+                          <TableRow key={log.id} className="hover:bg-slate-50/50 border-b border-slate-100">
+                            <TableCell className="text-xs text-slate-500 whitespace-nowrap">
                               {new Date(log.collected_at).toLocaleString('ko-KR')}
                             </TableCell>
-                            <TableCell className="text-center text-green-600 font-bold">{log.success_count}</TableCell>
-                            <TableCell className="text-center text-destructive">{log.fail_count}</TableCell>
-                            <TableCell className="text-right text-xs">{log.duration_sec?.toFixed(1) ?? '-'}</TableCell>
+                            <TableCell>
+                              <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full border',
+                                log.collect_type === 'notice_cnstwk' ? 'bg-blue-50 text-blue-700 border-blue-200' : log.collect_type === 'notice_servc' ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-white text-slate-500 border-slate-200'
+                              )}>
+                                {log.collect_type}
+                              </span>
+                            </TableCell>
+                            <TableCell className={cn('text-center font-bold text-sm', log.success_count > 0 ? 'text-emerald-600' : 'text-slate-400')}>
+                              {log.success_count}
+                            </TableCell>
+                            <TableCell className={cn('text-center font-bold text-sm', log.fail_count > 0 ? 'text-red-600' : 'text-slate-400')}>
+                              {log.fail_count}
+                            </TableCell>
+                            <TableCell className="text-right text-xs text-slate-500">
+                              {log.duration_sec?.toFixed(1) ?? '-'}
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
                   </CardContent>
                 </Card>
-              )}
-        </TabsContent>
+              </>
+            )}
+          </TabsContent>
 
-        <TabsContent value="collection" className="space-y-4 mt-4">
-          {user?.role !== 'admin' ? (
-            <div className="text-center py-12 text-muted-foreground">관리자만 접근할 수 있습니다.</div>
-          ) : (
-            <>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-medium">최근 수집 이력 (7일)</h2>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => refetchLogs()}>
-                    <RefreshCw className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-                <div className="relative">
-                  <Button
-                    size="sm"
-                    onClick={() => setDropdownOpen((v) => !v)}
-                    onBlur={() => setTimeout(() => setDropdownOpen(false), 150)}
-                    disabled={triggerMutation.isPending}
-                  >
-                    {triggerMutation.isPending ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Zap className="h-3.5 w-3.5" />
-                    )}
-                    지금 수집
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </Button>
-                  {dropdownOpen && (
-                    <div className="absolute right-0 top-full mt-1 z-10 bg-background border rounded-md shadow-md py-1 w-28">
-                      {([['all', '전체'], ['notices', '공고만'], ['results', '결과만']] as const).map(([value, label]) => (
-                        <button
-                          key={value}
-                          className="w-full text-left text-sm px-3 py-1.5 hover:bg-accent transition-colors"
-                          onMouseDown={() => {
-                            setDropdownOpen(false)
-                            triggerMutation.mutate(value)
-                          }}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-              {triggerMsg && (
-                <div className={cn(
-                  'text-xs px-3 py-2 rounded-md border',
-                  triggerMsg.type === 'success'
-                    ? 'text-green-700 bg-green-50 border-green-200'
-                    : 'text-destructive bg-destructive/5 border-destructive/20'
-                )}>
-                  {triggerMsg.text}
-                </div>
-              )}
-              {/* inpo21c 쿠키 상태 */}
-              <Card>
-                <CardHeader className="pb-2 pt-4 px-4">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm">inpo21c 연동 상태</CardTitle>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => refetchInpoStatus()}>
-                      <RefreshCw className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
+          {/* 사용자 관리 탭 */}
+          <TabsContent value="users" className="space-y-4 mt-4">
+            <div className="flex justify-end">
+              <Button onClick={() => { resetForm(); setShowForm(true) }} className="gap-2 bg-blue-600 hover:bg-blue-700">
+                <Plus className="h-4 w-4" />사용자 추가
+              </Button>
+            </div>
+
+            {showForm && (
+              <Card className="bg-white border-slate-200 shadow-sm">
+                <CardHeader className="border-b border-slate-100 pb-4">
+                  <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                    <Users className="h-4 w-4 text-blue-600" />{editId !== null ? '사용자 수정' : '새 사용자 추가'}
+                  </CardTitle>
                 </CardHeader>
-                <CardContent className="px-4 pb-4 space-y-3">
-                  <div className="flex items-center gap-3">
-                    <Badge
-                      variant={inpoStatus?.cookie_valid ? 'success' : inpoStatus?.has_cookie ? 'destructive' : 'secondary'}
-                      className="text-xs"
-                    >
-                      {inpoStatus?.cookie_valid ? '쿠키 정상' : inpoStatus?.has_cookie ? '쿠키 만료' : '쿠키 미설정'}
-                    </Badge>
-                    <span className="text-xs text-muted-foreground">{inpoStatus?.message ?? '상태 확인 중...'}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={!inpoStatus?.cookie_valid || inpoCollectMutation.isPending}
-                      onClick={() => inpoCollectMutation.mutate()}
-                    >
-                      {inpoCollectMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                      inpo21c 즉시 수집
-                    </Button>
-                  </div>
-                  {inpoCollectMsg && (
-                    <div className={cn(
-                      'text-xs px-3 py-2 rounded-md border',
-                      inpoCollectMsg.type === 'success'
-                        ? 'text-green-700 bg-green-50 border-green-200'
-                        : 'text-destructive bg-destructive/5 border-destructive/20'
-                    )}>
-                      {inpoCollectMsg.text}
+                <CardContent className="p-5">
+                  <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {editId === null && (
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-medium text-slate-600">이메일 *</Label>
+                        <Input type="email" value={form.email} required onChange={(e) => setForm({ ...form, email: e.target.value })} className="border-slate-200" />
+                      </div>
+                    )}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium text-slate-600">이름 *</Label>
+                      <Input type="text" value={form.name} required onChange={(e) => setForm({ ...form, name: e.target.value })} className="border-slate-200" />
                     </div>
-                  )}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium text-slate-600">{editId ? '비밀번호 (변경 시만)' : '비밀번호 *'}</Label>
+                      <Input type="password" value={form.password} required={editId === null} onChange={(e) => setForm({ ...form, password: e.target.value })} className="border-slate-200" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium text-slate-600">역할</Label>
+                      <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
+                        <SelectTrigger className="border-slate-200"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="viewer">뷰어</SelectItem>
+                          <SelectItem value="analyst">분석가</SelectItem>
+                          <SelectItem value="admin">관리자</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium text-slate-600">부서</Label>
+                      <Input type="text" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} className="border-slate-200" />
+                    </div>
+                    <div className="md:col-span-3 flex justify-end gap-2 pt-1">
+                      <Button type="button" variant="outline" onClick={resetForm} className="border-slate-200 text-slate-600">취소</Button>
+                      <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending} className="bg-blue-600 hover:bg-blue-700 gap-2">
+                        {(createMutation.isPending || updateMutation.isPending) && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                        {editId !== null ? '수정' : '추가'}
+                      </Button>
+                    </div>
+                  </form>
                 </CardContent>
               </Card>
+            )}
 
-              <Card>
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>수집 일시</TableHead>
-                        <TableHead>유형</TableHead>
-                        <TableHead className="text-center">성공</TableHead>
-                        <TableHead className="text-center">실패</TableHead>
-                        <TableHead className="text-right">소요시간(초)</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {collectionLogs.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                            수집 이력이 없습니다.
+            <Card className="bg-white border-slate-200 shadow-sm overflow-hidden">
+              {usersLoading ? (
+                <div className="p-6 space-y-3">
+                  {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50 border-b border-slate-200">
+                      <TableHead className="text-slate-600 font-semibold">이름</TableHead>
+                      <TableHead className="text-slate-600 font-semibold">이메일</TableHead>
+                      <TableHead className="text-slate-600 font-semibold">역할</TableHead>
+                      <TableHead className="text-slate-600 font-semibold">부서</TableHead>
+                      <TableHead className="text-slate-600 font-semibold">마지막 로그인</TableHead>
+                      <TableHead className="text-slate-600 font-semibold">상태</TableHead>
+                      <TableHead className="text-slate-600 font-semibold">관리</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {users.map((u) => {
+                      const roleConf = ROLE_CONFIG[u.role] ?? ROLE_CONFIG.viewer
+                      return (
+                        <TableRow key={u.id} className={cn('hover:bg-slate-50/50 border-b border-slate-100 transition-colors', !u.is_active && 'opacity-50')}>
+                          <TableCell className="font-semibold text-slate-800">{u.name || '-'}</TableCell>
+                          <TableCell className="text-slate-500 text-sm">{u.email}</TableCell>
+                          <TableCell>
+                            <span className={cn('text-xs font-semibold px-2.5 py-1 rounded-full', roleConf.cls)}>
+                              {roleConf.label}
+                            </span>
                           </TableCell>
-                        </TableRow>
-                      ) : collectionLogs.map((log) => (
-                        <TableRow key={log.id}>
-                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                            {new Date(log.collected_at).toLocaleString('ko-KR')}
+                          <TableCell className="text-slate-500 text-sm">{u.department || '-'}</TableCell>
+                          <TableCell className="text-slate-400 text-xs">{u.last_login ? new Date(u.last_login).toLocaleString('ko-KR') : '없음'}</TableCell>
+                          <TableCell>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className={cn('h-6 text-xs px-2.5 border font-medium', u.is_active ? 'border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100' : 'border-slate-200 text-slate-500 hover:bg-slate-100')}
+                              onClick={() => updateMutation.mutate({ id: u.id, body: { is_active: !u.is_active } })}
+                            >
+                              {u.is_active ? '활성' : '비활성'}
+                            </Button>
                           </TableCell>
                           <TableCell>
-                            <Badge
-                              variant={log.collect_type === 'notice_cnstwk' ? 'info' : log.collect_type === 'notice_servc' ? 'secondary' : 'outline'}
-                              className="text-[10px] px-1.5"
-                            >
-                              {log.collect_type}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className={cn('text-center font-bold', log.success_count > 0 ? 'text-green-600' : 'text-muted-foreground')}>
-                            {log.success_count}
-                          </TableCell>
-                          <TableCell className={cn('text-center font-bold', log.fail_count > 0 ? 'text-destructive' : 'text-muted-foreground')}>
-                            {log.fail_count}
-                          </TableCell>
-                          <TableCell className="text-right text-xs">
-                            {log.duration_sec?.toFixed(1) ?? '-'}
+                            <div className="flex items-center gap-1">
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-blue-600 hover:bg-blue-50" onClick={() => handleEdit(u)}>
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50" onClick={() => setDeleteConfirm(u.id)}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            </>
-          )}
-        </TabsContent>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </Card>
+          </TabsContent>
 
-        <TabsContent value="users" className="space-y-4 mt-4">
-          <div className="flex justify-end">
-            <Button onClick={() => { resetForm(); setShowForm(true) }} size="sm">
-              <Plus className="h-4 w-4" /> 사용자 추가
-            </Button>
-          </div>
-
-          {showForm && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm">{editId !== null ? '사용자 수정' : '새 사용자 추가'}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {editId === null && (
-                    <div className="space-y-2"><Label>이메일 *</Label>
-                      <Input type="email" value={form.email} required onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          {/* 공종 관리 탭 */}
+          <TabsContent value="industries" className="space-y-4 mt-4">
+            <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-700">
+              <Layers className="h-4 w-4 shrink-0 mt-0.5 text-blue-500" />
+              <span><strong>공종 필터 설정</strong> — 체크된 공종의 입찰만 시스템 전체에서 활용됩니다.</span>
+            </div>
+            {indLoading ? (
+              <Skeleton className="h-64 w-full" />
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                      <Input
+                        value={indSearch}
+                        onChange={(e) => setIndSearch(e.target.value)}
+                        placeholder="공종 검색..."
+                        className="pl-9 w-64 border-slate-200 bg-white"
+                      />
                     </div>
-                  )}
-                  <div className="space-y-2"><Label>이름 *</Label>
-                    <Input type="text" value={form.name} required onChange={(e) => setForm({ ...form, name: e.target.value })} />
-                  </div>
-                  <div className="space-y-2"><Label>{editId ? '비밀번호 (변경 시만)' : '비밀번호 *'}</Label>
-                    <Input type="password" value={form.password} required={editId === null} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-                  </div>
-                  <div className="space-y-2"><Label>역할</Label>
-                    <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="viewer">뷰어</SelectItem>
-                        <SelectItem value="analyst">분석가</SelectItem>
-                        <SelectItem value="admin">관리자</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2"><Label>부서</Label>
-                    <Input type="text" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} />
-                  </div>
-                  <div className="md:col-span-3 flex justify-end gap-2">
-                    <Button type="button" variant="outline" onClick={resetForm}>취소</Button>
-                    <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
-                      {editId !== null ? '수정' : '추가'}
+                    <Button variant="outline" size="sm" onClick={() => { setCheckedIds(new Set(industryFilters.map((i) => i.industry_id))); setIndSaved(false) }} className="border-slate-200 text-slate-600 gap-1">
+                      <CheckSquare className="h-3.5 w-3.5" />전체 선택
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => { setCheckedIds(new Set()); setIndSaved(false) }} className="border-slate-200 text-slate-600 gap-1">
+                      <Square className="h-3.5 w-3.5" />전체 해제
                     </Button>
                   </div>
-                </form>
-              </CardContent>
-            </Card>
-          )}
-
-          <Card>
-            {usersLoading ? (
-              <div className="p-8 space-y-2">{Array.from({length: 4}).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
-            ) : (
-              <Table>
-                <TableHeader><TableRow>
-                  <TableHead>이름</TableHead><TableHead>이메일</TableHead><TableHead>역할</TableHead>
-                  <TableHead>부서</TableHead><TableHead>마지막 로그인</TableHead><TableHead>상태</TableHead><TableHead>관리</TableHead>
-                </TableRow></TableHeader>
-                <TableBody>
-                  {users.map((u) => (
-                    <TableRow key={u.id} className={cn(!u.is_active && 'opacity-50')}>
-                      <TableCell className="font-medium">{u.name || '-'}</TableCell>
-                      <TableCell className="text-muted-foreground">{u.email}</TableCell>
-                      <TableCell>
-                        <Badge variant={(ROLE_LABELS[u.role]?.variant ?? 'secondary') as 'destructive' | 'info' | 'secondary'}>
-                          {ROLE_LABELS[u.role]?.label ?? u.role}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{u.department || '-'}</TableCell>
-                      <TableCell className="text-muted-foreground text-xs">{u.last_login ? new Date(u.last_login).toLocaleString('ko-KR') : '없음'}</TableCell>
-                      <TableCell>
-                        <Button size="sm" variant="outline" className="h-6 text-xs px-2"
-                          onClick={() => updateMutation.mutate({ id: u.id, body: { is_active: !u.is_active } })}>
-                          {u.is_active ? '활성' : '비활성'}
-                        </Button>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEdit(u)}><Pencil className="h-3.5 w-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteConfirm(u.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="industries" className="space-y-4 mt-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-700">
-            <strong>공종 필터 설정</strong> — 체크된 공종의 입찰만 시스템 전체에서 활용됩니다.
-          </div>
-          {indLoading ? <Skeleton className="h-64 w-full" /> : (
-            <>
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <div className="relative">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                    <Input value={indSearch} onChange={(e) => setIndSearch(e.target.value)} placeholder="공종 검색..." className="pl-8 w-64" />
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm text-slate-500">
+                      <strong className="text-blue-600">{activeCount}</strong> / {totalCount}개 선택됨
+                      {activeCount === totalCount && <span className="ml-1 text-xs text-emerald-600">(전체 = 필터 없음)</span>}
+                    </span>
+                    <Button
+                      size="sm"
+                      onClick={() => saveIndMutation.mutate(Array.from(currentChecked))}
+                      disabled={saveIndMutation.isPending}
+                      className="gap-2 bg-blue-600 hover:bg-blue-700"
+                    >
+                      {saveIndMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                      {saveIndMutation.isPending ? '저장 중...' : '저장'}
+                    </Button>
+                    {indSaved && <span className="text-xs text-emerald-600 font-medium">저장 완료!</span>}
+                    {saveIndMutation.isError && <span className="text-xs text-red-600">저장 실패</span>}
                   </div>
-                  <Button variant="outline" size="sm" onClick={() => { setCheckedIds(new Set(industryFilters.map((i) => i.industry_id))); setIndSaved(false) }}>
-                    <CheckSquare className="h-3.5 w-3.5" /> 전체 선택
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => { setCheckedIds(new Set()); setIndSaved(false) }}>
-                    <Square className="h-3.5 w-3.5" /> 전체 해제
-                  </Button>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-muted-foreground">
-                    <strong className="text-primary">{activeCount}</strong> / {totalCount}개 선택됨
-                    {activeCount === totalCount && <span className="ml-1 text-xs text-green-600">(전체 = 필터 없음)</span>}
-                  </span>
-                  <Button size="sm" onClick={() => saveIndMutation.mutate(Array.from(currentChecked))} disabled={saveIndMutation.isPending}>
-                    <Save className="h-4 w-4" /> {saveIndMutation.isPending ? '저장 중...' : '저장'}
-                  </Button>
-                  {indSaved && <span className="text-xs text-green-600 font-medium">저장 완료!</span>}
-                  {saveIndMutation.isError && <span className="text-xs text-destructive">저장 실패</span>}
-                </div>
-              </div>
-              <Card>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-                  {filteredIndustries.length === 0 ? (
-                    <div className="col-span-3 p-8 text-center text-muted-foreground">검색 결과 없음</div>
-                  ) : filteredIndustries.map((ind) => {
-                    const checked = currentChecked.has(ind.industry_id)
-                    return (
-                      <label key={ind.industry_id}
-                        className={cn('flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors hover:bg-accent border-b last:border-b-0 md:border-b', checked && 'bg-accent/50')}>
-                        <input type="checkbox" checked={checked} onChange={() => toggleIndustry(ind.industry_id)}
-                          className="w-4 h-4 rounded accent-primary cursor-pointer shrink-0" />
-                        <div className="min-w-0">
-                          <div className={cn('text-sm font-medium truncate', checked ? 'text-primary' : 'text-foreground')}>{ind.name}</div>
-                          <div className="text-xs text-muted-foreground font-mono">{ind.code}</div>
-                        </div>
-                        {checked && <Badge variant="info" className="ml-auto shrink-0 text-[10px] px-1.5 py-0">활성</Badge>}
-                      </label>
-                    )
-                  })}
-                </div>
-              </Card>
-            </>
-          )}
-        </TabsContent>
-      </Tabs>
 
+                <Card className="bg-white border-slate-200 shadow-sm overflow-hidden">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 divide-y divide-slate-100 md:divide-y-0 md:[&>*:nth-child(n)]:border-b md:[&>*:nth-child(n)]:border-slate-100">
+                    {filteredIndustries.length === 0 ? (
+                      <div className="col-span-3 p-10 text-center text-slate-400">
+                        <Search className="h-8 w-8 mx-auto mb-2 text-slate-200" />
+                        <p className="text-sm">검색 결과 없음</p>
+                      </div>
+                    ) : filteredIndustries.map((ind) => {
+                      const checked = currentChecked.has(ind.industry_id)
+                      return (
+                        <label
+                          key={ind.industry_id}
+                          className={cn('flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors hover:bg-slate-50 border-b border-slate-100', checked && 'bg-blue-50/50')}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleIndustry(ind.industry_id)}
+                            className="w-4 h-4 rounded accent-blue-600 cursor-pointer shrink-0"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className={cn('text-sm font-medium truncate', checked ? 'text-blue-700' : 'text-slate-700')}>{ind.name}</div>
+                            <div className="text-xs text-slate-400 font-mono">{ind.code}</div>
+                          </div>
+                          {checked && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-200 ml-auto shrink-0">
+                              활성
+                            </span>
+                          )}
+                        </label>
+                      )
+                    })}
+                  </div>
+                </Card>
+              </>
+            )}
+          </TabsContent>
+        </Tabs>
+      </div>
+
+      {/* 사용자 삭제 다이얼로그 */}
       <Dialog open={deleteConfirm !== null} onOpenChange={(o) => { if (!o) setDeleteConfirm(null) }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>사용자 삭제</DialogTitle>
-            <DialogDescription>이 사용자를 삭제하시겠습니까?</DialogDescription>
+            <DialogTitle className="text-slate-900 font-semibold">사용자 삭제</DialogTitle>
+            <DialogDescription className="text-slate-500">이 사용자를 삭제하시겠습니까?</DialogDescription>
           </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>취소</Button>
-            <Button variant="destructive" onClick={() => deleteConfirm !== null && deleteMutation.mutate(deleteConfirm)} disabled={deleteMutation.isPending}>삭제</Button>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDeleteConfirm(null)} className="border-slate-200">취소</Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteConfirm !== null && deleteMutation.mutate(deleteConfirm)}
+              disabled={deleteMutation.isPending}
+              className="gap-2"
+            >
+              {deleteMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}삭제
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

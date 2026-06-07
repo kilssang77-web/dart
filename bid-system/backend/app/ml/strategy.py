@@ -122,12 +122,12 @@ def _scan_rate_range(
     유효 투찰률 구간을 스캔하여 각 지점의 (rate, win_prob, ev) 계산.
     Prism 방식을 단일 추천으로 통합.
     """
-    low  = inp.valid_low  or (inp.floor_rate * 0.99)
+    low  = inp.valid_low  or inp.floor_rate        # floor 미만 스캔 금지
     high = inp.valid_high or (inp.srate_center + 0.015)
 
-    # 너무 좁으면 사정율 중앙값 기준으로 확장
+    # 너무 좁으면 사정율 중앙값 기준으로 확장 (단, floor 미만은 불가)
     if high - low < 0.002:
-        low  = inp.srate_center * inp.floor_rate - 0.002
+        low  = max(inp.floor_rate, inp.srate_center - 0.005)
         high = inp.srate_center + 0.005
 
     rates = np.linspace(low, high, n_points)
@@ -159,23 +159,24 @@ def _select_optimal_rate(
     if not scan:
         return {"rate": 0.0, "win_prob": 0.0, "ev": 0.0}
 
+    # win_prob > 0 인 유효 후보만 사용 (floor 미만 포인트 배제)
+    valid = [p for p in scan if p["win_prob"] > 0.0]
+    if not valid:
+        valid = scan  # fallback: 전부 0이면 그대로 사용
+
     if strategy_type == "aggressive":
-        # win_prob 최대화 포인트
-        return max(scan, key=lambda x: x["win_prob"])
+        return max(valid, key=lambda x: x["win_prob"])
 
     elif strategy_type == "conservative":
-        # EV 최대화 포인트 (단, win_prob >= 0.15 보장)
-        candidates = [p for p in scan if p["win_prob"] >= 0.15]
+        candidates = [p for p in valid if p["win_prob"] >= 0.15]
         if not candidates:
-            candidates = scan
+            candidates = valid
         return max(candidates, key=lambda x: x["ev"])
 
     else:  # balanced
-        # target_win_prob에 가장 가까우면서 EV 좋은 포인트
-        closest = min(scan, key=lambda x: abs(x["win_prob"] - target_win_prob))
-        # 근처 ±10 포인트 중 EV 최대
-        idx = scan.index(closest)
-        neighborhood = scan[max(0, idx - 10): idx + 11]
+        closest = min(valid, key=lambda x: abs(x["win_prob"] - target_win_prob))
+        idx = valid.index(closest)
+        neighborhood = valid[max(0, idx - 10): idx + 11]
         return max(neighborhood, key=lambda x: x["ev"])
 
 
@@ -256,9 +257,9 @@ def recommend(inp: StrategyInput, n_sim: int = 30_000) -> SingleRecommendation:
     target_wp     = _target_win_prob(inp)
     strategy_type = _determine_strategy_type(inp, target_wp)
 
-    # 유효 투찰률 구간 확인
+    # 유효 투찰률 구간 확인 (low는 반드시 floor 이상)
     floor_amount_rate = inp.floor_rate
-    low  = inp.valid_low  or (floor_amount_rate * 0.99)
+    low  = inp.valid_low  or floor_amount_rate
     high = inp.valid_high or (inp.srate_center + 0.015)
 
     # 구간 스캔

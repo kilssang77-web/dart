@@ -1,6 +1,6 @@
-﻿import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useQuery, useQueries } from '@tanstack/react-query'
-import { Search, ChevronLeft, ChevronRight, Trophy, CheckSquare, Square, Target, Loader2 } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, Trophy, CheckSquare, Square, Target, Loader2, Users, ShieldAlert } from 'lucide-react'
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   LineChart, Line, BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
@@ -152,6 +152,19 @@ export default function CompetitorPage() {
   const riskVariant = (r: string): 'destructive' | 'warning' | 'success' | 'secondary' =>
     r === 'HIGH' ? 'destructive' : r === 'MEDIUM' ? 'warning' : r === 'LOW' ? 'success' : 'secondary'
 
+  // 위험도 색상 클래스
+  const riskColorClass = (r: string) =>
+    r === 'HIGH'
+      ? 'bg-red-50 text-red-700 border-red-200'
+      : r === 'MEDIUM'
+      ? 'bg-amber-50 text-amber-700 border-amber-200'
+      : r === 'LOW'
+      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+      : 'bg-slate-100 text-slate-500 border-slate-200'
+
+  const riskTopBarColor = (r: string) =>
+    r === 'HIGH' ? 'bg-red-500' : r === 'MEDIUM' ? 'bg-amber-400' : r === 'LOW' ? 'bg-emerald-500' : 'bg-slate-300'
+
   const radarData = detail ? [
     { subject: '공격성', value: detail.aggression_score  * 10 },
     { subject: '일관성', value: detail.consistency_score * 10 },
@@ -178,514 +191,475 @@ export default function CompetitorPage() {
   const minRate  = winHistory.length > 0 ? Math.min(...winHistory.map((w) => w.bid_rate ?? 0)) : 0
 
   return (
-    <div className="p-6 space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">경쟁사 분석</h1>
-        <p className="text-muted-foreground text-sm mt-1">업체별 입찰 패턴 및 리스크 분석</p>
+    <div className="min-h-screen bg-slate-50">
+      {/* 스티키 헤더 */}
+      <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-sm border-b border-slate-200 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 flex items-center gap-2">
+              <ShieldAlert className="h-5 w-5 text-purple-600" />
+              경쟁사 분석
+            </h1>
+            <p className="text-sm text-slate-500 mt-0.5">업체별 입찰 패턴 및 리스크 분석</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {compareIds.length === 2 && (
+              <Button size="sm" className="h-8 text-xs gap-1.5 bg-purple-600 hover:bg-purple-700" onClick={() => setShowCompare(true)}>
+                <Users className="h-3.5 w-3.5" />
+                2개 업체 비교
+              </Button>
+            )}
+            {compareIds.length > 0 && (
+              <Button size="sm" variant="ghost" className="h-8 text-xs text-slate-500" onClick={() => setCompareIds([])}>
+                선택 해제
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* 리스크 기준 안내 */}
-      <Card>
-        <CardContent className="py-3 px-4">
-          <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-            <span><Badge variant="destructive" className="mr-1">HIGH</Badge> 리스크 점수 6+ (공격적·고수주율)</span>
-            <span><Badge variant="warning" className="mr-1">MEDIUM</Badge> 점수 3~6</span>
-            <span><Badge variant="success" className="mr-1">LOW</Badge> 점수 3 미만 (보수적·저수주율)</span>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 공고 선택 — 경쟁사 행동 예측용 */}
-      <Card>
-        <CardContent className="py-3 px-4">
-          <div className="flex items-center gap-3 flex-wrap">
-            <Target className="h-4 w-4 text-primary shrink-0" />
-            <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">예측 대상 공고</span>
-            <div className="relative flex-1 min-w-[220px]" ref={bidSearchRef}>
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <Input
-                value={bidSearchInput}
-                onChange={(e) => handleBidSearchChange(e.target.value)}
-                onFocus={() => bidSearchInput.length >= 2 && setShowBidDropdown(true)}
-                placeholder="공고번호 입력 (2자 이상)..."
-                className="pl-8 h-8 text-xs"
-              />
-              {showBidDropdown && bidSearchResults.length > 0 && (
-                <div className="absolute top-full left-0 right-0 z-50 bg-background border rounded-md shadow-md mt-1 max-h-48 overflow-y-auto">
-                  {bidSearchResults.map((b) => (
-                    <button
-                      key={b.id}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-accent"
-                      onClick={() => handleBidSelect(b)}
-                    >
-                      <span className="font-mono text-primary">{b.announcement_no}</span>
-                      <span className="ml-2 text-muted-foreground truncate">{b.title}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            {selectedBid && (
-              <>
-                <Badge variant="secondary" className="text-xs max-w-[240px] truncate">{selectedBid.title}</Badge>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 text-xs"
-                  onClick={() => { setSelectedBid(null); setBidSearchInput('') }}
-                >
-                  초기화
-                </Button>
-                <Button
-                  size="sm"
-                  className="h-7 text-xs gap-1"
-                  onClick={() => setShowBatchAnalysis(true)}
-                  disabled={!list?.items?.length}
-                >
-                  <Target className="h-3 w-3" />
-                  이 공고 경쟁사 분석 (상위 5개)
-                </Button>
-              </>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="flex gap-5">
-        {/* 목록 패널 */}
-        <div className="w-80 shrink-0 space-y-2">
-          <div className="flex items-center gap-2">
-            <Select value={riskFilter} onValueChange={(v) => { setRiskFilter(v); setPage(1) }}>
-              <SelectTrigger className="flex-1"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">전체</SelectItem>
-                <SelectItem value="HIGH">HIGH</SelectItem>
-                <SelectItem value="MEDIUM">MEDIUM</SelectItem>
-                <SelectItem value="LOW">LOW</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              size="sm"
-              variant={winnerOnly ? 'default' : 'outline'}
-              className="h-9 text-xs whitespace-nowrap gap-1"
-              onClick={() => setWinnerOnly((v) => !v)}
-            >
-              <Trophy className="h-3 w-3" /> 낙찰만
-            </Button>
-          </div>
-
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <Input
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleSearch() }}
-                placeholder="업체명 검색..."
-                className="pl-8"
-              />
-            </div>
-            <Button onClick={handleSearch} size="sm">검색</Button>
-          </div>
-          {compareIds.length === 2 && (
-            <Button size="sm" className="w-full" onClick={() => setShowCompare(true)}>
-              2개 업체 비교
-            </Button>
-          )}
-          {compareIds.length > 0 && (
-            <Button size="sm" variant="ghost" className="w-full text-xs text-muted-foreground" onClick={() => setCompareIds([])}>
-              비교 선택 해제
-            </Button>
-          )}
-
-          <Card className="overflow-hidden">
-            {isLoading ? (
-              <div className="p-4 space-y-2">
-                {Array.from({length: 4}).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+      <div className="p-6 space-y-4">
+        {/* 리스크 기준 + 예측 공고 선택 */}
+        <Card className="bg-white border-slate-200 shadow-sm">
+          <CardContent className="py-3 px-4">
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+              {/* 위험도 범례 */}
+              <div className="flex items-center gap-4 text-xs text-slate-500">
+                <span className="font-medium text-slate-700">위험도 기준</span>
+                <span className="flex items-center gap-1">
+                  <span className="inline-block w-2 h-2 rounded-full bg-red-500" />
+                  <span className="font-medium text-red-700">HIGH</span> 공격적·고수주
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="inline-block w-2 h-2 rounded-full bg-amber-400" />
+                  <span className="font-medium text-amber-700">MEDIUM</span> 점수 3~6
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+                  <span className="font-medium text-emerald-700">LOW</span> 보수적·저수주
+                </span>
               </div>
-            ) : (
-              <div className="divide-y">
-                {filteredItems.map((c) => {
-                  const consec = consecutiveWins(c.monthly_trend as TrendItem[] ?? [])
-                  return (
-                    <div key={c.id}
-                      className={cn('p-3 cursor-pointer hover:bg-accent transition-colors',
-                        selectedId === c.id && 'bg-accent border-l-2 border-l-primary')}
-                      onClick={() => handleSelect(c.id)}>
-                      <div className="flex items-center gap-1.5 mb-1">
+
+              {/* 구분선 */}
+              <div className="hidden md:block w-px h-5 bg-slate-200" />
+
+              {/* 예측 대상 공고 */}
+              <div className="flex items-center gap-2 flex-1 min-w-[320px]">
+                <Target className="h-4 w-4 text-purple-500 shrink-0" />
+                <span className="text-xs font-medium text-slate-600 whitespace-nowrap">예측 공고</span>
+                <div className="relative flex-1" ref={bidSearchRef}>
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                  <Input
+                    value={bidSearchInput}
+                    onChange={(e) => handleBidSearchChange(e.target.value)}
+                    onFocus={() => bidSearchInput.length >= 2 && setShowBidDropdown(true)}
+                    placeholder="공고번호 입력 (2자 이상)..."
+                    className="pl-8 h-8 text-xs border-slate-200 bg-slate-50 focus:bg-white"
+                  />
+                  {showBidDropdown && bidSearchResults.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 z-50 bg-white border border-slate-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                      {bidSearchResults.map((b) => (
                         <button
-                          className="shrink-0"
-                          onClick={(e) => { e.stopPropagation(); setCompareIds((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : prev.length < 2 ? [...prev, c.id] : prev) }}
+                          key={b.id}
+                          className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 border-b border-slate-100 last:border-0"
+                          onClick={() => handleBidSelect(b)}
                         >
-                          {compareIds.includes(c.id) ? <CheckSquare className="h-3.5 w-3.5 text-primary" /> : <Square className="h-3.5 w-3.5 text-muted-foreground" />}
+                          <span className="font-mono text-purple-600">{b.announcement_no}</span>
+                          <span className="ml-2 text-slate-500 truncate">{b.title}</span>
                         </button>
-                        {consec >= 3 && (
-                          <Badge variant="destructive" className="text-[9px] px-1 py-0">연속 {consec}개월 수주</Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium truncate">{c.name}</span>
-                        <Badge variant={riskVariant(c.risk_level)} className="shrink-0 ml-1 text-[10px] px-1.5 py-0">
-                          {c.risk_level}
-                        </Badge>
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        수주 {c.win_count}건 · 수주율 {(c.win_rate * 100).toFixed(1)}% · 평균 {(c.avg_bid_rate * 100).toFixed(2)}%
-                      </div>
+                      ))}
                     </div>
-                  )
-                })}
-              </div>
-            )}
-            <div className="flex items-center justify-between px-3 py-2 border-t bg-muted/30">
-              <Button variant="outline" size="icon" className="h-7 w-7"
-                onClick={() => setPage((p) => Math.max(1,p-1))} disabled={page===1}>
-                <ChevronLeft className="h-3.5 w-3.5" />
-              </Button>
-              <span className="text-xs text-muted-foreground">{page}/{totalPages} ({list?.total ?? 0}개사)</span>
-              <Button variant="outline" size="icon" className="h-7 w-7"
-                onClick={() => setPage((p) => Math.min(totalPages,p+1))} disabled={page>=totalPages}>
-                <ChevronRight className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </Card>
-        </div>
-
-        {/* 상세 패널 */}
-        {detail ? (
-          <div className="flex-1 space-y-4">
-            <Tabs value={detailTab} onValueChange={setDetailTab}>
-              <TabsList>
-                <TabsTrigger value="overview">개요</TabsTrigger>
-                <TabsTrigger value="pattern">투찰성향</TabsTrigger>
-                <TabsTrigger value="zones">투찰구간</TabsTrigger>
-                <TabsTrigger value="predict" disabled={!selectedBid} className="gap-1">
-                  <Target className="h-3 w-3" />
-                  예측{!selectedBid && <span className="text-[10px] opacity-50 ml-0.5">(공고선택)</span>}
-                </TabsTrigger>
-              </TabsList>
-
-            <TabsContent value="overview" className="space-y-4 mt-3">
-            {/* 기본 지표 */}
-            <Card>
-              <CardContent className="pt-5">
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <h2 className="text-lg font-bold">{detail.name}</h2>
-                    <Badge variant={riskVariant(detail.risk_level)} className="mt-1">
-                      리스크 {detail.risk_level}
-                    </Badge>
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <Metric label="총 입찰" value={detail.total_bids + '건'} />
-                  {detail.win_count >= 1 ? (
-                    <button
-                      onClick={() => setWinsModalOpen(true)}
-                      className="bg-muted/50 rounded-md p-2.5 w-full text-left hover:bg-yellow-50 transition-colors border border-transparent hover:border-yellow-200"
-                    >
-                      <div className="text-xs text-muted-foreground">수주 건수</div>
-                      <div className="text-sm font-bold mt-0.5 text-yellow-600 flex items-center gap-1">
-                        {detail.win_count}건 <Trophy className="h-3 w-3" />
-                      </div>
-                    </button>
-                  ) : (
-                    <Metric label="수주 건수" value={detail.win_count + '건'} />
                   )}
-                  <Metric label="수주율"      value={(detail.win_rate * 100).toFixed(1) + '%'} />
-                  <Metric label="평균 투찰률" value={(detail.avg_bid_rate * 100).toFixed(2) + '%'} />
-                  <Metric label="공격성 점수" value={detail.aggression_score + '/10'} />
-                  <Metric label="일관성 점수" value={(detail.consistency_score ?? 0).toFixed(1) + '/10'} />
                 </div>
-              </CardContent>
-            </Card>
-
-            {/* 레이더 + 자주 함께 */}
-            <div className="grid grid-cols-2 gap-4">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">행동 패턴 레이더</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <RadarChart data={radarData}>
-                      <PolarGrid />
-                      <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11 }} />
-                      <Radar dataKey="value" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.3} />
-                    </RadarChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">자주 함께 참여하는 업체</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-1.5">
-                  {(detail.frequent_rivals as RivalItem[] ?? []).slice(0, 7).map((r) => (
-                    <div key={r.competitor_id} className="flex items-center justify-between">
-                      <span className="text-sm truncate">{r.name}</span>
-                      <Badge variant="secondary" className="shrink-0 ml-2">{r.co_occurrence}회</Badge>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* 월별 추이 */}
-            {trendData.length > 0 && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">월별 활동 추이</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={180}>
-                    <LineChart data={trendData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis dataKey="label" tick={{ fontSize: 10 }} interval={2} />
-                      <YAxis yAxisId="l" tick={{ fontSize: 11 }} />
-                      <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 11 }} unit="%" />
-                      <Tooltip />
-                      <Line yAxisId="l" type="monotone" dataKey="입찰수" stroke="hsl(var(--muted-foreground))" strokeWidth={1} dot={false} />
-                      <Line yAxisId="r" type="monotone" dataKey="평균율" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-            )}
-            </TabsContent>
-
-            <TabsContent value="pattern" className="space-y-4 mt-3">
-              {pattern ? (
-                <>
-                  <div className="flex items-center gap-2">
-                    {['aggressive','stable','defensive'].includes(pattern.recent_trend?.direction) && (
-                      <Badge variant={pattern.recent_trend.direction === 'aggressive' ? 'destructive' : pattern.recent_trend.direction === 'defensive' ? 'success' : 'secondary'}>
-                        {pattern.recent_trend.direction === 'aggressive' ? '공격적↑' : pattern.recent_trend.direction === 'defensive' ? '방어적↓' : '안정'}
-                        {pattern.recent_trend.change_pct != null && ` (${pattern.recent_trend.change_pct > 0 ? '+' : ''}${pattern.recent_trend.change_pct.toFixed(1)}%)`}
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <Card>
-                      <CardHeader className="pb-2"><CardTitle className="text-sm">투찰 성향 레이더</CardTitle></CardHeader>
-                      <CardContent>
-                        <ResponsiveContainer width="100%" height={200}>
-                          <RadarChart data={[
-                            { subject: '공격성', value: pattern.radar.aggression },
-                            { subject: '일관성', value: pattern.radar.consistency },
-                            { subject: '집중도', value: pattern.radar.concentration },
-                            { subject: '위험도', value: pattern.radar.risk },
-                            { subject: '활동성', value: pattern.radar.activity },
-                          ]}>
-                            <PolarGrid />
-                            <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11 }} />
-                            <PolarRadiusAxis domain={[0, 10]} tick={false} />
-                            <Radar dataKey="value" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.35} />
-                          </RadarChart>
-                        </ResponsiveContainer>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className="pb-2"><CardTitle className="text-sm">금액대별 투찰 패턴</CardTitle></CardHeader>
-                      <CardContent>
-                        <ResponsiveContainer width="100%" height={200}>
-                          <BarChart data={pattern.amount_pattern} margin={{ left: -10 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                            <XAxis dataKey="bucket" tick={{ fontSize: 10 }} />
-                            <YAxis yAxisId="l" tick={{ fontSize: 11 }} />
-                            <YAxis yAxisId="r" orientation="right" unit="%" tick={{ fontSize: 11 }} />
-                            <Tooltip />
-                            <Bar yAxisId="l" dataKey="bid_count" fill="hsl(var(--primary)/0.4)" name="입찰수" />
-                            <Bar yAxisId="r" dataKey="win_rate" fill="hsl(142.1 76.2% 36.3%/0.6)" name="낙찰률" />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </CardContent>
-                    </Card>
-                  </div>
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-10">데이터를 불러오는 중...</p>
-              )}
-            </TabsContent>
-            <TabsContent value="zones" className="space-y-4 mt-3">
-              <div className="flex items-center justify-between">
-                <div className="flex gap-2">
-                  {([90, 180] as const).map((d) => (
+                {selectedBid && (
+                  <>
+                    <Badge className="bg-purple-50 text-purple-700 border-purple-200 text-xs max-w-[200px] truncate border">
+                      {selectedBid.title}
+                    </Badge>
                     <Button
-                      key={d}
                       size="sm"
-                      variant={zonesDays === d ? 'default' : 'outline'}
-                      className="h-7 text-xs"
-                      onClick={() => setZonesDays(d)}
+                      variant="outline"
+                      className="h-7 text-xs border-slate-200"
+                      onClick={() => { setSelectedBid(null); setBidSearchInput('') }}
                     >
-                      {d}일
+                      초기화
                     </Button>
-                  ))}
-                </div>
-                {zonesData && (
-                  <span className="text-xs text-muted-foreground">총 {zonesData.total_count.toLocaleString()}건 기준</span>
+                    <Button
+                      size="sm"
+                      className="h-7 text-xs gap-1 bg-purple-600 hover:bg-purple-700"
+                      onClick={() => setShowBatchAnalysis(true)}
+                      disabled={!list?.items?.length}
+                    >
+                      <Target className="h-3 w-3" />
+                      일괄 분석
+                    </Button>
+                  </>
                 )}
               </div>
+            </div>
+          </CardContent>
+        </Card>
 
-              {!zonesData ? (
-                <p className="text-sm text-muted-foreground text-center py-10">데이터를 불러오는 중...</p>
-              ) : zonesData.total_count === 0 ? (
-                <Card>
-                  <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                    inpo21c 데이터 없음 — 해당 경쟁사의 수집 데이터가 없습니다
+        <div className="flex gap-5">
+          {/* 목록 패널 */}
+          <div className="w-72 shrink-0 space-y-2">
+            {/* 필터 */}
+            <div className="flex items-center gap-2">
+              <Select value={riskFilter} onValueChange={(v) => { setRiskFilter(v); setPage(1) }}>
+                <SelectTrigger className="flex-1 h-9 border-slate-200 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">전체 위험도</SelectItem>
+                  <SelectItem value="HIGH">HIGH</SelectItem>
+                  <SelectItem value="MEDIUM">MEDIUM</SelectItem>
+                  <SelectItem value="LOW">LOW</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                variant={winnerOnly ? 'default' : 'outline'}
+                className={cn('h-9 text-xs whitespace-nowrap gap-1 border-slate-200',
+                  winnerOnly && 'bg-amber-500 hover:bg-amber-600 border-amber-500')}
+                onClick={() => setWinnerOnly((v) => !v)}
+              >
+                <Trophy className="h-3 w-3" /> 낙찰만
+              </Button>
+            </div>
+
+            {/* 검색 */}
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                <Input
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSearch() }}
+                  placeholder="업체명 검색..."
+                  className="pl-8 border-slate-200"
+                />
+              </div>
+              <Button onClick={handleSearch} size="sm" className="bg-slate-800 hover:bg-slate-900">검색</Button>
+            </div>
+
+            {/* 경쟁사 목록 카드 */}
+            <Card className="overflow-hidden bg-white border-slate-200 shadow-sm">
+              {isLoading ? (
+                <div className="p-3 space-y-2">
+                  {Array.from({length: 5}).map((_, i) => <Skeleton key={i} className="h-14 w-full rounded-lg" />)}
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {filteredItems.map((c) => {
+                    const consec = consecutiveWins(c.monthly_trend as TrendItem[] ?? [])
+                    const isSelected = selectedId === c.id
+                    return (
+                      <div key={c.id}
+                        className={cn(
+                          'p-3 cursor-pointer transition-colors group',
+                          isSelected
+                            ? 'bg-purple-50 border-l-2 border-l-purple-500'
+                            : 'hover:bg-slate-50 border-l-2 border-l-transparent'
+                        )}
+                        onClick={() => handleSelect(c.id)}>
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <button
+                            className="shrink-0 rounded hover:bg-slate-100 p-0.5"
+                            onClick={(e) => { e.stopPropagation(); setCompareIds((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : prev.length < 2 ? [...prev, c.id] : prev) }}
+                          >
+                            {compareIds.includes(c.id)
+                              ? <CheckSquare className="h-3.5 w-3.5 text-purple-600" />
+                              : <Square className="h-3.5 w-3.5 text-slate-300" />}
+                          </button>
+                          {consec >= 3 && (
+                            <span className="inline-flex items-center text-[9px] px-1.5 py-0.5 rounded-full bg-red-50 text-red-600 font-semibold border border-red-100">
+                              연속 {consec}개월 수주
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={cn('text-sm font-semibold truncate transition-colors',
+                            isSelected ? 'text-purple-800' : 'text-slate-800 group-hover:text-purple-700')}>
+                            {c.name}
+                          </span>
+                          <span className={cn('text-[10px] px-1.5 py-0.5 rounded border font-semibold shrink-0', riskColorClass(c.risk_level))}>
+                            {c.risk_level}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <span className="text-[10px] text-slate-400">수주율</span>
+                          <div className="flex-1 h-1 bg-slate-100 rounded-full">
+                            <div
+                              className={cn('h-1 rounded-full', c.risk_level === 'HIGH' ? 'bg-red-400' : c.risk_level === 'MEDIUM' ? 'bg-amber-400' : 'bg-emerald-400')}
+                              style={{ width: `${Math.min(c.win_rate * 100 * 3, 100)}%` }}
+                            />
+                          </div>
+                          <span className="text-[10px] font-semibold text-slate-600 tabular-nums">
+                            {(c.win_rate * 100).toFixed(1)}%
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">
+                          수주 {c.win_count}건 · 평균 {(c.avg_bid_rate * 100).toFixed(2)}%
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              <div className="flex items-center justify-between px-3 py-2 border-t border-slate-100 bg-slate-50/80">
+                <Button variant="outline" size="icon" className="h-7 w-7 border-slate-200"
+                  onClick={() => setPage((p) => Math.max(1,p-1))} disabled={page===1}>
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </Button>
+                <span className="text-xs text-slate-400 tabular-nums">{page}/{totalPages} ({list?.total ?? 0}개사)</span>
+                <Button variant="outline" size="icon" className="h-7 w-7 border-slate-200"
+                  onClick={() => setPage((p) => Math.min(totalPages,p+1))} disabled={page>=totalPages}>
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </Card>
+          </div>
+
+          {/* 상세 패널 */}
+          {detail ? (
+            <div className="flex-1 space-y-4 min-w-0">
+              <Tabs value={detailTab} onValueChange={setDetailTab}>
+                <TabsList className="bg-slate-100 border border-slate-200">
+                  <TabsTrigger value="overview" className="text-xs">개요</TabsTrigger>
+                  <TabsTrigger value="pattern" className="text-xs">투찰성향</TabsTrigger>
+                  <TabsTrigger value="zones" className="text-xs">투찰구간</TabsTrigger>
+                  <TabsTrigger value="predict" disabled={!selectedBid} className="gap-1 text-xs">
+                    <Target className="h-3 w-3" />
+                    예측{!selectedBid && <span className="text-[10px] opacity-40 ml-0.5">(공고선택)</span>}
+                  </TabsTrigger>
+                </TabsList>
+
+              <TabsContent value="overview" className="space-y-4 mt-3">
+                {/* 업체 헤더 카드 */}
+                <Card className="relative overflow-hidden bg-white border-slate-200 shadow-sm">
+                  <div className={cn('absolute top-0 left-0 right-0 h-1', riskTopBarColor(detail.risk_level))} />
+                  <CardContent className="pt-5 pb-4">
+                    <div className="flex items-start justify-between mb-4">
+                      <div>
+                        <h2 className="text-lg font-bold text-slate-900">{detail.name}</h2>
+                        <span className={cn('inline-flex items-center text-xs px-2 py-0.5 rounded-full border font-semibold mt-1.5', riskColorClass(detail.risk_level))}>
+                          리스크 {detail.risk_level}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2.5">
+                      <MetricCard label="총 입찰" value={detail.total_bids + '건'} />
+                      {detail.win_count >= 1 ? (
+                        <button
+                          onClick={() => setWinsModalOpen(true)}
+                          className="relative overflow-hidden rounded-xl bg-amber-50 border border-amber-100 p-3 text-left hover:bg-amber-100 transition-colors group"
+                        >
+                          <div className="text-xs text-amber-600 font-medium">수주 건수</div>
+                          <div className="text-xl font-bold mt-0.5 text-amber-700 flex items-center gap-1">
+                            {detail.win_count}건 <Trophy className="h-4 w-4 group-hover:scale-110 transition-transform" />
+                          </div>
+                          <div className="text-[10px] text-amber-500 mt-0.5">클릭하여 이력 보기</div>
+                        </button>
+                      ) : (
+                        <MetricCard label="수주 건수" value={detail.win_count + '건'} />
+                      )}
+                      <MetricCard label="수주율" value={(detail.win_rate * 100).toFixed(1) + '%'} highlight />
+                      <MetricCard label="평균 투찰률" value={(detail.avg_bid_rate * 100).toFixed(2) + '%'} />
+                      <MetricCard label="공격성 점수" value={detail.aggression_score + '/10'} />
+                      <MetricCard label="일관성 점수" value={(detail.consistency_score ?? 0).toFixed(1) + '/10'} />
+                    </div>
                   </CardContent>
                 </Card>
-              ) : (
-                <>
-                  {zonesData.peak_zone && (
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Badge variant="destructive" className="text-xs">
-                        피크 구간 {(zonesData.peak_zone.range_lo * 100).toFixed(1)}%~{(zonesData.peak_zone.range_hi * 100).toFixed(1)}%
-                        ({zonesData.peak_zone.pct}%)
-                      </Badge>
-                      <Badge variant="warning" className="text-xs">이 구간 회피 추천</Badge>
-                    </div>
-                  )}
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm">사정율 구간별 투찰 빈도</CardTitle>
+
+                {/* 레이더 + 자주 함께 */}
+                <div className="grid grid-cols-2 gap-4">
+                  <Card className="bg-white border-slate-200 shadow-sm">
+                    <CardHeader className="pb-1 pt-4 px-4">
+                      <CardTitle className="text-sm font-semibold text-slate-800">행동 패턴 레이더</CardTitle>
                     </CardHeader>
-                    <CardContent>
-                      <ResponsiveContainer width="100%" height={260}>
-                        <BarChart
-                          data={zonesData.zones.map((z: CompetitorZoneItem) => ({
-                            label: `${(z.range_lo * 100).toFixed(1)}`,
-                            pct: z.pct,
-                            isPeak: zonesData.peak_zone
-                              ? z.range_lo === zonesData.peak_zone.range_lo
-                              : false,
-                          }))}
-                          margin={{ left: -10 }}
-                        >
-                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                          <XAxis dataKey="label" tick={{ fontSize: 9 }} interval={3} unit="%" />
-                          <YAxis tick={{ fontSize: 10 }} unit="%" />
-                          <Tooltip
-                            formatter={(v: number) => [`${v}%`, '빈도']}
-                            labelFormatter={(l) => `${l}%대`}
-                          />
-                          <Bar dataKey="pct" name="빈도%">
-                            {zonesData.zones.map((z: CompetitorZoneItem, i: number) => (
-                              <Cell
-                                key={i}
-                                fill={
-                                  zonesData.peak_zone && z.range_lo === zonesData.peak_zone.range_lo
-                                    ? '#f97316'
-                                    : 'hsl(var(--primary)/0.5)'
-                                }
-                              />
-                            ))}
-                          </Bar>
-                        </BarChart>
+                    <CardContent className="px-4 pb-4">
+                      <ResponsiveContainer width="100%" height={200}>
+                        <RadarChart data={radarData}>
+                          <PolarGrid stroke="#e2e8f0" />
+                          <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: '#64748b' }} />
+                          <Radar dataKey="value" stroke="#7c3aed" fill="#7c3aed" fillOpacity={0.2} strokeWidth={2} />
+                        </RadarChart>
                       </ResponsiveContainer>
                     </CardContent>
                   </Card>
-                </>
-              )}
-            </TabsContent>
 
-            <TabsContent value="predict" className="space-y-4 mt-3">
-              {!selectedBid ? (
-                <Card>
-                  <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                    상단에서 예측 대상 공고를 선택하세요
-                  </CardContent>
-                </Card>
-              ) : predictLoading ? (
-                <div className="flex justify-center py-10">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : !predictData ? (
-                <Card>
-                  <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                    데이터를 불러오는 중...
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="space-y-4">
-                  {/* 참여 확률 카드 */}
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm">참여 확률 예측</CardTitle>
+                  <Card className="bg-white border-slate-200 shadow-sm">
+                    <CardHeader className="pb-1 pt-4 px-4">
+                      <CardTitle className="text-sm font-semibold text-slate-800">자주 함께 참여하는 업체</CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="flex items-end gap-3">
-                        <span className="text-4xl font-bold text-primary">
-                          {(predictData.participation.probability * 100).toFixed(0)}%
-                        </span>
-                        <Badge
-                          variant={
-                            predictData.participation.confidence === 'high' ? 'default'
-                              : predictData.participation.confidence === 'medium' ? 'warning'
-                              : 'secondary'
-                          }
-                          className="mb-1"
-                        >
-                          신뢰도 {predictData.participation.confidence === 'high' ? '높음' : predictData.participation.confidence === 'medium' ? '보통' : '낮음'}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground">{predictData.participation.basis}</p>
-                      <div className="w-full bg-muted rounded-full h-2">
-                        <div
-                          className="bg-primary h-2 rounded-full transition-all"
-                          style={{ width: `${predictData.participation.probability * 100}%` }}
-                        />
-                      </div>
+                    <CardContent className="px-4 pb-4 space-y-1.5">
+                      {(detail.frequent_rivals as RivalItem[] ?? []).slice(0, 7).map((r) => (
+                        <div key={r.competitor_id} className="flex items-center justify-between py-1 border-b border-slate-50 last:border-0">
+                          <span className="text-sm text-slate-700 truncate">{r.name}</span>
+                          <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full shrink-0 ml-2 tabular-nums">
+                            {r.co_occurrence}회
+                          </span>
+                        </div>
+                      ))}
                     </CardContent>
                   </Card>
+                </div>
 
-                  {/* 투찰 구간 예측 */}
-                  {predictData.bid_zone.sample_count === 0 ? (
-                    <Card>
-                      <CardContent className="py-6 text-center text-sm text-muted-foreground">
-                        inpo21c 투찰 구간 데이터 없음
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm flex items-center justify-between">
-                          <span>예상 투찰 구간 분포</span>
-                          <span className="text-xs font-normal text-muted-foreground">{predictData.bid_zone.sample_count}건 기반</span>
-                        </CardTitle>
+                {/* 월별 추이 */}
+                {trendData.length > 0 && (
+                  <Card className="bg-white border-slate-200 shadow-sm">
+                    <CardHeader className="pb-1 pt-4 px-4">
+                      <CardTitle className="text-sm font-semibold text-slate-800">월별 활동 추이</CardTitle>
+                    </CardHeader>
+                    <CardContent className="px-4 pb-4">
+                      <ResponsiveContainer width="100%" height={180}>
+                        <LineChart data={trendData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                          <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }} interval={2} />
+                          <YAxis yAxisId="l" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                          <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 11, fill: '#94a3b8' }} unit="%" />
+                          <Tooltip contentStyle={{ border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }} />
+                          <Line yAxisId="l" type="monotone" dataKey="입찰수" stroke="#cbd5e1" strokeWidth={1} dot={false} />
+                          <Line yAxisId="r" type="monotone" dataKey="평균율" stroke="#7c3aed" strokeWidth={2} dot={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                )}
+              </TabsContent>
+
+              <TabsContent value="pattern" className="space-y-4 mt-3">
+                {pattern ? (
+                  <>
+                    <div className="flex items-center gap-2">
+                      {['aggressive','stable','defensive'].includes(pattern.recent_trend?.direction) && (
+                        <Badge variant={pattern.recent_trend.direction === 'aggressive' ? 'destructive' : pattern.recent_trend.direction === 'defensive' ? 'success' : 'secondary'}>
+                          {pattern.recent_trend.direction === 'aggressive' ? '공격적↑' : pattern.recent_trend.direction === 'defensive' ? '방어적↓' : '안정'}
+                          {pattern.recent_trend.change_pct != null && ` (${pattern.recent_trend.change_pct > 0 ? '+' : ''}${pattern.recent_trend.change_pct.toFixed(1)}%)`}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <Card className="bg-white border-slate-200 shadow-sm">
+                        <CardHeader className="pb-1 pt-4 px-4"><CardTitle className="text-sm font-semibold text-slate-800">투찰 성향 레이더</CardTitle></CardHeader>
+                        <CardContent className="px-4 pb-4">
+                          <ResponsiveContainer width="100%" height={200}>
+                            <RadarChart data={[
+                              { subject: '공격성', value: pattern.radar.aggression },
+                              { subject: '일관성', value: pattern.radar.consistency },
+                              { subject: '집중도', value: pattern.radar.concentration },
+                              { subject: '위험도', value: pattern.radar.risk },
+                              { subject: '활동성', value: pattern.radar.activity },
+                            ]}>
+                              <PolarGrid stroke="#e2e8f0" />
+                              <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: '#64748b' }} />
+                              <PolarRadiusAxis domain={[0, 10]} tick={false} />
+                              <Radar dataKey="value" stroke="#7c3aed" fill="#7c3aed" fillOpacity={0.2} strokeWidth={2} />
+                            </RadarChart>
+                          </ResponsiveContainer>
+                        </CardContent>
+                      </Card>
+                      <Card className="bg-white border-slate-200 shadow-sm">
+                        <CardHeader className="pb-1 pt-4 px-4"><CardTitle className="text-sm font-semibold text-slate-800">금액대별 투찰 패턴</CardTitle></CardHeader>
+                        <CardContent className="px-4 pb-4">
+                          <ResponsiveContainer width="100%" height={200}>
+                            <BarChart data={pattern.amount_pattern} margin={{ left: -10 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                              <XAxis dataKey="bucket" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                              <YAxis yAxisId="l" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                              <YAxis yAxisId="r" orientation="right" unit="%" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                              <Tooltip contentStyle={{ border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }} />
+                              <Bar yAxisId="l" dataKey="bid_count" fill="#c4b5fd" name="입찰수" radius={[3, 3, 0, 0]} />
+                              <Bar yAxisId="r" dataKey="win_rate" fill="#10b981" name="낙찰률" radius={[3, 3, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center py-16 text-slate-400 text-sm">
+                    <Loader2 className="h-5 w-5 animate-spin mr-2" />데이터를 불러오는 중...
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="zones" className="space-y-4 mt-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex gap-1.5">
+                    {([90, 180] as const).map((d) => (
+                      <Button
+                        key={d}
+                        size="sm"
+                        variant={zonesDays === d ? 'default' : 'outline'}
+                        className={cn('h-7 text-xs border-slate-200',
+                          zonesDays === d && 'bg-purple-600 hover:bg-purple-700')}
+                        onClick={() => setZonesDays(d)}
+                      >
+                        {d}일
+                      </Button>
+                    ))}
+                  </div>
+                  {zonesData && (
+                    <span className="text-xs text-slate-400">총 {zonesData.total_count.toLocaleString()}건 기준</span>
+                  )}
+                </div>
+
+                {!zonesData ? (
+                  <div className="flex items-center justify-center py-16 text-slate-400 text-sm">
+                    <Loader2 className="h-5 w-5 animate-spin mr-2" />데이터를 불러오는 중...
+                  </div>
+                ) : zonesData.total_count === 0 ? (
+                  <Card className="bg-white border-slate-200">
+                    <CardContent className="py-12 text-center text-sm text-slate-400">
+                      inpo21c 데이터 없음 — 해당 경쟁사의 수집 데이터가 없습니다
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <>
+                    {zonesData.peak_zone && (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="inline-flex items-center text-xs px-2.5 py-1 rounded-full bg-red-50 text-red-700 border border-red-200 font-medium">
+                          피크 구간 {(zonesData.peak_zone.range_lo * 100).toFixed(1)}%~{(zonesData.peak_zone.range_hi * 100).toFixed(1)}%
+                          ({zonesData.peak_zone.pct}%)
+                        </span>
+                        <span className="inline-flex items-center text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-medium">
+                          이 구간 회피 추천
+                        </span>
+                      </div>
+                    )}
+                    <Card className="bg-white border-slate-200 shadow-sm">
+                      <CardHeader className="pb-1 pt-4 px-4">
+                        <CardTitle className="text-sm font-semibold text-slate-800">사정율 구간별 투찰 빈도</CardTitle>
                       </CardHeader>
-                      <CardContent className="space-y-3">
-                        {predictData.bid_zone.peak_zone && (
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <Badge variant="destructive" className="text-xs">
-                              피크 {(predictData.bid_zone.peak_zone.range_lo * 100).toFixed(1)}%~{(predictData.bid_zone.peak_zone.range_hi * 100).toFixed(1)}%
-                              ({predictData.bid_zone.peak_zone.pct}%)
-                            </Badge>
-                            <Badge variant="warning" className="text-xs">이 구간 회피 추천</Badge>
-                          </div>
-                        )}
-                        <ResponsiveContainer width="100%" height={200}>
+                      <CardContent className="px-4 pb-4">
+                        <ResponsiveContainer width="100%" height={260}>
                           <BarChart
-                            data={predictData.bid_zone.zones.map((z: BidZonePredItem) => ({
+                            data={zonesData.zones.map((z: CompetitorZoneItem) => ({
                               label: `${(z.range_lo * 100).toFixed(1)}`,
                               pct: z.pct,
-                              isPeak: predictData.bid_zone.peak_zone?.range_lo === z.range_lo,
+                              isPeak: zonesData.peak_zone
+                                ? z.range_lo === zonesData.peak_zone.range_lo
+                                : false,
                             }))}
                             margin={{ left: -10 }}
                           >
-                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                            <XAxis dataKey="label" tick={{ fontSize: 9 }} interval={1} unit="%" />
-                            <YAxis tick={{ fontSize: 10 }} unit="%" />
-                            <Tooltip formatter={(v: number) => [`${v}%`, '빈도']} labelFormatter={(l) => `${l}%대`} />
-                            <Bar dataKey="pct" name="빈도%">
-                              {predictData.bid_zone.zones.map((z: BidZonePredItem, i: number) => (
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                            <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#94a3b8' }} interval={3} unit="%" />
+                            <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} unit="%" />
+                            <Tooltip
+                              contentStyle={{ border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }}
+                              formatter={(v: number) => [`${v}%`, '빈도']}
+                              labelFormatter={(l) => `${l}%대`}
+                            />
+                            <Bar dataKey="pct" name="빈도%" radius={[3, 3, 0, 0]}>
+                              {zonesData.zones.map((z: CompetitorZoneItem, i: number) => (
                                 <Cell
                                   key={i}
                                   fill={
-                                    predictData.bid_zone.peak_zone?.range_lo === z.range_lo
-                                      ? '#f97316'
-                                      : 'hsl(var(--primary)/0.5)'
+                                    zonesData.peak_zone && z.range_lo === zonesData.peak_zone.range_lo
+                                      ? '#ef4444'
+                                      : '#a78bfa'
                                   }
                                 />
                               ))}
@@ -694,41 +668,160 @@ export default function CompetitorPage() {
                         </ResponsiveContainer>
                       </CardContent>
                     </Card>
-                  )}
-                </div>
-              )}
-            </TabsContent>
-            </Tabs>
-          </div>
-        ) : (
-          <div className="flex-1 flex items-center justify-center text-muted-foreground">
-            목록에서 업체를 선택하세요
-          </div>
-        )}
+                  </>
+                )}
+              </TabsContent>
+
+              <TabsContent value="predict" className="space-y-4 mt-3">
+                {!selectedBid ? (
+                  <Card className="bg-white border-slate-200">
+                    <CardContent className="py-12 text-center text-sm text-slate-400">
+                      상단에서 예측 대상 공고를 선택하세요
+                    </CardContent>
+                  </Card>
+                ) : predictLoading ? (
+                  <div className="flex items-center justify-center py-16 text-slate-400 text-sm">
+                    <Loader2 className="h-5 w-5 animate-spin mr-2" />예측 데이터 로딩 중...
+                  </div>
+                ) : !predictData ? (
+                  <Card className="bg-white border-slate-200">
+                    <CardContent className="py-12 text-center text-sm text-slate-400">
+                      데이터를 불러오는 중...
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="space-y-4">
+                    {/* 참여 확률 카드 */}
+                    <Card className="relative overflow-hidden bg-white border-slate-200 shadow-sm">
+                      <div className="absolute top-0 left-0 right-0 h-0.5 bg-purple-500" />
+                      <CardHeader className="pb-1 pt-4 px-4">
+                        <CardTitle className="text-sm font-semibold text-slate-800">참여 확률 예측</CardTitle>
+                      </CardHeader>
+                      <CardContent className="px-4 pb-4 space-y-3">
+                        <div className="flex items-end gap-3">
+                          <span className="text-4xl font-bold text-purple-600 tabular-nums">
+                            {(predictData.participation.probability * 100).toFixed(0)}%
+                          </span>
+                          <Badge
+                            variant={
+                              predictData.participation.confidence === 'high' ? 'default'
+                                : predictData.participation.confidence === 'medium' ? 'warning'
+                                : 'secondary'
+                            }
+                            className="mb-1"
+                          >
+                            신뢰도 {predictData.participation.confidence === 'high' ? '높음' : predictData.participation.confidence === 'medium' ? '보통' : '낮음'}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-slate-500">{predictData.participation.basis}</p>
+                        <div className="w-full bg-slate-100 rounded-full h-2">
+                          <div
+                            className="bg-purple-500 h-2 rounded-full transition-all"
+                            style={{ width: `${predictData.participation.probability * 100}%` }}
+                          />
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* 투찰 구간 예측 */}
+                    {predictData.bid_zone.sample_count === 0 ? (
+                      <Card className="bg-white border-slate-200">
+                        <CardContent className="py-8 text-center text-sm text-slate-400">
+                          inpo21c 투찰 구간 데이터 없음
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      <Card className="bg-white border-slate-200 shadow-sm">
+                        <CardHeader className="pb-1 pt-4 px-4">
+                          <CardTitle className="text-sm font-semibold text-slate-800 flex items-center justify-between">
+                            <span>예상 투찰 구간 분포</span>
+                            <span className="text-xs font-normal text-slate-400">{predictData.bid_zone.sample_count}건 기반</span>
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="px-4 pb-4 space-y-3">
+                          {predictData.bid_zone.peak_zone && (
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="inline-flex items-center text-xs px-2.5 py-1 rounded-full bg-red-50 text-red-700 border border-red-200 font-medium">
+                                피크 {(predictData.bid_zone.peak_zone.range_lo * 100).toFixed(1)}%~{(predictData.bid_zone.peak_zone.range_hi * 100).toFixed(1)}%
+                                ({predictData.bid_zone.peak_zone.pct}%)
+                              </span>
+                              <span className="inline-flex items-center text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-medium">
+                                이 구간 회피 추천
+                              </span>
+                            </div>
+                          )}
+                          <ResponsiveContainer width="100%" height={200}>
+                            <BarChart
+                              data={predictData.bid_zone.zones.map((z: BidZonePredItem) => ({
+                                label: `${(z.range_lo * 100).toFixed(1)}`,
+                                pct: z.pct,
+                                isPeak: predictData.bid_zone.peak_zone?.range_lo === z.range_lo,
+                              }))}
+                              margin={{ left: -10 }}
+                            >
+                              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                              <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#94a3b8' }} interval={1} unit="%" />
+                              <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} unit="%" />
+                              <Tooltip
+                                contentStyle={{ border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }}
+                                formatter={(v: number) => [`${v}%`, '빈도']}
+                                labelFormatter={(l) => `${l}%대`}
+                              />
+                              <Bar dataKey="pct" name="빈도%" radius={[3, 3, 0, 0]}>
+                                {predictData.bid_zone.zones.map((z: BidZonePredItem, i: number) => (
+                                  <Cell
+                                    key={i}
+                                    fill={
+                                      predictData.bid_zone.peak_zone?.range_lo === z.range_lo
+                                        ? '#ef4444'
+                                        : '#a78bfa'
+                                    }
+                                  />
+                                ))}
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </div>
+                )}
+              </TabsContent>
+              </Tabs>
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-slate-400 gap-2">
+              <ShieldAlert className="h-10 w-10 text-slate-200" />
+              <p className="text-sm">목록에서 업체를 선택하세요</p>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 2개 업체 비교 Dialog */}
       <Dialog open={showCompare} onOpenChange={(o) => { setShowCompare(o); if (!o) setCompareIds([]) }}>
         <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>경쟁사 투찰 패턴 비교</DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
+            <DialogTitle className="text-slate-900">경쟁사 투찰 패턴 비교</DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
               {compareData?.competitors?.map((c: { name: string }) => c.name).join(' vs ') ?? '...'}
             </DialogDescription>
           </DialogHeader>
           <div className="overflow-y-auto flex-1">
             {!compareData ? (
-              <div className="py-16 text-center text-muted-foreground text-sm">데이터를 불러오는 중...</div>
+              <div className="py-16 flex items-center justify-center text-slate-400 text-sm">
+                <Loader2 className="h-5 w-5 animate-spin mr-2" />데이터를 불러오는 중...
+              </div>
             ) : (
               <div className="space-y-5 p-1">
                 {/* 레이더 비교 */}
                 <div className="grid grid-cols-2 gap-4">
                   {compareData.competitors.map((c: { id: number; name: string; radar: Record<string, number>; monthly_trend: { year_month: string; bid_count: number; win_count: number; avg_rate: number | null }[] }) => (
-                    <Card key={c.id}>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm text-center">{c.name}</CardTitle>
+                    <Card key={c.id} className="bg-white border-slate-200">
+                      <CardHeader className="pb-1 pt-4 px-4">
+                        <CardTitle className="text-sm font-semibold text-center text-slate-800">{c.name}</CardTitle>
                       </CardHeader>
-                      <CardContent>
+                      <CardContent className="px-4 pb-4">
                         <ResponsiveContainer width="100%" height={200}>
                           <RadarChart data={[
                             { subject: '공격성', value: c.radar.aggression ?? 0 },
@@ -737,10 +830,10 @@ export default function CompetitorPage() {
                             { subject: '위험도', value: c.radar.risk ?? 0 },
                             { subject: '활동성', value: c.radar.activity ?? 0 },
                           ]}>
-                            <PolarGrid />
-                            <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11 }} />
+                            <PolarGrid stroke="#e2e8f0" />
+                            <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: '#64748b' }} />
                             <PolarRadiusAxis domain={[0, 10]} tick={false} />
-                            <Radar dataKey="value" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.3} />
+                            <Radar dataKey="value" stroke="#7c3aed" fill="#7c3aed" fillOpacity={0.2} strokeWidth={2} />
                           </RadarChart>
                         </ResponsiveContainer>
                       </CardContent>
@@ -765,17 +858,22 @@ export default function CompetitorPage() {
                       [c1.name]: t1?.avg_rate != null ? +(t1.avg_rate * 100).toFixed(3) : null,
                     }
                   })
-                  const COMPARE_COLORS = ['hsl(var(--primary))', '#f97316']
+                  const COMPARE_COLORS = ['#7c3aed', '#f97316']
                   return (
-                    <Card>
-                      <CardHeader className="pb-2"><CardTitle className="text-sm">월별 평균 투찰률 추이 비교</CardTitle></CardHeader>
-                      <CardContent>
+                    <Card className="bg-white border-slate-200">
+                      <CardHeader className="pb-1 pt-4 px-4">
+                        <CardTitle className="text-sm font-semibold text-slate-800">월별 평균 투찰률 추이 비교</CardTitle>
+                      </CardHeader>
+                      <CardContent className="px-4 pb-4">
                         <ResponsiveContainer width="100%" height={200}>
                           <LineChart data={chartData}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                            <XAxis dataKey="ym" tick={{ fontSize: 9 }} interval={1} />
-                            <YAxis tick={{ fontSize: 10 }} unit="%" domain={['auto', 'auto']} />
-                            <Tooltip formatter={(v: number) => [v + '%', '']} />
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                            <XAxis dataKey="ym" tick={{ fontSize: 9, fill: '#94a3b8' }} interval={1} />
+                            <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} unit="%" domain={['auto', 'auto']} />
+                            <Tooltip
+                              contentStyle={{ border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }}
+                              formatter={(v: number) => [v + '%', '']}
+                            />
                             {compareData.competitors.map((c: { name: string }, i: number) => (
                               <Line key={c.name} type="monotone" dataKey={c.name}
                                 stroke={COMPARE_COLORS[i]} strokeWidth={2} dot={false} connectNulls />
@@ -784,9 +882,9 @@ export default function CompetitorPage() {
                         </ResponsiveContainer>
                         <div className="flex gap-4 text-xs mt-2">
                           {compareData.competitors.map((c: { name: string }, i: number) => (
-                            <span key={c.name} className="flex items-center gap-1">
+                            <span key={c.name} className="flex items-center gap-1.5">
                               <span className="w-3 h-0.5 inline-block rounded" style={{ backgroundColor: COMPARE_COLORS[i] }} />
-                              {c.name}
+                              <span className="text-slate-600">{c.name}</span>
                             </span>
                           ))}
                         </div>
@@ -814,36 +912,36 @@ export default function CompetitorPage() {
       <Dialog open={winsModalOpen} onOpenChange={setWinsModalOpen}>
         <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Trophy className="h-4 w-4 text-yellow-500" />
+            <DialogTitle className="flex items-center gap-2 text-slate-900">
+              <Trophy className="h-4 w-4 text-amber-500" />
               {detail?.name} — 수주 이력 ({detail?.win_count}건)
             </DialogTitle>
           </DialogHeader>
           <div className="overflow-y-auto flex-1">
             {winHistory.length === 0 ? (
-              <div className="p-10 text-center text-muted-foreground">불러오는 중...</div>
+              <div className="p-10 text-center text-slate-400">불러오는 중...</div>
             ) : (
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>개찰일</TableHead>
-                    <TableHead>수주 사업명</TableHead>
-                    <TableHead>발주기관</TableHead>
-                    <TableHead className="text-right">기초금액</TableHead>
-                    <TableHead className="text-center">투찰률</TableHead>
+                  <TableRow className="bg-slate-50">
+                    <TableHead className="text-xs text-slate-500">개찰일</TableHead>
+                    <TableHead className="text-xs text-slate-500">수주 사업명</TableHead>
+                    <TableHead className="text-xs text-slate-500">발주기관</TableHead>
+                    <TableHead className="text-right text-xs text-slate-500">기초금액</TableHead>
+                    <TableHead className="text-center text-xs text-slate-500">투찰률</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {winHistory.map((w) => (
-                    <TableRow key={w.result_id} className="hover:bg-yellow-50/50">
-                      <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{fmtDate(w.bid_open_date)}</TableCell>
+                    <TableRow key={w.result_id} className="hover:bg-amber-50/30 transition-colors">
+                      <TableCell className="whitespace-nowrap text-xs text-slate-400">{fmtDate(w.bid_open_date)}</TableCell>
                       <TableCell className="max-w-[220px]">
-                        <span className="block font-medium truncate text-xs" title={w.title}>{w.title}</span>
+                        <span className="block font-medium truncate text-xs text-slate-800" title={w.title}>{w.title}</span>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap text-xs">{w.agency_name}</TableCell>
-                      <TableCell className="text-right whitespace-nowrap text-xs">{fmtAmt(w.base_amount)}</TableCell>
+                      <TableCell className="whitespace-nowrap text-xs text-slate-600">{w.agency_name}</TableCell>
+                      <TableCell className="text-right whitespace-nowrap text-xs text-slate-600">{fmtAmt(w.base_amount)}</TableCell>
                       <TableCell className="text-center">
-                        <span className="font-mono font-bold text-primary text-sm">
+                        <span className="font-mono font-bold text-purple-600 text-sm">
                           {w.bid_rate ? (w.bid_rate * 100).toFixed(2) + '%' : '-'}
                         </span>
                       </TableCell>
@@ -854,10 +952,10 @@ export default function CompetitorPage() {
             )}
           </div>
           {winHistory.length > 0 && (
-            <div className="border-t pt-3 flex gap-6 text-xs text-muted-foreground">
-              <span>평균 투찰률 <strong className="text-primary text-sm">{(avgRate * 100).toFixed(2)}%</strong></span>
-              <span>최고 <strong className="text-green-600">{(maxRate * 100).toFixed(2)}%</strong></span>
-              <span>최저 <strong className="text-destructive">{(minRate * 100).toFixed(2)}%</strong></span>
+            <div className="border-t border-slate-100 pt-3 flex gap-6 text-xs text-slate-500">
+              <span>평균 투찰률 <strong className="text-purple-600 text-sm">{(avgRate * 100).toFixed(2)}%</strong></span>
+              <span>최고 <strong className="text-emerald-600">{(maxRate * 100).toFixed(2)}%</strong></span>
+              <span>최저 <strong className="text-red-500">{(minRate * 100).toFixed(2)}%</strong></span>
             </div>
           )}
         </DialogContent>
@@ -866,11 +964,16 @@ export default function CompetitorPage() {
   )
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function MetricCard({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
-    <div className="bg-muted/50 rounded-md p-2.5">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-sm font-bold mt-0.5">{value}</div>
+    <div className={cn(
+      'rounded-xl p-3 border',
+      highlight
+        ? 'bg-purple-50 border-purple-100'
+        : 'bg-slate-50 border-slate-100'
+    )}>
+      <div className={cn('text-xs font-medium', highlight ? 'text-purple-500' : 'text-slate-400')}>{label}</div>
+      <div className={cn('text-lg font-bold mt-0.5 tabular-nums', highlight ? 'text-purple-700' : 'text-slate-800')}>{value}</div>
     </div>
   )
 }
@@ -896,15 +999,24 @@ function BatchAnalysisDialog({ open, onOpenChange, bidItem, competitors }: Batch
   const confidenceVariant = (c: string): 'default' | 'warning' | 'secondary' =>
     c === 'high' ? 'default' : c === 'medium' ? 'warning' : 'secondary'
 
+  const riskColorClass = (r: string) =>
+    r === 'HIGH'
+      ? 'bg-red-50 text-red-700 border-red-200'
+      : r === 'MEDIUM'
+      ? 'bg-amber-50 text-amber-700 border-amber-200'
+      : r === 'LOW'
+      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+      : 'bg-slate-100 text-slate-500 border-slate-200'
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Target className="h-4 w-4 text-primary" />
+          <DialogTitle className="flex items-center gap-2 text-slate-900">
+            <Target className="h-4 w-4 text-purple-600" />
             이 공고 경쟁사 일괄 분석
           </DialogTitle>
-          <DialogDescription className="text-xs text-muted-foreground truncate">
+          <DialogDescription className="text-xs text-slate-500 truncate">
             {bidItem.announcement_no} · {bidItem.title}
           </DialogDescription>
         </DialogHeader>
@@ -912,50 +1024,50 @@ function BatchAnalysisDialog({ open, onOpenChange, bidItem, competitors }: Batch
           {competitors.map((c, i) => {
             const q = results[i]
             return (
-              <Card key={c.id}>
+              <Card key={c.id} className="bg-white border-slate-200 shadow-sm">
                 <CardContent className="pt-4 pb-3">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-sm">{c.name}</span>
-                      <Badge variant={c.risk_level === 'HIGH' ? 'destructive' : c.risk_level === 'MEDIUM' ? 'warning' : 'success'} className="text-[10px] px-1.5">
+                      <span className="font-semibold text-sm text-slate-800">{c.name}</span>
+                      <span className={cn('text-[10px] px-1.5 py-0.5 rounded border font-semibold', riskColorClass(c.risk_level))}>
                         {c.risk_level}
-                      </Badge>
+                      </span>
                     </div>
-                    {q.isLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                    {q.isLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
                   </div>
                   {q.data ? (
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <div className="text-xs text-muted-foreground mb-1">참여 확률</div>
+                        <div className="text-xs text-slate-500 mb-1">참여 확률</div>
                         <div className="flex items-center gap-2">
-                          <span className="text-2xl font-bold text-primary">
+                          <span className="text-2xl font-bold text-purple-600 tabular-nums">
                             {(q.data.participation.probability * 100).toFixed(0)}%
                           </span>
                           <Badge variant={confidenceVariant(q.data.participation.confidence)} className="text-[10px]">
                             신뢰 {confidenceLabel(q.data.participation.confidence)}
                           </Badge>
                         </div>
-                        <p className="text-[11px] text-muted-foreground mt-1 leading-tight">{q.data.participation.basis}</p>
+                        <p className="text-[11px] text-slate-400 mt-1 leading-tight">{q.data.participation.basis}</p>
                       </div>
                       <div>
-                        <div className="text-xs text-muted-foreground mb-1">
+                        <div className="text-xs text-slate-500 mb-1">
                           예상 피크 구간
                           {q.data.bid_zone.sample_count > 0 && (
-                            <span className="ml-1 text-[10px]">({q.data.bid_zone.sample_count}건 기반)</span>
+                            <span className="ml-1 text-[10px] text-slate-400">({q.data.bid_zone.sample_count}건 기반)</span>
                           )}
                         </div>
                         {q.data.bid_zone.peak_zone ? (
-                          <Badge variant="destructive" className="text-xs">
+                          <span className="inline-flex items-center text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 font-medium">
                             {(q.data.bid_zone.peak_zone.range_lo * 100).toFixed(1)}%~{(q.data.bid_zone.peak_zone.range_hi * 100).toFixed(1)}%
                             ({q.data.bid_zone.peak_zone.pct}%)
-                          </Badge>
+                          </span>
                         ) : (
-                          <span className="text-xs text-muted-foreground">데이터 없음</span>
+                          <span className="text-xs text-slate-400">데이터 없음</span>
                         )}
                       </div>
                     </div>
                   ) : q.isError ? (
-                    <p className="text-xs text-destructive">데이터 조회 실패</p>
+                    <p className="text-xs text-red-500">데이터 조회 실패</p>
                   ) : null}
                 </CardContent>
               </Card>

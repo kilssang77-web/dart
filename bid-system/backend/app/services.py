@@ -653,6 +653,14 @@ class StatisticsService:
         """), {"cutoff": cutoff}).fetchone()
         avg_win_rate = float(avg_rate_row[0]) if avg_rate_row and avg_rate_row[0] else 0.0
 
+        all_rate_row = db.execute(text(f"""
+            SELECT AVG(r.bid_rate)
+            FROM bid_results r
+            JOIN bids b ON b.id = r.bid_id
+            WHERE b.bid_open_date >= :cutoff {ind_sql}
+        """), {"cutoff": cutoff}).fetchone()
+        avg_bid_rate = float(all_rate_row[0]) if all_rate_row and all_rate_row[0] else 0.0
+
         comp_cnt_row = db.execute(text(f"""
             SELECT AVG(cnt)
             FROM (SELECT bid_id, COUNT(*) as cnt FROM bid_results
@@ -717,7 +725,7 @@ class StatisticsService:
             "total_bids": total_bids,
             "total_competitors": total_comps,
             "avg_win_rate": round(avg_win_rate, 4),
-            "avg_bid_rate": round(avg_win_rate, 4),
+            "avg_bid_rate": round(avg_bid_rate, 4),
             "avg_competitor_count": round(avg_comp_count, 1),
             "monthly_trend": trend,
             "win_rate_change_pct": win_rate_change_pct,
@@ -2239,8 +2247,17 @@ class SingleRecommendService:
         else:
             comp_min_dist = None
 
-        # 낙찰하한율
-        floor_rate = calc_floor_rate(req.get("industry_id"))
+        # 낙찰하한율 — industry_id → 공종명 조회 후 calc_floor_rate 호출
+        _industry_id = req.get("industry_id")
+        _industry_name = ""
+        if _industry_id:
+            _ind_row = db.execute(
+                text("SELECT name FROM industries WHERE id = :id"),
+                {"id": _industry_id},
+            ).fetchone()
+            if _ind_row:
+                _industry_name = _ind_row[0]
+        floor_rate = calc_floor_rate(_industry_name)
 
         # 적격심사 유효 범위
         valid_low = valid_high = None
@@ -3854,15 +3871,21 @@ class FinalRecommendService:
         else:
             floor_rate = round(float(srate_mean) * floor_pct, 5)
 
+        # recommended_rate가 floor 미달이면 floor로 올림
+        if recommended_rate < floor_rate:
+            recommended_rate = floor_rate
+
         # 8. 전략별 근접 zone win_prob 탐색
         def _win_prob(rate: float) -> float:
+            if rate < floor_rate:          # floor 미달 → 실격이므로 확률 0
+                return 0.0
             if not all_zones:
                 return 0.0
             nearest = min(all_zones, key=lambda z: abs(z["rate"] - rate))
             return round(float(nearest.get("win_prob", 0.0)), 4)
 
         def _strat(rate: float) -> dict:
-            r = round(rate, 4)
+            r = round(max(rate, floor_rate), 4)   # 항상 floor 이상으로 클램핑
             return {"rate": r, "amount": round(base_amount * r), "win_prob": _win_prob(r)}
 
         strategies = {
@@ -3897,7 +3920,7 @@ class FinalRecommendService:
             },
             "prism_top": {
                 "rate":        round(float(prism_top["rate"]), 4),
-                "probability": round(float(prism_top["win_prob"]) * 100, 2),
+                "probability": round(float(prism_top["win_prob"]), 4),
             } if prism_top else None,
             "yega_top": {
                 "rate":        round(yega_top_rate, 4),
