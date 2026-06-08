@@ -6,7 +6,7 @@ import {
   TrendingUp, Handshake, BarChart2, ClipboardList, KeyRound,
   Building2, ShieldAlert, LogOut, Bell, PanelLeftClose, PanelLeftOpen,
   Globe, Activity, Target, Briefcase, LayoutDashboard, PieChart, Gauge,
-  ChevronRight, ListChecks, FlaskConical, Radar,
+  ChevronRight, ListChecks, FlaskConical, Radar, PackageCheck,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { authApi, notificationsApi } from '@/api'
@@ -37,6 +37,7 @@ const NAV_GROUPS = [
     label: '투찰 실행',
     items: [
       { to: '/executions',       label: '투찰 관리',     icon: ListChecks },
+      { to: '/portfolio',        label: '포트폴리오',    icon: PackageCheck },
       { to: '/our-competitors',  label: '자사 경쟁사',   icon: Radar },
       { to: '/backtest',         label: '백테스트',      icon: FlaskConical },
     ],

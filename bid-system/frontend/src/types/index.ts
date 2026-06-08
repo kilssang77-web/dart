@@ -882,6 +882,38 @@ export interface AgencyRecentResultsResponse {
   total: number
 }
 
+export interface AgencyStrategyBucket {
+  from: number
+  to: number
+  count: number
+}
+
+export interface AgencyStrategy {
+  agency_id: number
+  industry_code: string
+  period_months: number
+  total_bid_count: number
+  avg_win_rate: number | null
+  std_win_rate: number | null
+  min_win_rate: number | null
+  max_win_rate: number | null
+  win_rate_p10: number | null
+  win_rate_p25: number | null
+  win_rate_p50: number | null
+  win_rate_p75: number | null
+  win_rate_p90: number | null
+  avg_competitor_cnt: number | null
+  aggression_index: number | null
+  qual_difficulty: '易' | '中' | '難' | null
+  freq_table: AgencyStrategyBucket[]
+  histogram_data: [number, number][]
+  volatility_30d: number | null
+  trend_direction: 'up' | 'down' | 'stable' | null
+  recommended_range_lo: number | null
+  recommended_range_hi: number | null
+  updated_at: string | null
+}
+
 export interface Notification {
   id: number
   ntype: string
@@ -1117,5 +1149,44 @@ export interface BacktestResult {
   sample_regressions: BacktestSample[]
   data_source: string
   message?: string
+}
+
+// ── 포트폴리오 최적화 ────────────────────────────────────────
+
+export interface PortfolioBidItem {
+  bid_id:           number
+  title:            string
+  base_amount:      number
+  bid_date:         string
+  verdict:          string      // GO | WATCH | NO_GO
+  selection_score:  number      // 0~10
+  ev_score:         number
+  qualify_prob:     number
+  win_prob:         number
+  recommended_rate: number
+}
+
+export interface PortfolioPlanResponse {
+  selected:              PortfolioBidItem[]
+  not_selected:          PortfolioBidItem[]
+  no_go_list:            PortfolioBidItem[]
+  expected_wins:         number
+  expected_win_amount:   number
+  total_ev:              number
+  bond_usage:            number
+  remaining_bond_after:  number
+  alerts:                string[]
+  schedule:              { date: string; bids: number[]; note?: string }[]
+  stats:                 Record<string, number>
+}
+
+export interface ActivePortfolioItem {
+  bid_id:         number
+  title:          string
+  base_amount:    number
+  bid_date:       string | null
+  submitted_rate: number | null
+  bond_exposure:  number
+  status:         string
 }
 
