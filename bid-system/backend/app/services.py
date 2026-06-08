@@ -4629,6 +4629,10 @@ class ExecutionService:
             BidExecution.user_id == user_id,
         ).first()
         if obj:
+            # defeat_analyses has NOT NULL FK — delete child rows first
+            self.db.query(DefeatAnalysis).filter(
+                DefeatAnalysis.execution_id == exec_id
+            ).delete(synchronize_session=False)
             self.db.delete(obj)
             self.db.commit()
 
