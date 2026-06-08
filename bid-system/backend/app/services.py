@@ -4187,6 +4187,34 @@ class NotificationService:
         self.db.refresh(n)
         return [n]
 
+    def create_execution_deadline(
+        self, user_id: int, exec_title: str, days_left: int
+    ) -> Notification:
+        if days_left == 0:
+            title = f"[오늘 개찰] {exec_title[:45]}"
+            body = "오늘 개찰 마감입니다. 투찰 완료 여부를 확인하세요."
+        else:
+            title = f"[D-{days_left}] 내일 개찰: {exec_title[:40]}"
+            body = f"{days_left}일 후 개찰 마감입니다. 투찰률을 최종 확인하세요."
+        n = Notification(user_id=user_id, ntype="execution_deadline",
+                         title=title, body=body, link="/executions")
+        self.db.add(n)
+        self.db.commit()
+        self.db.refresh(n)
+        return n
+
+    def create_result_reminder(
+        self, user_id: int, exec_title: str
+    ) -> Notification:
+        title = f"[결과 입력 요청] {exec_title[:45]}"
+        body = "개찰이 완료된 것으로 보입니다. 낙찰/패찰 결과를 입력해주세요."
+        n = Notification(user_id=user_id, ntype="execution_result",
+                         title=title, body=body, link="/executions")
+        self.db.add(n)
+        self.db.commit()
+        self.db.refresh(n)
+        return n
+
 
 # ==================================================
 # 전참여자 조회 서비스 (inpo21c_participants)
@@ -4616,9 +4644,30 @@ class ExecutionService:
         updates = data.model_dump(exclude_none=True)
         for k, v in updates.items():
             setattr(obj, k, v)
-        # 패찰 → 자동 원인 분석
+        # 패찰 → 자동 원인 분석 + 알림
         if data.status == "패찰":
             self._auto_defeat_analysis(obj)
+            da = self.db.query(DefeatAnalysis).filter(DefeatAnalysis.execution_id == obj.id).first()
+            cause_str = da.cause_primary if da else "기타"
+            improvement_str = da.improvement if da else ""
+            nsvc = NotificationService(self.db)
+            nsvc.create(
+                user_id=obj.user_id,
+                ntype="execution_result",
+                title=f"[패찰] {obj.title[:45]}",
+                body=f"원인: {cause_str}. {improvement_str}",
+                link="/executions",
+            )
+        # 낙찰 → 축하 알림
+        elif data.status == "낙찰":
+            nsvc = NotificationService(self.db)
+            nsvc.create(
+                user_id=obj.user_id,
+                ntype="execution_result",
+                title=f"[낙찰] {obj.title[:45]}",
+                body=f"축하합니다! 낙찰 확정되었습니다. 투찰률: {obj.submitted_rate:.3%}" if obj.submitted_rate else "낙찰 확정",
+                link="/executions",
+            )
         self.db.commit()
         self.db.refresh(obj)
         return obj

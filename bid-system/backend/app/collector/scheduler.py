@@ -114,6 +114,56 @@ def run_post_open_collect_job() -> None:
         db.close()
 
 
+def run_execution_deadline_job() -> None:
+    """투찰 마감 임박 알림 (D-0/D-1) + 개찰대기 결과 입력 리마인더 (매일 08:00 KST)."""
+    from datetime import date, timedelta, datetime, timezone
+    from sqlalchemy import func
+    from app.database import SessionLocal
+    from app.models import BidExecution
+    from app.services import NotificationService
+
+    db = SessionLocal()
+    try:
+        today = date.today()
+        tomorrow = today + timedelta(days=1)
+        utc_now = datetime.now(timezone.utc)
+        overdue_cutoff = utc_now - timedelta(days=2)
+
+        svc = NotificationService(db)
+        deadline_created = 0
+
+        # D-0: 오늘 개찰 마감
+        for ex in db.query(BidExecution).filter(
+            BidExecution.status.in_(["참여결정", "투찰완료"]),
+            func.date(BidExecution.bid_open_date) == today,
+        ).all():
+            svc.create_execution_deadline(ex.user_id, ex.title, days_left=0)
+            deadline_created += 1
+
+        # D-1: 내일 개찰 마감
+        for ex in db.query(BidExecution).filter(
+            BidExecution.status.in_(["참여결정", "투찰완료"]),
+            func.date(BidExecution.bid_open_date) == tomorrow,
+        ).all():
+            svc.create_execution_deadline(ex.user_id, ex.title, days_left=1)
+            deadline_created += 1
+
+        # 개찰대기 2일 초과 → 결과 입력 요청
+        reminder_created = 0
+        for ex in db.query(BidExecution).filter(
+            BidExecution.status == "개찰대기",
+            BidExecution.bid_open_date <= overdue_cutoff,
+        ).all():
+            svc.create_result_reminder(ex.user_id, ex.title)
+            reminder_created += 1
+
+        logger.info("투찰 마감 알림: 마감=%d건, 결과입력=%d건", deadline_created, reminder_created)
+    except Exception as exc:
+        logger.error("투찰 마감 알림 실패: %s", exc)
+    finally:
+        db.close()
+
+
 def run_srate_spike_check_job() -> None:
     """사정율 급변 탐지 후 전체 공지 알림 생성 (매일 07:00 KST)."""
     SPIKE_THRESHOLD_PCT = 2.0  # ±2%p 이상이면 급변 알림
@@ -185,6 +235,13 @@ def create_scheduler() -> BackgroundScheduler:
         trigger=CronTrigger(hour=7, minute=0, timezone="Asia/Seoul"),
         id="srate_spike_check_daily",
         name="사정율 급변 알림 탐지 (매일 07:00 KST)",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_execution_deadline_job,
+        trigger=CronTrigger(hour=8, minute=0, timezone="Asia/Seoul"),
+        id="execution_deadline_notify_daily",
+        name="투찰 마감 임박 알림 D-0/D-1 (매일 08:00 KST)",
         replace_existing=True,
     )
     for hr in (10, 16, 22):

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { selectionApi } from '../api'
+import { useNavigate } from 'react-router-dom'
+import { selectionApi, executionsApi } from '../api'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -8,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   CheckCircle2, MinusCircle, XCircle, RefreshCw, Loader2,
-  TrendingUp, ChevronDown, ChevronUp, Zap, Target, CalendarDays,
+  TrendingUp, ChevronDown, ChevronUp, Zap, Target, CalendarDays, Plus,
 } from 'lucide-react'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -109,7 +110,7 @@ function fmt억(v: number) {
   return v.toLocaleString()
 }
 
-function SelectionCard({ item }: { item: SelectionItem }) {
+function SelectionCard({ item, onRegister }: { item: SelectionItem; onRegister?: (item: SelectionItem) => void }) {
   const cfg = VERDICT_CONFIG[item.verdict]
   const riskCfg = RISK_CONFIG[item.competitor_risk]
   const [expanded, setExpanded] = useState(false)
@@ -221,6 +222,20 @@ function SelectionCard({ item }: { item: SelectionItem }) {
             <span className="font-bold text-blue-700 tabular-nums">{(item.recommended_rate * 100).toFixed(3)}%</span>
           </div>
         )}
+
+        {/* 투찰 등록 버튼 — GO 항목만 */}
+        {item.verdict === 'GO' && onRegister && (
+          <div className="pt-1">
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full gap-1.5 border-violet-200 text-violet-700 hover:bg-violet-50 hover:text-violet-800 text-xs h-8"
+              onClick={() => onRegister(item)}
+            >
+              <Plus className="h-3.5 w-3.5" />투찰 등록
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   )
@@ -232,11 +247,28 @@ export default function BidSelectionPage() {
   const [evaluatingId, setEvaluatingId] = useState<number | null>(null)
   const [newBidId, setNewBidId] = useState('')
   const qc = useQueryClient()
+  const navigate = useNavigate()
 
   const { data, isLoading, refetch, isFetching } = useQuery<GoListData>({
     queryKey: ['go-list', days],
     queryFn: () => selectionApi.goList(days),
   })
+
+  const createExecMutation = useMutation({
+    mutationFn: executionsApi.create,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['execution-summary'] })
+      navigate('/executions')
+    },
+  })
+
+  const handleRegister = (item: SelectionItem) => {
+    createExecMutation.mutate({
+      title: item.title,
+      base_amount: item.base_amount,
+      bid_open_date: item.bid_open_date,
+    })
+  }
 
   const evalMut = useMutation({
     mutationFn: (id: number) => selectionApi.evaluate(id),
@@ -422,7 +454,13 @@ export default function BidSelectionPage() {
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {items.map((item) => <SelectionCard key={item.bid_id} item={item} />)}
+            {items.map((item) => (
+              <SelectionCard
+                key={item.bid_id}
+                item={item}
+                onRegister={item.verdict === 'GO' ? handleRegister : undefined}
+              />
+            ))}
           </div>
         )}
       </div>
