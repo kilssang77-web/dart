@@ -1,14 +1,14 @@
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation } from '@tanstack/react-query'
 import {
   ArrowLeft, ExternalLink, Sparkles, Target, Handshake, Radar,
-  Building2, Trophy, AlertTriangle, FileText, Brain, Shield, Users, BarChart2, TrendingUp,
+  Building2, Trophy, AlertTriangle, FileText, Brain, Shield, Users, BarChart2, TrendingUp, Plus,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from 'recharts'
-import { bidsApi, agenciesApi, recommendApi } from '@/api'
+import { bidsApi, agenciesApi, recommendApi, executionsApi } from '@/api'
 import type {
   BidDetail, FinalRecommendResult, RivalRadarResponse,
   SrateHistogramResponse, AgencyRecentResultsResponse,
@@ -850,6 +850,11 @@ export default function BidDetailPage() {
     enabled: !!id,
   })
 
+  const createExecMutation = useMutation({
+    mutationFn: executionsApi.create,
+    onSuccess: () => navigate('/executions'),
+  })
+
   const { data: score } = useQuery<OpportunityScore>({
     queryKey: ['opportunity-score', id],
     queryFn: () => bidsApi.opportunityScore(bidId),
@@ -937,6 +942,22 @@ export default function BidDetailPage() {
               )}
             </div>
           </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="shrink-0 gap-1.5 border-violet-200 text-violet-700 hover:bg-violet-50 hover:text-violet-800 mt-0.5"
+            disabled={createExecMutation.isPending}
+            onClick={() => createExecMutation.mutate({
+              title: bid.title,
+              agency_name: bid.agency_name,
+              base_amount: bid.base_amount,
+              bid_open_date: bid.bid_open_date ?? undefined,
+              announcement_no: bid.announcement_no,
+            })}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            투찰 등록
+          </Button>
         </div>
       </div>
 

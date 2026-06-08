@@ -3,15 +3,15 @@
  * 입찰 담당자가 출근 후 30초 안에 오늘 할 일을 파악하는 화면
  */
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
   Sparkles, AlertCircle, Clock, Trophy, Target,
   TrendingUp, TrendingDown, ChevronRight, CheckCircle2,
-  Building2, Calendar, Zap, BarChart2, Search,
+  Building2, Calendar, Zap, BarChart2, Search, ListChecks, Plus,
 } from 'lucide-react'
-import { bidsApi, statsApi, selectionApi, kpiApi } from '@/api'
-import type { BidRecommendItem, OverviewStatsWithChange } from '@/types'
+import { bidsApi, statsApi, selectionApi, kpiApi, executionsApi } from '@/api'
+import type { BidRecommendItem, OverviewStatsWithChange, ExecutionSummary } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -121,6 +121,27 @@ export default function TodayPage() {
     queryFn: () => selectionApi.goList(14),
     staleTime: 300_000,
   })
+
+  // 투찰 실행 파이프라인
+  const queryClient = useQueryClient()
+  const { data: execSummary } = useQuery<ExecutionSummary>({
+    queryKey: ['execution-summary'],
+    queryFn: () => executionsApi.summary(),
+    staleTime: 60_000,
+  })
+  const createExecMutation = useMutation({
+    mutationFn: executionsApi.create,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['execution-summary'] })
+      navigate('/executions')
+    },
+  })
+
+  const activeExecCount =
+    (execSummary?.status_counts?.['참여결정'] ?? 0) +
+    (execSummary?.status_counts?.['투찰완료'] ?? 0) +
+    (execSummary?.status_counts?.['개찰대기'] ?? 0)
+  const todayClosings = execSummary?.today_closing ?? []
 
   const urgentList = (urgentBids?.items ?? []).filter((b: { bid_open_date: string | null }) => {
     const d = daysUntil(b.bid_open_date)
@@ -232,21 +253,25 @@ export default function TodayPage() {
             </CardContent>
           </Card>
 
-          {/* GO 판정 공고 */}
+          {/* 진행중 투찰 */}
           <Card
             className="relative overflow-hidden bg-white border-slate-200 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-            onClick={() => navigate('/bid-selection')}
+            onClick={() => navigate('/executions')}
           >
-            <div className="absolute top-0 left-0 right-0 h-0.5 bg-emerald-500" />
+            <div className={cn('absolute top-0 left-0 right-0 h-0.5', activeExecCount > 0 ? 'bg-violet-500' : 'bg-slate-300')} />
             <CardContent className="p-5">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-sm font-medium text-slate-500">GO 판정 공고</p>
-                  <p className="text-2xl font-bold mt-1 tabular-nums text-slate-900">{goCount}건</p>
-                  <p className="text-xs text-slate-400 mt-1">지난 2주 기준</p>
+                  <p className="text-sm font-medium text-slate-500">진행중 투찰</p>
+                  <p className="text-2xl font-bold mt-1 tabular-nums text-slate-900">{activeExecCount}건</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {todayClosings.length > 0
+                      ? <span className="text-red-500 font-semibold">오늘 개찰 {todayClosings.length}건</span>
+                      : '개찰대기·투찰완료·참여결정'}
+                  </p>
                 </div>
-                <div className="rounded-xl p-2.5 bg-emerald-50 shrink-0">
-                  <Target className="h-5 w-5 text-emerald-600" />
+                <div className="rounded-xl p-2.5 bg-violet-50 shrink-0">
+                  <ListChecks className="h-5 w-5 text-violet-600" />
                 </div>
               </div>
             </CardContent>
@@ -339,15 +364,35 @@ export default function TodayPage() {
                             </div>
                           </div>
 
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="shrink-0 h-7 px-2.5 text-xs gap-1 text-slate-500 hover:text-blue-600 hover:bg-blue-50"
-                            onClick={(e) => { e.stopPropagation(); navigate(`/bids/${b.bid_id}?tab=strategy`) }}
-                          >
-                            전략
-                            <ChevronRight className="h-3 w-3" />
-                          </Button>
+                          <div className="flex flex-col gap-1 shrink-0">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-2.5 text-xs gap-1 text-slate-500 hover:text-blue-600 hover:bg-blue-50"
+                              onClick={(e) => { e.stopPropagation(); navigate(`/bids/${b.bid_id}?tab=strategy`) }}
+                            >
+                              전략
+                              <ChevronRight className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-2.5 text-xs gap-1 text-violet-600 hover:text-violet-700 hover:bg-violet-50"
+                              disabled={createExecMutation.isPending}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                createExecMutation.mutate({
+                                  title: b.title,
+                                  agency_name: b.agency_name,
+                                  base_amount: b.base_amount,
+                                  bid_open_date: b.open_date ?? undefined,
+                                })
+                              }}
+                            >
+                              <Plus className="h-3 w-3" />
+                              등록
+                            </Button>
+                          </div>
                         </div>
                       </CardContent>
                     </Card>
@@ -395,6 +440,46 @@ export default function TodayPage() {
                 )}
               </CardContent>
             </Card>
+
+            {/* 오늘 개찰 마감 */}
+            {todayClosings.length > 0 && (
+              <Card className="bg-white border-red-200 shadow-sm ring-1 ring-red-100">
+                <CardHeader className="pb-2 pt-4 px-4">
+                  <CardTitle className="text-sm font-semibold text-red-700 flex items-center gap-1.5">
+                    <Clock className="h-4 w-4 text-red-500 animate-pulse" />
+                    오늘 개찰 마감
+                    <span className="ml-auto bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                      {todayClosings.length}건
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-4 pb-4 space-y-1.5">
+                  {todayClosings.slice(0, 4).map((ex) => (
+                    <div
+                      key={ex.id}
+                      className="flex items-center gap-2 cursor-pointer hover:bg-red-50 rounded-lg p-2 -mx-1 transition-colors group"
+                      onClick={() => navigate('/executions')}
+                    >
+                      <div className="h-1.5 w-1.5 rounded-full bg-red-500 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-slate-700 truncate group-hover:text-red-700 transition-colors">
+                          {ex.title}
+                        </p>
+                        <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                          {ex.status} · {ex.agency_name ?? '-'}
+                        </p>
+                      </div>
+                      <ChevronRight className="h-3 w-3 text-slate-300 group-hover:text-red-400 shrink-0" />
+                    </div>
+                  ))}
+                  {todayClosings.length > 4 && (
+                    <p className="text-[10px] text-slate-400 text-center pt-1">
+                      +{todayClosings.length - 4}건 더보기 →
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             {/* 이달 수주 현황 */}
             <Card className="bg-white border-slate-200 shadow-sm">
@@ -485,10 +570,11 @@ export default function TodayPage() {
               </CardHeader>
               <CardContent className="px-3 pb-3 space-y-0.5">
                 {[
+                  { label: '투찰 관리',       path: '/executions',    icon: ListChecks, color: 'text-violet-500', bg: 'bg-violet-50' },
                   { label: 'AI 투찰률 추천',  path: '/recommend',     icon: Zap,        color: 'text-blue-500',   bg: 'bg-blue-50'   },
                   { label: '적격심사 계산',   path: '/qualification', icon: Trophy,     color: 'text-emerald-500', bg: 'bg-emerald-50' },
+                  { label: 'GO 판정 공고',    path: '/bid-selection', icon: Target,     color: 'text-emerald-600', bg: 'bg-emerald-50' },
                   { label: '경쟁사 분석',     path: '/competitors',   icon: Building2,  color: 'text-purple-500', bg: 'bg-purple-50' },
-                  { label: '예가 빈도 분석',  path: '/yega',          icon: BarChart2,  color: 'text-amber-500',  bg: 'bg-amber-50'  },
                   { label: '개찰 결과 입력',  path: '/my-bids',       icon: Sparkles,   color: 'text-slate-500',  bg: 'bg-slate-50'  },
                 ].map((item) => (
                   <button
