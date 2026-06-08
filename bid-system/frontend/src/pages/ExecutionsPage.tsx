@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ClipboardList, Plus, Upload, CheckCircle2, XCircle, Clock, Trophy,
   AlertTriangle, SkipForward, Loader2, ChevronDown, ChevronUp, RefreshCw,
-  Search, Filter, X, FileText
+  Search, Filter, X, FileText, LayoutList, LayoutGrid,
 } from 'lucide-react'
 import { executionsApi } from '../api'
 import type { BidExecution, ExecutionStatus } from '../types'
@@ -16,14 +16,14 @@ import { cn } from '@/lib/utils'
 
 // ── 상수 ────────────────────────────────────────────────────
 
-const STATUS_META: Record<ExecutionStatus, { label: string; color: string; icon: React.ReactNode }> = {
-  '검토중':   { label: '검토중',   color: 'bg-gray-100 text-gray-700 border-gray-300',     icon: <Clock className="h-3 w-3" /> },
-  '참여결정': { label: '참여결정', color: 'bg-blue-100 text-blue-700 border-blue-300',     icon: <CheckCircle2 className="h-3 w-3" /> },
-  '투찰완료': { label: '투찰완료', color: 'bg-indigo-100 text-indigo-700 border-indigo-300', icon: <FileText className="h-3 w-3" /> },
-  '개찰대기': { label: '개찰대기', color: 'bg-yellow-100 text-yellow-700 border-yellow-300', icon: <Clock className="h-3 w-3" /> },
-  '낙찰':     { label: '낙찰',     color: 'bg-green-100 text-green-700 border-green-300',   icon: <Trophy className="h-3 w-3" /> },
-  '패찰':     { label: '패찰',     color: 'bg-red-100 text-red-700 border-red-300',         icon: <XCircle className="h-3 w-3" /> },
-  '포기':     { label: '포기',     color: 'bg-slate-100 text-slate-500 border-slate-300',   icon: <SkipForward className="h-3 w-3" /> },
+const STATUS_META: Record<ExecutionStatus, { label: string; color: string; colBg: string; icon: React.ReactNode }> = {
+  '검토중':   { label: '검토중',   color: 'bg-gray-100 text-gray-700 border-gray-300',       colBg: 'bg-gray-50',   icon: <Clock className="h-3 w-3" /> },
+  '참여결정': { label: '참여결정', color: 'bg-blue-100 text-blue-700 border-blue-300',       colBg: 'bg-blue-50',   icon: <CheckCircle2 className="h-3 w-3" /> },
+  '투찰완료': { label: '투찰완료', color: 'bg-indigo-100 text-indigo-700 border-indigo-300', colBg: 'bg-indigo-50', icon: <FileText className="h-3 w-3" /> },
+  '개찰대기': { label: '개찰대기', color: 'bg-yellow-100 text-yellow-700 border-yellow-300', colBg: 'bg-yellow-50', icon: <Clock className="h-3 w-3" /> },
+  '낙찰':     { label: '낙찰',     color: 'bg-green-100 text-green-700 border-green-300',     colBg: 'bg-green-50',  icon: <Trophy className="h-3 w-3" /> },
+  '패찰':     { label: '패찰',     color: 'bg-red-100 text-red-700 border-red-300',           colBg: 'bg-red-50',    icon: <XCircle className="h-3 w-3" /> },
+  '포기':     { label: '포기',     color: 'bg-slate-100 text-slate-500 border-slate-300',     colBg: 'bg-slate-50',  icon: <SkipForward className="h-3 w-3" /> },
 }
 
 const STATUS_ORDER: ExecutionStatus[] = ['검토중', '참여결정', '투찰완료', '개찰대기', '낙찰', '패찰', '포기']
@@ -36,6 +36,8 @@ const DEFEAT_CAUSE_COLORS: Record<string, string> = {
   '정보부족':    'text-gray-500',
   '기타':        'text-gray-400',
 }
+
+type ViewMode = 'list' | 'kanban'
 
 // ── 금액 포맷 ────────────────────────────────────────────────
 
@@ -128,7 +130,156 @@ function UploadButton({
   )
 }
 
-// ── 행 상세 패널 ─────────────────────────────────────────────
+// ── 칸반 카드 ────────────────────────────────────────────────
+
+function KanbanCard({
+  exec,
+  onStatusChange,
+}: {
+  exec: BidExecution
+  onStatusChange: (id: number, status: ExecutionStatus) => void
+}) {
+  const nextStatuses = (() => {
+    const idx = STATUS_ORDER.indexOf(exec.status)
+    if (exec.status === '개찰대기') return ['낙찰', '패찰'] as ExecutionStatus[]
+    if (idx < 0 || idx >= STATUS_ORDER.length - 1) return []
+    return [STATUS_ORDER[idx + 1]] as ExecutionStatus[]
+  })()
+
+  return (
+    <div className="bg-white border rounded-lg p-3 shadow-sm hover:shadow-md transition-shadow group">
+      {/* 제목 */}
+      <div className="text-sm font-medium leading-snug line-clamp-2 mb-2 text-gray-800">
+        {exec.title}
+      </div>
+
+      {/* 메타 정보 */}
+      <div className="space-y-1 text-xs text-muted-foreground">
+        {exec.agency_name && (
+          <div className="truncate">{exec.agency_name}</div>
+        )}
+        <div className="flex gap-2 flex-wrap">
+          {exec.base_amount != null && <span>{fmt(exec.base_amount)}</span>}
+          {exec.bid_open_date && (
+            <span className={cn(
+              new Date(exec.bid_open_date) < new Date() && !['낙찰','패찰','포기'].includes(exec.status)
+                ? 'text-red-500 font-medium'
+                : ''
+            )}>
+              {exec.bid_open_date.slice(0, 10)}
+            </span>
+          )}
+        </div>
+        {exec.submitted_rate != null && (
+          <div className="text-blue-600 font-medium">투찰 {fmtRate(exec.submitted_rate)}</div>
+        )}
+        {exec.status === '낙찰' && exec.winner_rate != null && (
+          <div className="text-green-600 font-medium">낙찰율 {fmtRate(exec.winner_rate)}</div>
+        )}
+        {exec.status === '패찰' && exec.winner_rate != null && (
+          <div className="text-red-500">낙찰자 {fmtRate(exec.winner_rate)}</div>
+        )}
+      </div>
+
+      {/* 상태 전환 버튼 */}
+      {nextStatuses.length > 0 && (
+        <div className="flex gap-1 mt-2 pt-2 border-t">
+          {nextStatuses.map((ns) => (
+            <button
+              key={ns}
+              onClick={() => onStatusChange(exec.id, ns)}
+              className={cn(
+                'flex-1 text-xs py-1 rounded border font-medium transition-colors',
+                ns === '낙찰'
+                  ? 'border-green-300 text-green-700 hover:bg-green-50'
+                  : ns === '패찰'
+                  ? 'border-red-300 text-red-600 hover:bg-red-50'
+                  : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+              )}
+            >
+              → {ns}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── 칸반 컬럼 ────────────────────────────────────────────────
+
+function KanbanColumn({
+  status,
+  items,
+  onStatusChange,
+}: {
+  status: ExecutionStatus
+  items: BidExecution[]
+  onStatusChange: (id: number, status: ExecutionStatus) => void
+}) {
+  const meta = STATUS_META[status]
+
+  return (
+    <div className="flex flex-col min-w-[220px] max-w-[260px] flex-shrink-0">
+      {/* 컬럼 헤더 */}
+      <div className={cn('flex items-center gap-2 px-3 py-2 rounded-t-lg border border-b-0', meta.colBg)}>
+        <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border', meta.color)}>
+          {meta.icon}
+          {meta.label}
+        </span>
+        <span className="text-xs text-muted-foreground ml-auto font-medium">{items.length}</span>
+      </div>
+
+      {/* 카드 목록 */}
+      <div className={cn('flex-1 rounded-b-lg border p-2 space-y-2 min-h-[120px]', meta.colBg)}>
+        {items.length === 0 ? (
+          <div className="flex items-center justify-center h-16 border-2 border-dashed border-gray-200 rounded-lg">
+            <span className="text-xs text-muted-foreground">없음</span>
+          </div>
+        ) : (
+          items.map((exec) => (
+            <KanbanCard key={exec.id} exec={exec} onStatusChange={onStatusChange} />
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── 칸반 보드 ────────────────────────────────────────────────
+
+function KanbanBoard({
+  items,
+  onStatusChange,
+}: {
+  items: BidExecution[]
+  onStatusChange: (id: number, status: ExecutionStatus) => void
+}) {
+  const grouped = STATUS_ORDER.reduce<Record<ExecutionStatus, BidExecution[]>>(
+    (acc, s) => {
+      acc[s] = items.filter((e) => e.status === s)
+      return acc
+    },
+    {} as Record<ExecutionStatus, BidExecution[]>
+  )
+
+  return (
+    <div className="overflow-x-auto pb-4">
+      <div className="flex gap-3 min-w-max">
+        {STATUS_ORDER.map((s) => (
+          <KanbanColumn
+            key={s}
+            status={s}
+            items={grouped[s]}
+            onStatusChange={onStatusChange}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── 행 상세 패널 (목록 뷰) ───────────────────────────────────
 
 function ExecutionRow({
   exec,
@@ -389,14 +540,19 @@ function NewExecutionForm({ onClose }: { onClose: () => void }) {
 
 export default function ExecutionsPage() {
   const qc = useQueryClient()
+  const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [showNew, setShowNew] = useState(false)
   const [importMsg, setImportMsg] = useState<string | null>(null)
 
+  // 칸반 모드는 항상 전체 조회, 목록 모드는 필터 적용
   const { data, isLoading } = useQuery({
-    queryKey: ['executions', statusFilter],
+    queryKey: ['executions', viewMode === 'kanban' ? 'all' : statusFilter],
     queryFn: () =>
-      executionsApi.list({ status: statusFilter === 'all' ? undefined : statusFilter, size: 100 }),
+      executionsApi.list({
+        status: viewMode === 'kanban' || statusFilter === 'all' ? undefined : statusFilter,
+        size: 200,
+      }),
   })
 
   const updateMut = useMutation({
@@ -432,7 +588,7 @@ export default function ExecutionsPage() {
   const activeCount = items.filter((e) => !['낙찰', '패찰', '포기'].includes(e.status)).length
 
   return (
-    <div className="p-4 sm:p-6 space-y-5 max-w-5xl mx-auto">
+    <div className="p-4 sm:p-6 space-y-5 max-w-full">
       {/* 헤더 */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2">
@@ -442,7 +598,35 @@ export default function ExecutionsPage() {
             <p className="text-xs text-muted-foreground">진행중 {activeCount}건 · 전체 {data?.total ?? 0}건</p>
           </div>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap items-center">
+          {/* 뷰 토글 */}
+          <div className="flex rounded-md border overflow-hidden">
+            <button
+              onClick={() => setViewMode('list')}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors',
+                viewMode === 'list'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white text-gray-600 hover:bg-gray-50'
+              )}
+            >
+              <LayoutList className="h-3.5 w-3.5" />
+              목록
+            </button>
+            <button
+              onClick={() => setViewMode('kanban')}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors border-l',
+                viewMode === 'kanban'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white text-gray-600 hover:bg-gray-50'
+              )}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+              칸반
+            </button>
+          </div>
+
           <UploadButton label="SUCVIEW" onFile={(f) => sucviewMut.mutate(f)} loading={sucviewMut.isPending} />
           <UploadButton label="인포이력" onFile={(f) => inpoMut.mutate(f)} loading={inpoMut.isPending} />
           <Button size="sm" onClick={() => setShowNew(true)}>
@@ -464,37 +648,44 @@ export default function ExecutionsPage() {
       {/* 요약 */}
       <SummaryBar />
 
-      {/* 필터 */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <Filter className="h-4 w-4 text-muted-foreground" />
-        <div className="flex gap-1 flex-wrap">
-          <Button
-            size="sm"
-            variant={statusFilter === 'all' ? 'default' : 'outline'}
-            className="h-7 text-xs"
-            onClick={() => setStatusFilter('all')}
-          >
-            전체
-          </Button>
-          {STATUS_ORDER.map((s) => (
+      {/* 목록 뷰 전용 필터 */}
+      {viewMode === 'list' && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <Filter className="h-4 w-4 text-muted-foreground" />
+          <div className="flex gap-1 flex-wrap">
             <Button
-              key={s}
               size="sm"
-              variant={statusFilter === s ? 'default' : 'outline'}
+              variant={statusFilter === 'all' ? 'default' : 'outline'}
               className="h-7 text-xs"
-              onClick={() => setStatusFilter(s)}
+              onClick={() => setStatusFilter('all')}
             >
-              {s}
+              전체
             </Button>
-          ))}
+            {STATUS_ORDER.map((s) => (
+              <Button
+                key={s}
+                size="sm"
+                variant={statusFilter === s ? 'default' : 'outline'}
+                className="h-7 text-xs"
+                onClick={() => setStatusFilter(s)}
+              >
+                {s}
+              </Button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* 목록 */}
+      {/* 본문 */}
       {isLoading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
+      ) : viewMode === 'kanban' ? (
+        <KanbanBoard
+          items={items}
+          onStatusChange={(id, status) => updateMut.mutate({ id, status })}
+        />
       ) : items.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground">
           <ClipboardList className="h-12 w-12 mx-auto mb-3 opacity-30" />
