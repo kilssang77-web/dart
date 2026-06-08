@@ -2170,6 +2170,15 @@ class BidSelectionService:
 
         def _fmt(d: BidDecision) -> dict:
             bid = db.query(Bid).filter(Bid.id == d.bid_id).first()
+            # 근거 데이터 건수 (신뢰도 지표)
+            agency_id = bid.agency_id if bid else None
+            data_count = 0
+            if agency_id:
+                row = db.execute(text(
+                    "SELECT COUNT(*) FROM bid_results r JOIN bids b ON b.id=r.bid_id WHERE b.agency_id=:aid"
+                ), {"aid": agency_id}).scalar()
+                data_count = int(row or 0)
+            confidence = "high" if data_count >= 100 else ("medium" if data_count >= 20 else "low")
             return {
                 "bid_id":               d.bid_id,
                 "title":                bid.title if bid else "",
@@ -2185,6 +2194,8 @@ class BidSelectionService:
                 "recommended_strategy": d.recommended_strategy,
                 "recommended_rate":     float(d.recommended_rate) if d.recommended_rate else None,
                 "actual_action":        d.actual_action,
+                "data_count":           data_count,
+                "confidence":           confidence,
             }
 
         return {

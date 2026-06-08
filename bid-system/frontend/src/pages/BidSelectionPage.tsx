@@ -29,6 +29,8 @@ interface SelectionItem {
   recommended_strategy: string
   recommended_rate?: number
   actual_action?: string
+  data_count?: number
+  confidence?: 'high' | 'medium' | 'low'
 }
 
 interface GoListData {
@@ -132,6 +134,16 @@ function SelectionCard({ item }: { item: SelectionItem }) {
               {item.recommended_strategy && (
                 <span className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded-full font-medium">
                   {STRATEGY_LABELS[item.recommended_strategy] || item.recommended_strategy}
+                </span>
+              )}
+              {item.confidence && (
+                <span className={cn(
+                  'text-[10px] px-1.5 py-0.5 rounded-full border font-medium',
+                  item.confidence === 'high'   ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                  item.confidence === 'medium' ? 'bg-amber-50 text-amber-600 border-amber-200' :
+                                                 'bg-gray-50 text-gray-500 border-gray-200',
+                )}>
+                  근거 {item.data_count ?? 0}건
                 </span>
               )}
             </div>
