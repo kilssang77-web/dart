@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronLeft, Building2, BarChart3, FileText, Activity, GitBranch, TrendingUp, Users, Target, Layers } from 'lucide-react'
+import { ChevronLeft, Building2, BarChart3, FileText, Activity, GitBranch, TrendingUp, Users, Target, Layers, BarChart2 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, ReferenceLine, ComposedChart, Area, Cell,
 } from 'recharts'
-import { bidsApi, recommendApi, statsApi, agenciesApi } from '@/api'
+import { bidsApi, recommendApi, statsApi, agenciesApi, executionsApi } from '@/api'
 import type { MetaData, SrateHistogramResponse, AgencyRecentResultsResponse, AgencyYegaPattern } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/table'
 
 const FLOOR_RATE = 0.87745
-const TABS = ['개요', '공고목록', '심층분석', '예가패턴'] as const
+const TABS = ['개요', '공고목록', '심층분석', '예가패턴', '낙찰분포'] as const
 type Tab = (typeof TABS)[number]
 
 const TAB_ICONS = {
@@ -26,6 +26,7 @@ const TAB_ICONS = {
   '공고목록': FileText,
   '심층분석': BarChart3,
   '예가패턴': GitBranch,
+  '낙찰분포': BarChart2,
 } as const
 
 interface SrateStatItem {
@@ -87,6 +88,7 @@ export default function AgencyDetailPage() {
   const [activeTab, setActiveTab] = useState<Tab>('개요')
   const [bidPage, setBidPage] = useState(1)
   const [histMonths, setHistMonths] = useState<6 | 12 | 24>(12)
+  const [freqPeriod, setFreqPeriod] = useState<'6M' | '12M' | '24M' | '48M'>('48M')
 
   const { data: meta } = useQuery<MetaData>({
     queryKey: ['meta'],
@@ -135,6 +137,13 @@ export default function AgencyDetailPage() {
     queryKey: ['agency-yega-pattern', agencyId],
     queryFn: () => agenciesApi.yegaPattern(agencyId),
     enabled: !!agencyId && activeTab === '예가패턴',
+    staleTime: 300_000,
+  })
+
+  const { data: freqData, isLoading: freqLoading } = useQuery({
+    queryKey: ['agency-freq', agencyId, freqPeriod],
+    queryFn: () => executionsApi.agencyFreq(agencyId, { period: freqPeriod }),
+    enabled: !!agencyId && activeTab === '낙찰분포',
     staleTime: 300_000,
   })
 
@@ -751,6 +760,121 @@ export default function AgencyDetailPage() {
                 )}
               </>
             )}
+          </div>
+        )}
+
+        {/* ── 낙찰분포 탭 ── */}
+        {activeTab === '낙찰분포' && (
+          <div className="space-y-5">
+            <Card className="bg-white border-slate-200 shadow-sm">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <CardTitle className="text-base">낙찰률 빈도표 (0.5% 구간)</CardTitle>
+                  <div className="flex gap-1">
+                    {(['6M', '12M', '24M', '48M'] as const).map((p) => (
+                      <button
+                        key={p}
+                        onClick={() => setFreqPeriod(p)}
+                        className={cn(
+                          'px-2.5 py-1 text-xs rounded-md font-medium border transition-colors',
+                          freqPeriod === p
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50',
+                        )}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {freqData && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {freqData.period} 집계 · 총 {freqData.total_bids.toLocaleString()}건
+                  </p>
+                )}
+              </CardHeader>
+              <CardContent>
+                {freqLoading ? (
+                  <div className="flex justify-center py-10">
+                    <div className="h-8 w-8 rounded-full border-4 border-blue-200 border-t-blue-600 animate-spin" />
+                  </div>
+                ) : !freqData || freqData.buckets.length === 0 ? (
+                  <div className="text-center py-10 text-sm text-muted-foreground">
+                    해당 기관의 낙찰률 데이터가 없습니다.
+                  </div>
+                ) : (
+                  <>
+                    <ResponsiveContainer width="100%" height={280}>
+                      <BarChart
+                        data={freqData.buckets.map((b) => ({
+                          label: (b.from * 100).toFixed(2),
+                          count: b.count,
+                          win_count: b.win_count,
+                          win_rate: b.win_rate != null ? +(b.win_rate * 100).toFixed(1) : 0,
+                          isFloor: b.from <= FLOOR_RATE && b.to > FLOOR_RATE,
+                        }))}
+                        margin={{ top: 8, right: 8, left: -15, bottom: 24 }}
+                        barCategoryGap="10%"
+                      >
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis
+                          dataKey="label"
+                          tick={{ fontSize: 9, fill: '#94a3b8' }}
+                          tickFormatter={(v) => `${v}%`}
+                          interval={2}
+                          angle={-40}
+                          textAnchor="end"
+                          height={40}
+                        />
+                        <YAxis yAxisId="left" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                        <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={(v) => `${v}%`} domain={[0, 100]} />
+                        <Tooltip
+                          contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: 12 }}
+                          formatter={(v: number, name: string) =>
+                            name === 'win_rate' ? [`${v}%`, '낙찰율'] : [v.toLocaleString() + '건', name === 'count' ? '전체' : '낙찰']
+                          }
+                          labelFormatter={(l) => `${l}%~`}
+                        />
+                        <Bar yAxisId="left" dataKey="count" name="count" radius={[3, 3, 0, 0]}>
+                          {freqData.buckets.map((b, i) => (
+                            <Cell key={i} fill={b.from <= FLOOR_RATE && b.to > FLOOR_RATE ? '#f59e0b' : b.win_rate > 0.3 ? '#2563eb' : '#bfdbfe'} />
+                          ))}
+                        </Bar>
+                        <Bar yAxisId="left" dataKey="win_count" name="win_count" fill="#16a34a" opacity={0.7} radius={[2, 2, 0, 0]} />
+                        <ReferenceLine yAxisId="left" x={`${(FLOOR_RATE * 100).toFixed(2)}`} stroke="#f59e0b" strokeDasharray="4 2" label={{ value: '하한', position: 'top', fontSize: 9, fill: '#f59e0b' }} />
+                      </BarChart>
+                    </ResponsiveContainer>
+
+                    <div className="flex items-center gap-5 mt-2 text-xs text-slate-500 flex-wrap">
+                      <div className="flex items-center gap-1.5"><div className="w-3 h-2 bg-blue-600 rounded" /><span>전체 참여</span></div>
+                      <div className="flex items-center gap-1.5"><div className="w-3 h-2 bg-green-600 rounded opacity-70" /><span>낙찰</span></div>
+                      <div className="flex items-center gap-1.5"><div className="w-3 h-2 bg-amber-400 rounded" /><span>하한율 부근</span></div>
+                    </div>
+
+                    {/* 최빈 구간 */}
+                    {(() => {
+                      const top3 = [...freqData.buckets].sort((a, b) => b.count - a.count).slice(0, 3)
+                      return (
+                        <div className="mt-4 grid grid-cols-3 gap-2">
+                          {top3.map((b, i) => (
+                            <div key={i} className="rounded-lg bg-slate-50 border p-2.5 text-center">
+                              <div className="text-[10px] text-muted-foreground">#{i + 1} 최다 구간</div>
+                              <div className="text-sm font-bold text-slate-800 mt-0.5">
+                                {(b.from * 100).toFixed(2)}–{(b.to * 100).toFixed(2)}%
+                              </div>
+                              <div className="text-xs text-slate-500">{b.count}건 / 낙찰 {b.win_count}건</div>
+                              {b.win_rate > 0 && (
+                                <div className="text-xs text-blue-600 font-medium">{(b.win_rate * 100).toFixed(0)}% 낙찰율</div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    })()}
+                  </>
+                )}
+              </CardContent>
+            </Card>
           </div>
         )}
       </div>

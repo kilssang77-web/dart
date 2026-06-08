@@ -5023,3 +5023,207 @@ class OurCompetitorService:
             }
             for r in rows
         ]
+
+
+# ==================================================
+# 백테스트 엔진
+# ==================================================
+
+class BacktestService:
+    """
+    과거 투찰 이력(my_bid_records / bid_executions)과
+    실제 낙찰 결과(bid_results)를 비교해 수주율 개선 추정.
+
+    핵심 질문:
+      "우리 시스템의 추천율로 투찰했다면 얼마나 더 낙찰됐을까?"
+    """
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def run(self, user_id: int, months: int = 60) -> dict:
+        # 1) 결과가 확정된 내 투찰 기록
+        my_records = self.db.execute(text("""
+            SELECT
+                e.id,
+                e.title,
+                e.agency_name,
+                e.base_amount,
+                e.submitted_rate,
+                e.recommended_rate,
+                e.winner_rate,
+                e.floor_rate,
+                e.status,
+                e.result_rank,
+                e.total_bidders,
+                e.opened_at
+            FROM bid_executions e
+            WHERE e.user_id = :uid
+              AND e.status IN ('낙찰', '패찰')
+              AND e.submitted_rate IS NOT NULL
+              AND e.winner_rate IS NOT NULL
+              AND (e.opened_at IS NULL OR e.opened_at >= NOW() - INTERVAL :months_str)
+            ORDER BY e.created_at DESC
+            LIMIT 500
+        """), {"uid": user_id, "months_str": f"{months} months"}).fetchall()
+
+        if not my_records:
+            # my_bid_records 폴백
+            my_records = self.db.execute(text("""
+                SELECT
+                    m.id,
+                    m.title,
+                    m.agency_name,
+                    m.base_amount,
+                    m.submitted_rate,
+                    m.recommendation_rate AS recommended_rate,
+                    m.actual_winner_rate  AS winner_rate,
+                    NULL AS floor_rate,
+                    m.result AS status,
+                    NULL AS result_rank,
+                    NULL AS total_bidders,
+                    m.bid_date AS opened_at
+                FROM my_bid_records m
+                WHERE m.user_id = :uid
+                  AND m.result IN ('won', 'lost', '낙찰', '패찰')
+                  AND m.submitted_rate IS NOT NULL
+                  AND m.actual_winner_rate IS NOT NULL
+                ORDER BY m.bid_date DESC
+                LIMIT 500
+            """), {"uid": user_id}).fetchall()
+
+        if not my_records:
+            return self._empty_result()
+
+        cols = ["id", "title", "agency_name", "base_amount", "submitted_rate",
+                "recommended_rate", "winner_rate", "floor_rate", "status",
+                "result_rank", "total_bidders", "opened_at"]
+        records = [dict(zip(cols, r)) for r in my_records]
+
+        total = len(records)
+        actual_wins = sum(1 for r in records if r["status"] in ("낙찰", "won"))
+        actual_win_rate = round(actual_wins / total * 100, 1) if total else 0
+
+        # 2) 추천율로 투찰했을 때 낙찰 시뮬레이션
+        #    기준: submitted_rate <= winner_rate 이면 낙찰 가능 (하한율 이상)
+        sim_wins = 0
+        sim_won_list, sim_miss_list = [], []
+
+        for r in records:
+            winner = float(r["winner_rate"])
+            floor = float(r["floor_rate"]) if r["floor_rate"] else 0.87745
+            rec = float(r["recommended_rate"]) if r["recommended_rate"] else None
+            actual = float(r["submitted_rate"])
+            actual_won = r["status"] in ("낙찰", "won")
+
+            if rec is None:
+                sim_wins += 1 if actual_won else 0
+                continue
+
+            # 추천율이 하한율 이상이고 낙찰율 이하면 낙찰로 가정
+            would_win = floor <= rec <= winner + 0.002  # 2bp 여유
+
+            if would_win:
+                sim_wins += 1
+                if not actual_won:
+                    sim_won_list.append({
+                        "title": (r["title"] or "")[:40],
+                        "agency": r["agency_name"] or "",
+                        "actual_rate": round(actual * 100, 4),
+                        "recommended_rate": round(rec * 100, 4),
+                        "winner_rate": round(winner * 100, 4),
+                        "gap_improvement": round((rec - actual) * 100, 4),
+                    })
+
+            if actual_won and not would_win:
+                sim_miss_list.append({
+                    "title": (r["title"] or "")[:40],
+                    "agency": r["agency_name"] or "",
+                    "actual_rate": round(actual * 100, 4),
+                    "recommended_rate": round(rec * 100, 4),
+                    "winner_rate": round(winner * 100, 4),
+                })
+
+        sim_win_rate = round(sim_wins / total * 100, 1) if total else 0
+        improvement = round(sim_win_rate - actual_win_rate, 1)
+
+        # 3) 패찰 원인 분포
+        cause_dist: dict = {}
+        for r in records:
+            if r["status"] not in ("패찰", "lost"):
+                continue
+            winner = float(r["winner_rate"])
+            actual = float(r["submitted_rate"])
+            gap = actual - winner
+            if gap > 0.005:
+                cause = "투찰률과도"
+            elif gap > 0.001:
+                cause = "투찰률과도(미세)"
+            elif r["total_bidders"] and r["total_bidders"] >= 15:
+                cause = "경쟁과다"
+            else:
+                cause = "기타"
+            cause_dist[cause] = cause_dist.get(cause, 0) + 1
+
+        # 4) 월별 추이 (최근 12개월)
+        monthly: dict = {}
+        for r in records:
+            dt = r["opened_at"]
+            if dt is None:
+                continue
+            if hasattr(dt, "strftime"):
+                key = dt.strftime("%Y-%m")
+            else:
+                try:
+                    key = str(dt)[:7]
+                except Exception:
+                    continue
+            if key not in monthly:
+                monthly[key] = {"total": 0, "actual_win": 0, "sim_win": 0}
+            monthly[key]["total"] += 1
+            if r["status"] in ("낙찰", "won"):
+                monthly[key]["actual_win"] += 1
+
+        monthly_trend = [
+            {
+                "month": k,
+                "total": v["total"],
+                "actual_win": v["actual_win"],
+                "actual_rate": round(v["actual_win"] / v["total"] * 100, 1) if v["total"] else 0,
+            }
+            for k, v in sorted(monthly.items())[-12:]
+        ]
+
+        return {
+            "period_months": months,
+            "total_bids": total,
+            "actual_wins": actual_wins,
+            "actual_win_rate": actual_win_rate,
+            "simulated_wins": sim_wins,
+            "simulated_win_rate": sim_win_rate,
+            "improvement_pct": improvement,
+            "cause_distribution": [
+                {"cause": k, "count": v} for k, v in sorted(cause_dist.items(), key=lambda x: -x[1])
+            ],
+            "monthly_trend": monthly_trend,
+            "sample_improvements": sim_won_list[:10],
+            "sample_regressions": sim_miss_list[:5],
+            "data_source": "bid_executions" if my_records else "my_bid_records",
+        }
+
+    def _empty_result(self) -> dict:
+        return {
+            "period_months": 0,
+            "total_bids": 0,
+            "actual_wins": 0,
+            "actual_win_rate": 0,
+            "simulated_wins": 0,
+            "simulated_win_rate": 0,
+            "improvement_pct": 0,
+            "cause_distribution": [],
+            "monthly_trend": [],
+            "sample_improvements": [],
+            "sample_regressions": [],
+            "data_source": "none",
+            "message": "SUCVIEW 파일을 업로드하거나 투찰 실행 관리에 결과를 입력해주세요.",
+        }

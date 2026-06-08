@@ -1085,3 +1085,37 @@ export interface AgencyFreqResponse {
   buckets: FreqBucket[]
 }
 
+// ── 백테스트 ───────────────────────────────────────────────
+
+export interface BacktestMonthly {
+  month: string
+  total: number
+  actual_win: number
+  actual_rate: number
+}
+
+export interface BacktestSample {
+  title: string
+  agency: string
+  actual_rate: number
+  recommended_rate: number
+  winner_rate: number
+  gap_improvement?: number
+}
+
+export interface BacktestResult {
+  period_months: number
+  total_bids: number
+  actual_wins: number
+  actual_win_rate: number
+  simulated_wins: number
+  simulated_win_rate: number
+  improvement_pct: number
+  cause_distribution: { cause: string; count: number }[]
+  monthly_trend: BacktestMonthly[]
+  sample_improvements: BacktestSample[]
+  sample_regressions: BacktestSample[]
+  data_source: string
+  message?: string
+}
+

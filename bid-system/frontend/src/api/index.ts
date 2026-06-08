@@ -393,3 +393,10 @@ export const executionsApi = {
   ): Promise<import('../types').AgencyFreqResponse> =>
     api.get(`/executions/agency-freq/${agencyId}`, { params }).then((r) => r.data),
 }
+
+// -- 백테스트 ---------------------------------------------
+
+export const backtestApi = {
+  run: (months?: number): Promise<import('../types').BacktestResult> =>
+    api.get('/backtest', { params: { months } }).then((r) => r.data),
+}
