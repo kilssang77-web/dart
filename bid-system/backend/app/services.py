@@ -3901,10 +3901,18 @@ class FinalRecommendService:
             r = round(max(rate, floor_rate), 4)   # 항상 floor 이상으로 클램핑
             return {"rate": r, "amount": round(base_amount * r), "win_prob": _win_prob(r)}
 
+        # recommended_rate가 floor에 클램핑됐을 때 aggressive/balanced가 모두
+        # floor로 수렴하는 문제 수정.
+        #
+        # _gap = rec - floor:
+        #   정상 케이스(gap 충분): 기존 ±0.5% 간격 그대로 유지
+        #   클램핑 케이스(gap=0):  floor 기준 최소 간격 0.1%/0.3%/0.6% 보장
+        #   → 세 전략이 항상 aggressive < balanced < conservative 순서 유지
+        _gap = max(recommended_rate - floor_rate, 0.0)
         strategies = {
-            "balanced":     _strat(recommended_rate),
-            "aggressive":   _strat(recommended_rate - 0.005),
-            "conservative": _strat(recommended_rate + 0.005),
+            "aggressive":   _strat(floor_rate + max(_gap - 0.005, 0.001)),
+            "balanced":     _strat(floor_rate + max(_gap,         0.003)),
+            "conservative": _strat(floor_rate + max(_gap + 0.005, 0.006)),
             "floor_safe":   _strat(floor_rate + 0.001),
         }
 
@@ -5001,7 +5009,7 @@ class FrequencyService:
 
     def rebuild_all(self) -> dict:
         agencies = self.db.execute(text(
-            "SELECT DISTINCT agency_id FROM bid_results LIMIT 500"
+            "SELECT DISTINCT b.agency_id FROM bid_results r JOIN bids b ON b.id = r.bid_id LIMIT 500"
         )).fetchall()
         built = 0
         for (agency_id,) in agencies:
@@ -5060,6 +5068,236 @@ class FrequencyService:
                 win_count=bdata["win"],
                 win_rate=win_rate,
             ))
+
+
+# ==================================================
+# 발주기관 전략 DB 서비스 (AgencyStrategy 집계)
+# ==================================================
+
+class AgencyStrategyService:
+    """발주기관별 48개월 낙찰률 통계 + 빈도표 + 히스토그램 (agency_strategies 테이블)"""
+
+    BUCKET_W = 0.005
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get(self, agency_id: int, industry_code: str = "ALL", period_months: int = 48) -> dict | None:
+        row = self.db.query(AgencyStrategy).filter(
+            AgencyStrategy.agency_id == agency_id,
+            AgencyStrategy.industry_code == industry_code,
+            AgencyStrategy.period_months == period_months,
+        ).first()
+        if not row:
+            return None
+        return self._serialize(row)
+
+    def get_or_build(self, agency_id: int, industry_code: str = "ALL", period_months: int = 48) -> dict:
+        row = self.db.query(AgencyStrategy).filter(
+            AgencyStrategy.agency_id == agency_id,
+            AgencyStrategy.industry_code == industry_code,
+            AgencyStrategy.period_months == period_months,
+        ).first()
+        if not row:
+            self._build_one(agency_id, industry_code, period_months)
+            self.db.commit()
+            row = self.db.query(AgencyStrategy).filter(
+                AgencyStrategy.agency_id == agency_id,
+                AgencyStrategy.industry_code == industry_code,
+                AgencyStrategy.period_months == period_months,
+            ).first()
+        if not row:
+            return {"agency_id": agency_id, "total_bid_count": 0, "message": "데이터 부족"}
+        return self._serialize(row)
+
+    def rebuild_all(self) -> dict:
+        """전체 기관 strategy 재계산 (데이터 5건 이상 기관만)"""
+        agencies = self.db.execute(text(
+            "SELECT DISTINCT b.agency_id FROM bids b "
+            "JOIN bid_results r ON r.bid_id = b.id "
+            "WHERE b.bid_open_date >= NOW() - INTERVAL '48 months' "
+            "GROUP BY b.agency_id HAVING COUNT(CASE WHEN r.is_winner THEN 1 END) >= 5"
+        )).fetchall()
+        built, skipped = 0, 0
+        for (agency_id,) in agencies:
+            try:
+                self._build_one(agency_id, "ALL", 48)
+                built += 1
+            except Exception:
+                skipped += 1
+        self.db.commit()
+        return {"built": built, "skipped": skipped, "agencies": len(agencies)}
+
+    def _build_one(self, agency_id: int, industry_code: str, period_months: int):
+        from datetime import datetime, timedelta
+
+        cutoff = datetime.utcnow() - timedelta(days=30 * period_months)
+
+        # 낙찰률 (winner rows)
+        winner_rows = self.db.execute(text("""
+            SELECT r.bid_rate::float
+            FROM bid_results r
+            JOIN bids b ON b.id = r.bid_id
+            WHERE b.agency_id = :aid
+              AND r.is_winner = true
+              AND r.bid_rate IS NOT NULL
+              AND b.bid_open_date >= :cutoff
+        """), {"aid": agency_id, "cutoff": cutoff}).fetchall()
+
+        rates = [row[0] for row in winner_rows]
+        n = len(rates)
+        if n < 5:
+            return
+
+        arr = np.array(rates)
+
+        # 건당 평균 경쟁업체 수
+        avg_comp = self.db.execute(text("""
+            SELECT COALESCE(AVG(cnt), 0)::float FROM (
+                SELECT COUNT(*) AS cnt
+                FROM bid_results r
+                JOIN bids b ON b.id = r.bid_id
+                WHERE b.agency_id = :aid AND b.bid_open_date >= :cutoff
+                GROUP BY r.bid_id
+            ) sub
+        """), {"aid": agency_id, "cutoff": cutoff}).scalar() or 0.0
+
+        # 공격성 지수: 낙찰하한율 이하 낙찰 비율
+        aggression_row = self.db.execute(text("""
+            SELECT
+                COUNT(CASE WHEN r.bid_rate < b.min_bid_rate THEN 1 END)::float
+                / NULLIF(COUNT(*), 0)::float
+            FROM bid_results r
+            JOIN bids b ON b.id = r.bid_id
+            WHERE b.agency_id = :aid
+              AND r.is_winner = true
+              AND b.min_bid_rate IS NOT NULL
+              AND b.bid_open_date >= :cutoff
+        """), {"aid": agency_id, "cutoff": cutoff}).scalar()
+        aggression_index = float(aggression_row) if aggression_row else 0.0
+
+        # 최근 30일 변동성
+        recent_cutoff = datetime.utcnow() - timedelta(days=30)
+        recent_rates = [r[0] for r in self.db.execute(text("""
+            SELECT r.bid_rate::float
+            FROM bid_results r JOIN bids b ON b.id = r.bid_id
+            WHERE b.agency_id = :aid AND r.is_winner = true
+              AND r.bid_rate IS NOT NULL AND b.bid_open_date >= :rc
+        """), {"aid": agency_id, "rc": recent_cutoff}).fetchall()]
+        volatility_30d = float(np.std(recent_rates)) if len(recent_rates) >= 3 else None
+
+        # 추세: 최근 12M vs 12M~24M
+        cutoff_12m = datetime.utcnow() - timedelta(days=365)
+        cutoff_24m = datetime.utcnow() - timedelta(days=730)
+        m_recent = self.db.execute(text("""
+            SELECT AVG(r.bid_rate)::float FROM bid_results r JOIN bids b ON b.id = r.bid_id
+            WHERE b.agency_id = :aid AND r.is_winner = true AND b.bid_open_date >= :c12
+        """), {"aid": agency_id, "c12": cutoff_12m}).scalar()
+        m_older = self.db.execute(text("""
+            SELECT AVG(r.bid_rate)::float FROM bid_results r JOIN bids b ON b.id = r.bid_id
+            WHERE b.agency_id = :aid AND r.is_winner = true
+              AND b.bid_open_date BETWEEN :c24 AND :c12
+        """), {"aid": agency_id, "c24": cutoff_24m, "c12": cutoff_12m}).scalar()
+        trend_direction = "stable"
+        if m_recent and m_older:
+            diff = m_recent - m_older
+            trend_direction = "up" if diff > 0.002 else ("down" if diff < -0.002 else "stable")
+
+        # 빈도표 JSON (0.5% 구간)
+        freq_table = []
+        lo_b = round(int(float(arr.min()) / self.BUCKET_W) * self.BUCKET_W, 6)
+        b_ptr = lo_b
+        while b_ptr <= float(arr.max()) + 1e-9:
+            cnt = int(np.sum((arr >= b_ptr) & (arr < b_ptr + self.BUCKET_W)))
+            if cnt > 0:
+                freq_table.append({"from": round(b_ptr, 4), "to": round(b_ptr + self.BUCKET_W, 4), "count": cnt})
+            b_ptr = round(b_ptr + self.BUCKET_W, 6)
+
+        # 히스토그램 데이터 (0.860~0.965 고정 범위)
+        hist_bins = np.arange(0.860, 0.966, self.BUCKET_W)
+        hist_counts, _ = np.histogram(arr, bins=hist_bins)
+        histogram_data = [
+            [round(float(hist_bins[i]), 4), int(hist_counts[i])]
+            for i in range(len(hist_counts))
+        ]
+
+        # 난이도 분류
+        cv = float(np.std(arr) / np.mean(arr)) if np.mean(arr) > 0 else 0
+        if avg_comp >= 10 and cv > 0.01:
+            qual_difficulty = "難"
+        elif avg_comp >= 5 or cv > 0.005:
+            qual_difficulty = "中"
+        else:
+            qual_difficulty = "易"
+
+        p25 = float(np.percentile(arr, 25))
+        p75 = float(np.percentile(arr, 75))
+
+        upsert_data = dict(
+            total_bid_count=n,
+            avg_win_rate=float(np.mean(arr)),
+            std_win_rate=float(np.std(arr)),
+            min_win_rate=float(arr.min()),
+            max_win_rate=float(arr.max()),
+            win_rate_p10=float(np.percentile(arr, 10)),
+            win_rate_p25=p25,
+            win_rate_p50=float(np.percentile(arr, 50)),
+            win_rate_p75=p75,
+            win_rate_p90=float(np.percentile(arr, 90)),
+            avg_competitor_cnt=avg_comp,
+            aggression_index=aggression_index,
+            qual_difficulty=qual_difficulty,
+            freq_table=freq_table,
+            histogram_data=histogram_data,
+            volatility_30d=volatility_30d,
+            trend_direction=trend_direction,
+            recommended_range_lo=p25,
+            recommended_range_hi=p75,
+        )
+
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        from sqlalchemy.exc import IntegrityError
+        stmt = pg_insert(AgencyStrategy).values(
+            agency_id=agency_id,
+            industry_code=industry_code,
+            period_months=period_months,
+            **upsert_data,
+        ).on_conflict_do_update(
+            constraint="agency_strategies_agency_id_industry_code_period_months_key",
+            set_=upsert_data,
+        )
+        try:
+            self.db.execute(stmt)
+        except IntegrityError:
+            self.db.rollback()
+
+    @staticmethod
+    def _serialize(row: AgencyStrategy) -> dict:
+        return {
+            "agency_id":          row.agency_id,
+            "industry_code":      row.industry_code,
+            "period_months":      row.period_months,
+            "total_bid_count":    row.total_bid_count,
+            "avg_win_rate":       float(row.avg_win_rate)       if row.avg_win_rate else None,
+            "std_win_rate":       float(row.std_win_rate)       if row.std_win_rate else None,
+            "min_win_rate":       float(row.min_win_rate)       if row.min_win_rate else None,
+            "max_win_rate":       float(row.max_win_rate)       if row.max_win_rate else None,
+            "win_rate_p10":       float(row.win_rate_p10)       if row.win_rate_p10 else None,
+            "win_rate_p25":       float(row.win_rate_p25)       if row.win_rate_p25 else None,
+            "win_rate_p50":       float(row.win_rate_p50)       if row.win_rate_p50 else None,
+            "win_rate_p75":       float(row.win_rate_p75)       if row.win_rate_p75 else None,
+            "win_rate_p90":       float(row.win_rate_p90)       if row.win_rate_p90 else None,
+            "avg_competitor_cnt": float(row.avg_competitor_cnt) if row.avg_competitor_cnt else None,
+            "aggression_index":   float(row.aggression_index)   if row.aggression_index else None,
+            "qual_difficulty":    row.qual_difficulty,
+            "freq_table":         row.freq_table or [],
+            "histogram_data":     row.histogram_data or [],
+            "volatility_30d":     float(row.volatility_30d)     if row.volatility_30d else None,
+            "trend_direction":    row.trend_direction,
+            "recommended_range_lo": float(row.recommended_range_lo) if row.recommended_range_lo else None,
+            "recommended_range_hi": float(row.recommended_range_hi) if row.recommended_range_hi else None,
+            "updated_at":         row.updated_at.isoformat() if row.updated_at else None,
+        }
 
 
 # ==================================================
