@@ -4554,12 +4554,16 @@ class ExecutionService:
     # ── CRUD ─────────────────────────────────────────────────
 
     def list_executions(self, user_id: int, status: str = None, page: int = 1, size: int = 20) -> dict:
+        from .schemas import BidExecutionOut
         q = self.db.query(BidExecution).filter(BidExecution.user_id == user_id)
         if status:
             q = q.filter(BidExecution.status == status)
         total = q.count()
         items = q.order_by(BidExecution.created_at.desc()).offset((page - 1) * size).limit(size).all()
-        return {"total": total, "page": page, "size": size, "items": items}
+        return {
+            "total": total, "page": page, "size": size,
+            "items": [BidExecutionOut.model_validate(i).model_dump() for i in items],
+        }
 
     def get_summary(self, user_id: int) -> dict:
         from sqlalchemy import func as sqlfunc
@@ -4585,7 +4589,11 @@ class ExecutionService:
             )
             .all()
         )
-        return {"status_counts": summary, "today_closing": today_closing}
+        from .schemas import BidExecutionOut
+        return {
+            "status_counts": summary,
+            "today_closing": [BidExecutionOut.model_validate(e).model_dump() for e in today_closing],
+        }
 
     def get(self, exec_id: int):
         return self.db.query(BidExecution).filter(BidExecution.id == exec_id).first()
@@ -4931,7 +4939,7 @@ class FrequencyService:
         total = sum(b["count"] for b in buckets)
         return {
             "agency_id": agency_id,
-            "agency_name": agency.agency_name if agency else "",
+            "agency_name": agency.name if agency else "",
             "industry_code": industry_code,
             "period": period,
             "total_bids": total,
