@@ -312,3 +312,84 @@ export const notificationsApi = {
   markAllRead: (): Promise<void> =>
     api.post('/notifications/read-all').then(() => undefined),
 }
+
+// -- 투찰 실행 관리 ------------------------------------------
+
+export const executionsApi = {
+  list: (params?: {
+    status?: string
+    page?: number
+    size?: number
+  }): Promise<import('../types').ExecutionListResponse> =>
+    api.get('/executions', { params }).then((r) => r.data),
+
+  summary: (): Promise<import('../types').ExecutionSummary> =>
+    api.get('/executions/summary').then((r) => r.data),
+
+  get: (id: number): Promise<import('../types').BidExecution> =>
+    api.get(`/executions/${id}`).then((r) => r.data),
+
+  create: (data: {
+    title: string
+    agency_name?: string
+    base_amount?: number
+    bid_open_date?: string
+    announcement_no?: string
+    industry_name?: string
+    floor_rate?: number
+    a_value?: number
+    recommended_rate?: number
+    note?: string
+  }): Promise<import('../types').BidExecution> =>
+    api.post('/executions', data).then((r) => r.data),
+
+  update: (id: number, data: Partial<{
+    status: string
+    decision_reason: string
+    submitted_rate: number
+    submitted_amount: number
+    floor_rate: number
+    a_value: number
+    submitted_at: string
+    result_rank: number
+    total_bidders: number
+    winner_rate: number
+    winner_amount: number
+    winner_name: string
+    winner_biz_no: string
+    opened_at: string
+    note: string
+  }>): Promise<import('../types').BidExecution> =>
+    api.patch(`/executions/${id}`, data).then((r) => r.data),
+
+  delete: (id: number): Promise<void> =>
+    api.delete(`/executions/${id}`).then(() => undefined),
+
+  defeatAnalysis: (id: number): Promise<import('../types').DefeatAnalysis | null> =>
+    api.get(`/executions/${id}/defeat-analysis`).then((r) => r.data),
+
+  importSucview: (file: File): Promise<import('../types').SucviewImportResult> => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post('/executions/import/sucview', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data)
+  },
+
+  importInpoHistory: (file: File): Promise<import('../types').SucviewImportResult> => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post('/executions/import/inpo-history', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data)
+  },
+
+  ourCompetitors: (limit?: number): Promise<import('../types').OurCompetitor[]> =>
+    api.get('/executions/our-competitors', { params: { limit } }).then((r) => r.data),
+
+  agencyFreq: (
+    agencyId: number,
+    params?: { industry_code?: string; period?: string }
+  ): Promise<import('../types').AgencyFreqResponse> =>
+    api.get(`/executions/agency-freq/${agencyId}`, { params }).then((r) => r.data),
+}

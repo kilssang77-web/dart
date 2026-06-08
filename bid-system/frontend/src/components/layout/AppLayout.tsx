@@ -6,7 +6,7 @@ import {
   TrendingUp, Handshake, BarChart2, ClipboardList, KeyRound,
   Building2, ShieldAlert, LogOut, Bell, PanelLeftClose, PanelLeftOpen,
   Globe, Activity, Target, Briefcase, LayoutDashboard, PieChart, Gauge,
-  ChevronRight,
+  ChevronRight, ListChecks,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { authApi, notificationsApi } from '@/api'
@@ -31,6 +31,12 @@ const NAV_GROUPS = [
       { to: '/bids',               label: '전체 공고', icon: Search },
       { to: '/bids?bookmark=1',    label: '관심 공고', icon: BookMarked },
       { to: '/bid-selection',      label: '입찰 선택', icon: Target },
+    ],
+  },
+  {
+    label: '투찰 실행',
+    items: [
+      { to: '/executions', label: '투찰 관리', icon: ListChecks },
     ],
   },
   {

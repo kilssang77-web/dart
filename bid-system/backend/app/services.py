@@ -2,6 +2,7 @@
 비즈니스 로직 서비스 레이어.
 Controller(API) -> Service -> Repository(DB) 방향 준수.
 """
+import io
 import math
 import logging
 import pandas as pd
@@ -15,6 +16,7 @@ from .models import (
     Bid, BidResult, Competitor, Agency, Industry, Region,
     FeatureStore, PredictionLog, PredictionLogV2, CompetitorStat, User, AuditLog,
     IndustryFilter, BidBookmark, CollectionLog, MyBidRecord, Notification,
+    BidExecution, DefeatAnalysis, AgencyStrategy, RateFrequencyTable, OurCompetitor,
 )
 from .schemas import (
     BidCreate, BidResultCreate, RecommendRequest, RecommendResponse,
@@ -4521,6 +4523,503 @@ class MarketIntelService:
                 "avg_rate":     float(r[2]) if r[2] else None,
                 "min_rate":     float(r[3]) if r[3] else None,
                 "max_rate":     float(r[4]) if r[4] else None,
+            }
+            for r in rows
+        ]
+
+
+# ==================================================
+# 투찰 실행 관리 서비스
+# ==================================================
+
+class ExecutionService:
+    """투찰 수명주기 관리 + SUCVIEW/인포 엑셀 파싱"""
+
+    STATUS_ORDER = ["검토중", "참여결정", "투찰완료", "개찰대기", "낙찰", "패찰", "포기"]
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    # ── CRUD ─────────────────────────────────────────────────
+
+    def list_executions(self, user_id: int, status: str = None, page: int = 1, size: int = 20) -> dict:
+        q = self.db.query(BidExecution).filter(BidExecution.user_id == user_id)
+        if status:
+            q = q.filter(BidExecution.status == status)
+        total = q.count()
+        items = q.order_by(BidExecution.created_at.desc()).offset((page - 1) * size).limit(size).all()
+        return {"total": total, "page": page, "size": size, "items": items}
+
+    def get_summary(self, user_id: int) -> dict:
+        from sqlalchemy import func as sqlfunc
+        rows = (
+            self.db.query(BidExecution.status, sqlfunc.count().label("cnt"))
+            .filter(BidExecution.user_id == user_id)
+            .group_by(BidExecution.status)
+            .all()
+        )
+        summary = {s: 0 for s in self.STATUS_ORDER}
+        for status, cnt in rows:
+            summary[status] = cnt
+
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = today_start.replace(hour=23, minute=59, second=59)
+        today_closing = (
+            self.db.query(BidExecution)
+            .filter(
+                BidExecution.user_id == user_id,
+                BidExecution.status.in_(["참여결정", "투찰완료"]),
+                BidExecution.bid_open_date >= today_start,
+                BidExecution.bid_open_date <= today_end,
+            )
+            .all()
+        )
+        return {"status_counts": summary, "today_closing": today_closing}
+
+    def get(self, exec_id: int):
+        return self.db.query(BidExecution).filter(BidExecution.id == exec_id).first()
+
+    def create(self, user_id: int, data) -> BidExecution:
+        obj = BidExecution(user_id=user_id, **data.model_dump(exclude_none=True))
+        self.db.add(obj)
+        self.db.commit()
+        self.db.refresh(obj)
+        return obj
+
+    def update(self, exec_id: int, user_id: int, data) -> BidExecution:
+        obj = self.db.query(BidExecution).filter(
+            BidExecution.id == exec_id,
+            BidExecution.user_id == user_id,
+        ).first()
+        if not obj:
+            from fastapi import HTTPException
+            raise HTTPException(404, "Not found")
+        updates = data.model_dump(exclude_none=True)
+        for k, v in updates.items():
+            setattr(obj, k, v)
+        # 패찰 → 자동 원인 분석
+        if data.status == "패찰":
+            self._auto_defeat_analysis(obj)
+        self.db.commit()
+        self.db.refresh(obj)
+        return obj
+
+    def delete(self, exec_id: int, user_id: int):
+        obj = self.db.query(BidExecution).filter(
+            BidExecution.id == exec_id,
+            BidExecution.user_id == user_id,
+        ).first()
+        if obj:
+            self.db.delete(obj)
+            self.db.commit()
+
+    # ── 패찰 원인 분석 ────────────────────────────────────────
+
+    def get_defeat_analysis(self, exec_id: int):
+        return self.db.query(DefeatAnalysis).filter(DefeatAnalysis.execution_id == exec_id).first()
+
+    def _auto_defeat_analysis(self, obj: BidExecution):
+        existing = self.db.query(DefeatAnalysis).filter(DefeatAnalysis.execution_id == obj.id).first()
+        if existing:
+            return
+
+        cause, detail, adj = "기타", "", 0.0
+        winner_gap_pct = None
+
+        if obj.submitted_rate and obj.winner_rate:
+            gap = float(obj.submitted_rate) - float(obj.winner_rate)
+            winner_gap_pct = round(gap * 100, 3)
+            if gap > 0.005:
+                cause = "투찰률과도"
+                detail = f"투찰률이 낙찰률보다 {gap*100:.3f}%p 높았음"
+                adj = round(-gap * 0.6, 4)
+            elif gap > 0.001:
+                cause = "투찰률과도"
+                detail = f"투찰률이 낙찰률보다 {gap*100:.3f}%p 높았음 (미세)"
+                adj = round(-gap * 0.5, 4)
+
+        if cause == "기타" and obj.total_bidders and obj.total_bidders >= 15:
+            cause = "경쟁사과다"
+            detail = f"참여업체 {obj.total_bidders}개사 — 경쟁 과열"
+
+        improvement = "다음 동일기관 입찰 시 " + (
+            f"{abs(adj)*100:.2f}%p 낮게 조정 권장" if adj < 0 else "현 전략 유지"
+        )
+
+        da = DefeatAnalysis(
+            execution_id=obj.id,
+            cause_primary=cause,
+            cause_detail=detail,
+            winner_gap_pct=winner_gap_pct,
+            competitor_cnt=obj.total_bidders,
+            our_rank=obj.result_rank,
+            floor_rate=obj.floor_rate,
+            improvement=improvement,
+            next_rate_adj=adj,
+        )
+        self.db.add(da)
+
+    # ── SUCVIEW 엑셀 파싱 ─────────────────────────────────────
+
+    def import_sucview(self, file_bytes: bytes, user_id: int):
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+        imported, skipped, competitors_added = 0, 0, 0
+        errors, details = [], []
+
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            try:
+                result = self._parse_sucview_sheet(ws, user_id)
+                imported += result["imported"]
+                skipped += result["skipped"]
+                competitors_added += result["competitors_added"]
+                details.extend(result["details"])
+            except Exception as e:
+                errors.append(f"시트 {sheet_name}: {e}")
+
+        self.db.commit()
+        return {
+            "imported": imported,
+            "skipped": skipped,
+            "competitors_added": competitors_added,
+            "errors": errors,
+            "details": details,
+        }
+
+    def _parse_sucview_sheet(self, ws, user_id: int) -> dict:
+        data = {}
+        participants = []
+        in_participant = False
+
+        for row in ws.iter_rows(values_only=True):
+            if not any(c for c in row if c is not None):
+                continue
+            label = str(row[0] or "").strip()
+            val = row[1] if len(row) > 1 else None
+
+            if label == "공고번호":
+                data["announcement_no"] = str(val or "").strip()
+            elif label == "공고명":
+                data["title"] = str(val or "").strip()
+            elif label == "발주기관":
+                data["agency_name"] = str(val or "").strip()
+            elif label in ("낙찰하한율", "사정율하한"):
+                try:
+                    data["floor_rate"] = float(val)
+                except Exception:
+                    pass
+            elif label in ("기초금액", "예정가격"):
+                try:
+                    data["base_amount"] = int(float(str(val or "0").replace(",", "")))
+                except Exception:
+                    pass
+            elif label == "개찰일시":
+                if val:
+                    try:
+                        data["opened_at"] = val if isinstance(val, datetime) else datetime.fromisoformat(str(val))
+                    except Exception:
+                        pass
+            elif label in ("순위", "No", "번호") or (str(label).isdigit()):
+                in_participant = True
+
+            if in_participant and len(row) >= 5:
+                try:
+                    rank = int(row[0]) if row[0] else None
+                    biz_no = str(row[1] or "").strip()
+                    name = str(row[2] or "").strip()
+                    amount_raw = str(row[3] or "0").replace(",", "")
+                    rate_raw = row[4]
+                    if rank and name and len(name) > 1:
+                        participants.append({
+                            "rank": rank,
+                            "biz_no": biz_no,
+                            "company_name": name,
+                            "amount": int(float(amount_raw)) if amount_raw else None,
+                            "rate": float(rate_raw) if rate_raw else None,
+                        })
+                except Exception:
+                    pass
+
+        if not data.get("title"):
+            return {"imported": 0, "skipped": 1, "competitors_added": 0, "details": []}
+
+        # 낙찰자 추출
+        winner = next((p for p in participants if p["rank"] == 1), None)
+        if winner:
+            data["winner_name"] = winner["company_name"]
+            data["winner_biz_no"] = winner["biz_no"]
+            data["winner_amount"] = winner["amount"]
+            data["winner_rate"] = winner["rate"]
+            data["total_bidders"] = len(participants)
+
+        # 중복 체크
+        existing = self.db.query(BidExecution).filter(
+            BidExecution.announcement_no == data.get("announcement_no"),
+            BidExecution.user_id == user_id,
+        ).first()
+        if existing:
+            return {"imported": 0, "skipped": 1, "competitors_added": 0, "details": [f"중복: {data.get('title', '')}"][:1]}
+
+        data["status"] = "개찰대기" if not winner else "패찰"
+        data["source"] = "sucview"
+        data["sucview_raw"] = participants
+        data["user_id"] = user_id
+
+        exec_obj = BidExecution(**data)
+        self.db.add(exec_obj)
+        self.db.flush()
+
+        comp_added = self._update_our_competitors_raw(participants)
+        detail_msg = f"가져옴: {data.get('title', '')[:40]}"
+        return {"imported": 1, "skipped": 0, "competitors_added": comp_added, "details": [detail_msg]}
+
+    def _update_our_competitors_raw(self, participants: list) -> int:
+        added = 0
+        for p in participants:
+            if not p.get("company_name"):
+                continue
+            existing = self.db.query(OurCompetitor).filter(
+                OurCompetitor.company_name == p["company_name"]
+            ).first()
+            if existing:
+                existing.co_participation_cnt = (existing.co_participation_cnt or 0) + 1
+                if p.get("rank") == 1:
+                    existing.co_win_cnt = (existing.co_win_cnt or 0) + 1
+                if p.get("rate"):
+                    existing.avg_bid_rate = p["rate"]
+                existing.last_seen_at = datetime.now().date()
+                existing.updated_at = datetime.now()
+            else:
+                new_comp = OurCompetitor(
+                    company_name=p["company_name"],
+                    biz_reg_no=p.get("biz_no"),
+                    co_participation_cnt=1,
+                    co_win_cnt=1 if p.get("rank") == 1 else 0,
+                    avg_bid_rate=p.get("rate"),
+                    last_seen_at=datetime.now().date(),
+                    source="sucview",
+                )
+                self.db.add(new_comp)
+                added += 1
+        return added
+
+    def import_inpo_history(self, file_bytes: bytes, user_id: int):
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+        ws = wb.active
+        imported, skipped = 0, 0
+        errors, details = [], []
+
+        headers = []
+        for row in ws.iter_rows(values_only=True):
+            if not headers:
+                headers = [str(c or "").strip() for c in row]
+                continue
+            row_dict = dict(zip(headers, row))
+            try:
+                announcement_no = str(row_dict.get("공고번호") or "").strip()
+                title = str(row_dict.get("공고명") or "").strip()
+                if not title:
+                    skipped += 1
+                    continue
+
+                existing = self.db.query(BidExecution).filter(
+                    BidExecution.announcement_no == announcement_no,
+                    BidExecution.user_id == user_id,
+                ).first() if announcement_no else None
+
+                if existing:
+                    skipped += 1
+                    continue
+
+                bid_rate_raw = row_dict.get("투찰율") or row_dict.get("투찰률")
+                bid_rate = None
+                try:
+                    bid_rate = float(str(bid_rate_raw).replace("%", "")) / 100 if bid_rate_raw else None
+                except Exception:
+                    pass
+
+                result_raw = str(row_dict.get("결과") or row_dict.get("낙패") or "").strip()
+                status = "낙찰" if "낙찰" in result_raw else ("패찰" if "패찰" in result_raw else "개찰대기")
+
+                base_raw = str(row_dict.get("기초금액") or row_dict.get("예정가격") or "0").replace(",", "")
+                try:
+                    base_amount = int(float(base_raw))
+                except Exception:
+                    base_amount = 0
+
+                exec_obj = BidExecution(
+                    user_id=user_id,
+                    announcement_no=announcement_no,
+                    title=title,
+                    agency_name=str(row_dict.get("발주기관") or ""),
+                    base_amount=base_amount,
+                    submitted_rate=bid_rate,
+                    status=status,
+                    source="inpo_history",
+                )
+                self.db.add(exec_obj)
+                imported += 1
+                details.append(f"가져옴: {title[:40]}")
+            except Exception as e:
+                errors.append(f"행 오류: {e}")
+                skipped += 1
+
+        self.db.commit()
+        return {
+            "imported": imported,
+            "skipped": skipped,
+            "competitors_added": 0,
+            "errors": errors,
+            "details": details,
+        }
+
+
+# ==================================================
+# 발주기관 빈도표 서비스
+# ==================================================
+
+class FrequencyService:
+    """발주기관별 낙찰률 빈도표 + 히스토그램 (bid_results 기반)"""
+
+    PERIOD_MAP = {"6M": 6, "12M": 12, "24M": 24, "48M": 48}
+    BUCKET_WIDTH = 0.005
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_agency_freq(self, agency_id: int, industry_code: str = "ALL", period: str = "48M") -> dict:
+        months = self.PERIOD_MAP.get(period, 48)
+        rows = self.db.query(RateFrequencyTable).filter(
+            RateFrequencyTable.agency_id == agency_id,
+            RateFrequencyTable.industry_code == industry_code,
+            RateFrequencyTable.period_type == period,
+        ).order_by(RateFrequencyTable.bucket_from).all()
+
+        if not rows:
+            self._build_agency_freq(agency_id, industry_code, months, period)
+            self.db.commit()
+            rows = self.db.query(RateFrequencyTable).filter(
+                RateFrequencyTable.agency_id == agency_id,
+                RateFrequencyTable.industry_code == industry_code,
+                RateFrequencyTable.period_type == period,
+            ).order_by(RateFrequencyTable.bucket_from).all()
+
+        agency = self.db.query(Agency).filter(Agency.id == agency_id).first()
+        buckets = [
+            {
+                "from": float(r.bucket_from),
+                "to": float(r.bucket_to),
+                "count": r.count,
+                "win_count": r.win_count,
+                "win_rate": float(r.win_rate) if r.win_rate else 0,
+            }
+            for r in rows
+        ]
+        total = sum(b["count"] for b in buckets)
+        return {
+            "agency_id": agency_id,
+            "agency_name": agency.agency_name if agency else "",
+            "industry_code": industry_code,
+            "period": period,
+            "total_bids": total,
+            "buckets": buckets,
+        }
+
+    def rebuild_all(self) -> dict:
+        agencies = self.db.execute(text(
+            "SELECT DISTINCT agency_id FROM bid_results LIMIT 500"
+        )).fetchall()
+        built = 0
+        for (agency_id,) in agencies:
+            for period_label, months in self.PERIOD_MAP.items():
+                try:
+                    self._build_agency_freq(agency_id, "ALL", months, period_label)
+                    built += 1
+                except Exception:
+                    pass
+        self.db.commit()
+        return {"built": built, "agencies": len(agencies)}
+
+    def _build_agency_freq(self, agency_id: int, industry_code: str, months: int, period_label: str):
+        cutoff = f"NOW() - INTERVAL '{months} months'"
+        sql = text(f"""
+            SELECT
+                r.assessment_rate,
+                CASE WHEN r.is_winner THEN 1 ELSE 0 END AS is_win
+            FROM bid_results r
+            JOIN bids b ON b.id = r.bid_id
+            WHERE b.agency_id = :agency_id
+              AND r.assessment_rate IS NOT NULL
+              AND b.bid_open_date >= {cutoff}
+        """)
+        rows = self.db.execute(sql, {"agency_id": agency_id}).fetchall()
+        if not rows:
+            return
+
+        # 기존 행 삭제
+        self.db.query(RateFrequencyTable).filter(
+            RateFrequencyTable.agency_id == agency_id,
+            RateFrequencyTable.industry_code == industry_code,
+            RateFrequencyTable.period_type == period_label,
+        ).delete()
+
+        buckets: dict[float, dict] = {}
+        for rate, is_win in rows:
+            rate_f = float(rate)
+            bucket_from = round(int(rate_f / self.BUCKET_WIDTH) * self.BUCKET_WIDTH, 6)
+            bucket_to = round(bucket_from + self.BUCKET_WIDTH, 6)
+            if bucket_from not in buckets:
+                buckets[bucket_from] = {"to": bucket_to, "count": 0, "win": 0}
+            buckets[bucket_from]["count"] += 1
+            buckets[bucket_from]["win"] += is_win
+
+        for bf, bdata in buckets.items():
+            win_rate = round(bdata["win"] / bdata["count"], 4) if bdata["count"] > 0 else None
+            self.db.add(RateFrequencyTable(
+                agency_id=agency_id,
+                industry_code=industry_code,
+                period_type=period_label,
+                bucket_from=bf,
+                bucket_to=bdata["to"],
+                bucket_width=self.BUCKET_WIDTH,
+                count=bdata["count"],
+                win_count=bdata["win"],
+                win_rate=win_rate,
+            ))
+
+
+# ==================================================
+# 자사 전용 경쟁사 서비스
+# ==================================================
+
+class OurCompetitorService:
+    """자사가 자주 만나는 경쟁사 목록 관리"""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def list_competitors(self, limit: int = 30) -> list:
+        rows = (
+            self.db.query(OurCompetitor)
+            .order_by(OurCompetitor.co_participation_cnt.desc())
+            .limit(limit)
+            .all()
+        )
+        return [
+            {
+                "id": r.id,
+                "company_name": r.company_name,
+                "biz_reg_no": r.biz_reg_no,
+                "co_participation_cnt": r.co_participation_cnt,
+                "co_win_cnt": r.co_win_cnt,
+                "our_win_when_meet": r.our_win_when_meet,
+                "avg_bid_rate": float(r.avg_bid_rate) if r.avg_bid_rate else None,
+                "aggression": float(r.aggression) if r.aggression else None,
+                "last_seen_at": str(r.last_seen_at) if r.last_seen_at else None,
+                "last_seen_agency": r.last_seen_agency,
+                "is_primary_rival": r.is_primary_rival,
             }
             for r in rows
         ]

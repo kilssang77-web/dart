@@ -595,3 +595,193 @@ class BidSelectionFeature(Base):
 
     bid = relationship("Bid")
 
+
+# ============================================================
+# 수주율 최적화 운영체계 — Phase 1 신규 테이블
+# ============================================================
+
+class BidExecution(Base):
+    """투찰 수명주기 관리 — 검토→결정→투찰→개찰→결과 전 단계 추적"""
+    __tablename__ = "bid_executions"
+
+    id               = Column(BigInteger, primary_key=True, autoincrement=True)
+    bid_id           = Column(BigInteger, ForeignKey("bids.id"), nullable=True, index=True)
+    user_id          = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    # 공고 기본 정보 (bid_id 없는 외부 공고 대비)
+    announcement_no  = Column(String(60), index=True)
+    title            = Column(String(500), nullable=False)
+    agency_name      = Column(String(200))
+    industry_name    = Column(String(100))
+    base_amount      = Column(BigInteger, default=0)
+    bid_open_date    = Column(DateTime(timezone=True))
+
+    # 투찰 상태 (6단계)
+    status           = Column(String(20), nullable=False, default="검토중")
+    # 검토중 | 참여결정 | 투찰완료 | 개찰대기 | 낙찰 | 패찰 | 포기
+
+    # 결정 정보
+    decision_reason  = Column(Text)          # 참여/포기 결정 사유
+    decided_at       = Column(DateTime(timezone=True))
+
+    # 투찰 정보
+    submitted_rate   = Column(Numeric(8, 6))  # 실제 투찰률
+    submitted_amount = Column(BigInteger)      # 실제 투찰금액
+    floor_rate       = Column(Numeric(8, 6))   # 낙찰하한율
+    a_value          = Column(BigInteger)      # A값
+    recommended_rate = Column(Numeric(8, 6))   # 시스템 추천 투찰률
+    submitted_at     = Column(DateTime(timezone=True))
+
+    # 개찰 결과
+    result_rank      = Column(Integer)         # 최종 순위
+    total_bidders    = Column(Integer)         # 총 참여 업체 수
+    winner_rate      = Column(Numeric(8, 6))   # 1순위 낙찰률
+    winner_amount    = Column(BigInteger)      # 1순위 낙찰금액
+    winner_name      = Column(String(200))     # 1순위 업체명
+    winner_biz_no    = Column(String(20))      # 1순위 사업자번호
+    winner_gap       = Column(Numeric(8, 6))   # 낙찰률 - 우리 투찰률 (음수=우리가 높게 씀)
+    opened_at        = Column(DateTime(timezone=True))
+
+    # SUCVIEW 원본 데이터
+    sucview_raw      = Column(JSON)            # 원본 참여업체 리스트
+
+    note             = Column(Text)
+    source           = Column(String(20), default="manual")  # manual | excel_import
+    created_at       = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at       = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    bid  = relationship("Bid")
+    user = relationship("User")
+    defeat_analysis = relationship("DefeatAnalysis", back_populates="execution", uselist=False)
+
+
+class DefeatAnalysis(Base):
+    """패찰 원인 자동 분류 — 개찰 결과 입력 시 자동 생성"""
+    __tablename__ = "defeat_analyses"
+
+    id              = Column(BigInteger, primary_key=True, autoincrement=True)
+    execution_id    = Column(BigInteger, ForeignKey("bid_executions.id"), nullable=False, unique=True)
+
+    # 원인 분류 (복수 가능)
+    cause_primary   = Column(String(30), nullable=False)
+    # 투찰률과도 | 경쟁사과다 | 적격부족 | 시장변동 | 정보부족 | 기타
+    cause_secondary = Column(String(30))
+    cause_detail    = Column(Text)
+
+    # 수치 근거
+    winner_gap_pct  = Column(Numeric(6, 3))   # 낙찰자 대비 차이(%) — 양수=우리가 더 높음
+    competitor_cnt  = Column(Integer)
+    our_rank        = Column(Integer)
+    floor_rate      = Column(Numeric(8, 6))
+
+    # 개선 방향
+    improvement     = Column(Text)            # "다음 유사 공고에서 -X% 하향 추천"
+    next_rate_adj   = Column(Numeric(6, 4))   # 추천 보정값 (예: -0.012)
+
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())
+
+    execution = relationship("BidExecution", back_populates="defeat_analysis")
+
+
+class AgencyStrategy(Base):
+    """발주기관 전략 DB — 48개월 집계, 빈도표, 공격성 지수"""
+    __tablename__ = "agency_strategies"
+    __table_args__ = (UniqueConstraint("agency_id", "industry_code", "period_months"),)
+
+    id                   = Column(BigInteger, primary_key=True, autoincrement=True)
+    agency_id            = Column(Integer, ForeignKey("agencies.id"), nullable=False)
+    industry_code        = Column(String(50), default="ALL")
+    period_months        = Column(Integer, default=48)
+
+    # 낙찰률 통계
+    total_bid_count      = Column(Integer, default=0)
+    avg_win_rate         = Column(Numeric(8, 6))
+    std_win_rate         = Column(Numeric(8, 6))
+    min_win_rate         = Column(Numeric(8, 6))
+    max_win_rate         = Column(Numeric(8, 6))
+    win_rate_p10         = Column(Numeric(8, 6))
+    win_rate_p25         = Column(Numeric(8, 6))
+    win_rate_p50         = Column(Numeric(8, 6))
+    win_rate_p75         = Column(Numeric(8, 6))
+    win_rate_p90         = Column(Numeric(8, 6))
+
+    # 경쟁 통계
+    avg_competitor_cnt   = Column(Numeric(6, 2))
+    aggression_index     = Column(Numeric(5, 3))   # 하한율 이하 투찰 비율
+    qual_difficulty      = Column(String(10))       # 易/中/難
+
+    # 빈도표 JSON: [{"from": 0.87, "to": 0.875, "count": 12, "win_count": 3}]
+    freq_table           = Column(JSON, default=[])
+    # 히스토그램: [[rate, count], ...]
+    histogram_data       = Column(JSON, default=[])
+
+    # 최근 변동성
+    volatility_30d       = Column(Numeric(5, 3))
+    trend_direction      = Column(String(10))       # up | down | stable
+
+    # 추천 구간
+    recommended_range_lo = Column(Numeric(8, 6))
+    recommended_range_hi = Column(Numeric(8, 6))
+
+    updated_at           = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    agency = relationship("Agency")
+
+
+class RateFrequencyTable(Base):
+    """낙찰률 구간별 빈도표 — info21c 수준 통계 (기관×업종×기간)"""
+    __tablename__ = "rate_frequency_tables"
+    __table_args__ = (UniqueConstraint("agency_id", "industry_code", "period_type", "bucket_from"),)
+
+    id            = Column(BigInteger, primary_key=True, autoincrement=True)
+    agency_id     = Column(Integer, ForeignKey("agencies.id"), nullable=False)
+    industry_code = Column(String(50), default="ALL")
+    period_type   = Column(String(10), nullable=False)   # 6M | 12M | 24M | 48M
+    bucket_from   = Column(Numeric(8, 6), nullable=False)
+    bucket_to     = Column(Numeric(8, 6), nullable=False)
+    bucket_width  = Column(Numeric(6, 4), default=0.005)
+
+    count         = Column(Integer, default=0)
+    win_count     = Column(Integer, default=0)
+    win_rate      = Column(Numeric(5, 3))           # 이 구간의 낙찰률(%)
+
+    updated_at    = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    agency = relationship("Agency")
+
+
+class OurCompetitor(Base):
+    """자사 전용 경쟁사 추적 — 우리 회사가 자주 만나는 상위 경쟁사"""
+    __tablename__ = "our_competitors"
+    __table_args__ = (UniqueConstraint("competitor_id"),)
+
+    id                   = Column(BigInteger, primary_key=True, autoincrement=True)
+    competitor_id        = Column(Integer, ForeignKey("competitors.id"), nullable=True)
+
+    # 기본 정보 (competitors 테이블에 없는 경우 직접 저장)
+    company_name         = Column(String(200), nullable=False)
+    biz_reg_no           = Column(String(20))
+
+    # 동반 출현 통계
+    co_participation_cnt = Column(Integer, default=0)   # 같이 참여한 건수
+    co_win_cnt           = Column(Integer, default=0)   # 상대가 이긴 건수 (우리 vs 상대)
+    our_win_when_meet    = Column(Integer, default=0)   # 우리가 이긴 건수 (상대 만났을 때)
+
+    # 투찰 패턴
+    avg_bid_rate         = Column(Numeric(8, 6))        # 평균 투찰률
+    std_bid_rate         = Column(Numeric(8, 6))
+    avg_rate_vs_us       = Column(Numeric(8, 6))        # 우리 대비 평균 (음수=우리보다 낮게)
+    aggression           = Column(Numeric(5, 3))        # 공격성 0-1
+
+    # 최근 활동
+    last_seen_at         = Column(Date)
+    last_seen_agency     = Column(String(200))
+    is_primary_rival     = Column(Boolean, default=False)
+
+    # SUCVIEW 데이터로 자동 생성된 경우
+    source               = Column(String(20), default="sucview")
+
+    updated_at           = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    competitor = relationship("Competitor")
+

@@ -27,6 +27,7 @@ import BidSelectionPage   from '@/pages/BidSelectionPage'
 import KPIDashboardPage   from '@/pages/KPIDashboardPage'
 import TodayPage          from '@/pages/TodayPage'
 import PerformancePage    from '@/pages/PerformancePage'
+import ExecutionsPage     from '@/pages/ExecutionsPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -72,6 +73,7 @@ export default function App() {
           <Route path="company-profile" element={<CompanyProfilePage />} />
           <Route path="bid-selection"   element={<BidSelectionPage />} />
           <Route path="kpi-dashboard"   element={<KPIDashboardPage />} />
+          <Route path="executions"      element={<ExecutionsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -17,6 +17,7 @@ from .strategy  import router as strategy_router
 from .outcomes  import router as outcomes_router
 from .kpi       import router as kpi_router
 from .portfolio import router as portfolio_router
+from .executions import router as executions_router
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -38,3 +39,4 @@ api_router.include_router(strategy_router)
 api_router.include_router(outcomes_router)
 api_router.include_router(kpi_router)
 api_router.include_router(portfolio_router)
+api_router.include_router(executions_router)

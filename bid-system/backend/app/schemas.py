@@ -1169,3 +1169,102 @@ class PortfolioPlanResponse(BaseModel):
     schedule:              List[dict]
     stats:                 dict
 
+
+# ============================================================
+# 수주율 최적화 운영체계 — 투찰 실행 관리 스키마
+# ============================================================
+
+class BidExecutionCreate(BaseModel):
+    bid_id:           Optional[int]   = None
+    announcement_no:  Optional[str]   = None
+    title:            str
+    agency_name:      Optional[str]   = None
+    industry_name:    Optional[str]   = None
+    base_amount:      Optional[int]   = 0
+    bid_open_date:    Optional[datetime] = None
+    status:           str             = "검토중"
+    decision_reason:  Optional[str]   = None
+    floor_rate:       Optional[float] = None
+    a_value:          Optional[int]   = None
+    recommended_rate: Optional[float] = None
+    note:             Optional[str]   = None
+
+
+class BidExecutionUpdate(BaseModel):
+    status:           Optional[str]   = None
+    decision_reason:  Optional[str]   = None
+    decided_at:       Optional[datetime] = None
+    submitted_rate:   Optional[float] = None
+    submitted_amount: Optional[int]   = None
+    floor_rate:       Optional[float] = None
+    a_value:          Optional[int]   = None
+    submitted_at:     Optional[datetime] = None
+    # 개찰 결과
+    result_rank:      Optional[int]   = None
+    total_bidders:    Optional[int]   = None
+    winner_rate:      Optional[float] = None
+    winner_amount:    Optional[int]   = None
+    winner_name:      Optional[str]   = None
+    winner_biz_no:    Optional[str]   = None
+    opened_at:        Optional[datetime] = None
+    sucview_raw:      Optional[list]  = None
+    note:             Optional[str]   = None
+
+
+class BidExecutionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id:               int
+    bid_id:           Optional[int]
+    announcement_no:  Optional[str]
+    title:            str
+    agency_name:      Optional[str]
+    industry_name:    Optional[str]
+    base_amount:      Optional[int]
+    bid_open_date:    Optional[datetime]
+    status:           str
+    decision_reason:  Optional[str]
+    decided_at:       Optional[datetime]
+    submitted_rate:   Optional[float]
+    submitted_amount: Optional[int]
+    floor_rate:       Optional[float]
+    a_value:          Optional[int]
+    recommended_rate: Optional[float]
+    submitted_at:     Optional[datetime]
+    result_rank:      Optional[int]
+    total_bidders:    Optional[int]
+    winner_rate:      Optional[float]
+    winner_amount:    Optional[int]
+    winner_name:      Optional[str]
+    winner_biz_no:    Optional[str]
+    winner_gap:       Optional[float]
+    opened_at:        Optional[datetime]
+    note:             Optional[str]
+    source:           Optional[str]
+    created_at:       datetime
+    updated_at:       datetime
+
+
+class DefeatAnalysisOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id:               int
+    execution_id:     int
+    cause_primary:    str
+    cause_secondary:  Optional[str]
+    cause_detail:     Optional[str]
+    winner_gap_pct:   Optional[float]
+    competitor_cnt:   Optional[int]
+    our_rank:         Optional[int]
+    improvement:      Optional[str]
+    next_rate_adj:    Optional[float]
+    created_at:       datetime
+
+
+class SucviewImportResult(BaseModel):
+    imported:         int
+    skipped:          int
+    competitors_added: int
+    errors:           List[str] = []
+    details:          List[str] = []
+

@@ -976,3 +976,112 @@ export interface TopWinnerItem {
   max_rate: number | null
 }
 
+// ── 투찰 실행 관리 ─────────────────────────────────────────
+
+export type ExecutionStatus =
+  | '검토중'
+  | '참여결정'
+  | '투찰완료'
+  | '개찰대기'
+  | '낙찰'
+  | '패찰'
+  | '포기'
+
+export interface BidExecution {
+  id: number
+  bid_id: number | null
+  user_id: number
+  announcement_no: string | null
+  title: string
+  agency_name: string | null
+  industry_name: string | null
+  base_amount: number
+  bid_open_date: string | null
+  status: ExecutionStatus
+  decision_reason: string | null
+  decided_at: string | null
+  submitted_rate: number | null
+  submitted_amount: number | null
+  floor_rate: number | null
+  a_value: number | null
+  recommended_rate: number | null
+  submitted_at: string | null
+  result_rank: number | null
+  total_bidders: number | null
+  winner_rate: number | null
+  winner_amount: number | null
+  winner_name: string | null
+  winner_biz_no: string | null
+  winner_gap: number | null
+  opened_at: string | null
+  note: string | null
+  source: string
+  created_at: string
+  updated_at: string
+}
+
+export interface DefeatAnalysis {
+  id: number
+  execution_id: number
+  cause_primary: string
+  cause_secondary: string | null
+  cause_detail: string | null
+  winner_gap_pct: number | null
+  competitor_cnt: number | null
+  our_rank: number | null
+  improvement: string | null
+  next_rate_adj: number | null
+  created_at: string
+}
+
+export interface ExecutionSummary {
+  status_counts: Record<ExecutionStatus, number>
+  today_closing: BidExecution[]
+}
+
+export interface ExecutionListResponse {
+  total: number
+  page: number
+  size: number
+  items: BidExecution[]
+}
+
+export interface SucviewImportResult {
+  imported: number
+  skipped: number
+  competitors_added: number
+  errors: string[]
+  details: string[]
+}
+
+export interface OurCompetitor {
+  id: number
+  company_name: string
+  biz_reg_no: string | null
+  co_participation_cnt: number
+  co_win_cnt: number
+  our_win_when_meet: number
+  avg_bid_rate: number | null
+  aggression: number | null
+  last_seen_at: string | null
+  last_seen_agency: string | null
+  is_primary_rival: boolean
+}
+
+export interface FreqBucket {
+  from: number
+  to: number
+  count: number
+  win_count: number
+  win_rate: number
+}
+
+export interface AgencyFreqResponse {
+  agency_id: number
+  agency_name: string
+  industry_code: string
+  period: string
+  total_bids: number
+  buckets: FreqBucket[]
+}
+
