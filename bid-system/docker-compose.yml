@@ -43,6 +43,9 @@ services:
       FIRST_ADMIN_EMAIL: ${FIRST_ADMIN_EMAIL:-admin@bid.local}
       FIRST_ADMIN_PASSWORD: ${FIRST_ADMIN_PASSWORD:-admin1234}
       SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+      INPO21C_COOKIE: ${INPO21C_COOKIE:-}
+      INPO21C_ID: ${INPO21C_ID:-}
+      INPO21C_PW: ${INPO21C_PW:-}
     depends_on:
       postgres:
         condition: service_healthy
