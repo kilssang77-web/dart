@@ -47,7 +47,10 @@ def scan_prism_zones(
         or 0.012
     )
 
-    # 예상 경쟁사 수
+    # 데이터 품질 레벨 (agency/industry/region/global)
+    _dql = features.get("data_quality_level", "global")
+
+    # 예상 경쟁사 수 (bid_results 실측 기반, 없으면 전국 평균, 최종 fallback=8)
     expected_n = int(
         features.get("expected_competitor_count")
         or features.get("global_comp_count")
@@ -122,11 +125,12 @@ def scan_prism_zones(
             avg_rank = 1.0
 
         all_zones.append({
-            "rate":     rate,
-            "win_prob": win_prob,
-            "floor_ok": floor_ok,
-            "amount":   round(base_amount * rate),
-            "rank_est": avg_rank,
+            "rate":         rate,
+            "win_prob":     win_prob,
+            "floor_ok":     floor_ok,
+            "amount":       round(base_amount * rate),
+            "rank_est":     avg_rank,
+            "data_quality": _dql,
         })
 
     # 상위 10개: floor_ok=True & win_prob 내림차순

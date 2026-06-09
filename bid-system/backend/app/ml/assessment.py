@@ -87,6 +87,32 @@ def load_srate_stats(
         WHERE yega_ratio BETWEEN 87 AND 105
     """)).fetchone()
 
+    # ── 경쟁업체 수 (inpo21c_participants 실측 — bid_results는 낙찰자만 저장) ──
+    # 기관별: inpo21c_bids.agency_name ↔ agencies.name 매칭
+    _comp_ag = None
+    if agency_id:
+        _comp_ag = db.execute(text("""
+            SELECT ROUND(AVG(c)::numeric, 1)::float, COUNT(*) AS n_bids
+            FROM (
+                SELECT COUNT(*) AS c
+                FROM inpo21c_participants ip
+                JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = ip.inpo21c_bid_id
+                JOIN agencies a ON a.name = ib.agency_name
+                WHERE a.id = :aid
+                GROUP BY ip.inpo21c_bid_id
+            ) t
+        """), {"aid": agency_id}).fetchone()
+
+    # 전국 평균 (inpo21c 전체 참여자 기준)
+    _comp_glb = db.execute(text("""
+        SELECT ROUND(AVG(c)::numeric, 1)::float
+        FROM (
+            SELECT COUNT(*) AS c
+            FROM inpo21c_participants
+            GROUP BY inpo21c_bid_id
+        ) t
+    """)).fetchone()
+
     return {
         "agency_srate_mean":   float(ag[0])   if ag  else None,
         "agency_srate_std":    float(ag[1])   if ag  else 0.012,
@@ -109,6 +135,19 @@ def load_srate_stats(
         "inpo21c_srate_std":   float(inpo_ag[1])  if inpo_ag and inpo_ag[1]  else 0.007,
         "inpo21c_srate_n":     int(inpo_ag[2])    if inpo_ag and inpo_ag[2]  else 0,
         "inpo21c_global_mean": float(inpo_glb[0]) if inpo_glb and inpo_glb[0] else None,
+        # 경쟁업체 수 (inpo21c 전참여자 기반: 기관 실측 → 전국 평균 fallback)
+        "expected_competitor_count": (
+            float(_comp_ag[0]) if _comp_ag and _comp_ag[0] and int(_comp_ag[1]) >= 3
+            else None
+        ),
+        "global_comp_count":  float(_comp_glb[0]) if _comp_glb and _comp_glb[0] else 8.0,
+        # 데이터 품질 레벨 (assessment_rate_stats 가용 깊이)
+        "data_quality_level": (
+            "agency"   if ag  and int(ag[3])  >= 5  else
+            "industry" if ind and ind[0]             else
+            "region"   if reg and reg[0]             else
+            "global"
+        ),
     }
 
 

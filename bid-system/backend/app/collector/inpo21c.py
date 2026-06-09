@@ -605,6 +605,97 @@ def collect_inpo21c(db: Session, max_pages: int = 4) -> dict:
     }
 
 
+def _get_bid_ids_national(page: int, cookie: str) -> list:
+    """division 없이 전체 낙찰 목록에서 bid_id 수집 (전국 범위)."""
+    html = _fetch(f"{BASE}/suc/con?page={page}", cookie)
+    return [m.group(1) for m in re.finditer(r'/suc/view/con/([^"]+)"', html)]
+
+
+def collect_inpo21c_national(db: Session, max_pages: int = 50) -> dict:
+    """
+    division 필터 없이 전국 낙찰 결과 수집.
+
+    기존 collect_inpo21c는 맞춤설정(division 1~3)만 순회하여 84개 기관에 그쳤음.
+    이 함수는 /suc/con?page=X (division 미지정)로 전국 결과에 접근하여 커버리지 확대.
+    연간 발주 5억 이내 소규모 기관 포함 전국 낙찰 데이터 수집.
+    """
+    from app.config import get_settings
+    settings = get_settings()
+
+    cookie = _get_valid_cookie(settings)
+    if not cookie:
+        return {
+            "bids": 0, "participants": 0, "yega": 0, "skipped": 0,
+            "cookie_valid": False,
+            "error": "자동 로그인 실패 — INPO21C_ID/PW 확인 또는 INPO21C_COOKIE 수동 갱신 필요",
+        }
+
+    _ensure_tables(db)
+
+    existing_parts = {r[0] for r in db.execute(text("SELECT DISTINCT inpo21c_bid_id FROM inpo21c_participants")).fetchall()}
+    existing_bids  = {r[0] for r in db.execute(text("SELECT inpo21c_bid_id FROM inpo21c_bids")).fetchall()}
+    existing_yega  = {r[0] for r in db.execute(text("SELECT DISTINCT inpo21c_bid_id FROM inpo21c_yega")).fetchall()}
+
+    total_bids = total_participants = total_yega = skipped = empty_pages = 0
+
+    for page in range(1, max_pages + 1):
+        bid_ids = list(dict.fromkeys(_get_bid_ids_national(page, cookie)))
+        if not bid_ids:
+            empty_pages += 1
+            if empty_pages >= 3:
+                break
+            continue
+        empty_pages = 0
+
+        for bid_id in bid_ids:
+            needs_parts  = bid_id not in existing_parts
+            needs_header = bid_id not in existing_bids
+            needs_yega   = bid_id not in existing_yega
+
+            if not needs_parts and not needs_header and not needs_yega:
+                skipped += 1
+                continue
+
+            detail_html = _fetch(f"{BASE}/suc/view/con/{bid_id}", cookie, referer=f"{BASE}/suc/con")
+            if not detail_html:
+                continue
+
+            if needs_parts:
+                rows = _parse_participants(detail_html)
+                if rows:
+                    cnt = _upsert_participants(db, bid_id, rows)
+                    total_participants += cnt
+                    total_bids += 1
+                    existing_parts.add(bid_id)
+
+            if needs_header:
+                header = _parse_bid_header(detail_html)
+                if header:
+                    _upsert_bid_header(db, bid_id, header)
+                    existing_bids.add(bid_id)
+
+            if needs_yega:
+                yega_rows = _parse_yega(detail_html)
+                if yega_rows:
+                    yc = _upsert_yega(db, bid_id, yega_rows)
+                    total_yega += yc
+                    existing_yega.add(bid_id)
+
+            time.sleep(0.5)
+
+    logger.info(
+        "inpo21c 전국 수집 완료: %d건 공고, %d명 참여자, %d개 예가, %d건 스킵",
+        total_bids, total_participants, total_yega, skipped,
+    )
+    return {
+        "bids":         total_bids,
+        "participants": total_participants,
+        "yega":         total_yega,
+        "skipped":      skipped,
+        "cookie_valid": True,
+    }
+
+
 def collect_bid_notices_inpo21c(db: Session, max_pages: int = 5) -> dict:
     """
     입산공고 중 목록(/bid/con)에서 개찰 전 사전정보를 수집.

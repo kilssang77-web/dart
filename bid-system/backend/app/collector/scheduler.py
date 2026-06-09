@@ -95,6 +95,21 @@ def run_inpo21c_job() -> None:
         db.close()
 
 
+def run_inpo21c_national_job() -> None:
+    """inpo21c 전국 낙찰 결과 수집 (매주 일요일 03:30 KST — 맞춤설정 비의존, 전국 커버리지)."""
+    from app.database import SessionLocal
+    from app.collector.inpo21c import collect_inpo21c_national
+
+    db = SessionLocal()
+    try:
+        result = collect_inpo21c_national(db, max_pages=100)
+        logger.info("inpo21c 전국 수집 완료: %s", result)
+    except Exception as exc:
+        logger.error("inpo21c 전국 수집 실패: %s", exc)
+    finally:
+        db.close()
+
+
 def run_post_open_collect_job() -> None:
     """개찰 후 6시간 내 결과 수집 트리거 — 매일 10:00/16:00/22:00 KST 실행."""
     from app.config import get_settings
@@ -190,6 +205,22 @@ def run_srate_spike_check_job() -> None:
         db.close()
 
 
+def run_freq_rebuild_job() -> None:
+    """발주기관 빈도표 + 전략 DB 주간 재계산 (매주 일요일 03:00 KST)."""
+    from app.database import SessionLocal
+    from app.services import FrequencyService, AgencyStrategyService
+
+    db = SessionLocal()
+    try:
+        freq_result = FrequencyService(db).rebuild_all()
+        strat_result = AgencyStrategyService(db).rebuild_all()
+        logger.info("빈도표 재계산 완료: freq=%s, strategy=%s", freq_result, strat_result)
+    except Exception as exc:
+        logger.error("빈도표 재계산 실패: %s", exc)
+    finally:
+        db.close()
+
+
 def create_scheduler() -> BackgroundScheduler:
     """BackgroundScheduler 생성 및 작업 등록."""
     scheduler = BackgroundScheduler(timezone="Asia/Seoul")
@@ -252,5 +283,20 @@ def create_scheduler() -> BackgroundScheduler:
             name=f"개찰 후 결과 수집 ({hr:02d}:00 KST)",
             replace_existing=True,
         )
+
+    scheduler.add_job(
+        run_freq_rebuild_job,
+        trigger=CronTrigger(day_of_week="sun", hour=3, minute=0, timezone="Asia/Seoul"),
+        id="freq_rebuild_weekly",
+        name="발주기관 빈도표+전략 재계산 (매주 일 03:00 KST)",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_inpo21c_national_job,
+        trigger=CronTrigger(day_of_week="sun", hour=3, minute=30, timezone="Asia/Seoul"),
+        id="collect_inpo21c_national_weekly",
+        name="inpo21c 전국 낙찰 수집 (매주 일 03:30 KST)",
+        replace_existing=True,
+    )
 
     return scheduler

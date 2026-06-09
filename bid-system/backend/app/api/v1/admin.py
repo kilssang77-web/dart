@@ -716,6 +716,27 @@ def start_inpo21c_backfill(
     background_tasks.add_task(_run)
     return {"message": f"inpo21c 백필 시작됨 (최대 {max_pages}페이지)"}
 
+@router.post("/inpo21c/collect-national")
+def trigger_inpo21c_national(
+    background_tasks: BackgroundTasks,
+    max_pages: int = 100,
+    _: User = Depends(require_role("admin")),
+):
+    """inpo21c 전국 낙찰 결과 즉시 수집 (division 비의존 — 맞춤설정 외 전국 커버리지 확보)."""
+    def _run():
+        from ...database import SessionLocal
+        from ...collector.inpo21c import collect_inpo21c_national
+        _db = SessionLocal()
+        try:
+            result = collect_inpo21c_national(_db, max_pages=max_pages)
+            logger.info("inpo21c 전국 수집 완료: %s", result)
+        finally:
+            _db.close()
+
+    background_tasks.add_task(_run)
+    return {"message": f"inpo21c 전국 수집 시작됨 (최대 {max_pages}페이지)"}
+
+
 @router.post("/inpo21c/collect-notices")
 def trigger_inpo21c_bid_notices(
     background_tasks: BackgroundTasks,
