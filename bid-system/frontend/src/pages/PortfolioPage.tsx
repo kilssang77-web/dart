@@ -5,7 +5,7 @@ import {
   Minus, Loader2, RefreshCw, ChevronDown, ChevronUp, CalendarDays,
 } from 'lucide-react'
 import { portfolioApi, bidsApi } from '../api'
-import type { PortfolioBidItem, PortfolioPlanResponse, ActivePortfolioItem } from '../types'
+import type { Bid, PortfolioBidItem, PortfolioPlanResponse, ActivePortfolioItem } from '../types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -190,7 +190,7 @@ export default function PortfolioPage() {
   // 개찰 예정 공고 (14일 이내)
   const { data: bidsData, isLoading: bidsLoading } = useQuery({
     queryKey: ['portfolio-bids'],
-    queryFn: () => bidsApi.list({ limit: 50 }),
+    queryFn: () => bidsApi.list({ size: 50 }),
   })
 
   const optimizeMut = useMutation({
@@ -211,7 +211,7 @@ export default function PortfolioPage() {
 
   const toggleAll = () => {
     if (selectedIds.size === bids.length) setSelectedIds(new Set())
-    else setSelectedIds(new Set(bids.map((b) => b.id)))
+    else setSelectedIds(new Set((bids as Bid[]).map((b) => b.id)))
   }
 
   const resultSelectedIds = new Set(result?.selected.map((i) => i.bid_id) ?? [])
@@ -260,7 +260,7 @@ export default function PortfolioPage() {
                 <p className="text-sm text-muted-foreground text-center py-6">조회된 공고가 없습니다.</p>
               ) : (
                 <div className="max-h-[480px] overflow-y-auto space-y-0.5 pr-1">
-                  {bids.map((bid) => {
+                  {(bids as Bid[]).map((bid) => {
                     const tag = result
                       ? resultSelectedIds.has(bid.id) ? 'selected'
                         : resultNotSelectedIds.has(bid.id) ? 'not_selected'
@@ -270,7 +270,7 @@ export default function PortfolioPage() {
                     return (
                       <BidRow
                         key={bid.id}
-                        item={{ id: bid.id, title: bid.title, base_amount: bid.base_amount, bid_open_date: bid.bid_open_date }}
+                        item={{ id: bid.id, title: bid.title, base_amount: bid.base_amount, bid_open_date: bid.bid_open_date ?? undefined }}
                         checked={selectedIds.has(bid.id)}
                         onToggle={() => toggle(bid.id)}
                         tag={tag}

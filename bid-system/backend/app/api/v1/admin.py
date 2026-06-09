@@ -376,20 +376,33 @@ def inpo21c_status(_: User = Depends(require_role("admin"))):
     from ...collector.inpo21c import check_cookie_valid
 
     settings = get_settings()
-    cookie = getattr(settings, "inpo21c_cookie", "")
+    cookie      = getattr(settings, "inpo21c_cookie", "")
+    has_id_pw   = bool(getattr(settings, "inpo21c_id", "") and getattr(settings, "inpo21c_pw", ""))
 
     has_cookie = bool(cookie)
-    is_valid = check_cookie_valid(cookie) if has_cookie else False
+    is_valid   = check_cookie_valid(cookie) if has_cookie else False
+
+    # ID/PW 설정 시: 쿠키 없어도 자동 로그인으로 수집 가능
+    can_collect = is_valid or has_id_pw
+
+    if is_valid:
+        status, message = "ok", "쿠키 정상"
+    elif has_id_pw:
+        status  = "autologin"
+        message = "자동 로그인 가능 (INPO21C_ID/PW 설정됨) — 수집 시 자동 인증"
+    elif has_cookie:
+        status, message = "expired", "쿠키 만료 — INPO21C_COOKIE를 갱신하거나 INPO21C_ID/PW를 설정하세요"
+    else:
+        status  = "no_cookie"
+        message = "INPO21C_COOKIE 미설정 — .env에 INPO21C_COOKIE 또는 INPO21C_ID/INPO21C_PW를 추가하세요"
 
     return {
-        "has_cookie": has_cookie,
+        "has_cookie":   has_cookie,
         "cookie_valid": is_valid,
-        "status": "ok" if is_valid else ("no_cookie" if not has_cookie else "expired"),
-        "message": (
-            "쿠키 정상" if is_valid
-            else ("INPO21C_COOKIE 미설정 — .env에 추가하세요" if not has_cookie
-                  else "쿠키 만료 — INPO21C_COOKIE를 갱신하세요")
-        ),
+        "has_autologin": has_id_pw,
+        "can_collect":  can_collect,
+        "status":       status,
+        "message":      message,
     }
 
 

@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     g2b_api_key: str = ""
     collect_enabled: bool = False
     inpo21c_cookie: str = ""
+    inpo21c_id: str = ""
+    inpo21c_pw: str = ""
 
     # CORS: "*" = 전체 허용 (개발), 프로덕션은 "https://app.example.com,https://admin.example.com"
     cors_origins: str = "*"

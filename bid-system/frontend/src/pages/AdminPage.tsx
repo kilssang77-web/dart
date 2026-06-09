@@ -67,9 +67,7 @@ export default function AdminPage() {
     enabled: tab === 'system' || tab === 'collection',
     refetchInterval: 60000,
   })
-  const { data: inpoStatus, refetch: refetchInpoStatus } = useQuery<{
-    has_cookie: boolean; cookie_valid: boolean; status: string; message: string
-  }>({
+  const { data: inpoStatus, refetch: refetchInpoStatus } = useQuery({
     queryKey: ['admin-inpo21c-status'],
     queryFn: () => adminApi.inpo21cStatus(),
     enabled: tab === 'collection',
@@ -484,11 +482,16 @@ export default function AdminPage() {
                       <span className={cn('text-xs font-semibold px-3 py-1 rounded-full border',
                         inpoStatus?.cookie_valid
                           ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : inpoStatus?.has_autologin
+                          ? 'bg-blue-50 text-blue-700 border-blue-200'
                           : inpoStatus?.has_cookie
                           ? 'bg-red-50 text-red-700 border-red-200'
                           : 'bg-slate-100 text-slate-500 border-slate-200'
                       )}>
-                        {inpoStatus?.cookie_valid ? '쿠키 정상' : inpoStatus?.has_cookie ? '쿠키 만료' : '쿠키 미설정'}
+                        {inpoStatus?.cookie_valid ? '쿠키 정상'
+                          : inpoStatus?.has_autologin ? '자동 로그인'
+                          : inpoStatus?.has_cookie ? '쿠키 만료'
+                          : '쿠키 미설정'}
                       </span>
                       <span className="text-sm text-slate-500">{inpoStatus?.message ?? '상태 확인 중...'}</span>
                     </div>
@@ -496,7 +499,7 @@ export default function AdminPage() {
                       <Button
                         size="sm"
                         className="gap-2 bg-blue-600 hover:bg-blue-700"
-                        disabled={!inpoStatus?.cookie_valid || inpoCollectMutation.isPending}
+                        disabled={!inpoStatus?.can_collect || inpoCollectMutation.isPending}
                         onClick={() => inpoCollectMutation.mutate()}
                       >
                         {inpoCollectMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}

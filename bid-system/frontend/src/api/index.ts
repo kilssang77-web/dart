@@ -182,7 +182,7 @@ export const adminApi = {
     api.get('/admin/collection-logs', { params: { days } }).then((r) => r.data),
   triggerCollect: (collectType: 'all' | 'notices' | 'results'): Promise<{ message: string }> =>
     api.post('/admin/collect/trigger', null, { params: { collect_type: collectType } }).then((r) => r.data),
-  inpo21cStatus: (): Promise<{ has_cookie: boolean; cookie_valid: boolean; status: string; message: string }> =>
+  inpo21cStatus: (): Promise<{ has_cookie: boolean; cookie_valid: boolean; has_autologin: boolean; can_collect: boolean; status: string; message: string }> =>
     api.get('/admin/inpo21c/status').then((r) => r.data),
   triggerInpo21cCollect: (maxPages = 4): Promise<{ message: string }> =>
     api.post('/admin/inpo21c/collect', null, { params: { max_pages: maxPages } }).then((r) => r.data),
@@ -233,6 +233,10 @@ export const agenciesApi = {
     api.get(`/agencies/${id}/recent-results`, { params: { limit } }).then((r) => r.data),
   yegaPattern: (id: number): Promise<import('../types').AgencyYegaPattern> =>
     api.get(`/agencies/${id}/yega-pattern`).then((r) => r.data),
+  strategy: (id: number, params?: { industry_code?: string; period_months?: number }): Promise<import('../types').AgencyStrategy> =>
+    api.get(`/agencies/${id}/strategy`, { params }).then((r) => r.data),
+  rebuildStrategies: () =>
+    api.post('/agencies/rebuild-strategies').then((r) => r.data),
 }
 
 // ── 수주율 최적화 시스템 ──────────────────────────────────────────
