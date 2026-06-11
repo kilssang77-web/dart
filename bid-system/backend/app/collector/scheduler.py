@@ -7,6 +7,17 @@ from apscheduler.triggers.cron import CronTrigger
 logger = logging.getLogger(__name__)
 
 
+def _trigger_ml_retrain(reason: str = "") -> None:
+    """수집 완료 후 ML 재학습을 백그라운드 스레드로 실행. 재학습 중이면 skip."""
+    from app.services import MyBidFeedbackService
+    if MyBidFeedbackService.RETRAIN_LOCK:
+        logger.info("ML 재학습 이미 진행 중 — skip (%s)", reason)
+        return
+    logger.info("ML 재학습 트리거 — 사유: %s", reason or "수집 완료")
+    import threading
+    threading.Thread(target=MyBidFeedbackService._run_retrain, daemon=True).start()
+
+
 def run_collection_job(collect_type: str) -> None:
     """G2B 수집 작업 실행. collect_type: "all" | "notices" | "results" """
     from app.config import get_settings
@@ -20,10 +31,12 @@ def run_collection_job(collect_type: str) -> None:
         client = NarajangterClient(api_key=settings.g2b_api_key)
         if collect_type == "all":
             run_full_collection(db)
+            _trigger_ml_retrain("전체 수집(all) 완료")
         elif collect_type == "notices":
             collect_notices(db, client, "notice_cnstwk")
         elif collect_type == "results":
             collect_results(db, client)
+            _trigger_ml_retrain("G2B 결과 수집 완료")
         else:
             logger.warning("알 수 없는 collect_type: %s", collect_type)
     except Exception as exc:
@@ -33,7 +46,7 @@ def run_collection_job(collect_type: str) -> None:
 
 
 def run_results_and_sync() -> None:
-    """G2B 개찰 결과 수집 후 투찰이력 자동 연계 (18:00 KST)."""
+    """G2B 개찰 결과 수집 후 투찰이력 자동 연계 + ML 재학습 (18:00 KST)."""
     run_collection_job("results")
 
     from app.database import SessionLocal
@@ -99,6 +112,8 @@ def run_inpo21c_job() -> None:
     try:
         result = collect_inpo21c(db, max_pages=10)
         logger.info("inpo21c 수집 완료: %s", result)
+        if result.get("bids", 0) > 0:
+            _trigger_ml_retrain("inpo21c 전참여자 수집 완료")
     except Exception as exc:
         logger.error("inpo21c 수집 실패: %s", exc)
     finally:
@@ -114,6 +129,8 @@ def run_inpo21c_national_job() -> None:
     try:
         result = collect_inpo21c_national(db, max_pages=100)
         logger.info("inpo21c 전국 수집 완료: %s", result)
+        if result.get("bids", 0) > 0:
+            _trigger_ml_retrain("inpo21c 전국 수집 완료")
     except Exception as exc:
         logger.error("inpo21c 전국 수집 실패: %s", exc)
     finally:
@@ -133,6 +150,7 @@ def run_post_open_collect_job() -> None:
         client = NarajangterClient(api_key=settings.g2b_api_key)
         result = collect_results(db, client, days_back=3)
         logger.info("개찰 후 결과 수집 완료: 성공=%d, 실패=%d", result.success_count, result.fail_count)
+        _trigger_ml_retrain("개찰 후 결과 수집 완료")
     except Exception as exc:
         logger.error("개찰 후 결과 수집 실패: %s", exc)
     finally:

@@ -677,9 +677,12 @@ def trigger_inpo21c_collect(
     def _run():
         from ...database import SessionLocal
         from ...collector.inpo21c import collect_inpo21c
+        from ...collector.scheduler import _trigger_ml_retrain
         _db = SessionLocal()
         try:
-            collect_inpo21c(_db, max_pages=max_pages)
+            result = collect_inpo21c(_db, max_pages=max_pages)
+            if result.get("bids", 0) > 0:
+                _trigger_ml_retrain("inpo21c 즉시 수집 완료")
         finally:
             _db.close()
 
