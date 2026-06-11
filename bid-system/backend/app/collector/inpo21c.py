@@ -9,14 +9,32 @@ cloud.info21c.net에서 낙찰/입찰 데이터 수집:
 """
 import re
 import time
+import json
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
+
+
+def _record_log(db: Session, collect_type: str, success: int, fail: int,
+                duration: float, error_summary: str | None = None,
+                detail: dict | None = None):
+    from app.models import CollectionLog
+    log = CollectionLog(
+        collect_type=collect_type,
+        collected_at=datetime.now(tz=timezone.utc),
+        success_count=success,
+        fail_count=fail,
+        duration_sec=round(duration, 2),
+        error_summary=error_summary,
+        detail_json=json.dumps(detail, ensure_ascii=False) if detail else None,
+    )
+    db.add(log)
+    db.commit()
 
 BASE = "https://cloud.info21c.net"
 UA   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -579,10 +597,15 @@ def collect_inpo21c(db: Session, max_pages: int = 4) -> dict:
     """
     from app.config import get_settings
     settings = get_settings()
+    _started = time.time()
 
     cookie = _get_valid_cookie(settings)
     if not cookie:
         _prog_done(error="자동 로그인 실패 — INPO21C_ID/PW 확인 또는 INPO21C_COOKIE 수동 갱신 필요")
+        _record_log(db, "inpo21c_daily", 0, 1,
+                    time.time() - _started,
+                    error_summary="자동 로그인 실패",
+                    detail={"source": "inpo21c.net", "error": "auto_login failed"})
         return {
             "bids": 0, "participants": 0, "yega": 0, "skipped": 0,
             "cookie_valid": False,
@@ -654,12 +677,25 @@ def collect_inpo21c(db: Session, max_pages: int = 4) -> dict:
         _prog_done()
     except Exception as exc:
         _prog_done(error=str(exc))
+        _record_log(db, "inpo21c_daily", total_bids, 1,
+                    time.time() - _started,
+                    error_summary=str(exc)[:500],
+                    detail={"source": "inpo21c.net/suc", "max_pages": max_pages,
+                            "bids": total_bids, "participants": total_participants,
+                            "yega": total_yega, "skipped": skipped})
         raise
 
     logger.info(
         "inpo21c 수집 완료: %d건 공고, %d명 참여자, %d개 예가, %d건 스킵",
         total_bids, total_participants, total_yega, skipped,
     )
+    _record_log(db, "inpo21c_daily", total_bids, 0,
+                time.time() - _started,
+                detail={"source": "inpo21c.net/suc", "label": "전참여자+복수예가 (맞춤설정)",
+                        "endpoint": "/suc/con", "api_base": "https://infose.info21c.net",
+                        "max_pages": max_pages, "bids": total_bids,
+                        "participants": total_participants, "yega": total_yega,
+                        "skipped": skipped})
     return {
         "bids":         total_bids,
         "participants": total_participants,
@@ -685,9 +721,14 @@ def collect_inpo21c_national(db: Session, max_pages: int = 50) -> dict:
     """
     from app.config import get_settings
     settings = get_settings()
+    _started = time.time()
 
     cookie = _get_valid_cookie(settings)
     if not cookie:
+        _record_log(db, "inpo21c_national", 0, 1,
+                    time.time() - _started,
+                    error_summary="자동 로그인 실패",
+                    detail={"source": "inpo21c.net", "error": "auto_login failed"})
         return {
             "bids": 0, "participants": 0, "yega": 0, "skipped": 0,
             "cookie_valid": False,
@@ -757,12 +798,25 @@ def collect_inpo21c_national(db: Session, max_pages: int = 50) -> dict:
         _prog_done()
     except Exception as exc:
         _prog_done(error=str(exc))
+        _record_log(db, "inpo21c_national", total_bids, 1,
+                    time.time() - _started,
+                    error_summary=str(exc)[:500],
+                    detail={"source": "inpo21c.net/suc", "max_pages": max_pages,
+                            "bids": total_bids, "participants": total_participants,
+                            "yega": total_yega, "skipped": skipped})
         raise
 
     logger.info(
         "inpo21c 전국 수집 완료: %d건 공고, %d명 참여자, %d개 예가, %d건 스킵",
         total_bids, total_participants, total_yega, skipped,
     )
+    _record_log(db, "inpo21c_national", total_bids, 0,
+                time.time() - _started,
+                detail={"source": "inpo21c.net/suc", "label": "전참여자+복수예가 (전국)",
+                        "endpoint": "/suc/con", "api_base": "https://infose.info21c.net",
+                        "max_pages": max_pages, "bids": total_bids,
+                        "participants": total_participants, "yega": total_yega,
+                        "skipped": skipped})
     return {
         "bids":         total_bids,
         "participants": total_participants,
@@ -780,9 +834,14 @@ def collect_bid_notices_inpo21c(db: Session, max_pages: int = 5) -> dict:
     """
     from app.config import get_settings
     settings = get_settings()
+    _started = time.time()
 
     cookie = _get_valid_cookie(settings)
     if not cookie:
+        _record_log(db, "inpo21c_notices", 0, 1,
+                    time.time() - _started,
+                    error_summary="자동 로그인 실패",
+                    detail={"source": "inpo21c.net", "error": "auto_login failed"})
         return {"notices": 0, "skipped": 0, "cookie_valid": False, "error": "로그인 실패"}
 
     _ensure_tables(db)
@@ -815,4 +874,9 @@ def collect_bid_notices_inpo21c(db: Session, max_pages: int = 5) -> dict:
             time.sleep(0.3)
 
     logger.info("inpo21c 입산공고 수집 완료: %d건 신규, %d건 스킵", total_notices, skipped)
+    _record_log(db, "inpo21c_notices", total_notices, 0,
+                time.time() - _started,
+                detail={"source": "inpo21c.net/bid", "label": "입찰공고 사전정보",
+                        "endpoint": "/bid/con", "api_base": "https://infose.info21c.net",
+                        "max_pages": max_pages, "notices": total_notices, "skipped": skipped})
     return {"notices": total_notices, "skipped": skipped, "cookie_valid": True}

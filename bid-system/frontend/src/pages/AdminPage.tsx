@@ -239,6 +239,33 @@ export default function AdminPage() {
       api_base: 'https://www.inpo21c.co.kr',
       data_desc: '개찰 후 복수예가 번호·A값·투찰율 상세 — 통계 모델 재훈련용 데이터',
     },
+    inpo21c_daily: {
+      label: 'inpo21c 전참여자', color: 'bg-orange-50 text-orange-700 border-orange-200',
+      provider: 'info21c.net (inpo21c)',
+      method: '웹 크롤링 (세션 쿠키 자동갱신)',
+      source: 'infose.info21c.net',
+      endpoint: '/suc/con (맞춤설정 division 1~3)',
+      api_base: 'https://infose.info21c.net',
+      data_desc: '당일 개찰 낙찰 결과 — 전 참여자·복수예가 15개 분포·공고 헤더 (맞춤설정 기관)',
+    },
+    inpo21c_national: {
+      label: 'inpo21c 전국', color: 'bg-amber-50 text-amber-700 border-amber-200',
+      provider: 'info21c.net (inpo21c)',
+      method: '웹 크롤링 (세션 쿠키 자동갱신)',
+      source: 'infose.info21c.net',
+      endpoint: '/suc/con (전국, division 미지정)',
+      api_base: 'https://infose.info21c.net',
+      data_desc: '전국 낙찰 결과 — 전 참여자·복수예가·공고 헤더 (소규모 기관 포함 전국 커버리지)',
+    },
+    inpo21c_notices: {
+      label: 'inpo21c 입찰공고', color: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+      provider: 'info21c.net (inpo21c)',
+      method: '웹 크롤링 (세션 쿠키 자동갱신)',
+      source: 'infose.info21c.net',
+      endpoint: '/bid/con',
+      api_base: 'https://infose.info21c.net',
+      data_desc: '개찰 전 입찰공고 사전정보 — 예가방법·변동폭·낙찰하한율·개찰일시',
+    },
   }
 
   interface ErrorInterpretation {
