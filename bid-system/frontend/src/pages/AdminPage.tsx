@@ -174,13 +174,71 @@ export default function AdminPage() {
   const activeCount = currentChecked.size
   const totalCount = industryFilters.length
 
-  const COLLECT_TYPE_META: Record<string, { label: string; color: string }> = {
-    notice_cnstwk: { label: '공사 입찰공고', color: 'bg-blue-50 text-blue-700 border-blue-200' },
-    notice_servc:  { label: '용역 입찰공고', color: 'bg-violet-50 text-violet-700 border-violet-200' },
-    notice_thng:   { label: '물품 입찰공고', color: 'bg-amber-50 text-amber-700 border-amber-200' },
-    result:        { label: '낙찰결과',      color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    inpo21c:       { label: 'inpo21c 공고',  color: 'bg-orange-50 text-orange-700 border-orange-200' },
-    inpo21c_yega:  { label: 'inpo21c 예가',  color: 'bg-rose-50 text-rose-700 border-rose-200' },
+  interface CollectTypeMeta {
+    label: string
+    color: string
+    provider: string       // 데이터 제공 기관
+    method: string         // 수집 방식
+    source: string         // 시스템명
+    endpoint: string       // API 엔드포인트 또는 경로
+    api_base: string       // 베이스 URL
+    data_desc: string      // 수집 데이터 설명
+  }
+  const COLLECT_TYPE_META: Record<string, CollectTypeMeta> = {
+    notice_cnstwk: {
+      label: '공사 입찰공고', color: 'bg-blue-50 text-blue-700 border-blue-200',
+      provider: '조달청 (나라장터)',
+      method: 'REST API (공공데이터포털)',
+      source: '나라장터 G2B API',
+      endpoint: 'getBidPblancListInfoCnstwk',
+      api_base: 'https://apis.data.go.kr/1230000/ad/BidPublicInfoService',
+      data_desc: '건설·토목·전기 등 공사 분야 입찰공고 목록 (공고번호·발주기관·금액·마감일)',
+    },
+    notice_servc: {
+      label: '용역 입찰공고', color: 'bg-violet-50 text-violet-700 border-violet-200',
+      provider: '조달청 (나라장터)',
+      method: 'REST API (공공데이터포털)',
+      source: '나라장터 G2B API',
+      endpoint: 'getBidPblancListInfoServc',
+      api_base: 'https://apis.data.go.kr/1230000/ad/BidPublicInfoService',
+      data_desc: 'IT·컨설팅·청소 등 용역 분야 입찰공고 목록 (공고번호·발주기관·금액·마감일)',
+    },
+    notice_thng: {
+      label: '물품 입찰공고', color: 'bg-amber-50 text-amber-700 border-amber-200',
+      provider: '조달청 (나라장터)',
+      method: 'REST API (공공데이터포털)',
+      source: '나라장터 G2B API',
+      endpoint: 'getBidPblancListInfoThng',
+      api_base: 'https://apis.data.go.kr/1230000/ad/BidPublicInfoService',
+      data_desc: '사무용품·장비 등 물품 분야 입찰공고 목록 (공고번호·발주기관·금액·마감일)',
+    },
+    result: {
+      label: '낙찰결과', color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      provider: '조달청 (나라장터)',
+      method: 'REST API (공공데이터포털)',
+      source: '나라장터 ScsbidInfoService',
+      endpoint: 'getScsbidListSttusCnstwk',
+      api_base: 'https://apis.data.go.kr/1230000/as/ScsbidInfoService',
+      data_desc: '공사·용역 입찰 개찰결과 — 낙찰자·낙찰금액·투찰율·경쟁업체 참여 정보',
+    },
+    inpo21c: {
+      label: 'inpo21c 공고', color: 'bg-orange-50 text-orange-700 border-orange-200',
+      provider: 'inpo21c (나라장터 포털)',
+      method: '웹 크롤링 (쿠키 인증)',
+      source: 'inpo21c.co.kr',
+      endpoint: '/bid/bidList.do',
+      api_base: 'https://www.inpo21c.co.kr',
+      data_desc: '나라장터 공고 상세 — 사전정보(예정가격·복수예가·A값 등) 및 참여자 목록',
+    },
+    inpo21c_yega: {
+      label: 'inpo21c 예가', color: 'bg-rose-50 text-rose-700 border-rose-200',
+      provider: 'inpo21c (나라장터 포털)',
+      method: '웹 크롤링 (쿠키 인증)',
+      source: 'inpo21c.co.kr',
+      endpoint: '/bid/bidDetail.do',
+      api_base: 'https://www.inpo21c.co.kr',
+      data_desc: '개찰 후 복수예가 번호·A값·투찰율 상세 — 통계 모델 재훈련용 데이터',
+    },
   }
 
   function formatDateRange(from?: string, to?: string) {
@@ -223,40 +281,48 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* 수집 유형 */}
+            {/* 수집 유형 + 소스 통합 */}
             <div className="space-y-2.5">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">수집 유형</p>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className={cn('text-xs font-semibold px-2.5 py-1 rounded-full border', meta.color)}>
                   {meta.label}
                 </span>
                 <span className="text-xs text-slate-400 font-mono">{selectedLog.collect_type}</span>
               </div>
+              {meta.data_desc && (
+                <p className="text-xs text-slate-500 leading-relaxed">{meta.data_desc}</p>
+              )}
             </div>
 
             {/* 수집 소스 */}
-            {(detail.source || detail.endpoint) && (
-              <div className="space-y-2.5">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">수집 소스</p>
-                <div className="bg-slate-50 rounded-lg border border-slate-200 p-3 space-y-2">
-                  {detail.source && (
-                    <div className="flex items-center gap-2">
-                      <Info className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                      <span className="text-sm text-slate-700">{detail.source}</span>
-                    </div>
-                  )}
-                  {detail.endpoint && (
-                    <div className="flex items-center gap-2">
-                      <ExternalLink className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                      <span className="text-sm font-mono text-blue-600">{detail.endpoint}</span>
-                    </div>
-                  )}
-                  {detail.api_base && (
-                    <p className="text-xs text-slate-400 font-mono pl-5 break-all">{detail.api_base}</p>
-                  )}
+            <div className="space-y-2.5">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">수집 소스</p>
+              <div className="bg-slate-50 rounded-lg border border-slate-200 divide-y divide-slate-100">
+                {/* 제공 기관 */}
+                <div className="flex items-start gap-3 px-3 py-2.5">
+                  <span className="text-xs text-slate-400 w-16 shrink-0 pt-0.5">제공기관</span>
+                  <span className="text-sm text-slate-700 font-medium">{detail.source ?? meta.source}</span>
+                </div>
+                {/* 수집 방식 */}
+                <div className="flex items-start gap-3 px-3 py-2.5">
+                  <span className="text-xs text-slate-400 w-16 shrink-0 pt-0.5">수집방식</span>
+                  <span className="text-sm text-slate-700">{meta.method}</span>
+                </div>
+                {/* 엔드포인트 */}
+                <div className="flex items-start gap-3 px-3 py-2.5">
+                  <span className="text-xs text-slate-400 w-16 shrink-0 pt-0.5">엔드포인트</span>
+                  <div className="min-w-0">
+                    <span className="text-sm font-mono text-blue-600 break-all">{detail.endpoint ?? meta.endpoint}</span>
+                  </div>
+                </div>
+                {/* API Base URL */}
+                <div className="flex items-start gap-3 px-3 py-2.5">
+                  <span className="text-xs text-slate-400 w-16 shrink-0 pt-0.5">Base URL</span>
+                  <span className="text-xs font-mono text-slate-500 break-all">{detail.api_base ?? meta.api_base}</span>
                 </div>
               </div>
-            )}
+            </div>
 
             {/* 수집 기간 */}
             {dateRange && (
