@@ -309,6 +309,7 @@ class RecommendV2Request(BaseModel):
     a_value:               Optional[int] = None
     construction_period:   Optional[int] = None
     known_competitor_ids:  List[int] = []
+    bid_id:                Optional[int] = None  # 공고 ID 제공 시 실제 낙찰하한율 자동 적용
 
 
 class StrategyOption(BaseModel):

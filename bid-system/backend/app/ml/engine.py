@@ -10,7 +10,7 @@ import logging
 import warnings
 import numpy as np
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from pathlib import Path
 
@@ -22,16 +22,20 @@ MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
 FEATURE_COLS = [
     "agency_avg_rate_12m", "agency_win_rate_12m", "agency_bid_count_12m",
+    "agency_avg_rate_3m", "agency_avg_rate_6m",       # 단기 추세 피처
     "region_avg_rate_12m", "industry_avg_rate_12m",
     "expected_competitor_count", "competitor_strength_score",
     "season_index", "amount_log10", "amount_bucket",
     "similar_bid_count", "similar_avg_rate", "similar_std_rate",
     "month_of_year", "is_q4", "has_region_restriction",
+    "yega_top3_freq", "yega_entropy", "yega_mode_bucket",  # 복수예가 패턴 피처
 ]
 
 FEATURE_LABELS = {
     "agency_avg_rate_12m":       "발주기관 최근 낙찰 평균율",
     "agency_win_rate_12m":       "발주기관 낙찰률",
+    "agency_avg_rate_3m":        "발주기관 3개월 낙찰 평균율",
+    "agency_avg_rate_6m":        "발주기관 6개월 낙찰 평균율",
     "similar_avg_rate":          "유사 입찰 낙찰 평균율",
     "expected_competitor_count": "예상 경쟁업체 수",
     "competitor_strength_score": "경쟁사 공격성 점수",
@@ -43,6 +47,9 @@ FEATURE_LABELS = {
     "season_index":              "계절 지수",
     "amount_log10":              "공사 금액(로그)",
     "agency_bid_count_12m":      "기관 연간 입찰 건수",
+    "yega_top3_freq":            "복수예가 상위3 선택 집중도",
+    "yega_entropy":              "복수예가 선택 다양성",
+    "yega_mode_bucket":          "복수예가 우세 구간",
 }
 
 # ──────────────────────────────────────────────────
@@ -58,6 +65,7 @@ def build_features(
     region_restriction: bool,
     bid_open_date: Optional[datetime],
     historical_df: pd.DataFrame,
+    yega_features: Optional[dict] = None,
 ) -> dict:
     dt = bid_open_date or datetime.now()
     features = {}
@@ -82,6 +90,22 @@ def build_features(
     agency_hist = historical_df[historical_df["agency_id"] == agency_id]
     features.update(_agg_features(agency_hist, "agency"))
 
+    # 단기 추세 피처 (3개월 / 6개월)
+    if not agency_hist.empty and "bid_open_date" in agency_hist.columns:
+        try:
+            cutoff_3m = dt - timedelta(days=90)
+            cutoff_6m = dt - timedelta(days=180)
+            ah3 = agency_hist[pd.to_datetime(agency_hist["bid_open_date"]) >= cutoff_3m]
+            ah6 = agency_hist[pd.to_datetime(agency_hist["bid_open_date"]) >= cutoff_6m]
+            features["agency_avg_rate_3m"] = float(ah3["winner_rate"].mean()) if not ah3.empty and ah3["winner_rate"].notna().any() else None
+            features["agency_avg_rate_6m"] = float(ah6["winner_rate"].mean()) if not ah6.empty and ah6["winner_rate"].notna().any() else None
+        except Exception:
+            features["agency_avg_rate_3m"] = None
+            features["agency_avg_rate_6m"] = None
+    else:
+        features["agency_avg_rate_3m"] = None
+        features["agency_avg_rate_6m"] = None
+
     # 지역 피처
     region_hist = historical_df[historical_df["region_id"] == region_id]
     features["region_avg_rate_12m"] = float(region_hist["winner_rate"].mean()) if not region_hist.empty else None
@@ -103,6 +127,12 @@ def build_features(
         int(agency_hist["competitor_count"].mean()) if not agency_hist.empty and agency_hist["competitor_count"].notna().any() else 10
     )
     features["competitor_strength_score"] = 5.0  # 기본값 (알려진 경쟁사 없을 때)
+
+    # 복수예가 패턴 피처
+    _yf = yega_features or {}
+    features["yega_top3_freq"]   = _yf.get("top3_freq")
+    features["yega_entropy"]     = _yf.get("entropy")
+    features["yega_mode_bucket"] = _yf.get("mode_bucket")
 
     return features
 
@@ -143,10 +173,12 @@ def _similar_features(df: pd.DataFrame) -> dict:
 def _zero_context_features() -> dict:
     return {
         "agency_avg_rate_12m": None,  "agency_win_rate_12m": None,
-        "agency_bid_count_12m": 0,    "region_avg_rate_12m": None,
+        "agency_bid_count_12m": 0,    "agency_avg_rate_3m": None,
+        "agency_avg_rate_6m": None,   "region_avg_rate_12m": None,
         "industry_avg_rate_12m": None, "expected_competitor_count": 10,
         "competitor_strength_score": 5.0, "similar_bid_count": 0,
         "similar_avg_rate": None,     "similar_std_rate": None,
+        "yega_top3_freq": None, "yega_entropy": None, "yega_mode_bucket": None,
     }
 
 

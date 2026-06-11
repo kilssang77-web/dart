@@ -89,7 +89,7 @@ export const recommendApi = {
     api.post('/recommend', body).then((r) => r.data),
   history: () => api.get('/recommend/history').then((r) => r.data),
   retrain: () => api.post('/recommend/retrain').then((r) => r.data),
-  recommendV2: (body: { agency_id: number; industry_id: number; region_id: number; base_amount: number; min_bid_rate?: number; bid_open_date?: string; a_value?: number; construction_period?: number; known_competitor_ids?: number[] }) =>
+  recommendV2: (body: { agency_id: number; industry_id: number; region_id: number; base_amount: number; min_bid_rate?: number; bid_open_date?: string; a_value?: number; construction_period?: number; known_competitor_ids?: number[]; bid_id?: number }) =>
     api.post('/recommend/v2', body).then((r) => r.data),
   retrainAssessment: () => api.post('/recommend/v2/retrain-assessment').then((r) => r.data),
   srateStats: (agencyId?: number, industryId?: number) =>

@@ -284,6 +284,7 @@ export default function RecommendPage() {
       min_bid_rate:        Number(form.min_bid_rate) || 0.87745,
       a_value:             form.a_value            ? Number(form.a_value)            : undefined,
       construction_period: form.construction_period ? Number(form.construction_period) : undefined,
+      bid_id:              bidIdParam               ? Number(bidIdParam)              : undefined,
     }),
     onSuccess: (data) => {
       const res = data as RecommendV2Result

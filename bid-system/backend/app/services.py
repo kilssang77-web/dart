@@ -37,6 +37,19 @@ from .ml.a_value     import calc_floor_rate
 
 logger = logging.getLogger(__name__)
 
+
+def _compute_yega_ml_features(pos_weights) -> dict:
+    """pos_weights(15개 위치별 가중치) → ML 피처 3개 계산."""
+    if pos_weights is None:
+        return {"top3_freq": None, "entropy": None, "mode_bucket": None}
+    w = np.array(pos_weights, dtype=float)
+    top3_freq    = float(np.sort(w)[-3:].sum())
+    entropy      = float(-np.sum(w * np.log(np.maximum(w, 1e-9))))
+    mode_idx     = int(np.argmax(w))
+    mode_bucket  = 1 if mode_idx < 5 else (3 if mode_idx >= 10 else 2)
+    return {"top3_freq": top3_freq, "entropy": entropy, "mode_bucket": mode_bucket}
+
+
 # --------------------------------------------------
 # 공통 헬퍼
 # --------------------------------------------------
@@ -1298,6 +1311,21 @@ class HybridRecommendService:
         bid_date = getattr(req, "bid_open_date", None) or datetime.now()
         min_bid_rate = getattr(req, "min_bid_rate", 0.87745)
 
+        # bid_id 제공 시 실제 공고 낙찰하한율 자동 적용 [2순위 개선]
+        _bid_id = getattr(req, "bid_id", None)
+        if _bid_id:
+            try:
+                _bid_row = db.execute(text(
+                    "SELECT min_bid_rate, bid_open_date FROM bids WHERE id = :bid_id"
+                ), {"bid_id": _bid_id}).fetchone()
+                if _bid_row:
+                    if _bid_row[0] and float(_bid_row[0]) > 0.5:
+                        min_bid_rate = max(min_bid_rate, float(_bid_row[0]))
+                    if _bid_row[1] and not getattr(req, "bid_open_date", None):
+                        bid_date = _bid_row[1]
+            except Exception as _e:
+                logger.debug("bid_id floor_rate 조회 실패 (무시): %s", _e)
+
         # ── Step 1: 역사 데이터 로드 (Engine B용)
         history_df = self._load_history(db, months=24)
 
@@ -1427,6 +1455,12 @@ class HybridRecommendService:
 
         _yega_stats  = load_inpo21c_yega_stats(db, req.agency_id or 0)
         _pos_weights = _yega_stats.get("pos_weights")
+
+        # 복수예가 패턴 ML 피처 주입 (Engine B)
+        _yega_ml = _compute_yega_ml_features(_pos_weights)
+        features_b["yega_top3_freq"]   = _yega_ml["top3_freq"]
+        features_b["yega_entropy"]     = _yega_ml["entropy"]
+        features_b["yega_mode_bucket"] = _yega_ml["mode_bucket"]
 
         sim_result = recommend_with_simulation(
             base_amount=req.base_amount,
@@ -2957,15 +2991,25 @@ class MyBidFeedbackService:
             for col in ["winner_rate", "base_amount", "competitor_count"]:
                 hist_df[col] = pd.to_numeric(hist_df[col], errors="coerce")
 
+            from .ml.yega import load_inpo21c_yega_stats as _load_yega
+            _yega_cache: dict = {}
+
             records = []
             for row in rows:
                 bid_id, agency_id, industry_id, region_id, base_amount, bid_open_date, region_restriction, construction_period, winner_rate = row
                 if winner_rate is None:
                     continue
                 hist_before = hist_df[hist_df["bid_open_date"] < bid_open_date].copy() if bid_open_date else hist_df.copy()
+                _aid = int(agency_id) if agency_id else 0
+                if _aid not in _yega_cache:
+                    try:
+                        _yega_cache[_aid] = _load_yega(db, _aid)
+                    except Exception:
+                        _yega_cache[_aid] = {}
+                _yega_ml = _compute_yega_ml_features(_yega_cache[_aid].get("pos_weights"))
                 try:
                     feats = build_features(
-                        agency_id=int(agency_id) if agency_id else 0,
+                        agency_id=_aid,
                         industry_id=int(industry_id) if industry_id else 0,
                         region_id=int(region_id),
                         base_amount=int(base_amount),
@@ -2973,6 +3017,7 @@ class MyBidFeedbackService:
                         region_restriction=bool(region_restriction),
                         bid_open_date=bid_open_date,
                         historical_df=hist_before,
+                        yega_features=_yega_ml,
                     )
                     feats["target_rate"] = float(winner_rate)
                     feats["is_winner"]   = True
