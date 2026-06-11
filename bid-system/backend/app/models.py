@@ -480,8 +480,9 @@ class ActualBidOutcome(Base):
 
     id                  = Column(BigInteger, primary_key=True)
     bid_decision_id     = Column(BigInteger, ForeignKey("bid_decisions.id"), nullable=True)
-    bid_id              = Column(BigInteger, ForeignKey("bids.id"), nullable=False, index=True)
+    bid_id              = Column(BigInteger, ForeignKey("bids.id"), nullable=True, index=True)
     user_id             = Column(Integer, ForeignKey("users.id"), nullable=False)
+    announcement_no     = Column(String(50), nullable=True, index=True)
 
     submitted_rate      = Column(Numeric(7, 4), nullable=False)
     result              = Column(String(15), nullable=False)   # WON / LOST / DISQUALIFIED
@@ -500,7 +501,7 @@ class ActualBidOutcome(Base):
     collected_at        = Column(DateTime(timezone=True))
     created_at          = Column(DateTime(timezone=True), server_default=func.now())
 
-    bid          = relationship("Bid")
+    bid          = relationship("Bid", foreign_keys=[bid_id])
     user         = relationship("User")
     bid_decision = relationship("BidDecision")
 

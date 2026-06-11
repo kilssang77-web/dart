@@ -18,6 +18,7 @@ from .models import (
     FeatureStore, PredictionLog, PredictionLogV2, CompetitorStat, User, AuditLog,
     IndustryFilter, BidBookmark, CollectionLog, MyBidRecord, Notification,
     BidExecution, DefeatAnalysis, AgencyStrategy, RateFrequencyTable, OurCompetitor,
+    ActualBidOutcome, ModelPerformanceLog,
 )
 from .schemas import (
     BidCreate, BidResultCreate, RecommendRequest, RecommendResponse,
@@ -2420,30 +2421,10 @@ class ActualOutcomeService:
         db.commit()
         db.refresh(outcome)
 
-        # 재학습 필요 여부 체크
-        self._check_retrain_trigger(db, user_id)
+        # 재학습 트리거 위임
+        MyBidFeedbackService(db)._check_retrain_trigger()
 
         return {"id": outcome.id, "result": outcome.result}
-
-    def _check_retrain_trigger(self, db: Session, user_id: int):
-        from .ml.feedback import RETRAIN_THRESHOLD
-        from .models import ActualBidOutcome, ModelPerformanceLog
-
-        last_log = db.query(ModelPerformanceLog).order_by(
-            ModelPerformanceLog.created_at.desc()
-        ).first()
-        last_date = last_log.eval_date if last_log else None
-
-        # 마지막 재학습 이후 신규 결과 건수
-        cutoff = datetime.combine(last_date, datetime.min.time()) if last_date else datetime.min
-        new_count = db.query(func.count(ActualBidOutcome.id)).filter(
-            ActualBidOutcome.created_at >= cutoff,
-            ActualBidOutcome.result.in_(["WON", "LOST"]),
-        ).scalar() or 0
-
-        if new_count >= RETRAIN_THRESHOLD:
-            logger.info(f"재학습 트리거: 신규 결과 {new_count}건 누적")
-            # 비동기 재학습은 백그라운드 태스크로 처리 (실제 구현 시 Celery/APScheduler 연동)
 
 
 class KpiService:
@@ -2849,6 +2830,181 @@ class BookmarkService:
 # 투찰이력 엑셀 업로드 서비스
 # ==================================================
 
+class MyBidFeedbackService:
+    """MyBidRecord → ActualBidOutcome 동기화 + 임계치 도달 시 자동 재학습."""
+
+    RETRAIN_LOCK = False  # 동시 재학습 방지 (프로세스 내 단순 플래그)
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def sync_outcome(self, rec: "MyBidRecord") -> bool:
+        """낙찰/패찰 결과를 ActualBidOutcome에 반영. pending이면 skip."""
+        if rec.result not in ("won", "lost"):
+            return False
+
+        result_val = "WON" if rec.result == "won" else "LOST"
+
+        # 기존 레코드 조회 — bid_id 우선, 없으면 announcement_no
+        existing = None
+        if rec.bid_id:
+            existing = (
+                self.db.query(ActualBidOutcome)
+                .filter(ActualBidOutcome.user_id == rec.user_id,
+                        ActualBidOutcome.bid_id == rec.bid_id)
+                .first()
+            )
+        if existing is None and rec.announcement_no:
+            existing = (
+                self.db.query(ActualBidOutcome)
+                .filter(ActualBidOutcome.user_id == rec.user_id,
+                        ActualBidOutcome.announcement_no == rec.announcement_no)
+                .first()
+            )
+
+        if existing:
+            existing.result       = result_val
+            existing.submitted_rate = rec.submitted_rate
+            existing.winner_rate  = rec.actual_winner_rate
+            existing.collected_at = datetime.utcnow()
+        else:
+            if rec.bid_id is None and not rec.announcement_no:
+                return False  # 연결 키 없음 — 동기화 불가
+            self.db.add(ActualBidOutcome(
+                bid_id          = rec.bid_id,
+                user_id         = rec.user_id,
+                announcement_no = rec.announcement_no,
+                submitted_rate  = rec.submitted_rate,
+                result          = result_val,
+                winner_rate     = rec.actual_winner_rate,
+                collected_at    = datetime.utcnow(),
+            ))
+
+        self.db.flush()
+        self._check_retrain_trigger()
+        return True
+
+    def _check_retrain_trigger(self):
+        from .ml.feedback import RETRAIN_THRESHOLD
+        last_log = (
+            self.db.query(ModelPerformanceLog)
+            .order_by(ModelPerformanceLog.created_at.desc())
+            .first()
+        )
+        last_date = last_log.eval_date if last_log else None
+        cutoff = datetime.combine(last_date, datetime.min.time()) if last_date else datetime.min
+        new_count = (
+            self.db.query(func.count(ActualBidOutcome.id))
+            .filter(
+                ActualBidOutcome.created_at >= cutoff,
+                ActualBidOutcome.result.in_(["WON", "LOST"]),
+            )
+            .scalar() or 0
+        )
+        if new_count >= RETRAIN_THRESHOLD and not MyBidFeedbackService.RETRAIN_LOCK:
+            logger.info("자동 재학습 트리거: 신규 결과 %d건 누적", new_count)
+            import threading
+            threading.Thread(target=self._run_retrain, daemon=True).start()
+
+    @classmethod
+    def _run_retrain(cls):
+        """백그라운드 재학습 — Engine A(사정율) + Engine B(낙찰률)."""
+        if cls.RETRAIN_LOCK:
+            return
+        cls.RETRAIN_LOCK = True
+        from .database import SessionLocal
+        from .ml.engine import train_models, build_features, FEATURE_COLS, get_engine
+        from .ml.assessment import compute_and_store_stats, train_srate_model
+        import pandas as pd
+        from sqlalchemy import text as sa_text
+
+        db = SessionLocal()
+        try:
+            # Engine A
+            compute_and_store_stats(db)
+            train_srate_model(db)
+
+            # Engine B — 낙찰률 회귀 모델
+            rows = db.execute(sa_text("""
+                SELECT b.id, b.agency_id, b.industry_id,
+                       COALESCE(b.region_id, 0) AS region_id,
+                       b.base_amount, b.bid_open_date,
+                       COALESCE(b.region_restriction, false),
+                       b.construction_period, r.bid_rate
+                FROM bids b
+                JOIN bid_results r ON r.bid_id = b.id AND r.is_winner = true
+                WHERE b.base_amount > 0
+                  AND r.bid_rate BETWEEN 0.80 AND 1.00
+                ORDER BY b.bid_open_date
+            """)).fetchall()
+
+            from datetime import timedelta
+            cutoff = datetime.now() - timedelta(days=24 * 30)
+            hist_rows = db.execute(sa_text("""
+                SELECT b.id, b.agency_id, b.industry_id,
+                       COALESCE(b.region_id, 0), b.base_amount, b.bid_open_date,
+                       r.bid_rate,
+                       (SELECT COUNT(*) FROM bid_results r2 WHERE r2.bid_id = b.id)
+                FROM bids b
+                LEFT JOIN bid_results r ON r.bid_id = b.id AND r.is_winner = true
+                WHERE b.bid_open_date >= :cutoff AND b.base_amount > 0
+            """), {"cutoff": cutoff}).fetchall()
+
+            hist_df = pd.DataFrame(hist_rows, columns=[
+                "id", "agency_id", "industry_id", "region_id",
+                "base_amount", "bid_open_date", "winner_rate", "competitor_count",
+            ])
+            for col in ["winner_rate", "base_amount", "competitor_count"]:
+                hist_df[col] = pd.to_numeric(hist_df[col], errors="coerce")
+
+            records = []
+            for row in rows:
+                bid_id, agency_id, industry_id, region_id, base_amount, bid_open_date, region_restriction, construction_period, winner_rate = row
+                if winner_rate is None:
+                    continue
+                hist_before = hist_df[hist_df["bid_open_date"] < bid_open_date].copy() if bid_open_date else hist_df.copy()
+                try:
+                    feats = build_features(
+                        agency_id=int(agency_id) if agency_id else 0,
+                        industry_id=int(industry_id) if industry_id else 0,
+                        region_id=int(region_id),
+                        base_amount=int(base_amount),
+                        construction_period=int(construction_period) if construction_period else None,
+                        region_restriction=bool(region_restriction),
+                        bid_open_date=bid_open_date,
+                        historical_df=hist_before,
+                    )
+                    feats["target_rate"] = float(winner_rate)
+                    feats["is_winner"]   = True
+                    records.append(feats)
+                except Exception:
+                    pass
+
+            if len(records) >= 20:
+                train_df = pd.DataFrame(records)
+                for col in FEATURE_COLS:
+                    if col not in train_df.columns:
+                        train_df[col] = None
+                result = train_models(train_df)
+                if result:
+                    get_engine().reload()
+                    db.add(ModelPerformanceLog(
+                        model_name    = "auto_retrain",
+                        model_version = result.get("version", ""),
+                        eval_date     = datetime.utcnow().date(),
+                        sample_count  = result.get("train_size", 0),
+                    ))
+                    db.commit()
+                    logger.info("자동 재학습 완료: %s", result)
+            else:
+                logger.warning("자동 재학습 스킵 — 피처 빌드 성공 %d건 (최소 20건 필요)", len(records))
+        except Exception as exc:
+            logger.error("자동 재학습 실패: %s", exc)
+        finally:
+            cls.RETRAIN_LOCK = False
+            db.close()
+
+
 class MyBidImportService:
     """투찰이력 엑셀 파일 → MyBidRecord 일괄 등록."""
 
@@ -3004,6 +3160,8 @@ class MyBidImportService:
                     note=str(rd.get("비고") or "").strip() or None,
                 )
                 self.db.add(rec)
+                self.db.flush()
+                MyBidFeedbackService(self.db).sync_outcome(rec)
                 imported += 1
                 details.append(f"등록: {title[:40]}")
             except Exception as exc:

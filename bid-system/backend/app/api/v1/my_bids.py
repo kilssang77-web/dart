@@ -8,7 +8,7 @@ import io
 from ...database import get_db
 from ...models import MyBidRecord, User
 from ...schemas import MyBidRecordCreate, MyBidRecordUpdate, MyBidRecordOut, MyBidAnalysisResponse, DefeatAnalysisResponse, GapAnalysisResponse, WinPatternResponse, SucviewImportResult
-from ...services import MyBidAnalysisService, DefeatAnalysisService, WinPatternService, SekihaiService, MyBidImportService
+from ...services import MyBidAnalysisService, DefeatAnalysisService, WinPatternService, SekihaiService, MyBidImportService, MyBidFeedbackService
 from ...common.security import get_current_user
 
 router = APIRouter(prefix="/my-bids", tags=["투찰이력"])
@@ -201,6 +201,8 @@ def create_my_bid(
         rate_diff=rate_diff,
     )
     db.add(rec)
+    db.flush()
+    MyBidFeedbackService(db).sync_outcome(rec)
     db.commit()
     db.refresh(rec)
     return rec
@@ -232,6 +234,8 @@ def update_my_bid(
     winner = float(rec.actual_winner_rate) if rec.actual_winner_rate is not None else None
     if submitted is not None and winner is not None:
         rec.rate_diff = submitted - winner
+    db.flush()
+    MyBidFeedbackService(db).sync_outcome(rec)
     db.commit()
     db.refresh(rec)
     return rec
