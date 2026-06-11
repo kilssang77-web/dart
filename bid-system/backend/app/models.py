@@ -337,6 +337,9 @@ class Notification(Base):
     body       = Column(Text, nullable=True)
     link       = Column(String(500), nullable=True)
     is_read    = Column(Boolean, default=False, nullable=False)
+    # dedup_key: 중복 방지용 고유 키 (ntype + 참조 ID + 날짜 조합)
+    # None이면 중복 체크 없이 항상 저장 (수동 공지 등)
+    dedup_key  = Column(String(220), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

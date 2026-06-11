@@ -4291,6 +4291,37 @@ class NotificationService:
     def __init__(self, db: Session):
         self.db = db
 
+    # ── 내부: dedup_key 기반 중복 체크 후 INSERT ────────────────────────
+    def _create_deduped(
+        self,
+        user_id: Optional[int],
+        ntype: str,
+        title: str,
+        body: Optional[str] = None,
+        link: Optional[str] = None,
+        dedup_key: Optional[str] = None,
+    ) -> tuple["Notification", bool]:
+        """(notification, is_new) 반환. dedup_key가 오늘 이미 존재하면 기존 반환."""
+        if dedup_key:
+            q = self.db.query(Notification).filter(
+                Notification.dedup_key == dedup_key,
+            )
+            if user_id is not None:
+                q = q.filter(Notification.user_id == user_id)
+            else:
+                q = q.filter(Notification.user_id.is_(None))
+            existing = q.first()
+            if existing:
+                return existing, False
+
+        n = Notification(
+            user_id=user_id, ntype=ntype, title=title,
+            body=body, link=link, dedup_key=dedup_key,
+        )
+        self.db.add(n)
+        self.db.flush()   # id 채번 (commit은 호출자가)
+        return n, True
+
     def create(
         self,
         user_id: Optional[int],
@@ -4298,9 +4329,9 @@ class NotificationService:
         title: str,
         body: Optional[str] = None,
         link: Optional[str] = None,
-    ) -> Notification:
-        n = Notification(user_id=user_id, ntype=ntype, title=title, body=body, link=link)
-        self.db.add(n)
+        dedup_key: Optional[str] = None,
+    ) -> "Notification":
+        n, _ = self._create_deduped(user_id, ntype, title, body, link, dedup_key)
         self.db.commit()
         self.db.refresh(n)
         return n
@@ -4337,6 +4368,7 @@ class NotificationService:
             Notification.is_read == False,
         ).count()
 
+    # ── 키워드 매칭: bid_id당 사용자당 1건 ─────────────────────────────
     def create_keyword_match(self, bid, matched_keywords: list) -> list:
         kw_str = ", ".join(matched_keywords)
         title = f"[키워드 매칭] {bid.title[:60]}"
@@ -4345,17 +4377,18 @@ class NotificationService:
         users = self.db.query(User).filter(User.is_active == True).all()
         results = []
         for u in users:
-            n = Notification(
-                user_id=u.id, ntype="keyword_match",
-                title=title, body=body, link=link,
+            dedup_key = f"keyword_match:{bid.id}"
+            n, is_new = self._create_deduped(
+                u.id, "keyword_match", title, body, link, dedup_key=dedup_key
             )
-            self.db.add(n)
-            results.append(n)
+            if is_new:
+                results.append(n)
         self.db.commit()
         for n in results:
             self.db.refresh(n)
         return results
 
+    # ── 사정율 급변: 기관명+날짜 기준 하루 1건 ─────────────────────────
     def create_srate_spike(
         self,
         agency_name: str,
@@ -4363,41 +4396,61 @@ class NotificationService:
         direction: str,
         delta_pct: float,
     ) -> list:
+        from datetime import date
         arrow = "▲" if direction == "up" else "▼"
         title = f"[사정율 급변] {agency_name} {arrow}{abs(delta_pct):.1f}%"
         body = f"{industry_name} 공종 사정율이 {arrow}{abs(delta_pct):.1f}% 변동했습니다."
-        n = Notification(user_id=None, ntype="srate_spike", title=title, body=body)
-        self.db.add(n)
+        today_str = date.today().strftime("%Y%m%d")
+        safe_agency = agency_name.replace(":", "_")[:80]
+        dedup_key = f"srate_spike:{safe_agency}:{today_str}"
+        n, is_new = self._create_deduped(
+            None, "srate_spike", title, body, dedup_key=dedup_key
+        )
         self.db.commit()
-        self.db.refresh(n)
+        if is_new:
+            self.db.refresh(n)
         return [n]
 
+    # ── 투찰 마감 알림: execution_id + days_left + 날짜 기준 1건 ────────
     def create_execution_deadline(
-        self, user_id: int, exec_title: str, days_left: int
-    ) -> Notification:
+        self, user_id: int, exec_title: str, days_left: int,
+        execution_id: Optional[int] = None,
+    ) -> "Notification":
+        from datetime import date
         if days_left == 0:
             title = f"[오늘 개찰] {exec_title[:45]}"
             body = "오늘 개찰 마감입니다. 투찰 완료 여부를 확인하세요."
         else:
             title = f"[D-{days_left}] 내일 개찰: {exec_title[:40]}"
             body = f"{days_left}일 후 개찰 마감입니다. 투찰률을 최종 확인하세요."
-        n = Notification(user_id=user_id, ntype="execution_deadline",
-                         title=title, body=body, link="/executions")
-        self.db.add(n)
+        today_str = date.today().strftime("%Y%m%d")
+        dedup_key = f"exec_deadline:{execution_id}:D{days_left}:{today_str}" if execution_id else None
+        n, is_new = self._create_deduped(
+            user_id, "execution_deadline", title, body,
+            link="/executions", dedup_key=dedup_key,
+        )
         self.db.commit()
-        self.db.refresh(n)
+        if is_new:
+            self.db.refresh(n)
         return n
 
+    # ── 결과 입력 리마인더: execution_id + 날짜 기준 하루 1건 ────────────
     def create_result_reminder(
-        self, user_id: int, exec_title: str
-    ) -> Notification:
+        self, user_id: int, exec_title: str,
+        execution_id: Optional[int] = None,
+    ) -> "Notification":
+        from datetime import date
         title = f"[결과 입력 요청] {exec_title[:45]}"
         body = "개찰이 완료된 것으로 보입니다. 낙찰/패찰 결과를 입력해주세요."
-        n = Notification(user_id=user_id, ntype="execution_result",
-                         title=title, body=body, link="/executions")
-        self.db.add(n)
+        today_str = date.today().strftime("%Y%m%d")
+        dedup_key = f"result_reminder:{execution_id}:{today_str}" if execution_id else None
+        n, is_new = self._create_deduped(
+            user_id, "execution_result", title, body,
+            link="/executions", dedup_key=dedup_key,
+        )
         self.db.commit()
-        self.db.refresh(n)
+        if is_new:
+            self.db.refresh(n)
         return n
 
 

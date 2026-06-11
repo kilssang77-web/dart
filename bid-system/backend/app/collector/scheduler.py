@@ -162,7 +162,7 @@ def run_execution_deadline_job() -> None:
             BidExecution.status.in_(["참여결정", "투찰완료"]),
             func.date(BidExecution.bid_open_date) == today,
         ).all():
-            svc.create_execution_deadline(ex.user_id, ex.title, days_left=0)
+            svc.create_execution_deadline(ex.user_id, ex.title, days_left=0, execution_id=ex.id)
             deadline_created += 1
 
         # D-1: 내일 개찰 마감
@@ -170,7 +170,7 @@ def run_execution_deadline_job() -> None:
             BidExecution.status.in_(["참여결정", "투찰완료"]),
             func.date(BidExecution.bid_open_date) == tomorrow,
         ).all():
-            svc.create_execution_deadline(ex.user_id, ex.title, days_left=1)
+            svc.create_execution_deadline(ex.user_id, ex.title, days_left=1, execution_id=ex.id)
             deadline_created += 1
 
         # 개찰대기 2일 초과 → 결과 입력 요청
@@ -179,7 +179,7 @@ def run_execution_deadline_job() -> None:
             BidExecution.status == "개찰대기",
             BidExecution.bid_open_date <= overdue_cutoff,
         ).all():
-            svc.create_result_reminder(ex.user_id, ex.title)
+            svc.create_result_reminder(ex.user_id, ex.title, execution_id=ex.id)
             reminder_created += 1
 
         logger.info("투찰 마감 알림: 마감=%d건, 결과입력=%d건", deadline_created, reminder_created)
