@@ -7,7 +7,7 @@ import {
   LineChart, Line, ReferenceLine, ComposedChart, Area, Cell,
 } from 'recharts'
 import { bidsApi, recommendApi, statsApi, agenciesApi, executionsApi } from '@/api'
-import type { MetaData, SrateHistogramResponse, AgencyRecentResultsResponse, AgencyYegaPattern } from '@/types'
+import type { MetaData, SrateHistogramResponse, AgencyRecentResultsResponse, AgencyYegaPattern, AgencyStrategy } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/table'
 
 const FLOOR_RATE = 0.87745
-const TABS = ['개요', '공고목록', '심층분석', '예가패턴', '낙찰분포'] as const
+const TABS = ['개요', '공고목록', '심층분석', '예가패턴', '낙찰분포', '전략DB'] as const
 type Tab = (typeof TABS)[number]
 
 const TAB_ICONS = {
@@ -27,6 +27,7 @@ const TAB_ICONS = {
   '심층분석': BarChart3,
   '예가패턴': GitBranch,
   '낙찰분포': BarChart2,
+  '전략DB': TrendingUp,
 } as const
 
 interface SrateStatItem {
@@ -147,6 +148,13 @@ export default function AgencyDetailPage() {
     staleTime: 300_000,
   })
 
+  const { data: strategyData, isLoading: strategyLoading } = useQuery<AgencyStrategy>({
+    queryKey: ['agency-strategy', agencyId],
+    queryFn: () => agenciesApi.strategy(agencyId),
+    enabled: !!agencyId && activeTab === '전략DB',
+    staleTime: 600_000,
+  })
+
   const agencyStat = agencyStatsList.find((a) => a.agency_id === agencyId)
   const agencySrate = srateStats.find((s) => s.group_type === 'agency')
   const globalSrate = srateStats.find((s) => s.group_type === 'global')
@@ -217,7 +225,7 @@ export default function AgencyDetailPage() {
               <h1 className="text-base font-semibold text-slate-900 leading-tight">
                 {agency?.name ?? `기관 #${agencyId}`}
               </h1>
-              <p className="text-xs text-slate-400">발주처 심층 분석</p>
+              <p className="text-xs text-slate-500">발주처 심층 분석</p>
             </div>
           </div>
           {agencyStat && agencyStat.bid_count >= 100 && (
@@ -239,10 +247,10 @@ export default function AgencyDetailPage() {
             <div key={label} className="flex items-center gap-2.5 shrink-0">
               <Icon className={cn('h-4 w-4 shrink-0', color)} />
               <div>
-                <p className="text-xs text-slate-400 leading-none">{label}</p>
+                <p className="text-xs text-slate-500 leading-none">{label}</p>
                 <p className="text-sm font-bold text-slate-900 tabular-nums leading-tight mt-0.5">
                   {value}
-                  <span className="text-xs font-normal text-slate-400 ml-0.5">{unit}</span>
+                  <span className="text-xs font-normal text-slate-500 ml-0.5">{unit}</span>
                 </p>
               </div>
               <div className="h-6 w-px bg-slate-200 ml-1" />
@@ -284,9 +292,9 @@ export default function AgencyDetailPage() {
                 <CardHeader className="border-b border-slate-100 pb-3 flex flex-row items-center justify-between">
                   <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                     <BarChart3 className="h-4 w-4 text-blue-500" />사정율 분포
-                    <span className="text-xs font-normal text-slate-400">기관 vs 전국 평균</span>
+                    <span className="text-xs font-normal text-slate-500">기관 vs 전국 평균</span>
                   </CardTitle>
-                  <span className="text-xs text-slate-400">표본 {agencySrate.sample_count}건 기준</span>
+                  <span className="text-xs text-slate-500">표본 {agencySrate.sample_count}건 기준</span>
                 </CardHeader>
                 <CardContent className="pt-4">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
@@ -320,11 +328,11 @@ export default function AgencyDetailPage() {
                     </CardTitle>
                     <div className="flex items-center gap-3 text-xs">
                       {agencyMean != null && <span className="text-blue-600 font-medium">기관 {agencyMean}%</span>}
-                      {globalMean != null && <span className="text-slate-400">전국 {globalMean}%</span>}
+                      {globalMean != null && <span className="text-slate-500">전국 {globalMean}%</span>}
                     </div>
                   </CardHeader>
                   <CardContent className="pt-4">
-                    <ResponsiveContainer width="100%" height={200}>
+                    <ResponsiveContainer width="100%" height={240}>
                       <ComposedChart data={trendData} margin={{ left: -10, right: 10 }}>
                         <defs>
                           <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
@@ -333,8 +341,8 @@ export default function AgencyDetailPage() {
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                        <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#94a3b8' }} interval={Math.max(1, Math.floor(trendData.length / 8))} />
-                        <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} unit="%" domain={['auto', 'auto']} />
+                        <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#475569' }} interval={Math.max(1, Math.floor(trendData.length / 8))} />
+                        <YAxis tick={{ fontSize: 12, fill: '#475569' }} unit="%" domain={['auto', 'auto']} />
                         <Tooltip
                           contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
                           formatter={(v: number) => [v + '%', '낙찰률']}
@@ -343,11 +351,11 @@ export default function AgencyDetailPage() {
                           dot={{ r: 3, fill: '#2563eb', strokeWidth: 0 }} connectNulls />
                         {agencyMean != null && (
                           <ReferenceLine y={agencyMean} stroke="#2563eb" strokeDasharray="4 2"
-                            label={{ value: '기관평균', position: 'insideTopRight', fontSize: 9, fill: '#2563eb' }} />
+                            label={{ value: '기관평균', position: 'insideTopRight', fontSize: 11, fill: '#1d4ed8' }} />
                         )}
                         {globalMean != null && (
                           <ReferenceLine y={globalMean} stroke="#94a3b8" strokeDasharray="4 2"
-                            label={{ value: '전국', position: 'insideTopLeft', fontSize: 9, fill: '#94a3b8' }} />
+                            label={{ value: '전국', position: 'insideTopLeft', fontSize: 11, fill: '#475569' }} />
                         )}
                       </ComposedChart>
                     </ResponsiveContainer>
@@ -362,14 +370,14 @@ export default function AgencyDetailPage() {
                     <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                       <Activity className="h-4 w-4 text-emerald-500" />낙찰률 분포
                     </CardTitle>
-                    <span className="text-xs text-slate-400">수집 공고 기준</span>
+                    <span className="text-xs text-slate-500">수집 공고 기준</span>
                   </CardHeader>
                   <CardContent className="pt-4">
-                    <ResponsiveContainer width="100%" height={200}>
+                    <ResponsiveContainer width="100%" height={240}>
                       <BarChart data={rateDistData} margin={{ top: 5, right: 10, bottom: 5, left: -20 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                        <XAxis dataKey="range" tick={{ fontSize: 9, fill: '#94a3b8' }} interval={1} />
-                        <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                        <XAxis dataKey="range" tick={{ fontSize: 12, fill: '#475569' }} interval={1} />
+                        <YAxis tick={{ fontSize: 12, fill: '#475569' }} />
                         <Tooltip
                           contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
                           formatter={(v: number) => [`${v}건`, '건수']}
@@ -392,7 +400,7 @@ export default function AgencyDetailPage() {
                 <FileText className="h-4 w-4 text-blue-500" />입찰 공고 목록
               </CardTitle>
               {bidsData && (
-                <span className="text-xs text-slate-400">총 {bidsData.total.toLocaleString()}건</span>
+                <span className="text-xs text-slate-500">총 {bidsData.total.toLocaleString()}건</span>
               )}
             </CardHeader>
             <CardContent className="p-0">
@@ -400,11 +408,11 @@ export default function AgencyDetailPage() {
                 <Table>
                   <TableHeader className="bg-slate-50">
                     <TableRow>
-                      <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide">공고명</TableHead>
-                      <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide">공종</TableHead>
-                      <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide text-right">기초금액</TableHead>
-                      <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide">개찰일</TableHead>
-                      <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide text-right">낙찰률</TableHead>
+                      <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide">공고명</TableHead>
+                      <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide">공종</TableHead>
+                      <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">기초금액</TableHead>
+                      <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide">개찰일</TableHead>
+                      <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">낙찰률</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -429,9 +437,9 @@ export default function AgencyDetailPage() {
                               </span>
                             </TableCell>
                             <TableCell className="text-right whitespace-nowrap">
-                              <span className="text-xs font-medium text-slate-700">{(b.base_amount / 1e8).toFixed(1)}억</span>
+                              <span className="text-sm font-medium text-slate-700">{(b.base_amount / 1e8).toFixed(1)}억</span>
                             </TableCell>
-                            <TableCell className="whitespace-nowrap text-xs text-slate-400">
+                            <TableCell className="whitespace-nowrap text-sm text-slate-500">
                               {b.bid_open_date ? new Date(b.bid_open_date).toLocaleDateString('ko-KR') : '-'}
                             </TableCell>
                             <TableCell className="text-right">
@@ -458,7 +466,7 @@ export default function AgencyDetailPage() {
                   </Button>
                   <span className="text-xs text-slate-500">
                     <span className="font-medium text-slate-700">{bidPage}</span> / {totalPages} 페이지
-                    <span className="text-slate-400 ml-1">({bidsData.total.toLocaleString()}건)</span>
+                    <span className="text-slate-500 ml-1">({bidsData.total.toLocaleString()}건)</span>
                   </span>
                   <Button variant="outline" size="sm"
                     onClick={() => setBidPage((p) => p + 1)}
@@ -487,7 +495,7 @@ export default function AgencyDetailPage() {
                       key={m}
                       onClick={() => setHistMonths(m)}
                       className={cn(
-                        'px-3 py-1.5 text-xs font-medium transition-colors',
+                        'px-3 py-1.5 text-sm font-medium transition-colors',
                         histMonths === m
                           ? 'bg-blue-600 text-white'
                           : 'bg-white text-slate-600 hover:bg-slate-50'
@@ -506,8 +514,8 @@ export default function AgencyDetailPage() {
                     <ResponsiveContainer width="100%" height={220}>
                       <BarChart data={histBins} margin={{ top: 5, right: 10, bottom: 5, left: -20 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                        <XAxis dataKey="label" tick={{ fontSize: 8, fill: '#94a3b8' }} interval={3} />
-                        <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                        <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#475569' }} interval={3} />
+                        <YAxis tick={{ fontSize: 12, fill: '#475569' }} />
                         <Tooltip
                           contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
                           formatter={(v: number, _name: string, props: { payload?: { pct?: number } }) =>
@@ -522,11 +530,11 @@ export default function AgencyDetailPage() {
                         </Bar>
                         {histMeanLabel && (
                           <ReferenceLine x={histMeanLabel} stroke="#2563eb" strokeDasharray="4 2"
-                            label={{ value: '평균', position: 'insideTopRight', fontSize: 9, fill: '#2563eb' }} />
+                            label={{ value: '평균', position: 'insideTopRight', fontSize: 11, fill: '#1d4ed8' }} />
                         )}
                         {histP50Label && histP50Label !== histMeanLabel && (
                           <ReferenceLine x={histP50Label} stroke="#94a3b8" strokeDasharray="4 2"
-                            label={{ value: '중앙', position: 'insideTopLeft', fontSize: 9, fill: '#94a3b8' }} />
+                            label={{ value: '중앙', position: 'insideTopLeft', fontSize: 11, fill: '#475569' }} />
                         )}
                         {histFloorLabel && (
                           <ReferenceLine x={histFloorLabel} stroke="#ef4444" strokeWidth={1.5}
@@ -549,7 +557,7 @@ export default function AgencyDetailPage() {
                     </div>
                   </>
                 ) : (
-                  <div className="flex flex-col items-center justify-center py-14 text-slate-400">
+                  <div className="flex flex-col items-center justify-center py-14 text-slate-500">
                     <BarChart3 className="h-8 w-8 mb-2 opacity-30" />
                     <p className="text-sm">{histLoading ? '로딩 중…' : `${histMonths}개월 내 낙찰 데이터 없음`}</p>
                   </div>
@@ -562,7 +570,7 @@ export default function AgencyDetailPage() {
               <CardHeader className="border-b border-slate-100 pb-3 flex flex-row items-center justify-between">
                 <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                   <Activity className="h-4 w-4 text-blue-500" />개찰 타임라인
-                  <span className="text-xs font-normal text-slate-400">사정율 추이</span>
+                  <span className="text-xs font-normal text-slate-500">사정율 추이</span>
                 </CardTitle>
                 {tlN >= 2 && (
                   <span className={cn(
@@ -582,9 +590,9 @@ export default function AgencyDetailPage() {
                     <ResponsiveContainer width="100%" height={220}>
                       <ComposedChart data={timelineChartData} margin={{ left: -10, right: 10 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                        <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#94a3b8' }}
+                        <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#475569' }}
                           interval={Math.max(0, Math.floor(tlN / 8) - 1)} />
-                        <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} unit="%" domain={['auto', 'auto']} />
+                        <YAxis tick={{ fontSize: 12, fill: '#475569' }} unit="%" domain={['auto', 'auto']} />
                         <Tooltip
                           contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
                           formatter={(v: number) => [v + '%', '사정율']}
@@ -596,18 +604,18 @@ export default function AgencyDetailPage() {
                           stroke="#ef4444" strokeDasharray="4 2" strokeWidth={1.5} />
                         {tlMeanRate != null && (
                           <ReferenceLine y={tlMeanRate} stroke="#2563eb" strokeDasharray="4 2"
-                            label={{ value: `평균 ${tlMeanRate}%`, position: 'insideTopRight', fontSize: 9, fill: '#2563eb' }} />
+                            label={{ value: `평균 ${tlMeanRate}%`, position: 'insideTopRight', fontSize: 11, fill: '#1d4ed8' }} />
                         )}
                         <ReferenceLine y={+(FLOOR_RATE * 100).toFixed(3)} stroke="#ef4444" strokeWidth={1.5}
                           label={{ value: '하한', position: 'insideBottomRight', fontSize: 9, fill: '#ef4444' }} />
                       </ComposedChart>
                     </ResponsiveContainer>
-                    <p className="text-xs text-slate-400 mt-2">
+                    <p className="text-xs text-slate-500 mt-2">
                       기울기 {trendSlope > 0 ? '+' : ''}{trendSlope.toFixed(3)}%p/회차
                     </p>
                   </>
                 ) : (
-                  <div className="flex flex-col items-center justify-center py-14 text-slate-400">
+                  <div className="flex flex-col items-center justify-center py-14 text-slate-500">
                     <Activity className="h-8 w-8 mb-2 opacity-30" />
                     <p className="text-sm">{recentLoading ? '로딩 중…' : '개찰 결과 데이터 부족 (최소 2건 필요)'}</p>
                   </div>
@@ -635,7 +643,7 @@ export default function AgencyDetailPage() {
                             : 'bg-slate-50 border-slate-200'
                         )}
                       >
-                        <div className="text-xs text-slate-400 font-medium">{key.toUpperCase()}</div>
+                        <div className="text-xs text-slate-500 font-medium">{key.toUpperCase()}</div>
                         <div className={cn('text-sm font-bold mt-1 tabular-nums', key === 'p50' ? 'text-blue-600' : 'text-slate-800')}>
                           {histogram.percentiles[key] != null
                             ? (histogram.percentiles[key]! * 100).toFixed(3) + '%'
@@ -665,7 +673,7 @@ export default function AgencyDetailPage() {
             {!yegaPattern ? (
               <Card className="bg-white border-slate-200 shadow-sm">
                 <CardContent className="py-16 text-center">
-                  <div className="flex flex-col items-center gap-3 text-slate-400">
+                  <div className="flex flex-col items-center gap-3 text-slate-500">
                     <GitBranch className="h-8 w-8 animate-pulse" />
                     <p className="text-sm">로딩 중…</p>
                   </div>
@@ -676,7 +684,7 @@ export default function AgencyDetailPage() {
                 <CardContent className="py-16 text-center">
                   <GitBranch className="h-10 w-10 text-slate-200 mx-auto mb-3" />
                   <p className="text-sm text-slate-500">수집된 inpo21c 예가 데이터가 없습니다.</p>
-                  <p className="text-xs text-slate-400 mt-1">인포21c에서 예가 데이터 수집 후 사용 가능합니다.</p>
+                  <p className="text-xs text-slate-500 mt-1">인포21c에서 예가 데이터 수집 후 사용 가능합니다.</p>
                 </CardContent>
               </Card>
             ) : (
@@ -707,7 +715,7 @@ export default function AgencyDetailPage() {
                       <CardContent className="p-5">
                         <p className="text-sm font-medium text-slate-500">{label}</p>
                         <p className="text-xl font-bold mt-1 tabular-nums text-slate-900">{value}</p>
-                        <p className="text-xs text-slate-400 mt-1">{sub}</p>
+                        <p className="text-xs text-slate-500 mt-1">{sub}</p>
                       </CardContent>
                     </Card>
                   ))}
@@ -719,9 +727,9 @@ export default function AgencyDetailPage() {
                     <CardHeader className="border-b border-slate-100 pb-3 flex flex-row items-center justify-between">
                       <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                         <GitBranch className="h-4 w-4 text-blue-500" />위치별 추첨 확률
-                        <span className="text-xs font-normal text-slate-400">1~15번</span>
+                        <span className="text-xs font-normal text-slate-500">1~15번</span>
                       </CardTitle>
-                      <span className="text-xs text-slate-400">균등 기준: 6.7%</span>
+                      <span className="text-xs text-slate-500">균등 기준: 6.7%</span>
                     </CardHeader>
                     <CardContent className="pt-4">
                       <ResponsiveContainer width="100%" height={220}>
@@ -734,15 +742,15 @@ export default function AgencyDetailPage() {
                           margin={{ top: 8, right: 8, left: -20, bottom: 0 }}
                         >
                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                          <XAxis dataKey="pos" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                          <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={(v) => `${v}%`} domain={[0, 12]} />
+                          <XAxis dataKey="pos" tick={{ fontSize: 12, fill: '#475569' }} />
+                          <YAxis tick={{ fontSize: 12, fill: '#475569' }} tickFormatter={(v) => `${v}%`} domain={[0, 12]} />
                           <Tooltip
                             contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
                             formatter={(v: number) => [`${v}%`, '추첨 확률']}
                           />
                           <ReferenceLine y={+(1 / 15 * 100).toFixed(1)} stroke="#94a3b8"
                             strokeDasharray="4 2"
-                            label={{ value: '균등 6.7%', position: 'insideTopRight', fontSize: 9, fill: '#94a3b8' }} />
+                            label={{ value: '균등 6.7%', position: 'insideTopRight', fontSize: 11, fill: '#475569' }} />
                           <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
                             {yegaPattern.pos_weights.map((w, i) => {
                               const top3Threshold = [...yegaPattern.pos_weights!].sort((a, b) => b - a)[2]
@@ -751,13 +759,205 @@ export default function AgencyDetailPage() {
                           </Bar>
                         </BarChart>
                       </ResponsiveContainer>
-                      <div className="flex items-center gap-4 mt-3 text-xs text-slate-400">
+                      <div className="flex items-center gap-4 mt-3 text-xs text-slate-500">
                         <div className="flex items-center gap-1.5"><div className="w-3 h-2 bg-blue-600 rounded" /><span>선호 위치 (상위 3개)</span></div>
                         <div className="flex items-center gap-1.5"><div className="w-3 h-2 bg-blue-200 rounded" /><span>일반 위치</span></div>
                       </div>
                     </CardContent>
                   </Card>
                 )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── 전략DB 탭 ── */}
+        {activeTab === '전략DB' && (
+          <div className="space-y-5">
+            {strategyLoading ? (
+              <Skeleton className="h-64 w-full rounded-xl" />
+            ) : !strategyData || strategyData.total_bid_count === 0 ? (
+              <Card className="bg-white border-slate-200 shadow-sm">
+                <CardContent className="py-16 text-center">
+                  <TrendingUp className="h-10 w-10 text-slate-200 mx-auto mb-3" />
+                  <p className="text-sm text-slate-500">발주기관 전략 DB 데이터가 없습니다.</p>
+                  <p className="text-xs text-slate-500 mt-1">48개월 내 낙찰 데이터가 5건 이상 필요합니다.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                {/* KPI 카드 */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[
+                    { label: '표본 건수',     value: `${strategyData.total_bid_count.toLocaleString()}건`, color: 'blue' },
+                    { label: '평균 낙찰률',   value: strategyData.avg_win_rate != null ? `${(strategyData.avg_win_rate * 100).toFixed(3)}%` : '-', color: 'emerald' },
+                    { label: '평균 경쟁업체', value: strategyData.avg_competitor_cnt != null ? `${strategyData.avg_competitor_cnt.toFixed(1)}개사` : '-', color: 'amber' },
+                    { label: '난이도',        value: strategyData.qual_difficulty ?? '-', color: 'violet' },
+                  ].map(({ label, value, color }) => (
+                    <Card key={label} className="relative overflow-hidden bg-white border-slate-200 shadow-sm">
+                      <div className={cn('absolute top-0 left-0 right-0 h-0.5',
+                        color === 'blue' ? 'bg-blue-500' : color === 'emerald' ? 'bg-emerald-500'
+                          : color === 'amber' ? 'bg-amber-500' : 'bg-violet-500'
+                      )} />
+                      <CardContent className="p-4">
+                        <p className="text-xs text-slate-500">{label}</p>
+                        <p className="text-xl font-bold mt-1 tabular-nums text-slate-900">{value}</p>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+
+                {/* 백분위수 + 추천 구간 */}
+                <Card className="bg-white border-slate-200 shadow-sm">
+                  <CardHeader className="border-b border-slate-100 pb-3">
+                    <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                      <Layers className="h-4 w-4 text-blue-500" />낙찰률 백분위수 (48개월)
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-4">
+                    <div className="grid grid-cols-5 gap-2 mb-4">
+                      {(
+                        [
+                          ['P10', strategyData.win_rate_p10],
+                          ['P25', strategyData.win_rate_p25],
+                          ['P50 (중앙)', strategyData.win_rate_p50],
+                          ['P75', strategyData.win_rate_p75],
+                          ['P90', strategyData.win_rate_p90],
+                        ] as [string, number | null][]
+                      ).map(([key, val]) => (
+                        <div key={key} className={cn(
+                          'rounded-xl p-3 text-center border',
+                          key === 'P50 (중앙)' ? 'bg-blue-50 border-blue-200' : 'bg-slate-50 border-slate-200'
+                        )}>
+                          <div className="text-xs text-slate-500 font-medium">{key}</div>
+                          <div className={cn('text-sm font-bold mt-1 tabular-nums',
+                            key === 'P50 (중앙)' ? 'text-blue-600' : 'text-slate-800'
+                          )}>
+                            {val != null ? `${(val * 100).toFixed(3)}%` : '-'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {strategyData.recommended_range_lo != null && strategyData.recommended_range_hi != null && (
+                      <div className="flex items-center gap-3 px-4 py-3 bg-emerald-50 rounded-xl border border-emerald-200 text-sm">
+                        <Target className="h-4 w-4 text-emerald-600 shrink-0" />
+                        <span className="text-emerald-700 font-medium">추천 투찰 구간</span>
+                        <span className="text-emerald-800 font-bold tabular-nums ml-auto">
+                          {(strategyData.recommended_range_lo * 100).toFixed(3)}% ~ {(strategyData.recommended_range_hi * 100).toFixed(3)}%
+                        </span>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* 히스토그램 */}
+                {strategyData.histogram_data.length > 0 && (
+                  <Card className="bg-white border-slate-200 shadow-sm">
+                    <CardHeader className="border-b border-slate-100 pb-3 flex flex-row items-center justify-between">
+                      <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <BarChart2 className="h-4 w-4 text-blue-500" />낙찰률 히스토그램 (48개월 · 0.5% 구간)
+                      </CardTitle>
+                      <div className="flex items-center gap-3 text-xs text-slate-500">
+                        {strategyData.trend_direction && (
+                          <span className={cn(
+                            'px-2 py-0.5 rounded-full font-medium',
+                            strategyData.trend_direction === 'up' ? 'bg-blue-50 text-blue-700' :
+                            strategyData.trend_direction === 'down' ? 'bg-red-50 text-red-700' :
+                            'bg-slate-100 text-slate-600'
+                          )}>
+                            {strategyData.trend_direction === 'up' ? '▲ 상승 추세' :
+                             strategyData.trend_direction === 'down' ? '▼ 하락 추세' : '→ 안정'}
+                          </span>
+                        )}
+                      </div>
+                    </CardHeader>
+                    <CardContent className="pt-4">
+                      <ResponsiveContainer width="100%" height={240}>
+                        <BarChart
+                          data={strategyData.histogram_data
+                            .filter(([, cnt]) => cnt > 0)
+                            .map(([rate, cnt]) => ({
+                              label: (rate * 100).toFixed(2),
+                              count: cnt,
+                              isRec: strategyData.recommended_range_lo != null &&
+                                     strategyData.recommended_range_hi != null &&
+                                     rate >= strategyData.recommended_range_lo &&
+                                     rate < strategyData.recommended_range_hi,
+                            }))}
+                          margin={{ top: 8, right: 8, left: -15, bottom: 24 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#475569' }}
+                            tickFormatter={(v) => `${v}%`} interval={2} angle={-40} textAnchor="end" height={44} />
+                          <YAxis tick={{ fontSize: 12, fill: '#475569' }} />
+                          <Tooltip
+                            contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: 12 }}
+                            formatter={(v: number) => [`${v}건`, '낙찰 건수']}
+                            labelFormatter={(l) => `낙찰률 ${l}%~`}
+                          />
+                          <Bar dataKey="count" radius={[3, 3, 0, 0]}>
+                            {strategyData.histogram_data
+                              .filter(([, cnt]) => cnt > 0)
+                              .map(([rate], i) => (
+                                <Cell key={i} fill={
+                                  strategyData.recommended_range_lo != null &&
+                                  strategyData.recommended_range_hi != null &&
+                                  rate >= strategyData.recommended_range_lo &&
+                                  rate < strategyData.recommended_range_hi
+                                    ? '#16a34a'
+                                    : '#2563eb'
+                                } fillOpacity={0.8} />
+                              ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                      <div className="flex items-center gap-4 mt-2 text-xs text-slate-500">
+                        <div className="flex items-center gap-1.5"><div className="w-3 h-2 bg-blue-600 rounded opacity-80" /><span>일반 구간</span></div>
+                        <div className="flex items-center gap-1.5"><div className="w-3 h-2 bg-green-600 rounded opacity-80" /><span>추천 구간 (P25~P75)</span></div>
+                        {strategyData.std_win_rate != null && (
+                          <span className="ml-auto">σ = {(strategyData.std_win_rate * 100).toFixed(3)}%</span>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* 부가 지표 */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <Card className="bg-white border-slate-200 shadow-sm">
+                    <CardContent className="p-4">
+                      <p className="text-xs text-slate-500 mb-1">공격성 지수</p>
+                      <p className="text-2xl font-bold text-slate-900 tabular-nums">
+                        {strategyData.aggression_index != null
+                          ? `${(strategyData.aggression_index * 100).toFixed(1)}%`
+                          : '-'}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1">하한율 이하 낙찰 비율</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-white border-slate-200 shadow-sm">
+                    <CardContent className="p-4">
+                      <p className="text-xs text-slate-500 mb-1">30일 변동성</p>
+                      <p className="text-2xl font-bold text-slate-900 tabular-nums">
+                        {strategyData.volatility_30d != null
+                          ? `${(strategyData.volatility_30d * 100).toFixed(3)}%`
+                          : '-'}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1">최근 30일 표준편차</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-white border-slate-200 shadow-sm">
+                    <CardContent className="p-4">
+                      <p className="text-xs text-slate-500 mb-1">낙찰률 범위</p>
+                      <p className="text-lg font-bold text-slate-900 tabular-nums">
+                        {strategyData.min_win_rate != null && strategyData.max_win_rate != null
+                          ? `${(strategyData.min_win_rate * 100).toFixed(2)}% ~ ${(strategyData.max_win_rate * 100).toFixed(2)}%`
+                          : '-'}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1">최저 ~ 최고 낙찰률</p>
+                    </CardContent>
+                  </Card>
+                </div>
               </>
             )}
           </div>
@@ -788,7 +988,7 @@ export default function AgencyDetailPage() {
                   </div>
                 </div>
                 {freqData && (
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <p className="text-sm text-muted-foreground mt-1">
                     {freqData.period} 집계 · 총 {freqData.total_bids.toLocaleString()}건
                   </p>
                 )}
@@ -819,15 +1019,15 @@ export default function AgencyDetailPage() {
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                         <XAxis
                           dataKey="label"
-                          tick={{ fontSize: 9, fill: '#94a3b8' }}
+                          tick={{ fontSize: 12, fill: '#475569' }}
                           tickFormatter={(v) => `${v}%`}
                           interval={2}
                           angle={-40}
                           textAnchor="end"
-                          height={40}
+                          height={44}
                         />
-                        <YAxis yAxisId="left" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                        <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={(v) => `${v}%`} domain={[0, 100]} />
+                        <YAxis yAxisId="left" tick={{ fontSize: 12, fill: '#475569' }} />
+                        <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12, fill: '#475569' }} tickFormatter={(v) => `${v}%`} domain={[0, 100]} />
                         <Tooltip
                           contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: 12 }}
                           formatter={(v: number, name: string) =>
@@ -858,7 +1058,7 @@ export default function AgencyDetailPage() {
                         <div className="mt-4 grid grid-cols-3 gap-2">
                           {top3.map((b, i) => (
                             <div key={i} className="rounded-lg bg-slate-50 border p-2.5 text-center">
-                              <div className="text-[10px] text-muted-foreground">#{i + 1} 최다 구간</div>
+                              <div className="text-sm text-muted-foreground">#{i + 1} 최다 구간</div>
                               <div className="text-sm font-bold text-slate-800 mt-0.5">
                                 {(b.from * 100).toFixed(2)}–{(b.to * 100).toFixed(2)}%
                               </div>
@@ -896,14 +1096,14 @@ function SrateBox({
         ? 'bg-blue-50 border-blue-200'
         : 'bg-slate-50 border-slate-200'
     )}>
-      <div className="text-xs font-medium text-slate-500 mb-1">{label}</div>
+      <div className="text-sm font-medium text-slate-500 mb-1">{label}</div>
       <div className={cn('text-base font-bold tabular-nums', highlight ? 'text-blue-600' : 'text-slate-800')}>
         {pct(value)}
       </div>
       {diff != null && (
         <div className={cn(
-          'text-[10px] mt-1 flex items-center gap-0.5',
-          diff > 0 ? 'text-blue-600' : diff < 0 ? 'text-red-500' : 'text-slate-400'
+          'text-xs mt-1 flex items-center gap-0.5',
+          diff > 0 ? 'text-blue-600' : diff < 0 ? 'text-red-500' : 'text-slate-500'
         )}>
           <span>{diff > 0 ? '▲' : diff < 0 ? '▼' : '='}</span>
           <span>전국 대비 {diff > 0 ? '+' : ''}{(diff * 100).toFixed(3)}%</span>

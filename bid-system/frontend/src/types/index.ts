@@ -1190,3 +1190,28 @@ export interface ActivePortfolioItem {
   status:         string
 }
 
+export interface PrismBucket {
+  srate:     number
+  count:     number
+  win_count: number
+  win_rate:  number
+}
+
+export interface PrismZone extends PrismBucket {
+  rank:      number
+  bid_price: number | null
+}
+
+export interface PrismHistogramResponse {
+  bid_id:       number
+  agency_id:    number | null
+  base_amount:  number
+  a_ratio:      number
+  data_source:  'agency' | 'national'
+  period_type:  string
+  total_bids:   number
+  total_wins:   number
+  histogram:    PrismBucket[]
+  top_zones:    PrismZone[]
+}
+

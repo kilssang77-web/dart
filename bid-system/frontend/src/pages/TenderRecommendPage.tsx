@@ -36,7 +36,7 @@ const STRATEGY_META: Record<string, {
 function TrendIcon({ dir }: { dir: string }) {
   if (dir === 'up')   return <TrendingUp   className="h-4 w-4 text-red-500 inline" />
   if (dir === 'down') return <TrendingDown  className="h-4 w-4 text-blue-500 inline" />
-  return <Minus className="h-4 w-4 text-slate-400 inline" />
+  return <Minus className="h-4 w-4 text-slate-500 inline" />
 }
 
 function fmtRate(r: number) { return (r * 100).toFixed(4) + '%' }
@@ -167,7 +167,7 @@ export default function TenderRecommendPage() {
           <CardContent className="pt-4 pb-4">
             <div className="flex items-start gap-3">
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-slate-400 flex items-center gap-1">
+                <p className="text-xs text-slate-500 flex items-center gap-1">
                   <Building2 className="h-3 w-3" />{bid.agency_name}
                 </p>
                 <p className="font-semibold text-slate-900 text-sm leading-snug mt-1 line-clamp-2">{bid.title}</p>
@@ -240,11 +240,11 @@ export default function TenderRecommendPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-600">전략</th>
-                    <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-600">사정율</th>
-                    <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-600">투찰금액</th>
-                    <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-600">낙찰확률</th>
-                    <th className="px-4 py-2.5 text-center text-xs font-semibold text-slate-600">적합</th>
+                    <th className="px-4 py-2.5 text-left text-sm font-semibold text-slate-600">전략</th>
+                    <th className="px-4 py-2.5 text-right text-sm font-semibold text-slate-600">사정율</th>
+                    <th className="px-4 py-2.5 text-right text-sm font-semibold text-slate-600">투찰금액</th>
+                    <th className="px-4 py-2.5 text-right text-sm font-semibold text-slate-600">낙찰확률</th>
+                    <th className="px-4 py-2.5 text-center text-sm font-semibold text-slate-600">적합</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -265,17 +265,17 @@ export default function TenderRecommendPage() {
                             <span className={cn('w-2 h-2 rounded-full shrink-0', m.accent)} />
                             <div>
                               <p className="font-semibold text-slate-900 text-sm">{m.label}</p>
-                              <p className="text-xs text-slate-400 font-normal mt-0.5">{m.desc}</p>
+                              <p className="text-xs text-slate-500 font-normal mt-0.5">{m.desc}</p>
                             </div>
                           </div>
                           {m.primary && (
-                            <Badge className="mt-1 ml-4 text-[10px] h-4 bg-blue-500 text-white">추천</Badge>
+                            <Badge className="mt-1 ml-4 text-xs h-4 bg-blue-500 text-white">추천</Badge>
                           )}
                         </td>
                         <td className="px-4 py-3 text-right font-mono tabular-nums font-semibold text-slate-900">
                           {fmtRate(s.rate)}
                         </td>
-                        <td className="px-4 py-3 text-right tabular-nums text-xs text-slate-600">
+                        <td className="px-4 py-3 text-right tabular-nums text-sm text-slate-600">
                           {fmtAmt(s.amount)}
                         </td>
                         <td className="px-4 py-3 text-right">
@@ -302,7 +302,7 @@ export default function TenderRecommendPage() {
               </table>
             </div>
             <div className="px-4 pb-3 pt-2 bg-slate-50/50 border-t border-slate-100">
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-500">
                 낙찰하한율 <strong className="text-slate-600">{fmtRate(rec.floor_rate)}</strong> 이상만 유효 (✓)
               </p>
             </div>
@@ -393,16 +393,16 @@ function EvidenceRow({ label, value, sub, extra, match }: EvidenceRowProps) {
     <div className="flex items-center justify-between py-3 border-b border-slate-100 last:border-0">
       <div>
         <p className="text-sm font-medium text-slate-800">{label}</p>
-        <p className="text-xs text-slate-400 mt-0.5">{sub}</p>
+        <p className="text-xs text-slate-500 mt-0.5">{sub}</p>
         {extra && <div className="mt-1">{extra}</div>}
       </div>
       <div className="text-right flex items-center gap-2">
         <p className="font-mono font-semibold tabular-nums text-slate-900">{value}</p>
         {match === true  && (
-          <Badge variant="outline" className="text-[10px] text-emerald-700 border-emerald-200 bg-emerald-50 px-1.5">수렴</Badge>
+          <Badge variant="outline" className="text-xs text-emerald-700 border-emerald-200 bg-emerald-50 px-1.5">수렴</Badge>
         )}
         {match === false && (
-          <Badge variant="outline" className="text-[10px] text-orange-600 border-orange-200 bg-orange-50 px-1.5">괴리</Badge>
+          <Badge variant="outline" className="text-xs text-orange-600 border-orange-200 bg-orange-50 px-1.5">괴리</Badge>
         )}
       </div>
     </div>

@@ -179,18 +179,18 @@ export default function DashboardPage() {
           {allTime && (
             <div className="flex items-center gap-6">
               <div className="text-right">
-                <p className="text-[10px] text-slate-400 uppercase tracking-wide font-medium">누적 입찰</p>
+                <p className="text-xs text-slate-500 uppercase tracking-wide font-medium">누적 입찰</p>
                 <p className="text-lg font-bold text-blue-600 tabular-nums">
                   {(allTime.total_bids ?? 0).toLocaleString()}
-                  <span className="text-xs font-normal text-slate-400 ml-0.5">건</span>
+                  <span className="text-xs font-normal text-slate-500 ml-0.5">건</span>
                 </p>
               </div>
               <div className="w-px h-8 bg-slate-200" />
               <div className="text-right">
-                <p className="text-[10px] text-slate-400 uppercase tracking-wide font-medium">등록 경쟁사</p>
+                <p className="text-xs text-slate-500 uppercase tracking-wide font-medium">등록 경쟁사</p>
                 <p className="text-lg font-bold text-purple-600 tabular-nums">
                   {(allTime.total_competitors ?? 0).toLocaleString()}
-                  <span className="text-xs font-normal text-slate-400 ml-0.5">개사</span>
+                  <span className="text-xs font-normal text-slate-500 ml-0.5">개사</span>
                 </p>
               </div>
             </div>
@@ -226,7 +226,7 @@ export default function DashboardPage() {
                       {changeVal != null && (
                         <div className="mt-2">
                           <ChangeBadge value={changeVal} higherIsBetter={higherIsBetter} />
-                          <span className="text-[10px] text-slate-400 ml-1">전월 대비</span>
+                          <span className="text-xs text-slate-500 ml-1">전월 대비</span>
                         </div>
                       )}
                     </div>
@@ -270,10 +270,10 @@ export default function DashboardPage() {
                         {b.title}
                       </p>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <Building2 className="h-3 w-3 text-slate-400 shrink-0" />
-                        <span className="text-xs text-slate-400 truncate">{b.agency_name}</span>
+                        <Building2 className="h-3 w-3 text-slate-500 shrink-0" />
+                        <span className="text-xs text-slate-500 truncate">{b.agency_name}</span>
                         {b.open_date && (
-                          <span className="text-[10px] text-slate-400 shrink-0">
+                          <span className="text-xs text-slate-500 shrink-0">
                             · {new Date(b.open_date).toLocaleDateString('ko-KR')}
                           </span>
                         )}
@@ -285,7 +285,7 @@ export default function DashboardPage() {
                             style={{ width: `${b.score ?? 0}%` }}
                           />
                         </div>
-                        <span className="text-[10px] font-mono text-slate-400 shrink-0 w-8 text-right">
+                        <span className="text-xs font-mono text-slate-500 shrink-0 w-8 text-right">
                           {b.score?.toFixed(0) ?? '-'}점
                         </span>
                         {b.score_breakdown && (
@@ -302,7 +302,7 @@ export default function DashboardPage() {
                 ))}
               </div>
             ) : (
-              <p className="text-center text-slate-400 text-sm py-10">이번 주 개찰 예정 공고가 없습니다</p>
+              <p className="text-center text-slate-500 text-sm py-10">이번 주 개찰 예정 공고가 없습니다</p>
             )}
           </CardContent>
         </Card>
@@ -319,18 +319,18 @@ export default function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent className="p-5">
-            <ResponsiveContainer width="100%" height={220}>
+            <ResponsiveContainer width="100%" height={260}>
               <ComposedChart data={trend} margin={{ left: -10, right: 10 }}>
                 <defs>
                   <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.25} />
-                    <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.05} />
+                    <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.7} />
+                    <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.3} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }} interval={2} />
-                <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: '#94a3b8' }} unit="%" />
+                <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#475569' }} interval={2} />
+                <YAxis yAxisId="left" tick={{ fontSize: 12, fill: '#475569' }} />
+                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12, fill: '#475569' }} unit="%" />
                 <Tooltip
                   contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                   formatter={(v: number, n: string) => [n === '낙찰률' ? v + '%' : v + '건', n]}
@@ -369,7 +369,7 @@ export default function DashboardPage() {
                     <div className="flex items-center gap-1.5 mb-2">
                       {t.direction === 'up'   ? <TrendingUp   className="h-3.5 w-3.5 text-red-500  shrink-0" /> :
                        t.direction === 'down' ? <TrendingDown className="h-3.5 w-3.5 text-blue-500 shrink-0" /> :
-                                                <ArrowUp      className="h-3.5 w-3.5 text-slate-400 shrink-0" />}
+                                                <ArrowUp      className="h-3.5 w-3.5 text-slate-500 shrink-0" />}
                       <span className="text-xs font-semibold text-slate-700 truncate">{t.agency_name}</span>
                       <span className={cn(
                         'ml-auto text-xs font-mono font-bold shrink-0',
@@ -399,7 +399,7 @@ export default function DashboardPage() {
             <CardContent className="p-0">
               <div className="divide-y divide-slate-100">
                 {recentWins.length === 0 ? (
-                  <p className="text-center text-slate-400 text-sm py-10">데이터 없음</p>
+                  <p className="text-center text-slate-500 text-sm py-10">데이터 없음</p>
                 ) : recentWins.map((b, idx) => (
                   <div
                     key={b.id}
@@ -415,10 +415,10 @@ export default function DashboardPage() {
                         {b.title}
                       </p>
                       <div className="flex items-center gap-1.5 mt-0.5">
-                        <Building2 className="h-3 w-3 text-slate-400 shrink-0" />
-                        <span className="text-xs text-slate-400 truncate">{b.agency_name}</span>
+                        <Building2 className="h-3 w-3 text-slate-500 shrink-0" />
+                        <span className="text-xs text-slate-500 truncate">{b.agency_name}</span>
                         {b.bid_open_date && (
-                          <span className="text-[10px] text-slate-400 shrink-0">
+                          <span className="text-xs text-slate-500 shrink-0">
                             · {new Date(b.bid_open_date).toLocaleDateString('ko-KR')}
                           </span>
                         )}
@@ -428,7 +428,7 @@ export default function DashboardPage() {
                       <p className="text-sm font-bold font-mono text-blue-600 tabular-nums">
                         {b.winner_rate ? (b.winner_rate * 100).toFixed(2) + '%' : '-'}
                       </p>
-                      <p className="text-[10px] text-slate-400">{fmtAmt(b.base_amount)}</p>
+                      <p className="text-xs text-slate-500">{fmtAmt(b.base_amount)}</p>
                     </div>
                   </div>
                 ))}
@@ -448,10 +448,10 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent className="p-5">
-              <ResponsiveContainer width="100%" height={240}>
+              <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={topAgencies} layout="vertical" margin={{ left: 80, right: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                  <XAxis type="number" tick={{ fontSize: 12, fill: '#475569' }} />
                   <YAxis
                     type="category"
                     dataKey="agency_name"

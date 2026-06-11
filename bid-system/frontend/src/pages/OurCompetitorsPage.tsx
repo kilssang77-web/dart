@@ -12,7 +12,7 @@ const fmtRate = (r: number | null | undefined) =>
   r != null ? (r * 100).toFixed(4) + '%' : '-'
 
 function AggressionBar({ value }: { value: number | null }) {
-  if (value == null) return <span className="text-xs text-muted-foreground">-</span>
+  if (value == null) return <span className="text-sm text-muted-foreground">-</span>
   const pct = Math.min(Math.round(value * 100), 100)
   const color = value > 0.7 ? 'bg-red-500' : value > 0.4 ? 'bg-orange-400' : 'bg-green-400'
   return (
@@ -20,7 +20,7 @@ function AggressionBar({ value }: { value: number | null }) {
       <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
         <div className={cn('h-full rounded-full', color)} style={{ width: `${pct}%` }} />
       </div>
-      <span className="text-xs text-muted-foreground">{pct}%</span>
+      <span className="text-sm text-muted-foreground">{pct}%</span>
     </div>
   )
 }
@@ -41,7 +41,7 @@ function CompetitorCard({ comp }: { comp: OurCompetitor }) {
             <span className="font-semibold text-sm truncate">{comp.company_name}</span>
           </div>
           {comp.biz_reg_no && (
-            <div className="text-xs text-muted-foreground font-mono mt-0.5">{comp.biz_reg_no}</div>
+            <div className="text-sm text-muted-foreground font-mono mt-0.5">{comp.biz_reg_no}</div>
           )}
         </div>
         <Badge
@@ -75,7 +75,7 @@ function CompetitorCard({ comp }: { comp: OurCompetitor }) {
       </div>
 
       {(comp.last_seen_at || comp.last_seen_agency) && (
-        <div className="mt-2 pt-2 border-t text-xs text-muted-foreground">
+        <div className="mt-2 pt-2 border-t text-sm text-muted-foreground">
           최근: {comp.last_seen_at ?? ''} {comp.last_seen_agency ? `· ${comp.last_seen_agency}` : ''}
         </div>
       )}
@@ -115,7 +115,7 @@ export default function OurCompetitorsPage() {
         <Users className="h-6 w-6 text-indigo-600" />
         <div>
           <h1 className="text-xl font-bold">자사 경쟁사 레이더</h1>
-          <p className="text-xs text-muted-foreground">SUCVIEW 데이터 기반 · 동반 출현 빈도순</p>
+          <p className="text-sm text-muted-foreground">SUCVIEW 데이터 기반 · 동반 출현 빈도순</p>
         </div>
       </div>
 
@@ -123,17 +123,17 @@ export default function OurCompetitorsPage() {
       <div className="grid grid-cols-3 gap-3">
         <Card className="p-3 text-center">
           <div className="text-2xl font-bold text-indigo-600">{data.length}</div>
-          <div className="text-xs text-muted-foreground mt-0.5">추적 경쟁사</div>
+          <div className="text-sm text-muted-foreground mt-0.5">추적 경쟁사</div>
         </Card>
         <Card className="p-3 text-center">
           <div className="text-2xl font-bold text-gray-800">{totalParticipations.toLocaleString()}</div>
-          <div className="text-xs text-muted-foreground mt-0.5">총 동반 참여</div>
+          <div className="text-sm text-muted-foreground mt-0.5">총 동반 참여</div>
         </Card>
         <Card className="p-3 text-center">
           <div className={cn('text-2xl font-bold', avgWinRate != null && avgWinRate >= 20 ? 'text-red-500' : 'text-green-600')}>
             {avgWinRate != null ? `${avgWinRate}%` : '-'}
           </div>
-          <div className="text-xs text-muted-foreground mt-0.5">평균 낙찰율 (상대)</div>
+          <div className="text-sm text-muted-foreground mt-0.5">평균 낙찰율 (상대)</div>
         </Card>
       </div>
 
@@ -164,7 +164,7 @@ export default function OurCompetitorsPage() {
               <div className="flex items-center gap-1.5 mb-3">
                 <Star className="h-4 w-4 text-amber-400 fill-amber-400" />
                 <span className="text-sm font-semibold text-gray-700">주요 경쟁사</span>
-                <span className="text-xs text-muted-foreground">({primaryRivals.length})</span>
+                <span className="text-sm text-muted-foreground">({primaryRivals.length})</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {primaryRivals.map((c) => <CompetitorCard key={c.id} comp={c} />)}

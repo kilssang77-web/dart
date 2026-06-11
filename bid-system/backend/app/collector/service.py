@@ -6,15 +6,37 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 
 from loguru import logger
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.collector.client import BidNotice
 from app.collector.client import BidResult as BidResultData
 from app.collector.client import NarajangterClient
-from app.models import Agency, Bid, BidResult, Competitor, CollectionLog, WatchKeyword
+from app.models import Agency, Bid, BidResult, Competitor, CollectionLog, Industry, Region, WatchKeyword
 from app.services import NotificationService
 
 CollectType = Literal["notice_cnstwk", "notice_servc", "notice_thng"]
+
+_industry_cache: dict[str, int | None] = {}
+_region_cache:   dict[str, int | None] = {}
+
+
+def _resolve_industry_id(db: Session, name: str | None) -> int | None:
+    if not name:
+        return None
+    if name not in _industry_cache:
+        row = db.query(Industry.id).filter(Industry.name == name).first()
+        _industry_cache[name] = row[0] if row else None
+    return _industry_cache[name]
+
+
+def _resolve_region_id(db: Session, name: str | None) -> int | None:
+    if not name:
+        return None
+    if name not in _region_cache:
+        row = db.query(Region.id).filter(Region.name == name).first()
+        _region_cache[name] = row[0] if row else None
+    return _region_cache[name]
 
 
 # ------------------------------------------------------------------ #
@@ -33,18 +55,27 @@ def _upsert_agency(db: Session, name: str) -> Agency:
 
 
 def _upsert_bid(db: Session, notice: BidNotice, agency_id: int) -> tuple[Bid, bool]:
-    """怨듦퀬 upsert ??announcement_no 湲곗?. ??踰덉㎏ 諛섑솚媛?True = ?좉퇋."""
+    """공고 upsert — announcement_no 기준. 신규이면 True 반환."""
+    industry_id = _resolve_industry_id(db, notice.industry_code)
+    region_id   = _resolve_region_id(db, notice.region_code)
+
     bid = db.query(Bid).filter(Bid.announcement_no == notice.announcement_no).first()
     if bid:
         bid.title = notice.title
         bid.base_amount = notice.base_amount or 0
         if notice.bid_open_date:
             bid.bid_open_date = _parse_datetime(notice.bid_open_date)
+        if bid.industry_id is None and industry_id:
+            bid.industry_id = industry_id
+        if bid.region_id is None and region_id:
+            bid.region_id = region_id
         return bid, False
     bid = Bid(
         announcement_no=notice.announcement_no,
         title=notice.title,
         agency_id=agency_id,
+        industry_id=industry_id,
+        region_id=region_id,
         base_amount=notice.base_amount or 0,
         notice_date=_parse_date(notice.notice_date),
         bid_open_date=_parse_datetime(notice.bid_open_date),
@@ -57,16 +88,22 @@ def _upsert_bid(db: Session, notice: BidNotice, agency_id: int) -> tuple[Bid, bo
 
 
 def _upsert_competitor(db: Session, name: str, biz_reg_no: str | None) -> Competitor:
-    """寃쎌웳??upsert ??biz_reg_no ?곗꽑, ?놁쑝硫?name 湲곗?."""
+    """경쟁사 upsert — biz_reg_no 우선, 없으면 name 기준. SAVEPOINT로 race condition 방지."""
     if biz_reg_no:
         competitor = db.query(Competitor).filter(Competitor.biz_reg_no == biz_reg_no).first()
     else:
         competitor = db.query(Competitor).filter(Competitor.name == name).first()
-    if not competitor:
-        competitor = Competitor(name=name, biz_reg_no=biz_reg_no)
-        db.add(competitor)
-        db.flush()
-    return competitor
+    if competitor:
+        return competitor
+    try:
+        with db.begin_nested():
+            competitor = Competitor(name=name, biz_reg_no=biz_reg_no)
+            db.add(competitor)
+        return competitor
+    except IntegrityError:
+        if biz_reg_no:
+            return db.query(Competitor).filter(Competitor.biz_reg_no == biz_reg_no).first()
+        return db.query(Competitor).filter(Competitor.name == name).first()
 
 
 def _upsert_bid_result(
@@ -283,12 +320,11 @@ def run_full_collection(db: Session) -> list[CollectionLog]:
     client = NarajangterClient(api_key=settings.g2b_api_key)
 
     logs: list[CollectionLog] = []
-    for ctype in ("notice_cnstwk", "notice_servc", "notice_thng"):
-        log = collect_notices(db, client, ctype)
-        logs.append(log)
-        logger.info(
-            "?섏쭛 ?꾨즺 [{}]: ?깃났={}, ?ㅽ뙣={}", ctype, log.success_count, log.fail_count
-        )
+    log = collect_notices(db, client, "notice_cnstwk")
+    logs.append(log)
+    logger.info(
+        "공사공고 수집 완료: 성공={}, 실패={}", log.success_count, log.fail_count
+    )
 
     log = collect_results(db, client)
     logs.append(log)
@@ -297,3 +333,10 @@ def run_full_collection(db: Session) -> list[CollectionLog]:
     )
 
     return logs
+
+def collect_scsbid_results(db: Session, days_back: int = 30) -> CollectionLog:
+    """ScsbidInfoService 낙찰결과 보강 수집 — 스케줄러 직접 호출용 (클라이언트 내부 생성)."""
+    from app.config import get_settings
+    settings = get_settings()
+    client = NarajangterClient(api_key=settings.g2b_api_key)
+    return collect_results(db, client, days_back=days_back)

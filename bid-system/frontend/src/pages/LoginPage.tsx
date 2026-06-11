@@ -67,7 +67,7 @@ export default function LoginPage() {
               건설 입찰,<br />
               <span className="text-blue-400">AI로 더 스마트하게</span>
             </h2>
-            <p className="text-slate-400 mt-4 text-base leading-relaxed">
+            <p className="text-slate-500 mt-4 text-base leading-relaxed">
               나라장터 공고를 실시간 분석하고 최적 투찰률을<br />
               자동 추천하는 로컬 AI 입찰 지원 시스템입니다.
             </p>
@@ -81,7 +81,7 @@ export default function LoginPage() {
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-white">{title}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{desc}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{desc}</p>
                 </div>
               </div>
             ))}
@@ -115,7 +115,7 @@ export default function LoginPage() {
         <div className="w-full max-w-sm">
           <div className="mb-8">
             <h1 className="text-2xl font-bold text-white">로그인</h1>
-            <p className="text-slate-400 text-sm mt-1.5">계속하려면 계정 정보를 입력하세요</p>
+            <p className="text-slate-500 text-sm mt-1.5">계속하려면 계정 정보를 입력하세요</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -176,7 +176,7 @@ export default function LoginPage() {
 
           <div className="mt-6 rounded-xl bg-slate-800/50 border border-slate-700/50 px-4 py-3">
             <p className="text-xs text-slate-500 font-medium mb-1">테스트 계정</p>
-            <p className="text-xs text-slate-400 font-mono">admin@bid.local / admin1234</p>
+            <p className="text-xs text-slate-500 font-mono">admin@bid.local / admin1234</p>
           </div>
         </div>
       </div>

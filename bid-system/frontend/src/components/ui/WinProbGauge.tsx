@@ -12,7 +12,7 @@ export default function WinProbGauge({ winProb, label }: WinProbGaugeProps) {
 
   return (
     <div className="relative flex flex-col items-center">
-      <PieChart width={200} height={115}>
+      <PieChart width={240} height={140}>
         <Pie
           data={data}
           cx={100}
@@ -29,7 +29,7 @@ export default function WinProbGauge({ winProb, label }: WinProbGaugeProps) {
         </Pie>
       </PieChart>
       <div className="absolute bottom-0 text-center">
-        <div className="text-3xl font-bold font-mono" style={{ color }}>
+        <div className="text-4xl font-bold font-mono" style={{ color }}>
           {pct.toFixed(1)}%
         </div>
         {label && <div className="text-xs text-muted-foreground mt-0.5">{label}</div>}

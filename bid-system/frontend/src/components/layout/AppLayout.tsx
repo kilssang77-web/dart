@@ -18,28 +18,26 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 ─────────────────────────────────────────────────────────── */
 const NAV_GROUPS = [
   {
-    label: null,          // 그룹 레이블 없는 최상단 항목
+    label: null,
     items: [
       { to: '/today',     label: '오늘의 입찰', icon: Home },
       { to: '/dashboard', label: '대시보드',     icon: LayoutDashboard },
     ],
   },
   {
-    label: '공고 센터',
+    label: '입찰공고',
     items: [
-      { to: '/bids?tab=recommend', label: '추천 공고', icon: Sparkles },
-      { to: '/bids',               label: '전체 공고', icon: Search },
-      { to: '/bids?bookmark=1',    label: '관심 공고', icon: BookMarked },
-      { to: '/bid-selection',      label: '입찰 선택', icon: Target },
+      { to: '/bids',         label: '입찰공고',  icon: Search },
+      { to: '/bid-selection', label: '입찰 선택', icon: Target },
     ],
   },
   {
     label: '투찰 실행',
     items: [
-      { to: '/executions',       label: '투찰 관리',     icon: ListChecks },
-      { to: '/portfolio',        label: '포트폴리오',    icon: PackageCheck },
-      { to: '/our-competitors',  label: '자사 경쟁사',   icon: Radar },
-      { to: '/backtest',         label: '백테스트',      icon: FlaskConical },
+      { to: '/executions',       label: '투찰 관리',   icon: ListChecks },
+      { to: '/portfolio',        label: '포트폴리오',  icon: PackageCheck },
+      { to: '/our-competitors',  label: '자사 경쟁사', icon: Radar },
+      { to: '/backtest',         label: '백테스트',    icon: FlaskConical },
     ],
   },
   {
@@ -61,13 +59,6 @@ const NAV_GROUPS = [
       { to: '/statistics',    label: '통계 분석',       icon: PieChart },
       { to: '/market-intel',  label: '시장 인텔리전스', icon: Globe },
       { to: '/agencies',      label: '발주기관',        icon: Building2 },
-    ],
-  },
-  {
-    label: '설정',
-    items: [
-      { to: '/keywords',        label: '키워드 설정',   icon: KeyRound },
-      { to: '/company-profile', label: '회사 프로파일', icon: Briefcase },
     ],
   },
 ]
@@ -188,7 +179,7 @@ export default function AppLayout() {
               <p className="text-[14px] font-bold text-white leading-none tracking-tight">
                 BidAI <span className="text-blue-400">Pro</span>
               </p>
-              <p className="text-[10px] text-slate-500 mt-[3px] leading-none">수주율 최적화 시스템</p>
+              <p className="text-xs text-slate-500 mt-[3px] leading-none">수주율 최적화 시스템</p>
             </div>
           )}
         </div>
@@ -201,7 +192,7 @@ export default function AppLayout() {
               {/* 그룹 레이블 */}
               {group.label && !collapsed && (
                 <div className="flex items-center gap-2 px-2 pt-3 pb-1.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-600 select-none whitespace-nowrap">
+                  <span className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-600 select-none whitespace-nowrap">
                     {group.label}
                   </span>
                   <div className="flex-1 h-px bg-white/[0.04]" />
@@ -220,19 +211,23 @@ export default function AppLayout() {
             </div>
           ))}
 
-          {/* 관리자 메뉴 */}
-          {user?.role === 'admin' && (
-            <div className="px-2 mt-1">
-              {!collapsed && (
-                <div className="flex items-center gap-2 px-2 pt-3 pb-1.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-600 select-none">관리</span>
-                  <div className="flex-1 h-px bg-white/[0.04]" />
-                </div>
+          {/* 관리 메뉴 */}
+          <div className="px-2 mt-1">
+            {!collapsed && (
+              <div className="flex items-center gap-2 px-2 pt-3 pb-1.5">
+                <span className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-600 select-none">관리</span>
+                <div className="flex-1 h-px bg-white/[0.04]" />
+              </div>
+            )}
+            {collapsed && <div className="my-2 mx-auto h-px w-6 bg-white/[0.08]" />}
+            <div className="space-y-[2px]">
+              <NavItem to="/keywords"        label="키워드 설정"   icon={KeyRound}   collapsed={collapsed} />
+              <NavItem to="/company-profile" label="회사 프로파일" icon={Briefcase}  collapsed={collapsed} />
+              {user?.role === 'admin' && (
+                <NavItem to="/admin" label="시스템 관리" icon={ShieldAlert} collapsed={collapsed} />
               )}
-              {collapsed && <div className="my-2 mx-auto h-px w-6 bg-white/[0.08]" />}
-              <NavItem to="/admin" label="시스템 관리" icon={ShieldAlert} collapsed={collapsed} />
             </div>
-          )}
+          </div>
         </nav>
 
         {/* ── 하단 사용자 영역 ── */}
@@ -266,7 +261,7 @@ export default function AppLayout() {
               {/* 알림 버튼 */}
               <button
                 onClick={() => navigate('/notifications')}
-                className="w-full flex items-center gap-3 h-9 px-3 rounded-lg text-slate-400 hover:bg-white/[0.06] hover:text-slate-200 transition-colors group"
+                className="w-full flex items-center gap-3 h-9 px-3 rounded-lg text-slate-500 hover:bg-white/[0.06] hover:text-slate-200 transition-colors group"
               >
                 <div className="relative shrink-0">
                   <Bell className="h-4 w-4 group-hover:text-slate-300 transition-colors" />
@@ -278,7 +273,7 @@ export default function AppLayout() {
                 </div>
                 <span className="text-[13px] leading-none">알림</span>
                 {unreadCount > 0 && (
-                  <span className="ml-auto text-[10px] font-semibold text-red-400">{unreadCount}개</span>
+                  <span className="ml-auto text-xs font-semibold text-red-400">{unreadCount}개</span>
                 )}
               </button>
 
@@ -293,7 +288,7 @@ export default function AppLayout() {
                   <p className="text-[12px] font-medium text-slate-300 truncate leading-none">
                     {user?.name || user?.email}
                   </p>
-                  <p className="text-[10px] text-slate-600 mt-[3px] leading-none">{roleLabel}</p>
+                  <p className="text-xs text-slate-600 mt-[3px] leading-none">{roleLabel}</p>
                 </div>
                 <button
                   onClick={() => { logout(); navigate('/login') }}
@@ -314,7 +309,7 @@ export default function AppLayout() {
           className={cn(
             'absolute top-[18px] -right-[11px] z-10',
             'flex h-[22px] w-[22px] items-center justify-center rounded-full',
-            'bg-[#1e293b] border border-white/[0.12] text-slate-400',
+            'bg-[#1e293b] border border-white/[0.12] text-slate-500',
             'hover:bg-[#334155] hover:text-white hover:border-white/20',
             'transition-all duration-150 shadow-md',
           )}

@@ -153,7 +153,7 @@ export default function KeywordsPage() {
             <CardContent className="p-5">
               <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="md:col-span-2 space-y-1.5">
-                  <Label className="text-xs font-medium text-slate-600">키워드 *</Label>
+                  <Label className="text-sm font-medium text-slate-600">키워드 *</Label>
                   <Input
                     type="text"
                     value={form.keyword}
@@ -164,7 +164,7 @@ export default function KeywordsPage() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-medium text-slate-600">유형</Label>
+                  <Label className="text-sm font-medium text-slate-600">유형</Label>
                   <Select value={form.kw_type} onValueChange={(v) => setForm({ ...form, kw_type: v })}>
                     <SelectTrigger className="border-slate-200"><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -173,10 +173,10 @@ export default function KeywordsPage() {
                       <SelectItem value="title">공고명 검색</SelectItem>
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-slate-400">{KW_TYPE_CONFIG[form.kw_type]?.desc}</p>
+                  <p className="text-xs text-slate-500">{KW_TYPE_CONFIG[form.kw_type]?.desc}</p>
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-medium text-slate-600">메모</Label>
+                  <Label className="text-sm font-medium text-slate-600">메모</Label>
                   <Input
                     type="text"
                     value={form.note}
@@ -199,7 +199,7 @@ export default function KeywordsPage() {
 
         {/* 검색 */}
         <div className="relative max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
           <Input
             type="text"
             value={search}
@@ -218,7 +218,7 @@ export default function KeywordsPage() {
           ) : filtered.length === 0 ? (
             <div className="py-20 text-center">
               <Tag className="h-10 w-10 text-slate-200 mx-auto mb-3" />
-              <p className="text-slate-400 text-sm">
+              <p className="text-slate-500 text-sm">
                 {search ? '검색 결과가 없습니다.' : '등록된 키워드가 없습니다.'}
               </p>
               {!search && (
@@ -262,7 +262,7 @@ export default function KeywordsPage() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', kwConf.chipCls)}>
+                          <span className={cn('text-sm font-medium px-2 py-0.5 rounded-full', kwConf.chipCls)}>
                             {kwConf.label}
                           </span>
                         </TableCell>
@@ -276,21 +276,21 @@ export default function KeywordsPage() {
                                 <ExternalLink className="h-3 w-3" />{m.match_count.toLocaleString()}건
                               </button>
                               {m.new_7d > 0 && (
-                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">
+                                <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">
                                   +{m.new_7d} 신규
                                 </span>
                               )}
                               {m.recent_bids.length > 0 && (
                                 <button
                                   onClick={() => setExpandedId(isExpanded ? null : kw.id)}
-                                  className="text-xs text-slate-400 hover:text-slate-600 underline"
+                                  className="text-xs text-slate-500 hover:text-slate-600 underline"
                                 >
                                   {isExpanded ? '접기' : '최근 공고'}
                                 </button>
                               )}
                             </div>
                           ) : (
-                            <span className="text-xs text-slate-400">{kw.is_active ? '집계 중...' : '비활성'}</span>
+                            <span className="text-xs text-slate-500">{kw.is_active ? '집계 중...' : '비활성'}</span>
                           )}
                         </TableCell>
                         <TableCell className="text-slate-500 text-xs">{kw.note ?? '-'}</TableCell>
@@ -302,15 +302,15 @@ export default function KeywordsPage() {
                           >
                             {kw.is_active
                               ? <ToggleRight className="h-6 w-6 text-blue-600" />
-                              : <ToggleLeft className="h-6 w-6 text-slate-400" />}
+                              : <ToggleLeft className="h-6 w-6 text-slate-500" />}
                           </button>
                         </TableCell>
-                        <TableCell className="text-slate-400 text-xs">{new Date(kw.created_at).toLocaleDateString('ko-KR')}</TableCell>
+                        <TableCell className="text-slate-500 text-xs">{new Date(kw.created_at).toLocaleDateString('ko-KR')}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
                             <Button
                               variant="ghost" size="icon"
-                              className="h-7 w-7 text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                              className="h-7 w-7 text-slate-500 hover:text-blue-600 hover:bg-blue-50"
                               onClick={() => handleEdit(kw)}
                               title="수정"
                             >
@@ -318,7 +318,7 @@ export default function KeywordsPage() {
                             </Button>
                             <Button
                               variant="ghost" size="icon"
-                              className="h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50"
+                              className="h-7 w-7 text-slate-500 hover:text-red-600 hover:bg-red-50"
                               onClick={() => setDeleteConfirm(kw.id)}
                               title="삭제"
                             >
@@ -342,11 +342,11 @@ export default function KeywordsPage() {
                                 >
                                   <div className="truncate max-w-md">
                                     <span className="text-blue-700 font-medium text-xs">{b.title}</span>
-                                    <span className="text-slate-400 ml-2 text-xs">{b.agency_name}</span>
+                                    <span className="text-slate-500 ml-2 text-xs">{b.agency_name}</span>
                                   </div>
                                   <div className="flex items-center gap-2 shrink-0 ml-3">
-                                    <span className="text-xs text-slate-400">{b.notice_date ? new Date(b.notice_date).toLocaleDateString('ko-KR') : '-'}</span>
-                                    <span className={cn('text-[10px] font-medium px-1.5 py-0.5 rounded-full', b.status === 'open' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500 border border-slate-200')}>
+                                    <span className="text-xs text-slate-500">{b.notice_date ? new Date(b.notice_date).toLocaleDateString('ko-KR') : '-'}</span>
+                                    <span className={cn('text-sm font-medium px-1.5 py-0.5 rounded-full', b.status === 'open' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500 border border-slate-200')}>
                                       {b.status === 'open' ? '공고중' : '개찰완료'}
                                     </span>
                                   </div>

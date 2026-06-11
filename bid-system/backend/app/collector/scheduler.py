@@ -21,8 +21,7 @@ def run_collection_job(collect_type: str) -> None:
         if collect_type == "all":
             run_full_collection(db)
         elif collect_type == "notices":
-            for ctype in ("notice_cnstwk", "notice_servc", "notice_thng"):
-                collect_notices(db, client, ctype)
+            collect_notices(db, client, "notice_cnstwk")
         elif collect_type == "results":
             collect_results(db, client)
         else:
@@ -66,22 +65,33 @@ def run_scsbid_job() -> None:
 
 
 def run_bid_notices_inpo21c_job() -> None:
-    """inpo21c 입찰공고 중 사전정보 수집 (매일 09:00 KST — 투찰 전 예가방법 파악)."""
+    """inpo21c 입찰공고 사전정보 수집 + bids 동기화 (매일 09:00 KST).
+
+    G2B BidPublicInfoService02 대체: info21c /bid/con 에서 개찰 전
+    공고(예가방법, 낙찰하한율 등)를 수집하고 bids 테이블에 자동 등록.
+    """
     from app.database import SessionLocal
     from app.collector.inpo21c import collect_bid_notices_inpo21c
+    from app.services import InpoNoticesSyncService
 
     db = SessionLocal()
     try:
         result = collect_bid_notices_inpo21c(db, max_pages=5)
         logger.info("inpo21c 입찰공고 수집 완료: %s", result)
+        sync = InpoNoticesSyncService().sync(db)
+        logger.info("inpo21c → bids 동기화: %s", sync)
     except Exception as exc:
-        logger.error("inpo21c 입찰공고 수집 실패: %s", exc)
+        logger.error("inpo21c 입찰공고 수집/동기화 실패: %s", exc)
     finally:
         db.close()
 
 
 def run_inpo21c_job() -> None:
-    """inpo21c 전 참여자 + 복수예가 + 공고헤더 수집 (매주 월요일 02:00 KST)."""
+    """inpo21c 전 참여자 + 복수예가 + 공고헤더 수집 (매일 19:30 KST).
+
+    변경: 주 1회(월) → 매일 19:30 KST (개찰 후 ~1시간 30분).
+    당일 개찰 결과를 당일 수집하여 ML 학습 데이터 실시간 갱신.
+    """
     from app.database import SessionLocal
     from app.collector.inpo21c import collect_inpo21c
 
@@ -256,9 +266,9 @@ def create_scheduler() -> BackgroundScheduler:
     )
     scheduler.add_job(
         run_inpo21c_job,
-        trigger=CronTrigger(day_of_week="mon", hour=2, minute=0, timezone="Asia/Seoul"),
-        id="collect_inpo21c_weekly",
-        name="inpo21c 전참여자+예가 수집 (매주 월 02:00 KST)",
+        trigger=CronTrigger(hour=19, minute=30, timezone="Asia/Seoul"),
+        id="collect_inpo21c_daily",
+        name="inpo21c 전참여자+예가 수집 (매일 19:30 KST)",
         replace_existing=True,
     )
     scheduler.add_job(

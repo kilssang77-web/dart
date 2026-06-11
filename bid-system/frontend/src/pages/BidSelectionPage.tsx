@@ -131,7 +131,7 @@ function SelectionCard({ item, onRegister }: { item: SelectionItem; onRegister?:
                 <cfg.icon className="h-3 w-3" />
                 {cfg.label}
               </span>
-              <span className="text-xs text-slate-400 tabular-nums">점수 {item.score.toFixed(1)}/10</span>
+              <span className="text-xs text-slate-500 tabular-nums">점수 {item.score.toFixed(1)}/10</span>
               {item.recommended_strategy && (
                 <span className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded-full font-medium">
                   {STRATEGY_LABELS[item.recommended_strategy] || item.recommended_strategy}
@@ -139,7 +139,7 @@ function SelectionCard({ item, onRegister }: { item: SelectionItem; onRegister?:
               )}
               {item.confidence && (
                 <span className={cn(
-                  'text-[10px] px-1.5 py-0.5 rounded-full border font-medium',
+                  'text-xs px-1.5 py-0.5 rounded-full border font-medium',
                   item.confidence === 'high'   ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
                   item.confidence === 'medium' ? 'bg-amber-50 text-amber-600 border-amber-200' :
                                                  'bg-gray-50 text-gray-500 border-gray-200',
@@ -151,7 +151,7 @@ function SelectionCard({ item, onRegister }: { item: SelectionItem; onRegister?:
             <p className="text-sm font-semibold text-slate-900 leading-snug line-clamp-2" title={item.title}>
               {item.title}
             </p>
-            <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-400">
+            <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500">
               <span className="font-medium text-slate-600">{fmt억(item.base_amount)}</span>
               <span className="flex items-center gap-1">
                 <CalendarDays className="h-3 w-3" />
@@ -162,7 +162,7 @@ function SelectionCard({ item, onRegister }: { item: SelectionItem; onRegister?:
           <div className="text-right shrink-0">
             <div className="bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1.5">
               <div className="text-sm font-bold text-slate-800 tabular-nums">EV {fmt억(item.ev_score)}</div>
-              <div className="text-[10px] text-slate-400 mt-0.5">낙찰확률 {(item.win_prob_best * 100).toFixed(0)}%</div>
+              <div className="text-xs text-slate-500 mt-0.5">낙찰확률 {(item.win_prob_best * 100).toFixed(0)}%</div>
             </div>
           </div>
         </div>
@@ -170,11 +170,11 @@ function SelectionCard({ item, onRegister }: { item: SelectionItem; onRegister?:
         {/* 지표 행 */}
         <div className="grid grid-cols-3 gap-2 text-xs">
           <div className="bg-slate-50 rounded-lg p-2 text-center border border-slate-100">
-            <div className="text-slate-400 mb-0.5">적격통과</div>
+            <div className="text-slate-500 mb-0.5">적격통과</div>
             <div className="font-bold text-slate-800 tabular-nums">{(item.qualify_prob * 100).toFixed(0)}%</div>
           </div>
           <div className="bg-slate-50 rounded-lg p-2 text-center border border-slate-100">
-            <div className="text-slate-400 mb-0.5">낙찰확률</div>
+            <div className="text-slate-500 mb-0.5">낙찰확률</div>
             <div className={cn('font-bold tabular-nums',
               item.win_prob_best > 0.5 ? 'text-emerald-700' :
               item.win_prob_best > 0.3 ? 'text-amber-700' : 'text-slate-700'
@@ -183,7 +183,7 @@ function SelectionCard({ item, onRegister }: { item: SelectionItem; onRegister?:
             </div>
           </div>
           <div className="bg-slate-50 rounded-lg p-2 text-center border border-slate-100">
-            <div className="text-slate-400 mb-0.5">경쟁 위험</div>
+            <div className="text-slate-500 mb-0.5">경쟁 위험</div>
             <div className={cn('font-bold text-xs px-1.5 py-0.5 rounded-full border inline-block', riskCfg.cls)}>
               {riskCfg.label}
             </div>
@@ -195,7 +195,7 @@ function SelectionCard({ item, onRegister }: { item: SelectionItem; onRegister?:
           <div>
             <button
               onClick={() => setExpanded(!expanded)}
-              className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+              className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-600 transition-colors"
             >
               {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
               {expanded ? 'NO-GO 이유 접기' : 'NO-GO 이유 보기'}
@@ -203,7 +203,7 @@ function SelectionCard({ item, onRegister }: { item: SelectionItem; onRegister?:
             {expanded && (
               <ul className="mt-2 space-y-1 bg-red-50/50 rounded-lg border border-red-100 p-2">
                 {item.no_go_reasons.map((r, i) => (
-                  <li key={i} className="text-xs text-slate-600 flex items-start gap-1.5">
+                  <li key={i} className="text-sm text-slate-600 flex items-start gap-1.5">
                     <span className="text-red-400 mt-0.5 shrink-0">•</span>
                     <span>{r.replace(/^[a-z_]+:/, '')}</span>
                   </li>
@@ -383,7 +383,7 @@ export default function BidSelectionPage() {
                 onChange={(e) => setNewBidId(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleEval()}
                 placeholder="공고 ID 입력 후 평가 실행"
-                className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-300 focus:border-blue-300 transition-colors text-slate-700 placeholder:text-slate-400"
+                className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-300 focus:border-blue-300 transition-colors text-slate-700 placeholder:text-slate-500"
                 type="number"
               />
               <Button
@@ -420,7 +420,7 @@ export default function BidSelectionPage() {
                 <cfg.icon className="h-3.5 w-3.5" />
                 {v === 'NO_GO' ? 'NO-GO' : v}
                 <span className={cn(
-                  'rounded-full px-1.5 py-px text-[10px] tabular-nums',
+                  'rounded-full px-1.5 py-px text-xs tabular-nums',
                   activeTab === v ? 'bg-white/30' : 'bg-slate-100 text-slate-500'
                 )}>
                   {count}
@@ -449,7 +449,7 @@ export default function BidSelectionPage() {
                 }
               </div>
               <p className="text-sm text-slate-500">{activeTab} 항목이 없습니다.</p>
-              <p className="text-xs text-slate-400 mt-1">위에서 공고 ID를 입력해 평가해보세요.</p>
+              <p className="text-xs text-slate-500 mt-1">위에서 공고 ID를 입력해 평가해보세요.</p>
             </CardContent>
           </Card>
         ) : (

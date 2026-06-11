@@ -3,6 +3,7 @@
 Controller(API) -> Service -> Repository(DB) 방향 준수.
 """
 import io
+import re
 import math
 import logging
 import pandas as pd
@@ -5537,3 +5538,91 @@ class BacktestService:
             "data_source": "none",
             "message": "SUCVIEW 파일을 업로드하거나 투찰 실행 관리에 결과를 입력해주세요.",
         }
+
+
+class InpoNoticesSyncService:
+    """
+    inpo21c_bid_notices → bids 자동 동기화.
+
+    G2B BidPublicInfoService02가 죽어있는 동안 info21c 입찰공고 사전정보를
+    bids 테이블로 자동 전환하여 공고 파이프라인을 유지한다.
+    매일 09:00 KST inpo21c 입찰공고 수집 직후 호출됨.
+    """
+
+    def sync(self, db: Session) -> dict:
+        rows = db.execute(text("""
+            SELECT n.inpo21c_bid_id, n.announcement_no, n.agency_name,
+                   n.base_amount, n.open_datetime, n.min_bid_rate,
+                   n.yega_method, n.yega_draw_count, n.yega_total_count,
+                   n.region, n.industry
+            FROM inpo21c_bid_notices n
+            WHERE n.open_datetime > NOW() - INTERVAL '1 day'
+              AND n.announcement_no IS NOT NULL
+        """)).fetchall()
+
+        created = skipped = 0
+        for r in rows:
+            # suffix 제거: "R26BK01531315-000" → "R26BK01531315"
+            ann_no = re.sub(r'-\d+$', '', (r.announcement_no or '').strip())
+            if not ann_no:
+                skipped += 1
+                continue
+
+            existing = db.execute(
+                text("SELECT id FROM bids WHERE announcement_no = :a"),
+                {"a": ann_no}
+            ).fetchone()
+            if existing:
+                skipped += 1
+                continue
+
+            try:
+                agency_row = db.execute(
+                    text("SELECT id FROM agencies WHERE name = :n"),
+                    {"n": r.agency_name or ''}
+                ).fetchone()
+                if not agency_row:
+                    db.execute(
+                        text("INSERT INTO agencies (name) VALUES (:n) ON CONFLICT (name) DO NOTHING"),
+                        {"n": r.agency_name or '미상'}
+                    )
+                    db.flush()
+                    agency_row = db.execute(
+                        text("SELECT id FROM agencies WHERE name = :n"),
+                        {"n": r.agency_name or '미상'}
+                    ).fetchone()
+
+                yega_info = ""
+                if r.yega_draw_count and r.yega_total_count:
+                    yega_info = f"복수예가:{r.yega_draw_count}/{r.yega_total_count}"
+                elif r.yega_method:
+                    yega_info = r.yega_method[:100]
+
+                db.execute(text("""
+                    INSERT INTO bids
+                        (announcement_no, title, agency_id, base_amount,
+                         bid_open_date, min_bid_rate, status, source, bid_method)
+                    VALUES
+                        (:ann, :title, :agency_id, :base_amount,
+                         :open_dt, :min_rate, 'open', 'inpo21c', :bid_method)
+                    ON CONFLICT (announcement_no) DO NOTHING
+                """), {
+                    "ann":        ann_no,
+                    "title":      f"[inpo21c] {r.agency_name or ''} ({ann_no})",
+                    "agency_id":  agency_row[0],
+                    "base_amount": r.base_amount or 0,
+                    "open_dt":    r.open_datetime,
+                    "min_rate":   r.min_bid_rate,
+                    "bid_method": yega_info or None,
+                })
+                db.commit()
+                created += 1
+            except Exception as exc:
+                db.rollback()
+                logger.warning("inpo21c_bid_notices sync 실패 [%s]: %s", ann_no, exc)
+                skipped += 1
+
+        logger.info("inpo21c → bids 동기화: 신규=%d, 스킵=%d", created, skipped)
+        return {"created": created, "skipped": skipped}
+
+

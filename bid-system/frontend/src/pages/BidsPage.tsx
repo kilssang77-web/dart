@@ -27,9 +27,9 @@ type ActiveMode = 'recommend' | 'all' | 'bookmark'
 
 function VerdictBadge({ verdict }: { verdict: string }) {
   if (verdict === 'GO')
-    return <Badge className="bg-emerald-500 text-white text-[10px] px-1.5 py-0 shrink-0">GO</Badge>
+    return <Badge className="bg-emerald-500 text-white text-xs px-1.5 py-0 shrink-0">GO</Badge>
   if (verdict === 'WATCH')
-    return <Badge className="bg-amber-400 text-white text-[10px] px-1.5 py-0 shrink-0">WATCH</Badge>
+    return <Badge className="bg-amber-400 text-white text-xs px-1.5 py-0 shrink-0">WATCH</Badge>
   return null
 }
 
@@ -38,7 +38,7 @@ function DaysBadge({ dateStr }: { dateStr: string | null | undefined }) {
   const days = Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86400000)
   if (days <= 0 || days > 7) return null
   return (
-    <Badge className={cn('text-[10px] px-1.5 py-0 shrink-0',
+    <Badge className={cn('text-xs px-1.5 py-0 shrink-0',
       days <= 1 ? 'bg-red-500 text-white animate-pulse' : 'bg-orange-400 text-white')}>
       D-{days}
     </Badge>
@@ -293,7 +293,7 @@ export default function BidsPage() {
             >
               <BookMarked className="h-3.5 w-3.5" />
               관심공고{bookmarkedIds.size > 0 && (
-                <span className="ml-0.5 bg-blue-100 text-blue-700 rounded-full px-1.5 py-px text-[10px] font-semibold">
+                <span className="ml-0.5 bg-blue-100 text-blue-700 rounded-full px-1.5 py-px text-xs font-semibold">
                   {bookmarkedIds.size}
                 </span>
               )}
@@ -313,7 +313,7 @@ export default function BidsPage() {
                 <CardContent className="py-16 text-center">
                   <Sparkles className="h-8 w-8 text-slate-300 mx-auto mb-3" />
                   <p className="text-sm text-slate-500">AI 추천 공고가 없습니다.</p>
-                  <p className="text-xs text-slate-400 mt-1">키워드 설정을 먼저 등록하세요.</p>
+                  <p className="text-xs text-slate-500 mt-1">키워드 설정을 먼저 등록하세요.</p>
                 </CardContent>
               </Card>
             ) : (
@@ -341,12 +341,38 @@ export default function BidsPage() {
                               <span>개찰 {new Date(rec.open_date).toLocaleDateString('ko-KR')}</span>
                             )}
                           </div>
+                          {rec.score_breakdown && (
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              {(
+                                [
+                                  { key: 'competition',    label: '경쟁강도' },
+                                  { key: 'personal_track', label: '발주처이력' },
+                                  { key: 'market_trend',   label: '시장추세' },
+                                  { key: 'amount_fit',     label: '금액적합' },
+                                ] as { key: keyof typeof rec.score_breakdown; label: string }[]
+                              ).map(({ key, label }) => {
+                                const c = rec.score_breakdown![key]
+                                if (!c) return null
+                                return (
+                                  <span
+                                    key={key}
+                                    title={c.note}
+                                    className="inline-flex items-center gap-1 bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5 text-sm text-slate-600 cursor-default"
+                                  >
+                                    {label}
+                                    <span className="font-semibold text-slate-800">{c.pts}</span>
+                                    <span className="text-slate-500">/{c.max}</span>
+                                  </span>
+                                )
+                              })}
+                            </div>
+                          )}
                         </div>
                         <div className="text-right shrink-0 flex flex-col items-end gap-1">
                           {rec.score !== null && rec.score !== undefined && (
                             <div className="bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1.5 text-center">
-                              <p className="text-lg font-bold text-blue-600 tabular-nums leading-none">{Math.round(rec.score * 10)}</p>
-                              <p className="text-[10px] text-blue-400 mt-0.5">AI점수</p>
+                              <p className="text-lg font-bold text-blue-600 tabular-nums leading-none">{Math.round(rec.score)}</p>
+                              <p className="text-xs text-blue-400 mt-0.5">AI점수</p>
                             </div>
                           )}
                           <Button
@@ -400,7 +426,7 @@ export default function BidsPage() {
                         {calYear}년 {calMonth}월
                       </span>
                       {calLoading
-                        ? <span className="ml-2 text-xs text-slate-400">불러오는 중...</span>
+                        ? <span className="ml-2 text-xs text-slate-500">불러오는 중...</span>
                         : <span className="ml-2 text-sm text-slate-500">({calData?.total ?? 0}건 · 개찰일 기준)</span>
                       }
                     </div>
@@ -418,12 +444,12 @@ export default function BidsPage() {
                   </div>
                   <div className="grid grid-cols-7 gap-1 text-center">
                     {['일','월','화','수','목','금','토'].map(d => (
-                      <div key={d} className="text-[10px] font-semibold text-slate-400 py-1.5 border-b border-slate-100">{d}</div>
+                      <div key={d} className="text-xs font-semibold text-slate-500 py-1.5 border-b border-slate-100">{d}</div>
                     ))}
                     {cells.map((day, i) => {
                       const bids = day ? (calDaysMap[day] ?? []) : []
                       return (
-                        <div key={i} className={cn('min-h-[80px] rounded-lg p-1.5 border text-[10px]',
+                        <div key={i} className={cn('min-h-[80px] rounded-lg p-1.5 border text-xs',
                           day ? 'bg-white border-slate-200 hover:bg-slate-50' : 'bg-slate-50/50 border-transparent')}>
                           {day && (
                             <>
@@ -439,7 +465,7 @@ export default function BidsPage() {
                                 </div>
                               ))}
                               {bids.length > 3 && (
-                                <div className="text-slate-400 text-center">+{bids.length - 3}건</div>
+                                <div className="text-slate-500 text-center">+{bids.length - 3}건</div>
                               )}
                             </>
                           )}
@@ -498,7 +524,7 @@ export default function BidsPage() {
                       'flex items-center h-8 rounded-md border border-slate-200 bg-slate-50 px-3 text-xs gap-2',
                       'focus-within:ring-1 focus-within:ring-blue-300 focus-within:border-blue-300',
                     )}>
-                      <Building2 className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                      <Building2 className="h-3.5 w-3.5 text-slate-500 shrink-0" />
                       <input
                         value={agencyInput}
                         onChange={(e) => {
@@ -508,10 +534,10 @@ export default function BidsPage() {
                         }}
                         onFocus={() => agencyInput && setShowAgencyDrop(true)}
                         placeholder="발주기관 검색..."
-                        className="outline-none w-40 bg-transparent placeholder:text-slate-400 text-slate-700"
+                        className="outline-none w-40 bg-transparent placeholder:text-slate-500 text-slate-700"
                       />
                       {agencyId && (
-                        <button onClick={handleAgencyClear} className="text-slate-400 hover:text-slate-600">
+                        <button onClick={handleAgencyClear} className="text-slate-500 hover:text-slate-600">
                           <X className="h-3.5 w-3.5" />
                         </button>
                       )}
@@ -535,7 +561,7 @@ export default function BidsPage() {
                   </div>
 
                   <div className="relative flex-1 max-w-sm">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
                     <Input
                       value={keyword}
                       onChange={(e) => setKeyword(e.target.value)}
@@ -561,13 +587,13 @@ export default function BidsPage() {
                 <TableHeader>
                   <TableRow className="bg-slate-50 hover:bg-slate-50 border-b border-slate-200">
                     <TableHead className="w-8 text-slate-500" />
-                    <TableHead className="text-slate-600 font-semibold text-xs">공고명</TableHead>
-                    <TableHead className="text-slate-600 font-semibold text-xs">발주기관</TableHead>
-                    <TableHead className="text-slate-600 font-semibold text-xs">지역</TableHead>
-                    <TableHead className="text-right text-slate-600 font-semibold text-xs">기초금액</TableHead>
-                    <TableHead className="text-slate-600 font-semibold text-xs">개찰일</TableHead>
-                    <TableHead className="text-center text-slate-600 font-semibold text-xs">경쟁사</TableHead>
-                    <TableHead className="text-right text-slate-600 font-semibold text-xs">낙찰률</TableHead>
+                    <TableHead className="text-slate-600 font-semibold text-sm">공고명</TableHead>
+                    <TableHead className="text-slate-600 font-semibold text-sm">발주기관</TableHead>
+                    <TableHead className="text-slate-600 font-semibold text-sm">지역</TableHead>
+                    <TableHead className="text-right text-slate-600 font-semibold text-sm">기초금액</TableHead>
+                    <TableHead className="text-slate-600 font-semibold text-sm">개찰일</TableHead>
+                    <TableHead className="text-center text-slate-600 font-semibold text-sm">경쟁사</TableHead>
+                    <TableHead className="text-right text-slate-600 font-semibold text-sm">낙찰률</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -581,7 +607,7 @@ export default function BidsPage() {
                     ))
                   ) : !displayItems.length ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center text-slate-400 py-16">
+                      <TableCell colSpan={8} className="text-center text-slate-500 py-16">
                         <Search className="h-8 w-8 text-slate-200 mx-auto mb-2" />
                         <p className="text-sm">데이터가 없습니다.</p>
                       </TableCell>
@@ -609,7 +635,7 @@ export default function BidsPage() {
                               {verdict && <VerdictBadge verdict={verdict} />}
                               <span className="truncate font-medium text-slate-900 text-sm">{bid.title}</span>
                               {bid.source === 'g2b' && (
-                                <Badge variant="info" className="shrink-0 text-[10px] px-1.5 py-0">G2B</Badge>
+                                <Badge variant="info" className="shrink-0 text-xs px-1.5 py-0">G2B</Badge>
                               )}
                               {bid.status === 'open' && <DaysBadge dateStr={bid.bid_open_date} />}
                             </div>

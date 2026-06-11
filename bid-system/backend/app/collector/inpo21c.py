@@ -10,6 +10,7 @@ cloud.info21c.net에서 낙찰/입찰 데이터 수집:
 import re
 import time
 import logging
+import threading
 from datetime import datetime
 from urllib.request import Request, urlopen
 from sqlalchemy.orm import Session
@@ -19,6 +20,54 @@ logger = logging.getLogger(__name__)
 
 BASE = "https://cloud.info21c.net"
 UA   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+
+# ── 수집 진행 상태 (스레드 안전) ────────────────────────────────
+_prog_lock = threading.Lock()
+_prog: dict = {
+    "running": False, "job_type": None,
+    "page": 0, "max_pages": 0, "total_pages": 0,
+    "bids": 0, "participants": 0, "yega": 0, "skipped": 0,
+    "pct": 0.0, "started_at": None, "finished_at": None, "error": None,
+}
+
+
+def get_collect_progress() -> dict:
+    with _prog_lock:
+        return dict(_prog)
+
+
+def _prog_start(job_type: str, max_pages: int) -> None:
+    with _prog_lock:
+        _prog.update({
+            "running": True, "job_type": job_type,
+            "page": 0, "max_pages": max_pages, "total_pages": 0,
+            "bids": 0, "participants": 0, "yega": 0, "skipped": 0,
+            "pct": 0.0, "started_at": datetime.now().isoformat(), "finished_at": None, "error": None,
+        })
+
+
+def _prog_page(page: int, pct: float) -> None:
+    with _prog_lock:
+        _prog["page"] = page
+        _prog["total_pages"] += 1
+        _prog["pct"] = round(min(pct, 99.0), 1)
+
+
+def _prog_add(bids: int = 0, participants: int = 0, yega: int = 0, skipped: int = 0) -> None:
+    with _prog_lock:
+        _prog["bids"] += bids
+        _prog["participants"] += participants
+        _prog["yega"] += yega
+        _prog["skipped"] += skipped
+
+
+def _prog_done(error: str | None = None) -> None:
+    with _prog_lock:
+        _prog["running"] = False
+        _prog["pct"] = 100.0
+        _prog["finished_at"] = datetime.now().isoformat()
+        if error:
+            _prog["error"] = error
 
 _LOGIN_SIGNALS = ["login", "sign_in", "로그인", "세션이 만료", "인증이 필요"]
 
@@ -297,7 +346,7 @@ def _parse_bid_header(html: str) -> dict | None:
             yega_ratio = float(m2.group())
 
     return {
-        "announcement_no":  pairs.get("공고번호", "").strip(),
+        "announcement_no":  re.sub(r"-\d+$", "", pairs.get("공고번호", "").strip()),
         "industry":         pairs.get("공고업종", "").strip(),
         "region":           pairs.get("지역", "").strip(),
         "agency_name":      pairs.get("발주기관", "").strip(),
@@ -370,7 +419,7 @@ def _parse_bid_notice(html: str) -> dict | None:
         yega_rmax = int(m_range.group(2))
 
     return {
-        "announcement_no":  pairs.get("공고번호", "").strip(),
+        "announcement_no":  re.sub(r"-\d+$", "", pairs.get("공고번호", "").strip()),
         "industry":         pairs.get("업종", "").strip(),
         "region":           pairs.get("지역", "").strip(),
         "agency_name":      (pairs.get("수요기관", "") or pairs.get("발주기관", "")).strip(),
@@ -533,6 +582,7 @@ def collect_inpo21c(db: Session, max_pages: int = 4) -> dict:
 
     cookie = _get_valid_cookie(settings)
     if not cookie:
+        _prog_done(error="자동 로그인 실패 — INPO21C_ID/PW 확인 또는 INPO21C_COOKIE 수동 갱신 필요")
         return {
             "bids": 0, "participants": 0, "yega": 0, "skipped": 0,
             "cookie_valid": False,
@@ -540,6 +590,7 @@ def collect_inpo21c(db: Session, max_pages: int = 4) -> dict:
         }
 
     _ensure_tables(db)
+    _prog_start("division", max_pages)
 
     # 각 테이블별 기존 수집 여부를 독립적으로 추적
     existing_parts  = {r[0] for r in db.execute(text("SELECT DISTINCT inpo21c_bid_id FROM inpo21c_participants")).fetchall()}
@@ -547,50 +598,63 @@ def collect_inpo21c(db: Session, max_pages: int = 4) -> dict:
     existing_yega   = {r[0] for r in db.execute(text("SELECT DISTINCT inpo21c_bid_id FROM inpo21c_yega")).fetchall()}
 
     total_bids = total_participants = total_yega = skipped = 0
+    _total_steps = 3 * max_pages
 
-    for division in (1, 2, 3):
-        for page in range(1, max_pages + 1):
-            bid_ids = list(dict.fromkeys(_get_bid_ids(page, cookie, division)))
-            if not bid_ids:
-                break
+    try:
+        for di, division in enumerate((1, 2, 3), start=1):
+            for page in range(1, max_pages + 1):
+                _step = (di - 1) * max_pages + page
+                _prog_page(page, _step / _total_steps * 98)
 
-            for bid_id in bid_ids:
-                needs_parts  = bid_id not in existing_parts
-                needs_header = bid_id not in existing_bids
-                needs_yega   = bid_id not in existing_yega
+                bid_ids = list(dict.fromkeys(_get_bid_ids(page, cookie, division)))
+                if not bid_ids:
+                    break
 
-                if not needs_parts and not needs_header and not needs_yega:
-                    skipped += 1
-                    continue
+                for bid_id in bid_ids:
+                    needs_parts  = bid_id not in existing_parts
+                    needs_header = bid_id not in existing_bids
+                    needs_yega   = bid_id not in existing_yega
 
-                detail_url  = f"{BASE}/suc/view/con/{bid_id}"
-                detail_html = _fetch(detail_url, cookie, referer=f"{BASE}/suc/con?division={division}")
+                    if not needs_parts and not needs_header and not needs_yega:
+                        skipped += 1
+                        _prog_add(skipped=1)
+                        continue
 
-                if not detail_html:
-                    continue
+                    detail_url  = f"{BASE}/suc/view/con/{bid_id}"
+                    detail_html = _fetch(detail_url, cookie, referer=f"{BASE}/suc/con?division={division}")
 
-                if needs_parts:
-                    participant_rows = _parse_participants(detail_html)
-                    if participant_rows:
-                        cnt = _upsert_participants(db, bid_id, participant_rows)
-                        total_participants += cnt
-                        total_bids += 1
-                        existing_parts.add(bid_id)
+                    if not detail_html:
+                        continue
 
-                if needs_header:
-                    header = _parse_bid_header(detail_html)
-                    if header:
-                        _upsert_bid_header(db, bid_id, header)
-                        existing_bids.add(bid_id)
+                    if needs_parts:
+                        participant_rows = _parse_participants(detail_html)
+                        if participant_rows:
+                            cnt = _upsert_participants(db, bid_id, participant_rows)
+                            total_participants += cnt
+                            total_bids += 1
+                            _prog_add(bids=1, participants=cnt)
+                        existing_parts.add(bid_id)  # 파싱 실패해도 동일 건 재시도 방지
 
-                if needs_yega:
-                    yega_rows = _parse_yega(detail_html)
-                    if yega_rows:
-                        yc = _upsert_yega(db, bid_id, yega_rows)
-                        total_yega += yc
-                        existing_yega.add(bid_id)
+                    if needs_header:
+                        header = _parse_bid_header(detail_html)
+                        if header:
+                            _upsert_bid_header(db, bid_id, header)
+                            existing_bids.add(bid_id)
 
-                time.sleep(0.5)
+                    if needs_yega:
+                        yega_rows = _parse_yega(detail_html)
+                        if yega_rows:
+                            yc = _upsert_yega(db, bid_id, yega_rows)
+                            total_yega += yc
+                            _prog_add(yega=yc)
+                        existing_yega.add(bid_id)  # 파싱 실패해도 동일 건 재시도 방지
+
+                    time.sleep(0.5)
+
+        _prog_done()
+    except Exception as exc:
+        _prog_done(error=str(exc))
+        raise
 
     logger.info(
         "inpo21c 수집 완료: %d건 공고, %d명 참여자, %d개 예가, %d건 스킵",
@@ -631,6 +695,7 @@ def collect_inpo21c_national(db: Session, max_pages: int = 50) -> dict:
         }
 
     _ensure_tables(db)
+    _prog_start("national", max_pages)
 
     existing_parts = {r[0] for r in db.execute(text("SELECT DISTINCT inpo21c_bid_id FROM inpo21c_participants")).fetchall()}
     existing_bids  = {r[0] for r in db.execute(text("SELECT inpo21c_bid_id FROM inpo21c_bids")).fetchall()}
@@ -638,50 +703,61 @@ def collect_inpo21c_national(db: Session, max_pages: int = 50) -> dict:
 
     total_bids = total_participants = total_yega = skipped = empty_pages = 0
 
-    for page in range(1, max_pages + 1):
-        bid_ids = list(dict.fromkeys(_get_bid_ids_national(page, cookie)))
-        if not bid_ids:
-            empty_pages += 1
-            if empty_pages >= 3:
-                break
-            continue
-        empty_pages = 0
+    try:
+        for page in range(1, max_pages + 1):
+            _prog_page(page, page / max_pages * 98)
 
-        for bid_id in bid_ids:
-            needs_parts  = bid_id not in existing_parts
-            needs_header = bid_id not in existing_bids
-            needs_yega   = bid_id not in existing_yega
-
-            if not needs_parts and not needs_header and not needs_yega:
-                skipped += 1
+            bid_ids = list(dict.fromkeys(_get_bid_ids_national(page, cookie)))
+            if not bid_ids:
+                empty_pages += 1
+                if empty_pages >= 3:
+                    break
                 continue
+            empty_pages = 0
 
-            detail_html = _fetch(f"{BASE}/suc/view/con/{bid_id}", cookie, referer=f"{BASE}/suc/con")
-            if not detail_html:
-                continue
+            for bid_id in bid_ids:
+                needs_parts  = bid_id not in existing_parts
+                needs_header = bid_id not in existing_bids
+                needs_yega   = bid_id not in existing_yega
 
-            if needs_parts:
-                rows = _parse_participants(detail_html)
-                if rows:
-                    cnt = _upsert_participants(db, bid_id, rows)
-                    total_participants += cnt
-                    total_bids += 1
-                    existing_parts.add(bid_id)
+                if not needs_parts and not needs_header and not needs_yega:
+                    skipped += 1
+                    _prog_add(skipped=1)
+                    continue
 
-            if needs_header:
-                header = _parse_bid_header(detail_html)
-                if header:
-                    _upsert_bid_header(db, bid_id, header)
-                    existing_bids.add(bid_id)
+                detail_html = _fetch(f"{BASE}/suc/view/con/{bid_id}", cookie, referer=f"{BASE}/suc/con")
+                if not detail_html:
+                    continue
 
-            if needs_yega:
-                yega_rows = _parse_yega(detail_html)
-                if yega_rows:
-                    yc = _upsert_yega(db, bid_id, yega_rows)
-                    total_yega += yc
-                    existing_yega.add(bid_id)
+                if needs_parts:
+                    rows = _parse_participants(detail_html)
+                    if rows:
+                        cnt = _upsert_participants(db, bid_id, rows)
+                        total_participants += cnt
+                        total_bids += 1
+                        _prog_add(bids=1, participants=cnt)
+                    existing_parts.add(bid_id)  # 파싱 실패해도 동일 건 재시도 방지
 
-            time.sleep(0.5)
+                if needs_header:
+                    header = _parse_bid_header(detail_html)
+                    if header:
+                        _upsert_bid_header(db, bid_id, header)
+                        existing_bids.add(bid_id)
+
+                if needs_yega:
+                    yega_rows = _parse_yega(detail_html)
+                    if yega_rows:
+                        yc = _upsert_yega(db, bid_id, yega_rows)
+                        total_yega += yc
+                        _prog_add(yega=yc)
+                    existing_yega.add(bid_id)  # 파싱 실패해도 동일 건 재시도 방지
+
+                time.sleep(0.5)
+
+        _prog_done()
+    except Exception as exc:
+        _prog_done(error=str(exc))
+        raise
 
     logger.info(
         "inpo21c 전국 수집 완료: %d건 공고, %d명 참여자, %d개 예가, %d건 스킵",

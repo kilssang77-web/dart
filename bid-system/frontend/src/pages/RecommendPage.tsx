@@ -401,7 +401,7 @@ export default function RecommendPage() {
                             onClick={() => loadFromHistory(h)}
                           >
                             <div className="font-medium text-slate-800 truncate">{h.agencyName}</div>
-                            <div className="text-slate-400 mt-0.5">
+                            <div className="text-slate-500 mt-0.5">
                               {Number(h.base_amount).toLocaleString('ko-KR')}원
                             </div>
                           </button>
@@ -421,7 +421,7 @@ export default function RecommendPage() {
                   발주기관 <span className="text-red-500">*</span>
                 </Label>
                 <div className="relative">
-                  <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+                  <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
                   <Input
                     className="pl-9 border-slate-200 focus:border-blue-400 bg-white"
                     placeholder="기관명 검색..."
@@ -495,7 +495,7 @@ export default function RecommendPage() {
                   className="border-slate-200 focus:border-blue-400"
                 />
                 {form.base_amount && Number(form.base_amount) > 0 && (
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-slate-500">
                     {Number(form.base_amount).toLocaleString('ko-KR')}원
                   </p>
                 )}
@@ -596,23 +596,23 @@ export default function RecommendPage() {
             <CardContent className="p-5 space-y-4">
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <div className="bg-white rounded-lg p-3 border border-blue-100">
-                  <p className="text-xs text-slate-400 mb-1">A값 (예정가격 추정)</p>
+                  <p className="text-xs text-slate-500 mb-1">A값 (예정가격 추정)</p>
                   <p className="font-mono font-bold text-blue-800 text-base">
                     {bidRange.a_value.toLocaleString('ko-KR')}원
                   </p>
                 </div>
                 <div className="bg-white rounded-lg p-3 border border-blue-100">
-                  <p className="text-xs text-slate-400 mb-1">낙찰하한가</p>
+                  <p className="text-xs text-slate-500 mb-1">낙찰하한가</p>
                   <p className="font-mono font-bold text-amber-700 text-base">
                     {bidRange.floor_price.toLocaleString('ko-KR')}원
                   </p>
                 </div>
                 <div className="bg-white rounded-lg p-3 border border-blue-100">
-                  <p className="text-xs text-slate-400 mb-1">낙찰하한율</p>
+                  <p className="text-xs text-slate-500 mb-1">낙찰하한율</p>
                   <p className="font-mono font-bold text-slate-900 text-base">
                     {(bidRange.floor_rate * 100).toFixed(3)}%
                     {bidRange.industry_name && (
-                      <span className="text-xs font-normal text-slate-400 ml-1">({bidRange.industry_name})</span>
+                      <span className="text-xs font-normal text-slate-500 ml-1">({bidRange.industry_name})</span>
                     )}
                   </p>
                 </div>
@@ -633,7 +633,7 @@ export default function RecommendPage() {
                 )}
                 {bidRange.confidence != null && (
                   <div className="flex items-center gap-2 flex-1 min-w-[140px]">
-                    <span className="text-slate-400 shrink-0">예측 신뢰도</span>
+                    <span className="text-slate-500 shrink-0">예측 신뢰도</span>
                     <div className="flex-1 h-1.5 rounded-full bg-slate-200 overflow-hidden">
                       <div
                         className="h-full rounded-full bg-blue-500 transition-all"
@@ -661,11 +661,11 @@ export default function RecommendPage() {
                     label="낙찰 예상 확률 (균형전략)"
                   />
                   <div className="text-center">
-                    <p className="text-xs font-medium text-blue-500 uppercase tracking-wider mb-1">최종 권장 투찰률</p>
+                    <p className="text-sm font-medium text-blue-500 uppercase tracking-wider mb-1">최종 권장 투찰률</p>
                     <span className="text-5xl font-mono font-black text-blue-700 leading-none">
                       {(result.strategies.balanced.rate * 100).toFixed(2)}%
                     </span>
-                    <p className="text-xs text-slate-400 mt-1">{result.strategies.balanced.target}</p>
+                    <p className="text-xs text-slate-500 mt-1">{result.strategies.balanced.target}</p>
                   </div>
                   <ConfidenceBadge confidence={result.estimated_price.confidence} />
                   <div className="w-full grid grid-cols-3 gap-2">
@@ -719,7 +719,7 @@ export default function RecommendPage() {
                       <p className="text-xs text-red-700 font-semibold mt-1">
                         낙찰확률 {(result.win_probabilities.at_aggressive * 100).toFixed(1)}%
                       </p>
-                      <p className="text-xs text-slate-400 mt-1.5 leading-snug">{result.strategies.aggressive.note}</p>
+                      <p className="text-xs text-slate-500 mt-1.5 leading-snug">{result.strategies.aggressive.note}</p>
                     </div>
                   </div>
                   {/* 균형형 */}
@@ -736,7 +736,7 @@ export default function RecommendPage() {
                       <p className="text-xs text-blue-700 font-semibold mt-1">
                         낙찰확률 {(result.win_probabilities.at_balanced * 100).toFixed(1)}%
                       </p>
-                      <p className="text-xs text-slate-400 mt-1.5 leading-snug">{result.strategies.balanced.note}</p>
+                      <p className="text-xs text-slate-500 mt-1.5 leading-snug">{result.strategies.balanced.note}</p>
                     </div>
                   </div>
                   {/* 안정형 */}
@@ -750,7 +750,7 @@ export default function RecommendPage() {
                       <p className="text-xs text-emerald-700 font-semibold mt-1">
                         낙찰확률 {(result.win_probabilities.at_conservative * 100).toFixed(1)}%
                       </p>
-                      <p className="text-xs text-slate-400 mt-1.5 leading-snug">{result.strategies.conservative.note}</p>
+                      <p className="text-xs text-slate-500 mt-1.5 leading-snug">{result.strategies.conservative.note}</p>
                     </div>
                   </div>
                 </div>
@@ -786,29 +786,29 @@ export default function RecommendPage() {
                       <div className="bg-blue-50 rounded-lg p-3 border border-blue-100">
                         <p className="font-semibold text-blue-700 mb-1">이 발주처 기준</p>
                         <p className="text-slate-700">평균 {(srateDist.agency_stats.mean * 100).toFixed(3)}%</p>
-                        <p className="text-slate-400">편차 ±{(srateDist.agency_stats.std * 100).toFixed(3)}%</p>
-                        <p className="text-slate-400">{srateDist.agency_stats.sample_count}건</p>
+                        <p className="text-slate-500">편차 ±{(srateDist.agency_stats.std * 100).toFixed(3)}%</p>
+                        <p className="text-slate-500">{srateDist.agency_stats.sample_count}건</p>
                       </div>
                     )}
                     {srateDist.industry_stats && (
                       <div className="bg-slate-50 rounded-lg p-3 border border-slate-100">
                         <p className="font-semibold text-slate-600 mb-1">동일 공종 기준</p>
                         <p className="text-slate-700">평균 {(srateDist.industry_stats.mean * 100).toFixed(3)}%</p>
-                        <p className="text-slate-400">편차 ±{(srateDist.industry_stats.std * 100).toFixed(3)}%</p>
-                        <p className="text-slate-400">{srateDist.industry_stats.sample_count}건</p>
+                        <p className="text-slate-500">편차 ±{(srateDist.industry_stats.std * 100).toFixed(3)}%</p>
+                        <p className="text-slate-500">{srateDist.industry_stats.sample_count}건</p>
                       </div>
                     )}
                     {srateDist.global_stats && (
                       <div className="bg-slate-50 rounded-lg p-3 border border-slate-100">
                         <p className="font-semibold text-slate-600 mb-1">전체 평균</p>
                         <p className="text-slate-700">평균 {(srateDist.global_stats.mean * 100).toFixed(3)}%</p>
-                        <p className="text-slate-400">편차 ±{(srateDist.global_stats.std * 100).toFixed(3)}%</p>
-                        <p className="text-slate-400">{srateDist.global_stats.sample_count}건</p>
+                        <p className="text-slate-500">편차 ±{(srateDist.global_stats.std * 100).toFixed(3)}%</p>
+                        <p className="text-slate-500">{srateDist.global_stats.sample_count}건</p>
                       </div>
                     )}
                   </div>
                 )}
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-500">
                   {result.estimated_price.used_model ? 'ML 모델 사용' : '규칙 기반 추정 (데이터 축적 중)'}
                 </p>
                 <RateBand
@@ -830,8 +830,8 @@ export default function RecommendPage() {
                   >
                     <span className="text-base font-semibold text-slate-800">추천 근거 — SHAP 기여 요인</span>
                     {showDetail
-                      ? <ChevronUp className="h-4 w-4 text-slate-400" />
-                      : <ChevronDown className="h-4 w-4 text-slate-400" />}
+                      ? <ChevronUp className="h-4 w-4 text-slate-500" />
+                      : <ChevronDown className="h-4 w-4 text-slate-500" />}
                   </button>
                 </CardHeader>
                 {showDetail && (
@@ -856,7 +856,7 @@ export default function RecommendPage() {
                               : <TrendingDown className="h-4 w-4" />}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium truncate text-slate-700">{f.label}</div>
+                            <div className="text-sm font-medium truncate text-slate-700">{f.label}</div>
                             <div className="h-1.5 bg-white/70 rounded-full mt-1 overflow-hidden">
                               <div
                                 className={cn('h-full rounded-full', f.direction === 'positive' ? 'bg-emerald-400' : 'bg-red-400')}
@@ -870,7 +870,7 @@ export default function RecommendPage() {
                         </div>
                       ))}
                     </div>
-                    <p className="text-xs text-slate-400 pt-1">
+                    <p className="text-xs text-slate-500 pt-1">
                       모델: {result.explanation.model_version} / 기준 데이터: {result.explanation.data_count}건
                     </p>
                   </CardContent>
@@ -891,14 +891,14 @@ export default function RecommendPage() {
                         <div key={p.competitor_id} className="flex items-center justify-between text-xs py-2 border-b border-slate-100 last:border-0">
                           <span className="truncate text-slate-700">{p.name}</span>
                           <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-slate-400">평균 {(p.avg_rate * 100).toFixed(2)}%</span>
+                            <span className="text-slate-500">평균 {(p.avg_rate * 100).toFixed(2)}%</span>
                             <RiskBadgeSm level={p.risk_level} />
                           </div>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-xs text-slate-400 py-2">경쟁사 프로파일 정보 없음</p>
+                    <p className="text-xs text-slate-500 py-2">경쟁사 프로파일 정보 없음</p>
                   )}
                   <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-slate-100">
                     <InfoBox label="낙찰 집중도(HHI)" value={result.competition.hhi.toFixed(3)} />
@@ -949,9 +949,9 @@ export default function RecommendPage() {
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-base font-semibold text-slate-800">
                         과거 낙찰 집중 구간 Top 10
-                        <span className="text-xs font-normal text-slate-400 ml-2">소수점 3자리 · 24개월</span>
+                        <span className="text-xs font-normal text-slate-500 ml-2">소수점 3자리 · 24개월</span>
                       </CardTitle>
-                      <span className="text-xs text-slate-400">
+                      <span className="text-xs text-slate-500">
                         {srateDist?.agency_stats
                           ? `이 발주처 기준 (${srateDist.agency_stats.sample_count}건)`
                           : srateDist?.global_stats
@@ -974,12 +974,12 @@ export default function RecommendPage() {
                       <TableBody>
                         {top10.map((row) => (
                           <TableRow key={row.rank} className={cn(row.isNear ? 'bg-blue-50/50' : 'hover:bg-slate-50/50')}>
-                            <TableCell className="text-center font-mono text-slate-400">{row.rank}</TableCell>
+                            <TableCell className="text-center font-mono text-slate-500">{row.rank}</TableCell>
                             <TableCell className="font-mono font-semibold text-slate-900">{row.pct}</TableCell>
                             <TableCell className="text-right text-slate-600">{row.count.toLocaleString()}건</TableCell>
-                            <TableCell className="text-right text-slate-400">{row.ratio}%</TableCell>
+                            <TableCell className="text-right text-slate-500">{row.ratio}%</TableCell>
                             <TableCell className="text-center">
-                              {row.isNear && <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-[10px] px-1.5 py-0">추천 근접</Badge>}
+                              {row.isNear && <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-xs px-1.5 py-0">추천 근접</Badge>}
                             </TableCell>
                           </TableRow>
                         ))}
@@ -997,7 +997,7 @@ export default function RecommendPage() {
                   <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-1.5">
                     <Zap className="h-4 w-4 text-amber-500" />
                     프리즘 2.0 — 구간별 낙찰확률 히트맵
-                    <span className="text-xs font-normal text-slate-400">(0.860~0.930 × 0.001 = 70구간)</span>
+                    <span className="text-xs font-normal text-slate-500">(0.860~0.930 × 0.001 = 70구간)</span>
                   </CardTitle>
                   {!showPrism ? (
                     <Button
@@ -1017,7 +1017,7 @@ export default function RecommendPage() {
                       프리즘 분석 실행
                     </Button>
                   ) : (
-                    <Button variant="ghost" size="sm" className="h-7 text-xs text-slate-400" onClick={() => setShowPrism(false)}>
+                    <Button variant="ghost" size="sm" className="h-7 text-xs text-slate-500" onClick={() => setShowPrism(false)}>
                       닫기
                     </Button>
                   )}
@@ -1026,14 +1026,14 @@ export default function RecommendPage() {
               {showPrism && (
                 <CardContent className="p-5 space-y-4">
                   {prismLoading ? (
-                    <div className="text-xs text-slate-400 py-8 text-center">
+                    <div className="text-xs text-slate-500 py-8 text-center">
                       70구간 Monte Carlo 분석 중... (20,000회 시뮬레이션)
                     </div>
                   ) : prismData ? (
                     <>
                       {/* 히트맵 BarChart */}
                       <div>
-                        <p className="text-xs text-slate-400 mb-3">
+                        <p className="text-xs text-slate-500 mb-3">
                           X축: 투찰률 구간 (사정율 기준) &nbsp;|&nbsp; Y축: 낙찰확률 (%) &nbsp;|&nbsp;
                           <span className="text-amber-600 font-medium">주황색</span>: 상위 10개 구간
                         </p>
@@ -1084,7 +1084,7 @@ export default function RecommendPage() {
                       <div>
                         <p className="text-xs font-semibold text-amber-700 mb-2">
                           낙찰확률 상위 10개 구간
-                          <span className="font-normal text-slate-400 ml-2">
+                          <span className="font-normal text-slate-500 ml-2">
                             (floor_ok 구간만, inpo21c 실증분포 기반)
                           </span>
                         </p>
@@ -1101,7 +1101,7 @@ export default function RecommendPage() {
                           <TableBody>
                             {prismData.top10.map((z, idx) => (
                               <TableRow key={z.rate} className={idx === 0 ? 'bg-amber-50/50' : 'hover:bg-slate-50/50'}>
-                                <TableCell className="text-center font-mono text-slate-400">{idx + 1}</TableCell>
+                                <TableCell className="text-center font-mono text-slate-500">{idx + 1}</TableCell>
                                 <TableCell className="font-mono font-semibold text-amber-700">
                                   {(z.rate * 100).toFixed(3)}%
                                 </TableCell>
@@ -1111,14 +1111,14 @@ export default function RecommendPage() {
                                 <TableCell className="text-right text-sm text-slate-600">
                                   {z.amount.toLocaleString('ko-KR')}원
                                 </TableCell>
-                                <TableCell className="text-right text-slate-400">
+                                <TableCell className="text-right text-slate-500">
                                   {z.rank_est.toFixed(1)}위
                                 </TableCell>
                               </TableRow>
                             ))}
                           </TableBody>
                         </Table>
-                        <p className="text-xs text-slate-400 mt-2">
+                        <p className="text-xs text-slate-500 mt-2">
                           총 {prismData.scan_meta.total_zones}구간 스캔 · 유효구간 {prismData.scan_meta.floor_ok_count}개 ·
                           공종 {prismData.scan_meta.industry_name || '미지정'}
                         </p>
@@ -1161,7 +1161,7 @@ export default function RecommendPage() {
                             {s.winner_rate ? pct(s.winner_rate) + '%' : '-'}
                           </TableCell>
                           <TableCell className="text-center text-slate-500">{s.competitor_count}</TableCell>
-                          <TableCell className="text-right text-slate-400">{(s.similarity_score * 100).toFixed(0)}%</TableCell>
+                          <TableCell className="text-right text-slate-500">{(s.similarity_score * 100).toFixed(0)}%</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -1199,11 +1199,11 @@ export default function RecommendPage() {
                 ) : (
                   <div className="flex items-end gap-3 flex-wrap">
                     <div className="space-y-1">
-                      <p className="text-xs text-slate-400">AI 권장 투찰률</p>
+                      <p className="text-xs text-slate-500">AI 권장 투찰률</p>
                       <p className="text-lg font-mono font-bold text-blue-600">{(result.strategies.balanced.rate * 100).toFixed(2)}%</p>
                     </div>
                     <div className="space-y-1 flex-1 min-w-[120px]">
-                      <label className="text-xs text-slate-400">실제 투찰률 (%)</label>
+                      <label className="text-xs text-slate-500">실제 투찰률 (%)</label>
                       <Input
                         type="number"
                         step="0.001"
@@ -1214,7 +1214,7 @@ export default function RecommendPage() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs text-slate-400">입찰일</label>
+                      <label className="text-xs text-slate-500">입찰일</label>
                       <Input
                         type="date"
                         value={saveBidDate}
@@ -1379,7 +1379,7 @@ function RateBand({ floor, lower, center, upper }: { floor: number; lower: numbe
           style={{ left: `${p(center)}%`, transform: 'translateX(-50%)' }} />
         <div className="absolute top-0 h-full w-0.5 bg-red-400" style={{ left: `${p(floor)}%` }} />
       </div>
-      <div className="flex justify-between text-xs text-slate-400 mt-1.5">
+      <div className="flex justify-between text-xs text-slate-500 mt-1.5">
         <span>낙찰하한 {(floor * 100).toFixed(2)}%</span>
         <span>하단 {(lower * 100).toFixed(2)}%</span>
         <span className="font-semibold text-blue-600">권장 {(center * 100).toFixed(2)}%</span>
@@ -1398,7 +1398,7 @@ function ConfidenceBadge({ confidence }: { confidence: number }) {
 function InfoBox({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-100">
-      <div className="text-xs text-slate-400">{label}</div>
+      <div className="text-xs text-slate-500">{label}</div>
       <div className="text-sm font-semibold text-slate-900 mt-0.5">{value}</div>
     </div>
   )
@@ -1406,7 +1406,7 @@ function InfoBox({ label, value }: { label: string; value: string }) {
 
 function TrendRow({ label, value, isRate }: { label: string; value: number; unit: string; isRate?: boolean }) {
   const Icon = value > 0.001 ? TrendingUp : value < -0.001 ? TrendingDown : Minus
-  const color = value > 0.001 ? 'text-blue-600' : value < -0.001 ? 'text-red-500' : 'text-slate-400'
+  const color = value > 0.001 ? 'text-blue-600' : value < -0.001 ? 'text-red-500' : 'text-slate-500'
   const display = isRate ? `${value >= 0 ? '+' : ''}${(value * 100).toFixed(3)}%` : String(value)
   return (
     <div className="flex items-center justify-between">
@@ -1420,7 +1420,7 @@ function TrendRow({ label, value, isRate }: { label: string; value: number; unit
 
 function RiskBadgeSm({ level }: { level: string }) {
   const variant = level === 'HIGH' ? 'destructive' : level === 'MEDIUM' ? 'warning' : 'success'
-  return <Badge variant={variant} className="text-[10px] px-1.5 py-0">{level}</Badge>
+  return <Badge variant={variant} className="text-xs px-1.5 py-0">{level}</Badge>
 }
 
 interface SrateRange { p10: number; p25: number; p50: number; p75: number; p90: number }
@@ -1438,7 +1438,7 @@ function SratePercentileBar({ srate, center }: { srate: SrateRange; center: numb
   ]
   return (
     <div className="space-y-1.5">
-      <p className="text-xs text-slate-400">사정율 예측 범위 (P10 ~ P90)</p>
+      <p className="text-xs text-slate-500">사정율 예측 범위 (P10 ~ P90)</p>
       <div className="relative h-6 bg-slate-100 rounded-full overflow-hidden">
         <div className="absolute h-full bg-slate-200 rounded-full" style={{ left: '0%', width: '100%' }} />
         <div
@@ -1450,7 +1450,7 @@ function SratePercentileBar({ srate, center }: { srate: SrateRange; center: numb
           style={{ left: `${pct(center)}%`, transform: 'translateX(-50%)' }}
         />
       </div>
-      <div className="flex justify-between text-xs text-slate-400">
+      <div className="flex justify-between text-xs text-slate-500">
         {labels.map(({ key, label }) => (
           <span key={key}>{label}: {(srate[key] * 100).toFixed(3)}%</span>
         ))}

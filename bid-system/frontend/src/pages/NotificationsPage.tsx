@@ -77,10 +77,10 @@ function NotificationRow({
       {/* 본문 */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-0.5">
-          <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full border', conf.badgeCls)}>
+          <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full border', conf.badgeCls)}>
             {conf.label}
           </span>
-          <span className="text-xs text-slate-400">
+          <span className="text-xs text-slate-500">
             {new Date(item.created_at).toLocaleDateString('ko-KR', {
               month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
             })}
@@ -96,7 +96,7 @@ function NotificationRow({
           <div className="h-2 w-2 rounded-full bg-blue-500" />
         )}
         {item.link && (
-          <ExternalLink className={cn('h-3.5 w-3.5', item.is_read ? 'text-slate-300' : 'text-slate-400')} />
+          <ExternalLink className={cn('h-3.5 w-3.5', item.is_read ? 'text-slate-300' : 'text-slate-500')} />
         )}
       </div>
     </div>
@@ -181,13 +181,13 @@ export default function NotificationsPage() {
                 ))}
               </div>
             ) : !data?.items.length ? (
-              <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-3">
+              <div className="flex flex-col items-center justify-center py-20 text-slate-500 gap-3">
                 <div className="h-16 w-16 rounded-full bg-slate-50 flex items-center justify-center">
                   <BellOff className="h-7 w-7 text-slate-300" />
                 </div>
                 <div className="text-center">
                   <p className="text-sm font-medium text-slate-500">알림이 없습니다</p>
-                  <p className="text-xs text-slate-400 mt-1">새 공고나 시스템 알림이 여기에 표시됩니다</p>
+                  <p className="text-xs text-slate-500 mt-1">새 공고나 시스템 알림이 여기에 표시됩니다</p>
                 </div>
               </div>
             ) : (
@@ -216,7 +216,7 @@ export default function NotificationsPage() {
             {Object.entries(NTYPE_CONFIG).map(([key, conf]) => {
               const IconComp = conf.icon
               return (
-                <div key={key} className="flex items-center gap-1.5 text-xs text-slate-400">
+                <div key={key} className="flex items-center gap-1.5 text-xs text-slate-500">
                   <div className={cn('h-5 w-5 rounded-full flex items-center justify-center', conf.iconBg)}>
                     <IconComp className={cn('h-3 w-3', conf.iconColor)} />
                   </div>

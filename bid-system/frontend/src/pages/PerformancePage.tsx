@@ -65,7 +65,7 @@ function KpiCard({
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-slate-500">{label}</p>
             <p className={cn('text-2xl font-bold mt-1 tabular-nums', s.value)}>{value}</p>
-            {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
+            {sub && <p className="text-xs text-slate-500 mt-0.5">{sub}</p>}
           </div>
           {Icon && (
             <div className={cn('rounded-xl p-2.5 shrink-0 ml-3', s.icon)}>
@@ -191,11 +191,11 @@ function TabKPI() {
             </CardTitle>
           </CardHeader>
           <CardContent className="px-5 pb-5">
-            <ResponsiveContainer width="100%" height={190}>
+            <ResponsiveContainer width="100%" height={260}>
               <LineChart data={kpi.monthly_trend} margin={{ left: -20, right: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                <YAxis tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`} tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#475569' }} />
+                <YAxis tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`} tick={{ fontSize: 12, fill: '#475569' }} />
                 <Tooltip
                   contentStyle={{ border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }}
                   formatter={(v: number) => [`${(v * 100).toFixed(1)}%`, '수주율']}
@@ -220,11 +220,11 @@ function TabKPI() {
             <CardTitle className="text-sm font-semibold text-slate-800">월별 투찰 / 낙찰 건수</CardTitle>
           </CardHeader>
           <CardContent className="px-5 pb-5">
-            <ResponsiveContainer width="100%" height={170}>
+            <ResponsiveContainer width="100%" height={240}>
               <BarChart data={kpi.monthly_trend} margin={{ left: -20, right: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#475569' }} />
+                <YAxis tick={{ fontSize: 12, fill: '#475569' }} />
                 <Tooltip contentStyle={{ border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }} />
                 <Bar dataKey="total_bids" name="투찰" fill="#bfdbfe" radius={[3, 3, 0, 0]} />
                 <Bar dataKey="total_wins" name="낙찰" fill="#2563eb" radius={[3, 3, 0, 0]} />
@@ -248,22 +248,22 @@ function TabKPI() {
           <CardContent className="px-5 pb-5">
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-                <p className="text-xs font-medium text-slate-500">사정율 예측 MAE</p>
+                <p className="text-sm font-medium text-slate-500">사정율 예측 MAE</p>
                 <p className={cn('text-2xl font-bold mt-1 tabular-nums',
                   (kpi?.srate_mae ?? 0) <= 0.003 ? 'text-emerald-600'
                   : (kpi?.srate_mae ?? 0) <= 0.005 ? 'text-amber-600' : 'text-red-500')}>
                   {kpi?.srate_mae != null ? (kpi.srate_mae * 100).toFixed(3) + '%' : '-'}
                 </p>
-                <p className="text-[10px] text-slate-400 mt-1">목표 0.500% 이하</p>
+                <p className="text-xs text-slate-500 mt-1">목표 0.500% 이하</p>
               </div>
               <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-                <p className="text-xs font-medium text-slate-500">낙찰확률 캘리브레이션 오차(ECE)</p>
+                <p className="text-sm font-medium text-slate-500">낙찰확률 캘리브레이션 오차(ECE)</p>
                 <p className={cn('text-2xl font-bold mt-1 tabular-nums',
                   (kpi?.win_prob_calibration ?? 0) <= 0.05 ? 'text-emerald-600'
                   : (kpi?.win_prob_calibration ?? 0) <= 0.10 ? 'text-amber-600' : 'text-red-500')}>
                   {kpi?.win_prob_calibration != null ? kpi.win_prob_calibration.toFixed(3) : '-'}
                 </p>
-                <p className="text-[10px] text-slate-400 mt-1">목표 0.10 이하</p>
+                <p className="text-xs text-slate-500 mt-1">목표 0.10 이하</p>
               </div>
             </div>
           </CardContent>
@@ -286,7 +286,7 @@ function TabKPI() {
                 <div key={item.label} className="text-center bg-slate-50 rounded-xl p-4 border border-slate-100">
                   <p className="text-xs text-slate-500 font-medium">{item.label}</p>
                   <p className="text-2xl font-bold mt-1 text-slate-900 tabular-nums">
-                    {item.value}<span className="text-xs font-normal text-slate-400 ml-0.5">{item.sub}</span>
+                    {item.value}<span className="text-xs font-normal text-slate-500 ml-0.5">{item.sub}</span>
                   </p>
                 </div>
               ))}
@@ -344,7 +344,7 @@ function TabHistory({ navigate }: { navigate: ReturnType<typeof useNavigate> }) 
       <Card className="bg-white border-slate-200 shadow-sm">
         <CardHeader className="pb-2 pt-4 px-5">
           <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
-            <ClipboardList className="h-4 w-4 text-slate-400" />
+            <ClipboardList className="h-4 w-4 text-slate-500" />
             최근 투찰 이력
           </CardTitle>
         </CardHeader>
@@ -352,12 +352,12 @@ function TabHistory({ navigate }: { navigate: ReturnType<typeof useNavigate> }) 
           <Table>
             <TableHeader>
               <TableRow className="bg-slate-50">
-                <TableHead className="text-xs text-slate-500">공고명</TableHead>
-                <TableHead className="text-xs text-slate-500">발주기관</TableHead>
-                <TableHead className="text-xs text-slate-500">투찰일</TableHead>
-                <TableHead className="text-right text-xs text-slate-500">기초금액</TableHead>
-                <TableHead className="text-right text-xs text-slate-500">투찰률</TableHead>
-                <TableHead className="text-center text-xs text-slate-500">결과</TableHead>
+                <TableHead className="text-sm text-slate-500">공고명</TableHead>
+                <TableHead className="text-sm text-slate-500">발주기관</TableHead>
+                <TableHead className="text-sm text-slate-500">투찰일</TableHead>
+                <TableHead className="text-right text-sm text-slate-500">기초금액</TableHead>
+                <TableHead className="text-right text-sm text-slate-500">투찰률</TableHead>
+                <TableHead className="text-center text-sm text-slate-500">결과</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -371,7 +371,7 @@ function TabHistory({ navigate }: { navigate: ReturnType<typeof useNavigate> }) 
                 ))
               ) : !(listData?.items?.length) ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-slate-400 py-10">
+                  <TableCell colSpan={6} className="text-center text-slate-500 py-10">
                     투찰 이력이 없습니다.
                   </TableCell>
                 </TableRow>
@@ -388,13 +388,13 @@ function TabHistory({ navigate }: { navigate: ReturnType<typeof useNavigate> }) 
                     <TableCell className="max-w-xs">
                       <p className="truncate font-semibold text-slate-800">{rec.title}</p>
                       {rec.announcement_no && (
-                        <p className="text-[10px] text-slate-400 font-mono">{rec.announcement_no}</p>
+                        <p className="text-xs text-slate-500 font-mono">{rec.announcement_no}</p>
                       )}
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-sm text-slate-500">
                       {rec.agency_name ?? '-'}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap text-sm text-slate-400">
+                    <TableCell className="whitespace-nowrap text-sm text-slate-500">
                       {rec.bid_date ? new Date(rec.bid_date).toLocaleDateString('ko-KR') : '-'}
                     </TableCell>
                     <TableCell className="text-right text-sm text-slate-600 tabular-nums">
@@ -439,7 +439,7 @@ function TabDefeat({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
 
   if (!defeat || defeat.total_analyzed === 0) return (
     <div className="text-center py-16 space-y-3">
-      <p className="text-slate-400">분석할 패찰 데이터가 없습니다.</p>
+      <p className="text-slate-500">분석할 패찰 데이터가 없습니다.</p>
       <Button size="sm" onClick={() => navigate('/my-bids')} className="bg-slate-800 hover:bg-slate-900">
         투찰 이력 등록하기
       </Button>
@@ -488,11 +488,11 @@ function TabDefeat({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
             <CardTitle className="text-sm font-semibold text-slate-800">패찰 이탈 분포</CardTitle>
           </CardHeader>
           <CardContent className="px-5 pb-5">
-            <ResponsiveContainer width="100%" height={165}>
+            <ResponsiveContainer width="100%" height={240}>
               <BarChart data={distribution.map(d => ({ ...d, label: `${d.from}~${d.to}%` }))} margin={{ left: -20 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#94a3b8' }} />
-                <YAxis tick={{ fontSize: 9, fill: '#94a3b8' }} />
+                <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#475569' }} />
+                <YAxis tick={{ fontSize: 12, fill: '#475569' }} />
                 <Tooltip
                   contentStyle={{ border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }}
                   formatter={(v: number) => [v + '건', '건수']}
@@ -500,7 +500,7 @@ function TabDefeat({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
                 <Bar dataKey="count" fill="#93c5fd" radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-            <p className="text-xs text-slate-400 mt-1.5">음수: 낙찰가 아래 이탈 / 양수: 낙찰가 위 이탈</p>
+            <p className="text-xs text-slate-500 mt-1.5">음수: 낙찰가 아래 이탈 / 양수: 낙찰가 위 이탈</p>
           </CardContent>
         </Card>
       )}
@@ -512,11 +512,11 @@ function TabDefeat({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
             <CardTitle className="text-sm font-semibold text-slate-800">월별 패찰 추이</CardTitle>
           </CardHeader>
           <CardContent className="px-5 pb-5">
-            <ResponsiveContainer width="100%" height={145}>
+            <ResponsiveContainer width="100%" height={220}>
               <LineChart data={trend} margin={{ left: -20 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="year_month" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                <XAxis dataKey="year_month" tick={{ fontSize: 12, fill: '#475569' }} />
+                <YAxis tick={{ fontSize: 12, fill: '#475569' }} />
                 <Tooltip contentStyle={{ border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }} />
                 <Line type="monotone" dataKey="count" name="패찰건수" stroke="#ef4444" strokeWidth={2.5} dot={{ r: 3, fill: '#ef4444' }} />
               </LineChart>
@@ -535,10 +535,10 @@ function TabDefeat({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50">
-                  <TableHead className="text-xs text-slate-500">발주처</TableHead>
-                  <TableHead className="text-center text-xs text-slate-500">패찰건</TableHead>
-                  <TableHead className="text-right text-xs text-slate-500">평균 이탈</TableHead>
-                  <TableHead className="text-right text-xs text-slate-500">이탈 방향</TableHead>
+                  <TableHead className="text-sm text-slate-500">발주처</TableHead>
+                  <TableHead className="text-center text-sm text-slate-500">패찰건</TableHead>
+                  <TableHead className="text-right text-sm text-slate-500">평균 이탈</TableHead>
+                  <TableHead className="text-right text-sm text-slate-500">이탈 방향</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -551,7 +551,7 @@ function TabDefeat({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
                     </TableCell>
                     <TableCell className="text-right">
                       <span className={cn(
-                        'inline-flex items-center text-[10px] px-2 py-0.5 rounded-full border font-medium',
+                        'inline-flex items-center text-xs px-2 py-0.5 rounded-full border font-medium',
                         a.direction === 'too_high' ? 'bg-red-50 text-red-600 border-red-200' :
                         a.direction === 'too_low' ? 'bg-blue-50 text-blue-600 border-blue-200' :
                         'bg-slate-50 text-slate-500 border-slate-200'

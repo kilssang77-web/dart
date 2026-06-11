@@ -76,14 +76,19 @@ export default function AdminPage() {
 
   const inpoCollectMutation = useMutation({
     mutationFn: () => adminApi.triggerInpo21cCollect(4),
-    onSuccess: (data) => {
-      setInpoCollectMsg({ type: 'success', text: data.message ?? 'inpo21c 수집 시작됨' })
-      setTimeout(() => setInpoCollectMsg(null), 5000)
-    },
+    onSuccess: () => { refetchInpoProgress() },
     onError: () => {
       setInpoCollectMsg({ type: 'error', text: 'inpo21c 수집 요청 실패' })
       setTimeout(() => setInpoCollectMsg(null), 5000)
     },
+  })
+
+  const { data: inpoProgress, refetch: refetchInpoProgress } = useQuery({
+    queryKey: ['inpo21c-progress'],
+    queryFn: () => adminApi.inpo21cProgress(),
+    enabled: tab === 'collection',
+    refetchInterval: (q) => (q.state.data?.running ? 2000 : false),
+    staleTime: 0,
   })
 
   if (checkedIds === null && industryFilters.length > 0) {
@@ -221,7 +226,7 @@ export default function AdminPage() {
                           <div>
                             <p className="text-sm font-medium text-slate-500">{label}</p>
                             <p className="text-2xl font-bold mt-1 tabular-nums text-slate-900">{value}</p>
-                            {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
+                            {sub && <p className="text-xs text-slate-500 mt-1">{sub}</p>}
                           </div>
                           <div className={cn('rounded-xl p-2.5', iconBg)}>
                             <Icon className={cn('h-5 w-5', iconColor)} />
@@ -240,7 +245,7 @@ export default function AdminPage() {
                         <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
                           <Activity className="h-4 w-4 text-blue-600" />수집기 상태
                         </CardTitle>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-blue-600" onClick={() => { refetchStatus(); refetchCollectorStatus() }}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:text-blue-600" onClick={() => { refetchStatus(); refetchCollectorStatus() }}>
                           <RefreshCw className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -262,7 +267,7 @@ export default function AdminPage() {
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-sm text-slate-500">마지막 수집</span>
-                        <span className="text-xs text-slate-600">
+                        <span className="text-sm text-slate-600">
                           {collectorStatus?.last_run_at
                             ? new Date(collectorStatus.last_run_at).toLocaleString('ko-KR')
                             : collector?.last_g2b_collect
@@ -282,11 +287,11 @@ export default function AdminPage() {
                       </div>
                       {status?.daily_collection && status.daily_collection.length > 0 && (
                         <div className="border-t border-slate-100 pt-3 mt-1">
-                          <div className="text-xs font-medium text-slate-500 mb-2">최근 수집 현황</div>
+                          <div className="text-sm font-medium text-slate-500 mb-2">최근 수집 현황</div>
                           <div className="space-y-1">
                             {status.daily_collection.slice(0, 5).map((d) => (
                               <div key={d.date} className="flex justify-between text-xs">
-                                <span className="text-slate-400">{d.date}</span>
+                                <span className="text-slate-500">{d.date}</span>
                                 <span className="text-slate-600 font-medium">{d.count.toLocaleString()}건</span>
                               </div>
                             ))}
@@ -352,7 +357,7 @@ export default function AdminPage() {
                           )}
                         </div>
                       ) : (
-                        <div className="text-sm text-slate-400 py-4 text-center">정보 없음</div>
+                        <div className="text-sm text-slate-500 py-4 text-center">정보 없음</div>
                       )}
                     </CardContent>
                   </Card>
@@ -381,7 +386,7 @@ export default function AdminPage() {
                           {collectionLogs.map((log) => (
                             <TableRow key={log.id} className="hover:bg-slate-50/50 border-b border-slate-100">
                               <TableCell>
-                                <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full border',
+                                <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full border',
                                   log.collect_type === 'notice_cnstwk'
                                     ? 'bg-blue-50 text-blue-700 border-blue-200'
                                     : log.collect_type === 'notice_servc'
@@ -391,16 +396,16 @@ export default function AdminPage() {
                                   {log.collect_type}
                                 </span>
                               </TableCell>
-                              <TableCell className="text-xs text-slate-500 whitespace-nowrap">
+                              <TableCell className="text-sm text-slate-500 whitespace-nowrap">
                                 {new Date(log.collected_at).toLocaleString('ko-KR')}
                               </TableCell>
-                              <TableCell className={cn('text-center font-bold text-sm', log.success_count > 0 ? 'text-emerald-600' : 'text-slate-400')}>
+                              <TableCell className={cn('text-center font-bold text-sm', log.success_count > 0 ? 'text-emerald-600' : 'text-slate-500')}>
                                 {log.success_count}
                               </TableCell>
                               <TableCell className={cn('text-center font-bold text-sm', log.fail_count > 0 ? 'text-red-600' : 'text-slate-400')}>
                                 {log.fail_count}
                               </TableCell>
-                              <TableCell className="text-right text-xs text-slate-500">{log.duration_sec?.toFixed(1) ?? '-'}</TableCell>
+                              <TableCell className="text-right text-sm text-slate-500">{log.duration_sec?.toFixed(1) ?? '-'}</TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
@@ -415,7 +420,7 @@ export default function AdminPage() {
           {/* 수집 현황 탭 */}
           <TabsContent value="collection" className="space-y-4 mt-4">
             {user?.role !== 'admin' ? (
-              <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+              <div className="flex flex-col items-center justify-center py-20 text-slate-500">
                 <ShieldCheck className="h-10 w-10 text-slate-200 mb-3" />
                 <p className="text-sm">관리자만 접근할 수 있습니다.</p>
               </div>
@@ -424,7 +429,7 @@ export default function AdminPage() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <h2 className="text-sm font-semibold text-slate-700">최근 수집 이력 (7일)</h2>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-blue-600" onClick={() => refetchLogs()}>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:text-blue-600" onClick={() => refetchLogs()}>
                       <RefreshCw className="h-3.5 w-3.5" />
                     </Button>
                   </div>
@@ -472,40 +477,119 @@ export default function AdminPage() {
                       <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
                         <Activity className="h-4 w-4 text-blue-600" />inpo21c 연동 상태
                       </CardTitle>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-blue-600" onClick={() => refetchInpoStatus()}>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:text-blue-600" onClick={() => refetchInpoStatus()}>
                         <RefreshCw className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </CardHeader>
                   <CardContent className="p-5 space-y-4">
-                    <div className="flex items-center gap-3">
-                      <span className={cn('text-xs font-semibold px-3 py-1 rounded-full border',
-                        inpoStatus?.cookie_valid
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                          : inpoStatus?.has_autologin
-                          ? 'bg-blue-50 text-blue-700 border-blue-200'
-                          : inpoStatus?.has_cookie
-                          ? 'bg-red-50 text-red-700 border-red-200'
-                          : 'bg-slate-100 text-slate-500 border-slate-200'
-                      )}>
-                        {inpoStatus?.cookie_valid ? '쿠키 정상'
-                          : inpoStatus?.has_autologin ? '자동 로그인'
-                          : inpoStatus?.has_cookie ? '쿠키 만료'
-                          : '쿠키 미설정'}
-                      </span>
-                      <span className="text-sm text-slate-500">{inpoStatus?.message ?? '상태 확인 중...'}</span>
-                    </div>
-                    <div>
+                    {/* 연결 상태 + 수집 버튼 */}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className={cn('shrink-0 text-xs font-semibold px-3 py-1 rounded-full border',
+                          inpoStatus?.cookie_valid
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : inpoStatus?.has_autologin
+                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                            : inpoStatus?.has_cookie
+                            ? 'bg-red-50 text-red-700 border-red-200'
+                            : 'bg-slate-100 text-slate-500 border-slate-200'
+                        )}>
+                          {inpoStatus?.cookie_valid ? '쿠키 정상'
+                            : inpoStatus?.has_autologin ? '자동 로그인'
+                            : inpoStatus?.has_cookie ? '쿠키 만료'
+                            : '쿠키 미설정'}
+                        </span>
+                        <span className="text-sm text-slate-500 truncate">{inpoStatus?.message ?? '상태 확인 중...'}</span>
+                      </div>
                       <Button
                         size="sm"
-                        className="gap-2 bg-blue-600 hover:bg-blue-700"
-                        disabled={!inpoStatus?.can_collect || inpoCollectMutation.isPending}
+                        className="shrink-0 gap-2 bg-blue-600 hover:bg-blue-700"
+                        disabled={!inpoStatus?.can_collect || inpoCollectMutation.isPending || inpoProgress?.running}
                         onClick={() => inpoCollectMutation.mutate()}
                       >
-                        {inpoCollectMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                        inpo21c 즉시 수집
+                        {(inpoCollectMutation.isPending || inpoProgress?.running)
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : <Download className="h-3.5 w-3.5" />}
+                        {inpoProgress?.running ? '수집 중...' : 'inpo21c 즉시 수집'}
                       </Button>
                     </div>
+
+                    {/* 진행 상황 패널 (수집 중 또는 완료 직후) */}
+                    {inpoProgress && (inpoProgress.running || inpoProgress.finished_at) && (
+                      <div className={cn(
+                        'rounded-xl border p-4 space-y-3',
+                        inpoProgress.error
+                          ? 'bg-red-50 border-red-200'
+                          : inpoProgress.running
+                          ? 'bg-blue-50 border-blue-200'
+                          : 'bg-emerald-50 border-emerald-200'
+                      )}>
+                        {/* 헤더 */}
+                        <div className="flex items-center justify-between">
+                          <span className={cn('text-xs font-semibold',
+                            inpoProgress.error ? 'text-red-700'
+                              : inpoProgress.running ? 'text-blue-700'
+                              : 'text-emerald-700'
+                          )}>
+                            {inpoProgress.error ? '수집 오류'
+                              : inpoProgress.running
+                              ? `수집 중 — ${inpoProgress.job_type === 'national' ? '전국' : '맞춤설정'} 모드`
+                              : '수집 완료'}
+                          </span>
+                          <span className="text-[11px] text-slate-500">
+                            {inpoProgress.running
+                              ? `페이지 ${inpoProgress.page} / ${inpoProgress.max_pages}`
+                              : inpoProgress.finished_at
+                              ? new Date(inpoProgress.finished_at).toLocaleTimeString('ko-KR')
+                              : ''}
+                          </span>
+                        </div>
+
+                        {/* 프로그레스 바 */}
+                        <div className="w-full h-2 bg-white/60 rounded-full overflow-hidden">
+                          <div
+                            className={cn(
+                              'h-full rounded-full transition-all duration-500',
+                              inpoProgress.error ? 'bg-red-400'
+                                : inpoProgress.running ? 'bg-blue-500'
+                                : 'bg-emerald-500'
+                            )}
+                            style={{ width: `${inpoProgress.pct}%` }}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between text-[11px] text-slate-500">
+                          <span>{inpoProgress.pct.toFixed(1)}%</span>
+                          {inpoProgress.running && (
+                            <span className="flex items-center gap-1">
+                              <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+                              처리 중
+                            </span>
+                          )}
+                        </div>
+
+                        {/* 수집 카운터 */}
+                        <div className="grid grid-cols-4 gap-2">
+                          {[
+                            { label: '신규 공고', value: inpoProgress.bids, color: 'text-blue-700' },
+                            { label: '참여자', value: inpoProgress.participants, color: 'text-violet-700' },
+                            { label: '예가', value: inpoProgress.yega, color: 'text-amber-700' },
+                            { label: '스킵', value: inpoProgress.skipped, color: 'text-slate-500' },
+                          ].map(({ label, value, color }) => (
+                            <div key={label} className="bg-white/70 rounded-lg p-2 text-center">
+                              <p className={cn('text-base font-bold tabular-nums', color)}>{value.toLocaleString()}</p>
+                              <p className="text-xs text-slate-500 mt-0.5">{label}</p>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* 오류 메시지 */}
+                        {inpoProgress.error && (
+                          <p className="text-xs text-red-600 bg-red-100 rounded px-3 py-2">{inpoProgress.error}</p>
+                        )}
+                      </div>
+                    )}
+
                     {inpoCollectMsg && (
                       <div className={cn('text-sm px-4 py-3 rounded-lg border',
                         inpoCollectMsg.type === 'success'
@@ -534,29 +618,29 @@ export default function AdminPage() {
                       <TableBody>
                         {collectionLogs.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={5} className="text-center py-12 text-slate-400">
+                            <TableCell colSpan={5} className="text-center py-12 text-slate-500">
                               수집 이력이 없습니다.
                             </TableCell>
                           </TableRow>
                         ) : collectionLogs.map((log) => (
                           <TableRow key={log.id} className="hover:bg-slate-50/50 border-b border-slate-100">
-                            <TableCell className="text-xs text-slate-500 whitespace-nowrap">
+                            <TableCell className="text-sm text-slate-500 whitespace-nowrap">
                               {new Date(log.collected_at).toLocaleString('ko-KR')}
                             </TableCell>
                             <TableCell>
-                              <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full border',
+                              <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full border',
                                 log.collect_type === 'notice_cnstwk' ? 'bg-blue-50 text-blue-700 border-blue-200' : log.collect_type === 'notice_servc' ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-white text-slate-500 border-slate-200'
                               )}>
                                 {log.collect_type}
                               </span>
                             </TableCell>
-                            <TableCell className={cn('text-center font-bold text-sm', log.success_count > 0 ? 'text-emerald-600' : 'text-slate-400')}>
+                            <TableCell className={cn('text-center font-bold text-sm', log.success_count > 0 ? 'text-emerald-600' : 'text-slate-500')}>
                               {log.success_count}
                             </TableCell>
                             <TableCell className={cn('text-center font-bold text-sm', log.fail_count > 0 ? 'text-red-600' : 'text-slate-400')}>
                               {log.fail_count}
                             </TableCell>
-                            <TableCell className="text-right text-xs text-slate-500">
+                            <TableCell className="text-right text-sm text-slate-500">
                               {log.duration_sec?.toFixed(1) ?? '-'}
                             </TableCell>
                           </TableRow>
@@ -588,20 +672,20 @@ export default function AdminPage() {
                   <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     {editId === null && (
                       <div className="space-y-1.5">
-                        <Label className="text-xs font-medium text-slate-600">이메일 *</Label>
+                        <Label className="text-sm font-medium text-slate-600">이메일 *</Label>
                         <Input type="email" value={form.email} required onChange={(e) => setForm({ ...form, email: e.target.value })} className="border-slate-200" />
                       </div>
                     )}
                     <div className="space-y-1.5">
-                      <Label className="text-xs font-medium text-slate-600">이름 *</Label>
+                      <Label className="text-sm font-medium text-slate-600">이름 *</Label>
                       <Input type="text" value={form.name} required onChange={(e) => setForm({ ...form, name: e.target.value })} className="border-slate-200" />
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-xs font-medium text-slate-600">{editId ? '비밀번호 (변경 시만)' : '비밀번호 *'}</Label>
+                      <Label className="text-sm font-medium text-slate-600">{editId ? '비밀번호 (변경 시만)' : '비밀번호 *'}</Label>
                       <Input type="password" value={form.password} required={editId === null} onChange={(e) => setForm({ ...form, password: e.target.value })} className="border-slate-200" />
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-xs font-medium text-slate-600">역할</Label>
+                      <Label className="text-sm font-medium text-slate-600">역할</Label>
                       <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
                         <SelectTrigger className="border-slate-200"><SelectValue /></SelectTrigger>
                         <SelectContent>
@@ -612,7 +696,7 @@ export default function AdminPage() {
                       </Select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-xs font-medium text-slate-600">부서</Label>
+                      <Label className="text-sm font-medium text-slate-600">부서</Label>
                       <Input type="text" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} className="border-slate-200" />
                     </div>
                     <div className="md:col-span-3 flex justify-end gap-2 pt-1">
@@ -658,7 +742,7 @@ export default function AdminPage() {
                             </span>
                           </TableCell>
                           <TableCell className="text-slate-500 text-sm">{u.department || '-'}</TableCell>
-                          <TableCell className="text-slate-400 text-xs">{u.last_login ? new Date(u.last_login).toLocaleString('ko-KR') : '없음'}</TableCell>
+                          <TableCell className="text-slate-500 text-xs">{u.last_login ? new Date(u.last_login).toLocaleString('ko-KR') : '없음'}</TableCell>
                           <TableCell>
                             <Button
                               size="sm"
@@ -671,10 +755,10 @@ export default function AdminPage() {
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-1">
-                              <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-blue-600 hover:bg-blue-50" onClick={() => handleEdit(u)}>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:text-blue-600 hover:bg-blue-50" onClick={() => handleEdit(u)}>
                                 <Pencil className="h-3.5 w-3.5" />
                               </Button>
-                              <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50" onClick={() => setDeleteConfirm(u.id)}>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:text-red-600 hover:bg-red-50" onClick={() => setDeleteConfirm(u.id)}>
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>
                             </div>
@@ -701,7 +785,7 @@ export default function AdminPage() {
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div className="flex items-center gap-2">
                     <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
                       <Input
                         value={indSearch}
                         onChange={(e) => setIndSearch(e.target.value)}
@@ -738,7 +822,7 @@ export default function AdminPage() {
                 <Card className="bg-white border-slate-200 shadow-sm overflow-hidden">
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 divide-y divide-slate-100 md:divide-y-0 md:[&>*:nth-child(n)]:border-b md:[&>*:nth-child(n)]:border-slate-100">
                     {filteredIndustries.length === 0 ? (
-                      <div className="col-span-3 p-10 text-center text-slate-400">
+                      <div className="col-span-3 p-10 text-center text-slate-500">
                         <Search className="h-8 w-8 mx-auto mb-2 text-slate-200" />
                         <p className="text-sm">검색 결과 없음</p>
                       </div>
@@ -757,10 +841,10 @@ export default function AdminPage() {
                           />
                           <div className="min-w-0 flex-1">
                             <div className={cn('text-sm font-medium truncate', checked ? 'text-blue-700' : 'text-slate-700')}>{ind.name}</div>
-                            <div className="text-xs text-slate-400 font-mono">{ind.code}</div>
+                            <div className="text-xs text-slate-500 font-mono">{ind.code}</div>
                           </div>
                           {checked && (
-                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-200 ml-auto shrink-0">
+                            <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-200 ml-auto shrink-0">
                               활성
                             </span>
                           )}

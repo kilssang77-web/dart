@@ -2,6 +2,7 @@
     Column, Integer, BigInteger, SmallInteger, String, Text,
     Boolean, Numeric, Float, Date, DateTime, ARRAY, JSON, ForeignKey, UniqueConstraint
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .database import Base
@@ -364,29 +365,52 @@ class CompanyProfile(Base):
     __tablename__ = "company_profile"
 
     id                   = Column(Integer, primary_key=True)
+
+    # ── 기본정보
     company_name         = Column(String(200), nullable=False)
     biz_reg_no           = Column(String(20), unique=True)
+    phone                = Column(String(20))
+    address              = Column(Text)
+    ceo_name             = Column(String(100))
+    is_women_company     = Column(Boolean, default=False)
 
-    # 면허 및 등록
+    # ── 경영상태
+    credit_grade              = Column(String(10))
+    credit_valid_date         = Column(Date)
+    ppsq_rating               = Column(Numeric(5, 2))     # 조달청 신인도
+    moi_rating                = Column(Numeric(5, 2))     # 행안부 신인도
+    debt_ratio                = Column(Numeric(10, 4))    # 부채비율(%)
+    total_debt                = Column(BigInteger)
+    equity                    = Column(BigInteger)
+    current_ratio             = Column(Numeric(10, 4))    # 유동비율(%)
+    current_assets            = Column(BigInteger)
+    current_liabilities       = Column(BigInteger)
+    region                    = Column(String(50))
+    general_operation_period  = Column(String(50))
+    specialty_operation_period= Column(String(50))
+    disclosure_year           = Column(Integer)
+
+    # ── 시공능력 [{industry_name, year, amount, perf_3y, perf_5y, last_updated, is_closed, is_suspended}]
+    construction_capabilities = Column(JSONB, default=list)
+
+    # ── 면허 및 등록
     license_codes        = Column(ARRAY(Text), default=[])
     region_codes         = Column(ARRAY(Text), default=[])
 
-    # 재무/보증
+    # ── 재무/보증
     bond_limit_total     = Column(BigInteger, default=0)
     bond_limit_used      = Column(BigInteger, default=0)
     annual_revenue       = Column(BigInteger, default=0)
 
-    # 공사 역량
+    # ── 수주 목표 / 포트폴리오
     max_concurrent_bids  = Column(Integer, default=5)
     target_min_margin    = Column(Numeric(5, 4), default=0.05)
     target_regions       = Column(ARRAY(Text), default=[])
     target_industries    = Column(ARRAY(Integer), default=[])
 
-    # 시공실적 (적격심사용) — {업종코드: [{amount, period, agency}]}
+    # ── 공사 역량 (적격심사용)
     performance_records  = Column(JSON, default={})
     workforce_count      = Column(Integer, default=0)
-
-    # 월 수주 목표
     monthly_win_target   = Column(Integer, default=3)
 
     updated_at           = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

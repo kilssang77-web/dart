@@ -31,9 +31,9 @@ const FLOOR = 0.87745
 
 function RankBadge({ rank }: { rank: number }) {
   if (rank === 1) return <span className="text-amber-500 font-bold text-base">1</span>
-  if (rank === 2) return <span className="text-slate-400 font-bold text-sm">2</span>
+  if (rank === 2) return <span className="text-slate-500 font-bold text-sm">2</span>
   if (rank === 3) return <span className="text-amber-600 font-bold text-sm">3</span>
-  return <span className="text-slate-400 text-sm font-mono">{rank}</span>
+  return <span className="text-slate-500 text-sm font-mono">{rank}</span>
 }
 
 function ResultPanel({ result, baseAmount }: { result: YegaFrequencyResult; baseAmount: number }) {
@@ -74,11 +74,11 @@ function ResultPanel({ result, baseAmount }: { result: YegaFrequencyResult; base
         {/* Top 3 누적 확률 */}
         <Card className="bg-white border-slate-200 shadow-sm">
           <CardContent className="p-4">
-            <p className="text-xs text-slate-400 mb-2">Top 3 누적 확률</p>
+            <p className="text-xs text-slate-500 mb-2">Top 3 누적 확률</p>
             <p className="text-3xl font-bold font-mono text-slate-900">
               {top3.reduce((s, r) => s + r.probability, 0).toFixed(1)}%
             </p>
-            <p className="text-xs text-slate-400 mt-1 mb-2">
+            <p className="text-xs text-slate-500 mt-1 mb-2">
               상위 3개 구간에 예정가격이 집중
             </p>
             <div className="flex gap-1 flex-wrap">
@@ -114,7 +114,7 @@ function ResultPanel({ result, baseAmount }: { result: YegaFrequencyResult; base
                 <p className="text-2xl font-bold font-mono text-emerald-700">
                   {fmtWon(top1.amount - result.round_unit)}
                 </p>
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-xs text-slate-500 mt-1">
                   최빈 예정가격 {fmtWon(top1.amount)} 직전
                 </p>
                 <p className="text-xs text-emerald-600 mt-1.5 font-medium">
@@ -138,7 +138,7 @@ function ResultPanel({ result, baseAmount }: { result: YegaFrequencyResult; base
             <TrendingUp className="h-4 w-4 text-blue-600" />
             예정가격 빈도 분포 — C(15,4) = {result.total_combinations.toLocaleString()}가지 조합
           </CardTitle>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-slate-500 mt-1">
             막대 높이 = 해당 구간이 예정가격이 될 조합 수. 파란색 강조 막대 = 상위 3개 집중 구간
           </p>
         </CardHeader>
@@ -149,7 +149,7 @@ function ResultPanel({ result, baseAmount }: { result: YegaFrequencyResult; base
               <XAxis
                 dataKey="rate_pct"
                 tickFormatter={(v) => `${v.toFixed(2)}%`}
-                tick={{ fontSize: 10, fill: '#94a3b8' }}
+                tick={{ fontSize: 12, fill: '#475569' }}
                 angle={-30}
                 textAnchor="end"
                 height={44}
@@ -157,7 +157,7 @@ function ResultPanel({ result, baseAmount }: { result: YegaFrequencyResult; base
                 tickLine={false}
               />
               <YAxis
-                tick={{ fontSize: 10, fill: '#94a3b8' }}
+                tick={{ fontSize: 12, fill: '#475569' }}
                 width={36}
                 axisLine={false}
                 tickLine={false}
@@ -213,13 +213,13 @@ function ResultPanel({ result, baseAmount }: { result: YegaFrequencyResult; base
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50/70 border-b border-slate-100">
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-slate-500 w-10">순위</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-medium text-slate-500">예정가격</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-medium text-slate-500">투찰률</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-medium text-slate-500">조합 수</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-medium text-slate-500">확률</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-medium text-slate-500">누적</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-slate-500">추천 투찰금액</th>
+                  <th className="px-4 py-2.5 text-left text-sm font-medium text-slate-500 w-10">순위</th>
+                  <th className="px-4 py-2.5 text-right text-sm font-medium text-slate-500">예정가격</th>
+                  <th className="px-4 py-2.5 text-right text-sm font-medium text-slate-500">투찰률</th>
+                  <th className="px-4 py-2.5 text-right text-sm font-medium text-slate-500">조합 수</th>
+                  <th className="px-4 py-2.5 text-right text-sm font-medium text-slate-500">확률</th>
+                  <th className="px-4 py-2.5 text-right text-sm font-medium text-slate-500">누적</th>
+                  <th className="px-4 py-2.5 text-left text-sm font-medium text-slate-500">추천 투찰금액</th>
                 </tr>
               </thead>
               <tbody>
@@ -249,7 +249,7 @@ function ResultPanel({ result, baseAmount }: { result: YegaFrequencyResult; base
                           {row.rate_pct.toFixed(4)}%
                         </span>
                       </td>
-                      <td className="px-4 py-2.5 text-right text-slate-400 text-xs">
+                      <td className="px-4 py-2.5 text-right text-slate-500 text-xs">
                         {row.count}
                       </td>
                       <td className="px-4 py-2.5 text-right">
@@ -257,7 +257,7 @@ function ResultPanel({ result, baseAmount }: { result: YegaFrequencyResult; base
                           {row.probability}%
                         </span>
                       </td>
-                      <td className="px-4 py-2.5 text-right text-slate-400 text-xs">
+                      <td className="px-4 py-2.5 text-right text-slate-500 text-xs">
                         {row.cumulative_prob}%
                       </td>
                       <td className="px-4 py-2.5">
@@ -285,7 +285,7 @@ function ResultPanel({ result, baseAmount }: { result: YegaFrequencyResult; base
         <CardHeader className="border-b border-slate-100 pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base font-semibold text-slate-800">
-              예비가격 후보 15개 <span className="text-slate-400 font-normal">(A값 {fmtWon(result.a_value_used)} ±2%)</span>
+              예비가격 후보 15개 <span className="text-slate-500 font-normal">(A값 {fmtWon(result.a_value_used)} ±2%)</span>
             </CardTitle>
             <button
               onClick={() => setShowAllCandidates(v => !v)}
@@ -302,13 +302,13 @@ function ResultPanel({ result, baseAmount }: { result: YegaFrequencyResult; base
             <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
               {result.candidates.map((c) => (
                 <div key={c.idx} className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-center">
-                  <p className="text-xs text-slate-400 mb-1">#{c.idx}</p>
+                  <p className="text-xs text-slate-500 mb-1">#{c.idx}</p>
                   <p className="font-mono font-semibold text-slate-800 text-xs">{fmtWon(c.amount)}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{(c.rate * 100).toFixed(3)}%</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{(c.rate * 100).toFixed(3)}%</p>
                 </div>
               ))}
             </div>
-            <p className="text-xs text-slate-400 mt-3">
+            <p className="text-xs text-slate-500 mt-3">
               반올림 단위: {result.round_unit.toLocaleString()}원 | 총 {result.total_combinations.toLocaleString()}가지 (C(15,4)) 조합 계산
             </p>
           </CardContent>
@@ -346,7 +346,7 @@ function AgencyPatternPanel({ pattern }: { pattern: AgencyYegaPattern }) {
           발주처 특화 패턴 — 상위 번호 하이라이트
         </CardTitle>
         <div className="flex items-center gap-2 flex-wrap mt-1">
-          <span className="text-xs text-slate-400">
+          <span className="text-xs text-slate-500">
             분석 표본: {pattern.sample_count}건
           </span>
           {pattern.dominant_zone && (
@@ -383,7 +383,7 @@ function AgencyPatternPanel({ pattern }: { pattern: AgencyYegaPattern }) {
                   : 'bg-slate-50 border-slate-100',
               )}
             >
-              <p className={cn('text-xs mb-0.5', top3Set.has(row.number) ? 'text-indigo-500 font-medium' : 'text-slate-400')}>
+              <p className={cn('text-xs mb-0.5', top3Set.has(row.number) ? 'text-indigo-500 font-medium' : 'text-slate-500')}>
                 #{row.number}
               </p>
               <p className={cn('font-mono font-semibold', top3Set.has(row.number) ? 'text-indigo-800 text-sm' : 'text-slate-600 text-xs')}>
@@ -392,7 +392,7 @@ function AgencyPatternPanel({ pattern }: { pattern: AgencyYegaPattern }) {
             </div>
           ))}
         </div>
-        <p className="text-xs text-slate-400 mt-3">
+        <p className="text-xs text-slate-500 mt-3">
           번호 = 예비가격 후보 인덱스 (1: A값 -2% / 15: A값 +2%). 진한 인디고 = 상위 3개.
         </p>
       </CardContent>
@@ -474,14 +474,14 @@ export default function YegaPage() {
                   className="border-slate-200 focus:border-blue-400"
                 />
                 {base > 0 && (
-                  <p className="text-xs text-slate-400">{(base / 1e8).toFixed(2)}억원</p>
+                  <p className="text-xs text-slate-500">{(base / 1e8).toFixed(2)}억원</p>
                 )}
               </div>
 
               <div className="space-y-1.5">
                 <Label className="text-sm font-medium text-slate-700">
                   A값 / 예비가격 기초금액 (원)
-                  <span className="ml-1 text-xs text-slate-400 font-normal">(선택 — 공고문 참조)</span>
+                  <span className="ml-1 text-xs text-slate-500 font-normal">(선택 — 공고문 참조)</span>
                 </Label>
                 <Input
                   placeholder="없으면 기초금액 기반 추정"
@@ -490,7 +490,7 @@ export default function YegaPage() {
                   className="border-slate-200 focus:border-blue-400"
                 />
                 {aValue && parseWon(aValue) > 0 && (
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-slate-500">
                     {(parseWon(aValue) / 1e8).toFixed(2)}억원
                     {base > 0 && ` (기초금액 대비 ${(parseWon(aValue) / base * 100).toFixed(2)}%)`}
                   </p>
@@ -500,9 +500,9 @@ export default function YegaPage() {
 
             <div className="space-y-1.5">
               <Label className="text-sm font-medium text-slate-700 flex items-center gap-1">
-                <Building2 className="h-3.5 w-3.5 text-slate-400" />
+                <Building2 className="h-3.5 w-3.5 text-slate-500" />
                 발주처
-                <span className="ml-1 text-xs text-slate-400 font-normal">(선택 — 발주처 특화 패턴 분석)</span>
+                <span className="ml-1 text-xs text-slate-500 font-normal">(선택 — 발주처 특화 패턴 분석)</span>
               </Label>
               <select
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 transition-colors"

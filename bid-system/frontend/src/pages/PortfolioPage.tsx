@@ -40,9 +40,9 @@ function KpiCard({ label, value, sub, accent }: { label: string; value: string; 
     <Card className="relative overflow-hidden">
       <div className={cn('absolute top-0 left-0 right-0 h-0.5', accent ?? 'bg-blue-500')} />
       <CardContent className="p-4">
-        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="text-sm text-muted-foreground">{label}</p>
         <p className="text-2xl font-bold mt-0.5">{value}</p>
-        {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
+        {sub && <p className="text-sm text-muted-foreground mt-0.5">{sub}</p>}
       </CardContent>
     </Card>
   )
@@ -79,7 +79,7 @@ function BidRow({
       )}
       <div className="flex-1 min-w-0">
         <p className="font-medium truncate">{item.title}</p>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           {fmt억(item.base_amount)}
           {item.bid_open_date && ` · 개찰 ${item.bid_open_date.slice(0, 10)}`}
         </p>
@@ -104,7 +104,7 @@ function ResultBidRow({ item, category }: { item: PortfolioBidItem; category: 's
         <VerdictBadge verdict={item.verdict} />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium truncate">{item.title}</p>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             {fmt억(item.base_amount)} · 개찰 {item.bid_date}
           </p>
         </div>
@@ -226,7 +226,7 @@ export default function PortfolioPage() {
           <PackageCheck className="h-6 w-6 text-blue-600" />
           <div>
             <h1 className="text-xl font-bold">포트폴리오 최적화</h1>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               보증한도·동시 진행 제약 하에서 기대 수주건수를 최대화하는 투찰 조합을 추천합니다
             </p>
           </div>
@@ -241,7 +241,7 @@ export default function PortfolioPage() {
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm font-semibold">최적화 대상 공고</CardTitle>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">{selectedIds.size}/{bids.length} 선택</span>
+                  <span className="text-sm text-muted-foreground">{selectedIds.size}/{bids.length} 선택</span>
                   <button
                     onClick={toggleAll}
                     className="text-xs text-blue-600 hover:underline"
@@ -363,7 +363,7 @@ export default function PortfolioPage() {
                     <span className="text-sm font-semibold text-yellow-700">
                       제약으로 미선택 ({result.not_selected.length}건)
                     </span>
-                    <span className="text-xs text-muted-foreground">보증한도 또는 동시 건수 초과</span>
+                    <span className="text-sm text-muted-foreground">보증한도 또는 동시 건수 초과</span>
                   </div>
                   {result.not_selected.map((item) => (
                     <ResultBidRow key={item.bid_id} item={item} category="not_selected" />

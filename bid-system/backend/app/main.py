@@ -44,6 +44,25 @@ async def lifespan(app: FastAPI):
     except Exception as _e:
         logger.warning(f"ML 엔진 워밍업 실패 (무시): {_e}")
 
+    # 발주기관 빈도표 + 전략 DB pre-warm (테이블이 비어있을 때만)
+    _db_warm = SessionLocal()
+    try:
+        from sqlalchemy import text as _t
+        _freq_cnt = _db_warm.execute(_t("SELECT COUNT(*) FROM rate_frequency_tables")).scalar() or 0
+        _strat_cnt = _db_warm.execute(_t("SELECT COUNT(*) FROM agency_strategies")).scalar() or 0
+        if _freq_cnt == 0 or _strat_cnt == 0:
+            logger.info("빈도표 초기 생성 시작 (freq=%d, strategy=%d)...", _freq_cnt, _strat_cnt)
+            from .services import FrequencyService, AgencyStrategyService
+            if _freq_cnt == 0:
+                FrequencyService(_db_warm).rebuild_all()
+            if _strat_cnt == 0:
+                AgencyStrategyService(_db_warm).rebuild_all()
+            logger.info("빈도표 초기 생성 완료")
+    except Exception as _warm_err:
+        logger.warning("빈도표 pre-warm 실패 (무시): %s", _warm_err)
+    finally:
+        _db_warm.close()
+
     # APScheduler — 나라장터 수집 스케줄
     from .collector.scheduler import create_scheduler
     scheduler = create_scheduler()

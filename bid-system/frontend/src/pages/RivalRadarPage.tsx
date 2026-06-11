@@ -38,7 +38,7 @@ export default function RivalRadarPage() {
   )
 
   if (!data) return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-400">데이터 없음</div>
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-500">데이터 없음</div>
   )
 
   const chartData = data.rivals.slice(0, 10).map((r, i) => ({
@@ -126,10 +126,10 @@ export default function RivalRadarPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50">
-                    <TableHead className="w-14 text-xs text-slate-500 px-5">순위</TableHead>
-                    <TableHead className="text-xs text-slate-500">업체명</TableHead>
-                    <TableHead className="text-right text-xs text-slate-500">투찰율</TableHead>
-                    <TableHead className="text-center text-xs text-slate-500 pr-5">결과</TableHead>
+                    <TableHead className="w-14 text-sm text-slate-500 px-5">순위</TableHead>
+                    <TableHead className="text-sm text-slate-500">업체명</TableHead>
+                    <TableHead className="text-right text-sm text-slate-500">투찰율</TableHead>
+                    <TableHead className="text-center text-sm text-slate-500 pr-5">결과</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -149,7 +149,7 @@ export default function RivalRadarPage() {
                           p.rank === 1 ? 'bg-amber-100 text-amber-700' :
                           p.rank === 2 ? 'bg-slate-100 text-slate-700' :
                           p.rank === 3 ? 'bg-orange-100 text-orange-700' :
-                          'text-slate-400 bg-transparent'
+                          'text-slate-500 bg-transparent'
                         )}>
                           {p.rank}
                         </span>
@@ -172,7 +172,7 @@ export default function RivalRadarPage() {
                       </TableCell>
                       <TableCell className="text-center pr-5">
                         {p.is_winner && (
-                          <span className="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200 font-semibold gap-1">
+                          <span className="inline-flex items-center text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200 font-semibold gap-1">
                             <Trophy className="h-2.5 w-2.5" />낙찰
                           </span>
                         )}
@@ -200,8 +200,8 @@ export default function RivalRadarPage() {
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={chartData} margin={{ bottom: 30 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#94a3b8' }} angle={-30} textAnchor="end" />
-                  <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                  <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#475569' }} angle={-30} textAnchor="end" />
+                  <YAxis tick={{ fontSize: 12, fill: '#475569' }} />
                   <Tooltip
                     contentStyle={{ border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }}
                     formatter={(v: number) => [v + '건', '동반 횟수']}
@@ -229,18 +229,18 @@ export default function RivalRadarPage() {
                 <Building2 className="h-4 w-4 text-slate-600" />
               </div>
               경쟁사 레이더 목록
-              <span className="ml-1 text-xs font-normal text-slate-400">— {data.rivals.length}개사</span>
+              <span className="ml-1 text-xs font-normal text-slate-500">— {data.rivals.length}개사</span>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50">
-                  <TableHead className="w-12 text-xs text-slate-500 px-5">순위</TableHead>
-                  <TableHead className="text-xs text-slate-500">업체명</TableHead>
-                  <TableHead className="text-right text-xs text-slate-500">동반입찰</TableHead>
-                  <TableHead className="text-right text-xs text-slate-500">평균 투찰율</TableHead>
-                  <TableHead className="text-right text-xs text-slate-500 pr-5">낙찰 횟수</TableHead>
+                  <TableHead className="w-12 text-sm text-slate-500 px-5">순위</TableHead>
+                  <TableHead className="text-sm text-slate-500">업체명</TableHead>
+                  <TableHead className="text-right text-sm text-slate-500">동반입찰</TableHead>
+                  <TableHead className="text-right text-sm text-slate-500">평균 투찰율</TableHead>
+                  <TableHead className="text-right text-sm text-slate-500 pr-5">낙찰 횟수</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -252,7 +252,7 @@ export default function RivalRadarPage() {
                         i === 0 ? 'bg-purple-100 text-purple-700' :
                         i === 1 ? 'bg-purple-50 text-purple-600' :
                         i === 2 ? 'bg-slate-100 text-slate-600' :
-                        'text-slate-400'
+                        'text-slate-500'
                       )}>
                         {i + 1}
                       </span>
@@ -264,7 +264,7 @@ export default function RivalRadarPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <span className="text-sm font-semibold text-slate-700 tabular-nums">{r.co_bid_count}</span>
-                      <span className="text-xs text-slate-400 ml-0.5">건</span>
+                      <span className="text-xs text-slate-500 ml-0.5">건</span>
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm text-slate-600 tabular-nums">
                       {r.avg_bid_rate != null ? (r.avg_bid_rate * 100).toFixed(3) + '%' : '-'}
@@ -314,7 +314,7 @@ function StatCard({
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-slate-500">{label}</p>
             <p className="text-xl font-bold mt-1 text-slate-900 truncate tabular-nums">{value}</p>
-            {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
+            {sub && <p className="text-xs text-slate-500 mt-0.5">{sub}</p>}
           </div>
           <div className={cn('rounded-xl p-2.5 shrink-0 ml-3', c.icon)}>
             <Icon className={cn('h-5 w-5', c.iconText)} />

@@ -172,15 +172,15 @@ export default function JointSimPage() {
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-slate-900 truncate">{bid.title}</p>
                   <div className="flex flex-wrap gap-4 mt-1.5">
-                    <span className="text-xs text-slate-400">
+                    <span className="text-xs text-slate-500">
                       기초금액 <span className="font-semibold text-slate-700">{fmtAmt(bid.base_amount)}</span>
                     </span>
-                    <span className="text-xs text-slate-400">
+                    <span className="text-xs text-slate-500">
                       낙찰하한율 <span className="font-semibold text-slate-700">
                         {bid.min_bid_rate ? `${(bid.min_bid_rate * 100).toFixed(2)}%` : '-'}
                       </span>
                     </span>
-                    <span className="text-xs text-slate-400">
+                    <span className="text-xs text-slate-500">
                       발주처 <span className="font-semibold text-slate-700">{bid.agency_name}</span>
                     </span>
                   </div>
@@ -267,7 +267,7 @@ export default function JointSimPage() {
                 className="border-slate-200 focus:border-blue-400"
               />
               {searching && (
-                <p className="text-xs text-slate-400 px-1">검색 중...</p>
+                <p className="text-xs text-slate-500 px-1">검색 중...</p>
               )}
               {searchResults && (
                 <div className="border border-slate-200 rounded-lg max-h-72 overflow-y-auto">
@@ -288,8 +288,8 @@ export default function JointSimPage() {
                           onClick={() => addCompetitor(c)}
                         >
                           <TableCell className="text-sm font-medium text-slate-700">{c.name}</TableCell>
-                          <TableCell className="text-xs text-slate-400">{c.aggression_score?.toFixed(2) ?? '-'}</TableCell>
-                          <TableCell className="text-right text-xs text-slate-600">{(c.win_rate * 100).toFixed(1)}%</TableCell>
+                          <TableCell className="text-sm text-slate-500">{c.aggression_score?.toFixed(2) ?? '-'}</TableCell>
+                          <TableCell className="text-right text-sm text-slate-600">{(c.win_rate * 100).toFixed(1)}%</TableCell>
                           <TableCell>
                             <div className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-50 hover:bg-blue-100 transition-colors">
                               <Plus className="h-3.5 w-3.5 text-blue-600" />
@@ -299,7 +299,7 @@ export default function JointSimPage() {
                       ))}
                       {(searchResults.items ?? []).length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={4} className="text-center text-xs text-slate-400 py-8">
+                          <TableCell colSpan={4} className="text-center text-sm text-slate-500 py-8">
                             검색 결과 없음
                           </TableCell>
                         </TableRow>
@@ -349,7 +349,7 @@ function PartnerRow({ partner, onRateChange, onTrackChange, onRemove }: PartnerR
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7 text-slate-400 hover:text-red-500 hover:bg-red-50"
+            className="h-7 w-7 text-slate-500 hover:text-red-500 hover:bg-red-50"
             onClick={onRemove}
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -359,7 +359,7 @@ function PartnerRow({ partner, onRateChange, onTrackChange, onRemove }: PartnerR
 
       {partner.type === 'user' && (
         <div className="space-y-1.5">
-          <Label className="text-xs font-medium text-slate-500">보유 실적 (억원)</Label>
+          <Label className="text-sm font-medium text-slate-500">보유 실적 (억원)</Label>
           <Input
             type="number"
             min={0}
@@ -374,7 +374,7 @@ function PartnerRow({ partner, onRateChange, onTrackChange, onRemove }: PartnerR
 
       <div className="space-y-2">
         <div className="flex justify-between items-center">
-          <Label className="text-xs font-medium text-slate-500">지분율</Label>
+          <Label className="text-sm font-medium text-slate-500">지분율</Label>
           <span className={cn(
             'text-sm font-bold font-mono',
             isUser ? 'text-blue-600' : 'text-slate-700',
@@ -429,7 +429,7 @@ function SimResultPanel({ result, loading }: { result: JointSimResponse | null; 
         <div className="bg-slate-100 rounded-full p-4">
           <AlertCircle className="h-8 w-8 text-slate-300" />
         </div>
-        <p className="text-sm text-slate-400 text-center">
+        <p className="text-sm text-slate-500 text-center">
           파트너를 구성하면<br />심사 결과가 표시됩니다
         </p>
       </CardContent>
@@ -464,7 +464,7 @@ function SimResultPanel({ result, loading }: { result: JointSimResponse | null; 
             <p className={cn('font-bold text-lg', joint_result.passes ? 'text-emerald-700' : 'text-red-600')}>
               적격심사 {joint_result.passes ? '통과' : '미통과'}
             </p>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-500 mt-0.5">
               합산점수 <span className="font-semibold text-slate-600">{joint_result.total_qual_score}점</span> / 기준 {joint_result.threshold}점
             </p>
           </div>
@@ -472,7 +472,7 @@ function SimResultPanel({ result, loading }: { result: JointSimResponse | null; 
 
         {/* 점수 진행바 */}
         <div className="space-y-2">
-          <div className="flex justify-between text-xs text-slate-400">
+          <div className="flex justify-between text-xs text-slate-500">
             <span>합산 적격점수</span>
             <span className="font-semibold text-slate-600">{joint_result.total_qual_score} / {joint_result.threshold}</span>
           </div>
@@ -517,11 +517,11 @@ function AmtCard({ label, value, sub, highlight }: { label: string; value: strin
         ? 'bg-blue-50 border border-blue-200'
         : 'bg-slate-50 border border-slate-100',
     )}>
-      <p className="text-xs text-slate-400">{label}</p>
+      <p className="text-xs text-slate-500">{label}</p>
       <p className={cn('text-base font-bold font-mono', highlight ? 'text-blue-700' : 'text-slate-900')}>
         {value}
       </p>
-      <p className="text-xs text-slate-400">{sub}</p>
+      <p className="text-xs text-slate-500">{sub}</p>
     </div>
   )
 }
@@ -540,13 +540,13 @@ function PartnerScoreRow({ partner }: { partner: JointSimPartnerResult }) {
           : <XCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />
         }
         <span className="font-medium text-slate-700 truncate max-w-[110px]">{partner.name}</span>
-        <Badge className="bg-slate-100 text-slate-500 border-slate-200 text-[10px] px-1.5 py-0 h-4 font-mono">
+        <Badge className="bg-slate-100 text-slate-500 border-slate-200 text-xs px-1.5 py-0 h-4 font-mono">
           {(partner.participation_rate * 100).toFixed(0)}%
         </Badge>
       </div>
       <div className="text-right shrink-0 ml-2">
         <span className="font-mono font-bold text-slate-800">{partner.qual_score}점</span>
-        <span className="text-slate-400 ml-1">/ {fmtAmt(partner.track_amount)} 실적</span>
+        <span className="text-slate-500 ml-1">/ {fmtAmt(partner.track_amount)} 실적</span>
       </div>
     </div>
   )

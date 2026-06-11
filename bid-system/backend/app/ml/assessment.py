@@ -56,6 +56,8 @@ def load_srate_stats(
             FROM assessment_rate_stats
             WHERE group_type = :gt
               AND (group_id = :gid OR (:gid IS NULL AND group_id IS NULL))
+              AND ABS(srate_mean - (10.0/11.0)) > 0.002
+              AND sample_count >= 3
             ORDER BY updated_at DESC LIMIT 1
         """), {"gt": group_type, "gid": group_id}).fetchone()
         return row
@@ -72,11 +74,13 @@ def load_srate_stats(
         elif amt < 5e9:  return 4
         else:            return 5
 
-    # inpo21c 실측 사정율: 기관별 (agency_name 매칭) + 전국 평균
+    # inpo21c 실측 사정율: 기관별 (agency_name 퍼지 매칭) + 전국 평균
     inpo_ag = db.execute(text("""
         SELECT AVG(ib.yega_ratio / 100.0), STDDEV(ib.yega_ratio / 100.0), COUNT(*)
         FROM inpo21c_bids ib
-        JOIN agencies a ON a.name = ib.agency_name
+        JOIN agencies a ON TRIM(a.name) = TRIM(ib.agency_name)
+                        OR TRIM(ib.agency_name) LIKE '%' || TRIM(a.name) || '%'
+                        OR TRIM(a.name) LIKE '%' || TRIM(ib.agency_name) || '%'
         WHERE a.id = :aid
           AND ib.yega_ratio BETWEEN 87 AND 105
     """), {"aid": agency_id}).fetchone() if agency_id else None
@@ -99,7 +103,9 @@ def load_srate_stats(
                 JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = ip.inpo21c_bid_id
                 JOIN agencies a ON a.name = ib.agency_name
                 WHERE a.id = :aid
+                  AND ip.company_name != '유찰'
                 GROUP BY ip.inpo21c_bid_id
+                HAVING COUNT(*) >= 2
             ) t
         """), {"aid": agency_id}).fetchone()
 
@@ -109,7 +115,9 @@ def load_srate_stats(
         FROM (
             SELECT COUNT(*) AS c
             FROM inpo21c_participants
+            WHERE company_name != '유찰'
             GROUP BY inpo21c_bid_id
+            HAVING COUNT(*) >= 2
         ) t
     """)).fetchone()
 
@@ -590,4 +598,208 @@ def compute_srate_moving_average(
         "sample_count": n,
         "trend":        round(trend, 6),
         "is_reliable":  n >= max(3, window // 2),
+    }
+
+
+# ──────────────────────────────────────────────
+# ① 사정율 빈도 분포 v2 (소수점 3자리 × 발주처별)
+# ──────────────────────────────────────────────
+
+def compute_srate_frequency_v2(db: Session) -> int:
+    """
+    inpo21c_participants 실증 데이터로 rate_frequency_tables 재구축.
+
+    - 버킷: ROUND(assessment_rate, 3) = 0.001 단위
+    - 기간: 12M / 24M / 48M
+    - 기관: inpo21c_bids.agency_name → agencies 테이블 매칭
+    - 기존 0.005 버킷 데이터 전량 삭제 후 재삽입
+
+    Returns: upserted row count
+    """
+    from datetime import datetime, timedelta
+
+    now = datetime.utcnow()
+    cutoffs = {
+        "12M": now - timedelta(days=365),
+        "24M": now - timedelta(days=730),
+        "48M": now - timedelta(days=1460),
+    }
+
+    # 기존 데이터 전량 삭제 (0.005 버킷 포함 전부)
+    db.execute(text("DELETE FROM rate_frequency_tables"))
+    db.commit()
+
+    total_upserted = 0
+
+    for period_label, cutoff_dt in cutoffs.items():
+        rows = db.execute(text("""
+            SELECT a.id                                             AS agency_id,
+                   ROUND(ip.assessment_rate::numeric, 3)           AS srate_bucket,
+                   COUNT(*)                                        AS total_cnt,
+                   SUM(CASE WHEN ip.is_winner THEN 1 ELSE 0 END)  AS win_cnt
+            FROM inpo21c_participants ip
+            JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = ip.inpo21c_bid_id
+            JOIN agencies a ON (
+                TRIM(a.name) = TRIM(ib.agency_name)
+                OR TRIM(ib.agency_name) LIKE '%%' || TRIM(a.name) || '%%'
+                OR TRIM(a.name) LIKE '%%' || TRIM(ib.agency_name) || '%%'
+            )
+            WHERE ip.assessment_rate BETWEEN 0.750 AND 1.100
+              AND ib.open_datetime >= :cutoff
+            GROUP BY a.id, srate_bucket
+            ORDER BY a.id, srate_bucket
+        """), {"cutoff": cutoff_dt}).fetchall()
+
+        for r in rows:
+            agency_id, bucket, total_cnt, win_cnt = r
+            win_rate = round(win_cnt / total_cnt, 4) if total_cnt > 0 else 0.0
+            db.execute(text("""
+                INSERT INTO rate_frequency_tables
+                    (agency_id, industry_code, period_type, bucket_from, bucket_to,
+                     bucket_width, count, win_count, win_rate)
+                VALUES (:ag, 'ALL', :pt, :bf, :bt, 0.001, :cnt, :wcnt, :wr)
+                ON CONFLICT (agency_id, industry_code, period_type, bucket_from)
+                DO UPDATE SET
+                    count      = EXCLUDED.count,
+                    win_count  = EXCLUDED.win_count,
+                    win_rate   = EXCLUDED.win_rate,
+                    updated_at = now()
+            """), {
+                "ag":   agency_id,
+                "pt":   period_label,
+                "bf":   float(bucket),
+                "bt":   float(bucket) + 0.001,
+                "cnt":  int(total_cnt),
+                "wcnt": int(win_cnt),
+                "wr":   win_rate,
+            })
+            total_upserted += 1
+
+        db.commit()
+        logger.info("사정율 빈도 v2 [%s]: %d rows", period_label, len(rows))
+
+    return total_upserted
+
+
+# ──────────────────────────────────────────────
+# ② A값 비율 조회 (발주처 실적 기반)
+# ──────────────────────────────────────────────
+
+def get_agency_a_ratio(db: Session, agency_id: int | None) -> float:
+    """
+    inpo21c 실측 데이터에서 발주처별 예정가격/기초금액 비율 반환.
+    데이터 없으면 전국 평균(0.910) 반환.
+    """
+    NATIONAL_AVG = 0.9100
+
+    if agency_id:
+        row = db.execute(text("""
+            SELECT AVG(ib.estimated_amount::float / NULLIF(ib.base_amount, 0))
+            FROM inpo21c_bids ib
+            JOIN agencies a ON (
+                TRIM(a.name) = TRIM(ib.agency_name)
+                OR TRIM(ib.agency_name) LIKE '%%' || TRIM(a.name) || '%%'
+                OR TRIM(a.name) LIKE '%%' || TRIM(ib.agency_name) || '%%'
+            )
+            WHERE a.id = :ag
+              AND ib.estimated_amount IS NOT NULL
+              AND ib.base_amount > 0
+              AND ib.estimated_amount::float / ib.base_amount BETWEEN 0.70 AND 1.10
+        """), {"ag": agency_id}).scalar()
+
+        if row and 0.70 < float(row) < 1.10:
+            return round(float(row), 4)
+
+    # 전국 평균
+    row = db.execute(text("""
+        SELECT AVG(estimated_amount::float / NULLIF(base_amount, 0))
+        FROM inpo21c_bids
+        WHERE estimated_amount IS NOT NULL AND base_amount > 0
+          AND estimated_amount::float / base_amount BETWEEN 0.70 AND 1.10
+    """)).scalar()
+
+    return round(float(row), 4) if row else NATIONAL_AVG
+
+
+# ──────────────────────────────────────────────
+# ③ 프리즘형 TOP 구간 추출 (빈도 기반)
+# ──────────────────────────────────────────────
+
+def get_prism_zones(
+    db: Session,
+    agency_id: int | None,
+    period_type: str = "24M",
+    top_n: int = 10,
+) -> dict:
+    """
+    rate_frequency_tables 기반 프리즘 분석.
+
+    Returns:
+        histogram : 전체 빈도 히스토그램 (0.001 버킷)
+        top_zones : 낙찰 확률 상위 top_n 구간
+        a_ratio   : 발주처 A값 비율 (예정가/기초금액)
+        data_source: agency | national
+    """
+    # 발주처 전용 데이터
+    source = "national"
+    if agency_id:
+        hist_rows = db.execute(text("""
+            SELECT bucket_from, count, win_count, win_rate
+            FROM rate_frequency_tables
+            WHERE agency_id = :ag AND period_type = :pt AND industry_code = 'ALL'
+            ORDER BY bucket_from
+        """), {"ag": agency_id, "pt": period_type}).fetchall()
+
+        if hist_rows:
+            source = "agency"
+
+    # 발주처 데이터 없으면 전국 집계
+    if source == "national":
+        hist_rows = db.execute(text("""
+            SELECT bucket_from,
+                   SUM(count)     AS count,
+                   SUM(win_count) AS win_count,
+                   CASE WHEN SUM(count) > 0
+                        THEN ROUND(SUM(win_count)::numeric / SUM(count), 4)
+                        ELSE 0 END AS win_rate
+            FROM rate_frequency_tables
+            WHERE period_type = :pt AND industry_code = 'ALL'
+            GROUP BY bucket_from
+            ORDER BY bucket_from
+        """), {"pt": period_type}).fetchall()
+
+    histogram = [
+        {
+            "srate":     round(float(r[0]), 3),
+            "count":     int(r[1]),
+            "win_count": int(r[2]),
+            "win_rate":  round(float(r[3]), 4),
+        }
+        for r in hist_rows
+    ]
+
+    # 통계적으로 유의한 구간만 TOP 선정 (count >= 5)
+    eligible = [h for h in histogram if h["count"] >= 5]
+
+    # 점수: win_rate × log(win_count+1)  — 절대 승수와 확률 균형
+    def _score(h):
+        import math
+        return h["win_rate"] * math.log(h["win_count"] + 1)
+
+    top_zones = sorted(eligible, key=_score, reverse=True)[:top_n]
+
+    # 각 구간에 실제 투찰금액 계산용 메타 추가 (rank 포함)
+    for idx, z in enumerate(top_zones, 1):
+        z["rank"] = idx
+
+    a_ratio = get_agency_a_ratio(db, agency_id)
+
+    return {
+        "histogram":   histogram,
+        "top_zones":   top_zones,
+        "a_ratio":     a_ratio,
+        "data_source": source,
+        "period_type": period_type,
+        "total_bids":  sum(h["count"] for h in histogram),
+        "total_wins":  sum(h["win_count"] for h in histogram),
     }

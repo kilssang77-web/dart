@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter, Depends, Query
+﻿from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from typing import Optional
 
@@ -72,3 +72,32 @@ def agency_yega_pattern(
         "pos_weights": stats.get("pos_weights"),
         "has_data":    stats.get("pos_weights") is not None,
     }
+
+
+@router.get("/{agency_id}/strategy")
+def agency_strategy(
+    agency_id: int,
+    industry_code: str = "ALL",
+    period_months: int = Query(48, ge=6, le=60),
+    db: Session = Depends(get_db),
+    _: User     = Depends(get_current_user),
+):
+    """발주기관 전략 DB (48개월 낙찰률 통계 + 빈도표 + 히스토그램)"""
+    from ...services import AgencyStrategyService
+    svc = AgencyStrategyService(db)
+    result = svc.get_or_build(agency_id, industry_code=industry_code, period_months=period_months)
+    return result
+
+
+@router.post("/rebuild-strategies")
+def rebuild_agency_strategies(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """발주기관 전략 DB 전체 재계산 (admin/analyst 전용)"""
+    if current_user.role not in ("admin", "analyst"):
+        raise HTTPException(403, "권한 없음")
+    from ...services import AgencyStrategyService, FrequencyService
+    freq_result  = FrequencyService(db).rebuild_all()
+    strat_result = AgencyStrategyService(db).rebuild_all()
+    return {"freq": freq_result, "strategy": strat_result}

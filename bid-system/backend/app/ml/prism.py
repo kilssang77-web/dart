@@ -12,8 +12,8 @@ from .assessment import load_srate_stats, predict_srate
 from .rank_model import get_inpo_raw_rates
 from .yega import load_inpo21c_yega_stats
 
-SCAN_START = 0.860
-SCAN_END   = 0.930
+SCAN_START = 0.960   # 실증 데이터 기반 수정 (기존 0.860~0.930은 실제 낙찰 구간 미포함)
+SCAN_END   = 1.020
 SCAN_STEP  = 0.001
 TOP_N      = 10
 

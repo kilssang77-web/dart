@@ -9,7 +9,8 @@ from loguru import logger
 
 from app.config import get_settings
 
-_BASE_URL = "https://apis.data.go.kr/1230000/BidPublicInfoService02"
+_BASE_URL = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService"
+_RESULTS_URL = "https://apis.data.go.kr/1230000/as/ScsbidInfoService"
 _MAX_RETRIES = 3
 _TIMEOUT = 30.0
 _MAX_ROWS = 100
@@ -70,9 +71,9 @@ class NarajangterClient:
         page_no: int = 1,
         num_of_rows: int = _MAX_ROWS,
     ) -> dict:
-        """공사 입찰공고목록 조회 (getBidPblancListInfoCnstwkBsbd01)"""
+        """공사 입찰공고목록 조회 (getBidPblancListInfoCnstwk)"""
         return self._get(
-            "getBidPblancListInfoCnstwkBsbd01",
+            "getBidPblancListInfoCnstwk",
             {
                 "inqryDiv": inqry_div,
                 "inqryBgnDt": inqry_bgn_dt,
@@ -90,9 +91,9 @@ class NarajangterClient:
         page_no: int = 1,
         num_of_rows: int = _MAX_ROWS,
     ) -> dict:
-        """용역 입찰공고목록 조회 (getBidPblancListInfoServcBsbd01)"""
+        """용역 입찰공고목록 조회 (getBidPblancListInfoServc)"""
         return self._get(
-            "getBidPblancListInfoServcBsbd01",
+            "getBidPblancListInfoServc",
             {
                 "inqryDiv": inqry_div,
                 "inqryBgnDt": inqry_bgn_dt,
@@ -110,9 +111,9 @@ class NarajangterClient:
         page_no: int = 1,
         num_of_rows: int = _MAX_ROWS,
     ) -> dict:
-        """물품 입찰공고목록 조회 (getBidPblancListInfoThingsBsbd01)"""
+        """물품 입찰공고목록 조회 (getBidPblancListInfoThng)"""
         return self._get(
-            "getBidPblancListInfoThingsBsbd01",
+            "getBidPblancListInfoThng",
             {
                 "inqryDiv": inqry_div,
                 "inqryBgnDt": inqry_bgn_dt,
@@ -130,9 +131,9 @@ class NarajangterClient:
         page_no: int = 1,
         num_of_rows: int = _MAX_ROWS,
     ) -> dict:
-        """낙찰결과목록 조회 (getBidResultListInfoCnstwkBsbd01)"""
-        return self._get(
-            "getBidResultListInfoCnstwkBsbd01",
+        """낙찰결과목록 조회 — ScsbidInfoService (getScsbidListSttusCnstwk)"""
+        return self._get_results(
+            "getScsbidListSttusCnstwk",
             {
                 "inqryDiv": inqry_div,
                 "inqryBgnDt": inqry_bgn_dt,
@@ -195,14 +196,22 @@ class NarajangterClient:
 
     @staticmethod
     def _extract_items(raw: dict) -> list[dict]:
-        """API 응답 body.items.item 추출 (단일 dict / 리스트 모두 처리)"""
+        """API 응답 body.items 추출 — 직접 배열 또는 items.item 중첩 모두 처리"""
         try:
             body = raw["response"]["body"]
-            items_node = body.get("items") or {}
-            item = items_node.get("item") if isinstance(items_node, dict) else None
-            if item is None:
+            items_node = body.get("items")
+            if not items_node:
                 return []
-            return item if isinstance(item, list) else [item]
+            # 신규 포맷: body.items = [...]
+            if isinstance(items_node, list):
+                return items_node
+            # 구형 포맷: body.items = {"item": [...]} or {"item": {...}}
+            if isinstance(items_node, dict):
+                item = items_node.get("item")
+                if item is None:
+                    return []
+                return item if isinstance(item, list) else [item]
+            return []
         except (KeyError, TypeError):
             return []
 
@@ -247,14 +256,15 @@ class NarajangterClient:
             except (TypeError, ValueError):
                 return None
 
+        # ScsbidInfoService 필드명 매핑 (낙찰자 단건)
         return BidResult(
             announcement_no=item.get("bidNtceNo", ""),
-            competitor_name=item.get("corpNm", ""),
-            biz_reg_no=item.get("bizRegNo"),
-            bid_amount=_safe_int(item.get("bidAmt")),
-            bid_rate=_safe_float(item.get("rate")),
-            rank=_safe_int(item.get("rank")),
-            is_winner=str(item.get("sucsfbidYn", "N")).upper() == "Y",
+            competitor_name=item.get("bidwinnrNm") or item.get("corpNm", ""),
+            biz_reg_no=item.get("bidwinnrBizno") or item.get("bizRegNo"),
+            bid_amount=_safe_int(item.get("sucsfbidAmt") or item.get("bidAmt")),
+            bid_rate=_safe_float(item.get("sucsfbidRate") or item.get("rate")),
+            rank=1,  # ScsbidInfoService는 낙찰자(1위)만 반환
+            is_winner=True,
         )
 
     # ------------------------------------------------------------------ #
@@ -262,10 +272,16 @@ class NarajangterClient:
     # ------------------------------------------------------------------ #
 
     def _get(self, endpoint: str, params: dict) -> dict:
-        url = f"{_BASE_URL}/{endpoint}"
+        return self._call(_BASE_URL, endpoint, params)
+
+    def _get_results(self, endpoint: str, params: dict) -> dict:
+        return self._call(_RESULTS_URL, endpoint, params)
+
+    def _call(self, base_url: str, endpoint: str, params: dict) -> dict:
+        url = f"{base_url}/{endpoint}"
         request_params: dict = {
             "serviceKey": self._api_key,
-            "_type": "json",
+            "type": "json",
             **params,
         }
         last_exc: Exception = RuntimeError("알 수 없는 오류")

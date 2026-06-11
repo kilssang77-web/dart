@@ -59,6 +59,8 @@ export const bidsApi = {
     api.get(`/bids/${bidId}/rival-radar`, { params: { top_k: topK } }).then((r) => r.data),
   actualWinZones: (bidId: number): Promise<import('../types').ActualWinZonesResponse> =>
     api.get(`/bids/${bidId}/actual-win-zones`).then((r) => r.data),
+  prismHistogram: (bidId: number, period: '12M' | '24M' | '48M' = '24M'): Promise<import('../types').PrismHistogramResponse> =>
+    api.get(`/bids/${bidId}/prism-histogram`, { params: { period } }).then((r) => r.data),
 }
 
 // -- 시장 인텔리전스 --------------------------------------------------
@@ -186,6 +188,13 @@ export const adminApi = {
     api.get('/admin/inpo21c/status').then((r) => r.data),
   triggerInpo21cCollect: (maxPages = 4): Promise<{ message: string }> =>
     api.post('/admin/inpo21c/collect', null, { params: { max_pages: maxPages } }).then((r) => r.data),
+  inpo21cProgress: (): Promise<{
+    running: boolean; job_type: string | null
+    page: number; max_pages: number; total_pages: number
+    bids: number; participants: number; yega: number; skipped: number
+    pct: number; started_at: string | null; finished_at: string | null; error: string | null
+  }> =>
+    api.get('/admin/inpo21c/collect-progress').then((r) => r.data),
   collectorStatus: (): Promise<CollectorStatus> =>
     api.get('/admin/collector-status').then((r) => r.data),
 }

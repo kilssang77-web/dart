@@ -13,18 +13,18 @@ interface StrategyCompareChartProps {
 
 export default function StrategyCompareChart({ strategies }: StrategyCompareChartProps) {
   return (
-    <ResponsiveContainer width="100%" height={180}>
+    <ResponsiveContainer width="100%" height={220}>
       <BarChart
         layout="vertical"
         data={strategies}
-        margin={{ top: 4, right: 72, bottom: 4, left: 68 }}
-        barSize={22}
+        margin={{ top: 4, right: 60, bottom: 4, left: 60 }}
+        barSize={26}
       >
         <XAxis
           type="number"
           domain={[0, 100]}
           unit="%"
-          tick={{ fontSize: 11 }}
+          tick={{ fontSize: 12 }}
           tickLine={false}
           axisLine={false}
         />
@@ -48,7 +48,7 @@ export default function StrategyCompareChart({ strategies }: StrategyCompareChar
             dataKey="rate"
             position="right"
             formatter={(v: number) => `${(v * 100).toFixed(2)}%`}
-            style={{ fontSize: 11, fill: '#64748b' }}
+            style={{ fontSize: 12, fill: '#64748b' }}
           />
         </Bar>
       </BarChart>

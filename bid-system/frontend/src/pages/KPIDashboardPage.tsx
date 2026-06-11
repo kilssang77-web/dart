@@ -52,7 +52,7 @@ function KPICard({
           <div>
             <p className="text-sm font-medium text-slate-500">{label}</p>
             <p className={cn('text-2xl font-bold mt-1 tabular-nums', c.valueCls)}>{value}</p>
-            {subtitle && <p className="text-xs text-slate-400 mt-1">{subtitle}</p>}
+            {subtitle && <p className="text-xs text-slate-500 mt-1">{subtitle}</p>}
           </div>
           {Icon && (
             <div className={cn('rounded-xl p-2.5', c.iconBg)}>
@@ -131,15 +131,15 @@ function RecordOutcomeForm() {
       <CardContent className="p-5">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-slate-600">공고 ID *</Label>
+            <Label className="text-sm font-medium text-slate-600">공고 ID *</Label>
             <Input type="number" value={form.bid_id} onChange={set('bid_id')} placeholder="공고 ID" className="border-slate-200" />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-slate-600">우리 투찰률 *</Label>
+            <Label className="text-sm font-medium text-slate-600">우리 투찰률 *</Label>
             <Input type="number" value={form.submitted_rate} onChange={set('submitted_rate')} step="0.0001" placeholder="0.8720" className="border-slate-200" />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-slate-600">결과 *</Label>
+            <Label className="text-sm font-medium text-slate-600">결과 *</Label>
             <select
               value={form.result}
               onChange={set('result')}
@@ -149,19 +149,19 @@ function RecordOutcomeForm() {
             </select>
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-slate-600">실제 사정율</Label>
+            <Label className="text-sm font-medium text-slate-600">실제 사정율</Label>
             <Input type="number" value={form.actual_srate} onChange={set('actual_srate')} step="0.0001" placeholder="0.8850" className="border-slate-200" />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-slate-600">낙찰자 투찰률</Label>
+            <Label className="text-sm font-medium text-slate-600">낙찰자 투찰률</Label>
             <Input type="number" value={form.winner_rate} onChange={set('winner_rate')} step="0.0001" placeholder="0.8715" className="border-slate-200" />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-slate-600">우리 순위</Label>
+            <Label className="text-sm font-medium text-slate-600">우리 순위</Label>
             <Input type="number" value={form.our_rank} onChange={set('our_rank')} placeholder="2" className="border-slate-200" />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-slate-600">전체 참여자</Label>
+            <Label className="text-sm font-medium text-slate-600">전체 참여자</Label>
             <Input type="number" value={form.total_bidders} onChange={set('total_bidders')} placeholder="8" className="border-slate-200" />
           </div>
           <div className="flex items-end">
@@ -255,7 +255,7 @@ export default function KPIDashboardPage() {
         )}
 
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center py-24 text-slate-400">
+          <div className="flex flex-col items-center justify-center py-24 text-slate-500">
             <Loader2 className="h-8 w-8 animate-spin mb-3 text-blue-400" />
             <p className="text-sm">KPI 데이터 로딩 중...</p>
           </div>
@@ -366,7 +366,7 @@ export default function KPIDashboardPage() {
                       const isHigh = m.win_rate >= 0.35
                       return (
                         <div key={m.month} className="flex-1 flex flex-col items-center gap-1.5">
-                          <div className={cn('text-xs font-medium tabular-nums', isHigh ? 'text-emerald-600' : 'text-slate-500')}>
+                          <div className={cn('text-sm font-medium tabular-nums', isHigh ? 'text-emerald-600' : 'text-slate-500')}>
                             {(m.win_rate * 100).toFixed(0)}%
                           </div>
                           <div
@@ -374,7 +374,7 @@ export default function KPIDashboardPage() {
                             style={{ height: `${h}%` }}
                             title={`${m.total_wins}/${m.total_bids}건`}
                           />
-                          <div className="text-xs text-slate-400">{m.month.slice(5)}</div>
+                          <div className="text-xs text-slate-500">{m.month.slice(5)}</div>
                         </div>
                       )
                     })}
@@ -388,7 +388,7 @@ export default function KPIDashboardPage() {
             <CardContent className="py-20 text-center">
               <BarChart2 className="h-12 w-12 text-slate-200 mx-auto mb-4" />
               <p className="text-slate-500 font-medium">아직 투찰 결과 데이터가 없습니다.</p>
-              <p className="text-slate-400 text-sm mt-1">아래에서 투찰 결과를 기록해보세요.</p>
+              <p className="text-slate-500 text-sm mt-1">아래에서 투찰 결과를 기록해보세요.</p>
             </CardContent>
           </Card>
         )}

@@ -246,9 +246,9 @@ export default function CompetitorPage() {
               {/* 예측 대상 공고 */}
               <div className="flex items-center gap-2 flex-1 min-w-[320px]">
                 <Target className="h-4 w-4 text-purple-500 shrink-0" />
-                <span className="text-xs font-medium text-slate-600 whitespace-nowrap">예측 공고</span>
+                <span className="text-sm font-medium text-slate-600 whitespace-nowrap">예측 공고</span>
                 <div className="relative flex-1" ref={bidSearchRef}>
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
                   <Input
                     value={bidSearchInput}
                     onChange={(e) => handleBidSearchChange(e.target.value)}
@@ -330,7 +330,7 @@ export default function CompetitorPage() {
             {/* 검색 */}
             <div className="flex gap-2">
               <div className="relative flex-1">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
                 <Input
                   value={keyword}
                   onChange={(e) => setKeyword(e.target.value)}
@@ -382,23 +382,23 @@ export default function CompetitorPage() {
                             isSelected ? 'text-purple-800' : 'text-slate-800 group-hover:text-purple-700')}>
                             {c.name}
                           </span>
-                          <span className={cn('text-[10px] px-1.5 py-0.5 rounded border font-semibold shrink-0', riskColorClass(c.risk_level))}>
+                          <span className={cn('text-xs px-1.5 py-0.5 rounded border font-semibold shrink-0', riskColorClass(c.risk_level))}>
                             {c.risk_level}
                           </span>
                         </div>
                         <div className="flex items-center gap-2 mt-1.5">
-                          <span className="text-[10px] text-slate-400">수주율</span>
+                          <span className="text-xs text-slate-500">수주율</span>
                           <div className="flex-1 h-1 bg-slate-100 rounded-full">
                             <div
                               className={cn('h-1 rounded-full', c.risk_level === 'HIGH' ? 'bg-red-400' : c.risk_level === 'MEDIUM' ? 'bg-amber-400' : 'bg-emerald-400')}
                               style={{ width: `${Math.min(c.win_rate * 100 * 3, 100)}%` }}
                             />
                           </div>
-                          <span className="text-[10px] font-semibold text-slate-600 tabular-nums">
+                          <span className="text-xs font-semibold text-slate-600 tabular-nums">
                             {(c.win_rate * 100).toFixed(1)}%
                           </span>
                         </div>
-                        <div className="text-[10px] text-slate-400 mt-0.5">
+                        <div className="text-xs text-slate-500 mt-0.5">
                           수주 {c.win_count}건 · 평균 {(c.avg_bid_rate * 100).toFixed(2)}%
                         </div>
                       </div>
@@ -411,7 +411,7 @@ export default function CompetitorPage() {
                   onClick={() => setPage((p) => Math.max(1,p-1))} disabled={page===1}>
                   <ChevronLeft className="h-3.5 w-3.5" />
                 </Button>
-                <span className="text-xs text-slate-400 tabular-nums">{page}/{totalPages} ({list?.total ?? 0}개사)</span>
+                <span className="text-xs text-slate-500 tabular-nums">{page}/{totalPages} ({list?.total ?? 0}개사)</span>
                 <Button variant="outline" size="icon" className="h-7 w-7 border-slate-200"
                   onClick={() => setPage((p) => Math.min(totalPages,p+1))} disabled={page>=totalPages}>
                   <ChevronRight className="h-3.5 w-3.5" />
@@ -430,7 +430,7 @@ export default function CompetitorPage() {
                   <TabsTrigger value="zones" className="text-xs">투찰구간</TabsTrigger>
                   <TabsTrigger value="predict" disabled={!selectedBid} className="gap-1 text-xs">
                     <Target className="h-3 w-3" />
-                    예측{!selectedBid && <span className="text-[10px] opacity-40 ml-0.5">(공고선택)</span>}
+                    예측{!selectedBid && <span className="text-xs opacity-40 ml-0.5">(공고선택)</span>}
                   </TabsTrigger>
                 </TabsList>
 
@@ -458,7 +458,7 @@ export default function CompetitorPage() {
                           <div className="text-xl font-bold mt-0.5 text-amber-700 flex items-center gap-1">
                             {detail.win_count}건 <Trophy className="h-4 w-4 group-hover:scale-110 transition-transform" />
                           </div>
-                          <div className="text-[10px] text-amber-500 mt-0.5">클릭하여 이력 보기</div>
+                          <div className="text-xs text-amber-500 mt-0.5">클릭하여 이력 보기</div>
                         </button>
                       ) : (
                         <MetricCard label="수주 건수" value={detail.win_count + '건'} />
@@ -481,7 +481,7 @@ export default function CompetitorPage() {
                       <ResponsiveContainer width="100%" height={200}>
                         <RadarChart data={radarData}>
                           <PolarGrid stroke="#e2e8f0" />
-                          <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: '#64748b' }} />
+                          <PolarAngleAxis dataKey="subject" tick={{ fontSize: 12, fill: '#64748b' }} />
                           <Radar dataKey="value" stroke="#7c3aed" fill="#7c3aed" fillOpacity={0.2} strokeWidth={2} />
                         </RadarChart>
                       </ResponsiveContainer>
@@ -512,12 +512,12 @@ export default function CompetitorPage() {
                       <CardTitle className="text-sm font-semibold text-slate-800">월별 활동 추이</CardTitle>
                     </CardHeader>
                     <CardContent className="px-4 pb-4">
-                      <ResponsiveContainer width="100%" height={180}>
+                      <ResponsiveContainer width="100%" height={240}>
                         <LineChart data={trendData}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                          <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }} interval={2} />
-                          <YAxis yAxisId="l" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                          <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 11, fill: '#94a3b8' }} unit="%" />
+                          <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#475569' }} interval={2} />
+                          <YAxis yAxisId="l" tick={{ fontSize: 12, fill: '#475569' }} />
+                          <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 12, fill: '#475569' }} unit="%" />
                           <Tooltip contentStyle={{ border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }} />
                           <Line yAxisId="l" type="monotone" dataKey="입찰수" stroke="#cbd5e1" strokeWidth={1} dot={false} />
                           <Line yAxisId="r" type="monotone" dataKey="평균율" stroke="#7c3aed" strokeWidth={2} dot={false} />
@@ -552,7 +552,7 @@ export default function CompetitorPage() {
                               { subject: '활동성', value: pattern.radar.activity },
                             ]}>
                               <PolarGrid stroke="#e2e8f0" />
-                              <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: '#64748b' }} />
+                              <PolarAngleAxis dataKey="subject" tick={{ fontSize: 12, fill: '#64748b' }} />
                               <PolarRadiusAxis domain={[0, 10]} tick={false} />
                               <Radar dataKey="value" stroke="#7c3aed" fill="#7c3aed" fillOpacity={0.2} strokeWidth={2} />
                             </RadarChart>
@@ -565,9 +565,9 @@ export default function CompetitorPage() {
                           <ResponsiveContainer width="100%" height={200}>
                             <BarChart data={pattern.amount_pattern} margin={{ left: -10 }}>
                               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                              <XAxis dataKey="bucket" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                              <YAxis yAxisId="l" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                              <YAxis yAxisId="r" orientation="right" unit="%" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                              <XAxis dataKey="bucket" tick={{ fontSize: 12, fill: '#475569' }} />
+                              <YAxis yAxisId="l" tick={{ fontSize: 12, fill: '#475569' }} />
+                              <YAxis yAxisId="r" orientation="right" unit="%" tick={{ fontSize: 12, fill: '#475569' }} />
                               <Tooltip contentStyle={{ border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }} />
                               <Bar yAxisId="l" dataKey="bid_count" fill="#c4b5fd" name="입찰수" radius={[3, 3, 0, 0]} />
                               <Bar yAxisId="r" dataKey="win_rate" fill="#10b981" name="낙찰률" radius={[3, 3, 0, 0]} />
@@ -578,7 +578,7 @@ export default function CompetitorPage() {
                     </div>
                   </>
                 ) : (
-                  <div className="flex items-center justify-center py-16 text-slate-400 text-sm">
+                  <div className="flex items-center justify-center py-16 text-slate-500 text-sm">
                     <Loader2 className="h-5 w-5 animate-spin mr-2" />데이터를 불러오는 중...
                   </div>
                 )}
@@ -601,17 +601,17 @@ export default function CompetitorPage() {
                     ))}
                   </div>
                   {zonesData && (
-                    <span className="text-xs text-slate-400">총 {zonesData.total_count.toLocaleString()}건 기준</span>
+                    <span className="text-xs text-slate-500">총 {zonesData.total_count.toLocaleString()}건 기준</span>
                   )}
                 </div>
 
                 {!zonesData ? (
-                  <div className="flex items-center justify-center py-16 text-slate-400 text-sm">
+                  <div className="flex items-center justify-center py-16 text-slate-500 text-sm">
                     <Loader2 className="h-5 w-5 animate-spin mr-2" />데이터를 불러오는 중...
                   </div>
                 ) : zonesData.total_count === 0 ? (
                   <Card className="bg-white border-slate-200">
-                    <CardContent className="py-12 text-center text-sm text-slate-400">
+                    <CardContent className="py-12 text-center text-sm text-slate-500">
                       inpo21c 데이터 없음 — 해당 경쟁사의 수집 데이터가 없습니다
                     </CardContent>
                   </Card>
@@ -645,8 +645,8 @@ export default function CompetitorPage() {
                             margin={{ left: -10 }}
                           >
                             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                            <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#94a3b8' }} interval={3} unit="%" />
-                            <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} unit="%" />
+                            <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#475569' }} interval={3} unit="%" />
+                            <YAxis tick={{ fontSize: 12, fill: '#475569' }} unit="%" />
                             <Tooltip
                               contentStyle={{ border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }}
                               formatter={(v: number) => [`${v}%`, '빈도']}
@@ -675,17 +675,17 @@ export default function CompetitorPage() {
               <TabsContent value="predict" className="space-y-4 mt-3">
                 {!selectedBid ? (
                   <Card className="bg-white border-slate-200">
-                    <CardContent className="py-12 text-center text-sm text-slate-400">
+                    <CardContent className="py-12 text-center text-sm text-slate-500">
                       상단에서 예측 대상 공고를 선택하세요
                     </CardContent>
                   </Card>
                 ) : predictLoading ? (
-                  <div className="flex items-center justify-center py-16 text-slate-400 text-sm">
+                  <div className="flex items-center justify-center py-16 text-slate-500 text-sm">
                     <Loader2 className="h-5 w-5 animate-spin mr-2" />예측 데이터 로딩 중...
                   </div>
                 ) : !predictData ? (
                   <Card className="bg-white border-slate-200">
-                    <CardContent className="py-12 text-center text-sm text-slate-400">
+                    <CardContent className="py-12 text-center text-sm text-slate-500">
                       데이터를 불러오는 중...
                     </CardContent>
                   </Card>
@@ -726,7 +726,7 @@ export default function CompetitorPage() {
                     {/* 투찰 구간 예측 */}
                     {predictData.bid_zone.sample_count === 0 ? (
                       <Card className="bg-white border-slate-200">
-                        <CardContent className="py-8 text-center text-sm text-slate-400">
+                        <CardContent className="py-8 text-center text-sm text-slate-500">
                           inpo21c 투찰 구간 데이터 없음
                         </CardContent>
                       </Card>
@@ -735,7 +735,7 @@ export default function CompetitorPage() {
                         <CardHeader className="pb-1 pt-4 px-4">
                           <CardTitle className="text-sm font-semibold text-slate-800 flex items-center justify-between">
                             <span>예상 투찰 구간 분포</span>
-                            <span className="text-xs font-normal text-slate-400">{predictData.bid_zone.sample_count}건 기반</span>
+                            <span className="text-xs font-normal text-slate-500">{predictData.bid_zone.sample_count}건 기반</span>
                           </CardTitle>
                         </CardHeader>
                         <CardContent className="px-4 pb-4 space-y-3">
@@ -760,8 +760,8 @@ export default function CompetitorPage() {
                               margin={{ left: -10 }}
                             >
                               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                              <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#94a3b8' }} interval={1} unit="%" />
-                              <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} unit="%" />
+                              <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#475569' }} interval={1} unit="%" />
+                              <YAxis tick={{ fontSize: 12, fill: '#475569' }} unit="%" />
                               <Tooltip
                                 contentStyle={{ border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }}
                                 formatter={(v: number) => [`${v}%`, '빈도']}
@@ -790,7 +790,7 @@ export default function CompetitorPage() {
               </Tabs>
             </div>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-slate-400 gap-2">
+            <div className="flex-1 flex flex-col items-center justify-center text-slate-500 gap-2">
               <ShieldAlert className="h-10 w-10 text-slate-200" />
               <p className="text-sm">목록에서 업체를 선택하세요</p>
             </div>
@@ -809,7 +809,7 @@ export default function CompetitorPage() {
           </DialogHeader>
           <div className="overflow-y-auto flex-1">
             {!compareData ? (
-              <div className="py-16 flex items-center justify-center text-slate-400 text-sm">
+              <div className="py-16 flex items-center justify-center text-slate-500 text-sm">
                 <Loader2 className="h-5 w-5 animate-spin mr-2" />데이터를 불러오는 중...
               </div>
             ) : (
@@ -831,7 +831,7 @@ export default function CompetitorPage() {
                             { subject: '활동성', value: c.radar.activity ?? 0 },
                           ]}>
                             <PolarGrid stroke="#e2e8f0" />
-                            <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: '#64748b' }} />
+                            <PolarAngleAxis dataKey="subject" tick={{ fontSize: 12, fill: '#64748b' }} />
                             <PolarRadiusAxis domain={[0, 10]} tick={false} />
                             <Radar dataKey="value" stroke="#7c3aed" fill="#7c3aed" fillOpacity={0.2} strokeWidth={2} />
                           </RadarChart>
@@ -868,8 +868,8 @@ export default function CompetitorPage() {
                         <ResponsiveContainer width="100%" height={200}>
                           <LineChart data={chartData}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                            <XAxis dataKey="ym" tick={{ fontSize: 9, fill: '#94a3b8' }} interval={1} />
-                            <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} unit="%" domain={['auto', 'auto']} />
+                            <XAxis dataKey="ym" tick={{ fontSize: 12, fill: '#475569' }} interval={1} />
+                            <YAxis tick={{ fontSize: 12, fill: '#475569' }} unit="%" domain={['auto', 'auto']} />
                             <Tooltip
                               contentStyle={{ border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }}
                               formatter={(v: number) => [v + '%', '']}
@@ -919,27 +919,27 @@ export default function CompetitorPage() {
           </DialogHeader>
           <div className="overflow-y-auto flex-1">
             {winHistory.length === 0 ? (
-              <div className="p-10 text-center text-slate-400">불러오는 중...</div>
+              <div className="p-10 text-center text-slate-500">불러오는 중...</div>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50">
-                    <TableHead className="text-xs text-slate-500">개찰일</TableHead>
-                    <TableHead className="text-xs text-slate-500">수주 사업명</TableHead>
-                    <TableHead className="text-xs text-slate-500">발주기관</TableHead>
-                    <TableHead className="text-right text-xs text-slate-500">기초금액</TableHead>
-                    <TableHead className="text-center text-xs text-slate-500">투찰률</TableHead>
+                    <TableHead className="text-sm text-slate-500">개찰일</TableHead>
+                    <TableHead className="text-sm text-slate-500">수주 사업명</TableHead>
+                    <TableHead className="text-sm text-slate-500">발주기관</TableHead>
+                    <TableHead className="text-right text-sm text-slate-500">기초금액</TableHead>
+                    <TableHead className="text-center text-sm text-slate-500">투찰률</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {winHistory.map((w) => (
                     <TableRow key={w.result_id} className="hover:bg-amber-50/30 transition-colors">
-                      <TableCell className="whitespace-nowrap text-xs text-slate-400">{fmtDate(w.bid_open_date)}</TableCell>
+                      <TableCell className="whitespace-nowrap text-sm text-slate-500">{fmtDate(w.bid_open_date)}</TableCell>
                       <TableCell className="max-w-[220px]">
                         <span className="block font-medium truncate text-xs text-slate-800" title={w.title}>{w.title}</span>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap text-xs text-slate-600">{w.agency_name}</TableCell>
-                      <TableCell className="text-right whitespace-nowrap text-xs text-slate-600">{fmtAmt(w.base_amount)}</TableCell>
+                      <TableCell className="whitespace-nowrap text-sm text-slate-600">{w.agency_name}</TableCell>
+                      <TableCell className="text-right whitespace-nowrap text-sm text-slate-600">{fmtAmt(w.base_amount)}</TableCell>
                       <TableCell className="text-center">
                         <span className="font-mono font-bold text-purple-600 text-sm">
                           {w.bid_rate ? (w.bid_rate * 100).toFixed(2) + '%' : '-'}
@@ -972,7 +972,7 @@ function MetricCard({ label, value, highlight }: { label: string; value: string;
         ? 'bg-purple-50 border-purple-100'
         : 'bg-slate-50 border-slate-100'
     )}>
-      <div className={cn('text-xs font-medium', highlight ? 'text-purple-500' : 'text-slate-400')}>{label}</div>
+      <div className={cn('text-sm font-medium', highlight ? 'text-purple-500' : 'text-slate-500')}>{label}</div>
       <div className={cn('text-lg font-bold mt-0.5 tabular-nums', highlight ? 'text-purple-700' : 'text-slate-800')}>{value}</div>
     </div>
   )
@@ -1029,11 +1029,11 @@ function BatchAnalysisDialog({ open, onOpenChange, bidItem, competitors }: Batch
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-sm text-slate-800">{c.name}</span>
-                      <span className={cn('text-[10px] px-1.5 py-0.5 rounded border font-semibold', riskColorClass(c.risk_level))}>
+                      <span className={cn('text-xs px-1.5 py-0.5 rounded border font-semibold', riskColorClass(c.risk_level))}>
                         {c.risk_level}
                       </span>
                     </div>
-                    {q.isLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
+                    {q.isLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-500" />}
                   </div>
                   {q.data ? (
                     <div className="grid grid-cols-2 gap-3">
@@ -1043,17 +1043,17 @@ function BatchAnalysisDialog({ open, onOpenChange, bidItem, competitors }: Batch
                           <span className="text-2xl font-bold text-purple-600 tabular-nums">
                             {(q.data.participation.probability * 100).toFixed(0)}%
                           </span>
-                          <Badge variant={confidenceVariant(q.data.participation.confidence)} className="text-[10px]">
+                          <Badge variant={confidenceVariant(q.data.participation.confidence)} className="text-xs">
                             신뢰 {confidenceLabel(q.data.participation.confidence)}
                           </Badge>
                         </div>
-                        <p className="text-[11px] text-slate-400 mt-1 leading-tight">{q.data.participation.basis}</p>
+                        <p className="text-[11px] text-slate-500 mt-1 leading-tight">{q.data.participation.basis}</p>
                       </div>
                       <div>
                         <div className="text-xs text-slate-500 mb-1">
                           예상 피크 구간
                           {q.data.bid_zone.sample_count > 0 && (
-                            <span className="ml-1 text-[10px] text-slate-400">({q.data.bid_zone.sample_count}건 기반)</span>
+                            <span className="ml-1 text-xs text-slate-500">({q.data.bid_zone.sample_count}건 기반)</span>
                           )}
                         </div>
                         {q.data.bid_zone.peak_zone ? (
@@ -1062,7 +1062,7 @@ function BatchAnalysisDialog({ open, onOpenChange, bidItem, competitors }: Batch
                             ({q.data.bid_zone.peak_zone.pct}%)
                           </span>
                         ) : (
-                          <span className="text-xs text-slate-400">데이터 없음</span>
+                          <span className="text-xs text-slate-500">데이터 없음</span>
                         )}
                       </div>
                     </div>

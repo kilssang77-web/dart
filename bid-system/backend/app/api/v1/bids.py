@@ -221,3 +221,39 @@ def actual_win_zones(
 ):
     """inpo21c 실측 낙찰 구간 분포."""
     return ActualWinZoneService().get(db, bid_id)
+
+
+@router.get("/{bid_id}/prism-histogram")
+def prism_histogram(
+    bid_id: int,
+    period: str = Query("24M", regex="^(12M|24M|48M)$"),
+    db: Session  = Depends(get_db),
+    _: User      = Depends(get_current_user),
+):
+    """
+    발주처 사정율 빈도 히스토그램 + TOP 낙찰 구간 + A값 + 실제 투찰금액 계산.
+
+    - histogram: 0.001 단위 빈도 분포 (count / win_count / win_rate)
+    - top_zones: 낙찰 확률 가중 상위 10개 구간
+    - a_ratio  : 발주처 예정가/기초금액 비율
+    - bid_prices: top_zones별 실제 투찰금액 (원)
+    """
+    from ...ml.assessment import get_prism_zones
+    from ...ml.a_value import calc_bid_price
+
+    bid = db.query(Bid).filter(Bid.id == bid_id).first()
+    if not bid:
+        raise HTTPException(404, "공고를 찾을 수 없습니다")
+
+    result = get_prism_zones(db, bid.agency_id, period_type=period)
+    a_ratio = result["a_ratio"]
+    base_amount = bid.base_amount or 0
+
+    # top_zones에 실제 투찰금액 계산 추가
+    for z in result["top_zones"]:
+        z["bid_price"] = calc_bid_price(base_amount, z["srate"], a_ratio) if base_amount > 0 else None
+
+    result["base_amount"]    = base_amount
+    result["bid_id"]         = bid_id
+    result["agency_id"]      = bid.agency_id
+    return result

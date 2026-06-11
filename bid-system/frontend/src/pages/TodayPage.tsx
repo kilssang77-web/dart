@@ -67,7 +67,7 @@ function ScoreBar({ score }: { score: number | null }) {
       <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
         <div className={cn('h-1.5 rounded-full transition-all', color)} style={{ width: `${s}%` }} />
       </div>
-      <span className="text-[10px] font-mono text-slate-400 w-7 text-right shrink-0">{s.toFixed(0)}점</span>
+      <span className="text-xs font-mono text-slate-500 w-7 text-right shrink-0">{s.toFixed(0)}점</span>
     </div>
   )
 }
@@ -202,7 +202,7 @@ export default function TodayPage() {
                 <div>
                   <p className="text-sm font-medium text-slate-500">AI 추천 공고</p>
                   <p className="text-2xl font-bold mt-1 tabular-nums text-slate-900">{topRec.length}건</p>
-                  <p className="text-xs text-slate-400 mt-1">오늘 검토 대상</p>
+                  <p className="text-xs text-slate-500 mt-1">오늘 검토 대상</p>
                 </div>
                 <div className="rounded-xl p-2.5 bg-blue-50 shrink-0">
                   <Sparkles className="h-5 w-5 text-blue-600" />
@@ -222,7 +222,7 @@ export default function TodayPage() {
                 <div>
                   <p className="text-sm font-medium text-slate-500">마감 임박</p>
                   <p className="text-2xl font-bold mt-1 tabular-nums text-slate-900">{urgentList.length}건</p>
-                  <p className="text-xs text-slate-400 mt-1">D-5 이내</p>
+                  <p className="text-xs text-slate-500 mt-1">D-5 이내</p>
                 </div>
                 <div className="rounded-xl p-2.5 bg-red-50 shrink-0">
                   <AlertCircle className="h-5 w-5 text-red-500" />
@@ -244,7 +244,7 @@ export default function TodayPage() {
                   <p className={cn('text-2xl font-bold mt-1 tabular-nums', winRate >= 0.3 ? 'text-emerald-600' : winRate >= 0.2 ? 'text-amber-600' : 'text-red-600')}>
                     {(winRate * 100).toFixed(1)}%
                   </p>
-                  <p className="text-xs text-slate-400 mt-1">{totalWins}건 / 목표 {monthlyTarget}건</p>
+                  <p className="text-xs text-slate-500 mt-1">{totalWins}건 / 목표 {monthlyTarget}건</p>
                 </div>
                 <div className={cn('rounded-xl p-2.5 shrink-0', winRate >= 0.3 ? 'bg-emerald-50' : winRate >= 0.2 ? 'bg-amber-50' : 'bg-red-50')}>
                   <Trophy className={cn('h-5 w-5', winRate >= 0.3 ? 'text-emerald-600' : winRate >= 0.2 ? 'text-amber-600' : 'text-red-600')} />
@@ -264,7 +264,7 @@ export default function TodayPage() {
                 <div>
                   <p className="text-sm font-medium text-slate-500">진행중 투찰</p>
                   <p className="text-2xl font-bold mt-1 tabular-nums text-slate-900">{activeExecCount}건</p>
-                  <p className="text-xs text-slate-400 mt-1">
+                  <p className="text-xs text-slate-500 mt-1">
                     {todayClosings.length > 0
                       ? <span className="text-red-500 font-semibold">오늘 개찰 {todayClosings.length}건</span>
                       : '개찰대기·투찰완료·참여결정'}
@@ -303,7 +303,7 @@ export default function TodayPage() {
               </div>
             ) : topRec.length === 0 ? (
               <Card className="bg-white border-slate-200">
-                <CardContent className="py-10 text-center text-slate-400 text-sm">
+                <CardContent className="py-10 text-center text-slate-500 text-sm">
                   추천 공고가 없습니다. 키워드 설정을 확인해주세요.
                 </CardContent>
               </Card>
@@ -346,7 +346,7 @@ export default function TodayPage() {
                             <p className="text-sm font-semibold text-slate-800 truncate group-hover:text-blue-700 transition-colors">
                               {b.title}
                             </p>
-                            <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-400">
+                            <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500">
                               <span className="flex items-center gap-1">
                                 <Building2 className="h-3 w-3 shrink-0" />
                                 <span className="truncate max-w-[140px]">{b.agency_name}</span>
@@ -414,7 +414,7 @@ export default function TodayPage() {
               </CardHeader>
               <CardContent className="px-4 pb-4 space-y-1.5">
                 {urgentList.length === 0 ? (
-                  <p className="text-xs text-slate-400 py-3 text-center">D-5 이내 마감 공고 없음</p>
+                  <p className="text-xs text-slate-500 py-3 text-center">D-5 이내 마감 공고 없음</p>
                 ) : (
                   urgentList.map((b: { id: number; title: string; agency_name: string; base_amount: number; bid_open_date: string | null }) => {
                     const days = daysUntil(b.bid_open_date)
@@ -429,7 +429,7 @@ export default function TodayPage() {
                           <p className="text-xs font-semibold text-slate-700 truncate group-hover:text-blue-700 transition-colors">
                             {b.title}
                           </p>
-                          <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                          <p className="text-xs text-slate-500 truncate mt-0.5">
                             {b.agency_name} · {fmtAmt(b.base_amount)}원
                           </p>
                         </div>
@@ -448,7 +448,7 @@ export default function TodayPage() {
                   <CardTitle className="text-sm font-semibold text-red-700 flex items-center gap-1.5">
                     <Clock className="h-4 w-4 text-red-500 animate-pulse" />
                     오늘 개찰 마감
-                    <span className="ml-auto bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    <span className="ml-auto bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">
                       {todayClosings.length}건
                     </span>
                   </CardTitle>
@@ -465,7 +465,7 @@ export default function TodayPage() {
                         <p className="text-xs font-semibold text-slate-700 truncate group-hover:text-red-700 transition-colors">
                           {ex.title}
                         </p>
-                        <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                        <p className="text-xs text-slate-500 truncate mt-0.5">
                           {ex.status} · {ex.agency_name ?? '-'}
                         </p>
                       </div>
@@ -473,7 +473,7 @@ export default function TodayPage() {
                     </div>
                   ))}
                   {todayClosings.length > 4 && (
-                    <p className="text-[10px] text-slate-400 text-center pt-1">
+                    <p className="text-xs text-slate-500 text-center pt-1">
                       +{todayClosings.length - 4}건 더보기 →
                     </p>
                   )}
@@ -508,7 +508,7 @@ export default function TodayPage() {
 
                 <div className="grid grid-cols-2 gap-2">
                   <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 text-center">
-                    <p className="text-[10px] text-slate-400 font-medium">수주율</p>
+                    <p className="text-xs text-slate-500 font-medium">수주율</p>
                     <p className={cn(
                       'text-lg font-bold tabular-nums mt-0.5',
                       winRate >= 0.3 ? 'text-emerald-600' : winRate >= 0.2 ? 'text-amber-600' : 'text-red-500',
@@ -517,7 +517,7 @@ export default function TodayPage() {
                     </p>
                   </div>
                   <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 text-center">
-                    <p className="text-[10px] text-slate-400 font-medium">전월대비</p>
+                    <p className="text-xs text-slate-500 font-medium">전월대비</p>
                     <p className="text-lg font-bold flex items-center justify-center gap-0.5 mt-0.5">
                       {overview?.win_rate_change_pct != null ? (
                         <>
@@ -532,7 +532,7 @@ export default function TodayPage() {
                           </span>
                         </>
                       ) : (
-                        <span className="text-slate-400 text-sm">-</span>
+                        <span className="text-slate-500 text-sm">-</span>
                       )}
                     </p>
                   </div>
@@ -541,7 +541,7 @@ export default function TodayPage() {
                 {kpi?.alerts && kpi.alerts.length > 0 && (
                   <div className="space-y-1.5">
                     {kpi.alerts.slice(0, 2).map((alert, i) => (
-                      <div key={i} className="text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5 flex items-start gap-1">
+                      <div key={i} className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5 flex items-start gap-1">
                         <AlertCircle className="h-3 w-3 shrink-0 mt-0.5" />
                         {alert}
                       </div>
@@ -586,7 +586,7 @@ export default function TodayPage() {
                       <item.icon className={cn('h-3.5 w-3.5', item.color)} />
                     </div>
                     <span className="text-slate-600 group-hover:text-slate-900 font-medium transition-colors">{item.label}</span>
-                    <ChevronRight className="h-3 w-3 text-slate-300 group-hover:text-slate-400 ml-auto shrink-0 transition-colors" />
+                    <ChevronRight className="h-3 w-3 text-slate-300 group-hover:text-slate-500 ml-auto shrink-0 transition-colors" />
                   </button>
                 ))}
               </CardContent>

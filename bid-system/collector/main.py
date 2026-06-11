@@ -581,69 +581,35 @@ def save_scsbid_to_db(db: Session, items: list[dict]) -> int:
     return saved
 
 def collect_results(limit: int = 500):
-    """개찰결과 수집 — 개찰일이 지난 열린 공고의 결과를 조회."""
+    """낙찰결과 수집 — ScsbidInfoService 날짜 범위 기반 (최근 30일)."""
     if not COLLECT_ENABLED or not G2B_API_KEY or not engine:
         return
     import asyncio
-    from g2b_client import G2BApiClient
+
+    end = datetime.now()
+    start = end - timedelta(days=30)
+    date_from = start.strftime("%Y%m%d0000")
+    date_to   = end.strftime("%Y%m%d2359")
+
+    logger.info(f"=== 낙찰결과 수집 ({date_from} ~ {date_to}) ===")
+    try:
+        items = asyncio.run(fetch_results_scsbid(date_from, date_to))
+    except Exception as e:
+        logger.error(f"낙찰결과 API 오류: {e}")
+        return
+
+    if not items:
+        logger.info("낙찰결과 없음 (API 빈 응답)")
+        return
 
     db = MkSession()
     try:
-        rows = db.execute(text("""
-            SELECT id, announcement_no
-            FROM bids
-            WHERE source = 'g2b'
-              AND status = 'open'
-              AND bid_open_date IS NOT NULL
-              AND bid_open_date < NOW() - INTERVAL '1 hour'
-              AND id NOT IN (SELECT DISTINCT bid_id FROM bid_results)
-            ORDER BY bid_open_date ASC
-            LIMIT :lim
-        """), {"lim": limit}).fetchall()
+        saved = save_scsbid_to_db(db, items)
+        logger.info(f"개찰결과 수집 완료: 저장 {saved}건")
+    except Exception as e:
+        logger.error(f"낙찰결과 저장 오류: {e}")
     finally:
         db.close()
-
-    if not rows:
-        logger.info("개찰결과 수집 대상 없음")
-        return
-
-    logger.info(f"개찰결과 수집 대상: {len(rows)}건")
-    saved_total = 0
-    no_result = 0
-
-    async def _run():
-        nonlocal saved_total, no_result
-        client = G2BApiClient(G2B_API_KEY)
-        for idx, row in enumerate(rows, 1):
-            bid_id, bid_no = row[0], row[1]
-            items = await fetch_results_for_bid(client, bid_no)
-            if items:
-                rdb = MkSession()
-                try:
-                    n = save_results_to_db(rdb, bid_id, bid_no, items)
-                    saved_total += n
-                    if n > 0:
-                        logger.info(f"[{idx}/{len(rows)}] {bid_no}: {n}건 저장")
-                finally:
-                    rdb.close()
-            else:
-                # API 404 또는 결과 미공개 — 30일 초과된 경우만 closed 처리
-                rdb = MkSession()
-                try:
-                    rdb.execute(text(
-                        "UPDATE bids SET status='closed' WHERE id=:id AND bid_open_date < NOW() - INTERVAL '30 days'"
-                    ), {"id": bid_id})
-                    rdb.commit()
-                finally:
-                    rdb.close()
-                no_result += 1
-
-            if idx % 100 == 0:
-                logger.info(f"  진행 {idx}/{len(rows)} — 저장 {saved_total}건, 결과없음 {no_result}건")
-        await client.close()
-
-    asyncio.run(_run())
-    logger.info(f"개찰결과 수집 완료: 저장 {saved_total}건, 결과없음 {no_result}건")
 
 
 if __name__ == "__main__":

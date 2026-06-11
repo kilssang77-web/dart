@@ -83,15 +83,15 @@ export default function MarketIntelPage() {
           <CardHeader className="border-b border-slate-100 pb-3 flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
               <Building2 className="h-4 w-4 text-blue-500" />발주처별 낙찰율 분포
-              <span className="text-xs font-normal text-slate-400">상위 20사</span>
+              <span className="text-xs font-normal text-slate-500">상위 20사</span>
             </CardTitle>
-            <span className="text-xs text-slate-400">최근 {months}개월</span>
+            <span className="text-xs text-slate-500">최근 {months}개월</span>
           </CardHeader>
           <CardContent className="pt-4">
             {loadingHeatmap ? (
               <Skeleton className="h-64 w-full rounded-lg" />
             ) : boxData.length === 0 ? (
-              <div className="h-64 flex flex-col items-center justify-center text-slate-400">
+              <div className="h-64 flex flex-col items-center justify-center text-slate-500">
                 <BarChart3 className="h-8 w-8 mb-2 opacity-30" />
                 <p className="text-sm">데이터 없음</p>
               </div>
@@ -99,8 +99,8 @@ export default function MarketIntelPage() {
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={boxData} margin={{ bottom: 64, left: -10 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#94a3b8' }} angle={-40} textAnchor="end" interval={0} />
-                  <YAxis tick={{ fontSize: 9, fill: '#94a3b8' }} unit="%" domain={['auto', 'auto']} />
+                  <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#475569' }} angle={-40} textAnchor="end" interval={0} />
+                  <YAxis tick={{ fontSize: 12, fill: '#475569' }} unit="%" domain={['auto', 'auto']} />
                   <Tooltip
                     contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                     formatter={(v: number) => [v + '%', '평균 낙찰율']}
@@ -120,11 +120,11 @@ export default function MarketIntelPage() {
               <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                 <Building2 className="h-4 w-4 text-blue-500" />발주처 낙찰 상세
               </CardTitle>
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-slate-500">
                 {selectedAgency ? (
                   <span className="flex items-center gap-1">
                     <span className="text-blue-600 font-medium">{selectedAgency.slice(0, 12)}</span> 선택됨
-                    <button onClick={() => setSelectedAgency(undefined)} className="ml-1 text-slate-400 hover:text-slate-600 underline">해제</button>
+                    <button onClick={() => setSelectedAgency(undefined)} className="ml-1 text-slate-500 hover:text-slate-600 underline">해제</button>
                   </span>
                 ) : '행 클릭 시 추세 필터링'}
               </span>
@@ -134,13 +134,13 @@ export default function MarketIntelPage() {
                 <Table>
                   <TableHeader className="bg-slate-50">
                     <TableRow>
-                      <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide w-8">#</TableHead>
-                      <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide">발주처</TableHead>
-                      <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide text-right">낙찰건수</TableHead>
-                      <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide text-right">평균 낙찰율</TableHead>
-                      <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide text-right">Q1 (25%)</TableHead>
-                      <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide text-right">Q3 (75%)</TableHead>
-                      <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide text-right">범위</TableHead>
+                      <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide w-8">#</TableHead>
+                      <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide">발주처</TableHead>
+                      <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">낙찰건수</TableHead>
+                      <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">평균 낙찰율</TableHead>
+                      <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">Q1 (25%)</TableHead>
+                      <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">Q3 (75%)</TableHead>
+                      <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">범위</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -150,12 +150,12 @@ export default function MarketIntelPage() {
                         className="cursor-pointer hover:bg-blue-50/50 transition-colors"
                         onClick={() => setSelectedAgency(a.agency_name === selectedAgency ? undefined : a.agency_name)}
                       >
-                        <TableCell className="text-xs text-slate-400 font-mono">{idx + 1}</TableCell>
+                        <TableCell className="text-sm text-slate-500 font-mono">{idx + 1}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <span className="font-medium text-slate-800">{a.agency_name}</span>
                             {a.agency_name === selectedAgency && (
-                              <Badge className="text-[10px] h-4 px-1.5 bg-blue-100 text-blue-700 border-0">선택</Badge>
+                              <Badge className="text-xs h-4 px-1.5 bg-blue-100 text-blue-700 border-0">선택</Badge>
                             )}
                           </div>
                         </TableCell>
@@ -169,7 +169,7 @@ export default function MarketIntelPage() {
                         <TableCell className="text-right font-mono text-slate-500 text-xs">
                           {a.p75 != null ? (a.p75 * 100).toFixed(3) + '%' : '-'}
                         </TableCell>
-                        <TableCell className="text-right text-xs text-slate-400">
+                        <TableCell className="text-right text-sm text-slate-500">
                           {a.min_rate && a.max_rate
                             ? `${(a.min_rate * 100).toFixed(1)}%~${(a.max_rate * 100).toFixed(1)}%`
                             : '-'}
@@ -190,18 +190,18 @@ export default function MarketIntelPage() {
               <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                 <TrendingUp className="h-4 w-4 text-blue-500" />월별 낙찰율 추세
                 {selectedAgency && (
-                  <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">
+                  <Badge variant="secondary" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
                     {selectedAgency.slice(0, 10)}
                   </Badge>
                 )}
               </CardTitle>
-              <span className="text-xs text-slate-400">{selectedAgency ? '선택 기관' : '전체'}</span>
+              <span className="text-xs text-slate-500">{selectedAgency ? '선택 기관' : '전체'}</span>
             </CardHeader>
             <CardContent className="pt-4">
               {loadingTrend ? (
                 <Skeleton className="h-48 w-full rounded-lg" />
               ) : trendData.length === 0 ? (
-                <div className="h-48 flex flex-col items-center justify-center text-slate-400">
+                <div className="h-48 flex flex-col items-center justify-center text-slate-500">
                   <Activity className="h-7 w-7 mb-2 opacity-30" />
                   <p className="text-sm">데이터 없음</p>
                 </div>
@@ -209,8 +209,8 @@ export default function MarketIntelPage() {
                 <ResponsiveContainer width="100%" height={200}>
                   <LineChart data={trendData} margin={{ left: -20, bottom: 20 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#94a3b8' }} angle={-30} textAnchor="end" />
-                    <YAxis tick={{ fontSize: 9, fill: '#94a3b8' }} unit="%" domain={['auto', 'auto']} />
+                    <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#475569' }} angle={-30} textAnchor="end" />
+                    <YAxis tick={{ fontSize: 12, fill: '#475569' }} unit="%" domain={['auto', 'auto']} />
                     <Tooltip
                       contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
                       formatter={(v: number) => [v + '%', '평균 낙찰율']}
@@ -234,9 +234,9 @@ export default function MarketIntelPage() {
             <CardHeader className="border-b border-slate-100 pb-3 flex flex-row items-center justify-between">
               <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                 <Award className="h-4 w-4 text-amber-500" />낙찰 다발 업체
-                <span className="text-xs font-normal text-slate-400">TOP 10</span>
+                <span className="text-xs font-normal text-slate-500">TOP 10</span>
                 {selectedAgency && (
-                  <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">
+                  <Badge variant="secondary" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
                     {selectedAgency.slice(0, 10)}
                   </Badge>
                 )}
@@ -248,7 +248,7 @@ export default function MarketIntelPage() {
                   <Skeleton className="h-48 w-full rounded-lg" />
                 </div>
               ) : !winners || winners.length === 0 ? (
-                <div className="h-48 flex flex-col items-center justify-center text-slate-400">
+                <div className="h-48 flex flex-col items-center justify-center text-slate-500">
                   <Award className="h-7 w-7 mb-2 opacity-30" />
                   <p className="text-sm">데이터 없음</p>
                 </div>
@@ -257,11 +257,11 @@ export default function MarketIntelPage() {
                   <Table>
                     <TableHeader className="bg-slate-50">
                       <TableRow>
-                        <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide w-8">#</TableHead>
-                        <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide">업체명</TableHead>
-                        <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide">비율</TableHead>
-                        <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide text-right">낙찰</TableHead>
-                        <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide text-right">평균율</TableHead>
+                        <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide w-8">#</TableHead>
+                        <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide">업체명</TableHead>
+                        <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide">비율</TableHead>
+                        <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">낙찰</TableHead>
+                        <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">평균율</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -269,9 +269,9 @@ export default function MarketIntelPage() {
                         const barPct = Math.round((w.win_count / maxWinCount) * 100)
                         return (
                           <TableRow key={i} className="hover:bg-slate-50/80 transition-colors">
-                            <TableCell className="text-xs text-slate-400 font-mono">
+                            <TableCell className="text-sm text-slate-500 font-mono">
                               {i < 3 ? (
-                                <span className={['text-amber-500 font-bold', 'text-slate-400 font-bold', 'text-orange-400 font-bold'][i]}>
+                                <span className={['text-amber-500 font-bold', 'text-slate-500 font-bold', 'text-orange-400 font-bold'][i]}>
                                   {i + 1}
                                 </span>
                               ) : i + 1}
@@ -287,11 +287,11 @@ export default function MarketIntelPage() {
                                     style={{ width: `${barPct}%` }}
                                   />
                                 </div>
-                                <span className="text-xs text-slate-400 w-7 text-right">{barPct}%</span>
+                                <span className="text-xs text-slate-500 w-7 text-right">{barPct}%</span>
                               </div>
                             </TableCell>
-                            <TableCell className="text-right font-semibold text-slate-800">{w.win_count}<span className="text-xs font-normal text-slate-400 ml-0.5">건</span></TableCell>
-                            <TableCell className="text-right font-mono text-xs text-slate-500">
+                            <TableCell className="text-right font-semibold text-slate-800">{w.win_count}<span className="text-xs font-normal text-slate-500 ml-0.5">건</span></TableCell>
+                            <TableCell className="text-right font-mono text-sm text-slate-500">
                               {w.avg_rate != null ? (w.avg_rate * 100).toFixed(3) + '%' : '-'}
                             </TableCell>
                           </TableRow>
@@ -311,9 +311,9 @@ export default function MarketIntelPage() {
             <CardHeader className="border-b border-slate-100 pb-3 flex flex-row items-center justify-between">
               <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                 <BarChart3 className="h-4 w-4 text-blue-500" />발주처 낙찰율 범위 분포
-                <span className="text-xs font-normal text-slate-400">Q1 ~ Q3 박스플롯</span>
+                <span className="text-xs font-normal text-slate-500">Q1 ~ Q3 박스플롯</span>
               </CardTitle>
-              <span className="text-xs text-slate-400">최근 {months}개월</span>
+              <span className="text-xs text-slate-500">최근 {months}개월</span>
             </CardHeader>
             <CardContent className="pt-4 space-y-2">
               {heatmap.agencies.slice(0, 10).map((a: AgencyHeatmapItem) => {
@@ -326,7 +326,7 @@ export default function MarketIntelPage() {
                 return (
                   <div key={a.agency_name} className="flex items-center gap-3 group">
                     <div
-                      className="w-32 text-xs text-slate-600 truncate shrink-0 group-hover:text-blue-600 cursor-pointer transition-colors"
+                      className="w-32 text-sm text-slate-600 truncate shrink-0 group-hover:text-blue-600 cursor-pointer transition-colors"
                       onClick={() => setSelectedAgency(a.agency_name === selectedAgency ? undefined : a.agency_name)}
                     >
                       {a.agency_name}
@@ -346,14 +346,14 @@ export default function MarketIntelPage() {
                       />
                     </div>
                     <div className="text-xs font-mono text-blue-600 w-16 text-right shrink-0">{avgPct}%</div>
-                    <div className="flex items-center gap-1 text-xs text-slate-400 shrink-0">
+                    <div className="flex items-center gap-1 text-xs text-slate-500 shrink-0">
                       <ChevronRight className="h-3 w-3" />
                       <span>{a.bid_count}건</span>
                     </div>
                   </div>
                 )
               })}
-              <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-100 mt-2">
+              <div className="flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-100 mt-2">
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-1.5"><div className="w-3 h-2 bg-blue-200 rounded" /><span>IQR (Q1~Q3)</span></div>
                   <div className="flex items-center gap-1.5"><div className="w-0.5 h-4 bg-blue-600 rounded" /><span>평균</span></div>

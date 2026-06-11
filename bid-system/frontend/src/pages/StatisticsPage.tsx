@@ -170,7 +170,7 @@ export default function StatisticsPage() {
                   key={m}
                   onClick={() => setMonths(m)}
                   className={cn(
-                    'px-3 py-1.5 text-xs font-medium transition-colors',
+                    'px-3 py-1.5 text-sm font-medium transition-colors',
                     months === m
                       ? 'bg-blue-600 text-white'
                       : 'bg-white text-slate-600 hover:bg-slate-50'
@@ -238,9 +238,9 @@ export default function StatisticsPage() {
                             <div>
                               <p className="text-sm font-medium text-slate-500">{label}</p>
                               <p className="text-2xl font-bold mt-1 tabular-nums text-slate-900">
-                                {value}<span className="text-sm font-normal text-slate-400 ml-1">{unit}</span>
+                                {value}<span className="text-sm font-normal text-slate-500 ml-1">{unit}</span>
                               </p>
-                              <p className="text-xs text-slate-400 mt-1">{sub}</p>
+                              <p className="text-xs text-slate-500 mt-1">{sub}</p>
                             </div>
                             <div className={cn('rounded-xl p-2.5',
                               color === 'blue' ? 'bg-blue-50' :
@@ -266,15 +266,15 @@ export default function StatisticsPage() {
                         <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                           <TrendingUp className="h-4 w-4 text-blue-500" />월별 입찰 추이
                         </CardTitle>
-                        <span className="text-xs text-slate-400">입찰수 / 낙찰율(%)</span>
+                        <span className="text-xs text-slate-500">입찰수 / 낙찰율(%)</span>
                       </CardHeader>
                       <CardContent className="pt-4">
                         <ResponsiveContainer width="100%" height={220}>
                           <LineChart data={trendData}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                            <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }} interval={1} />
-                            <YAxis yAxisId="l" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                            <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 11, fill: '#94a3b8' }} unit="%" />
+                            <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#475569' }} interval={1} />
+                            <YAxis yAxisId="l" tick={{ fontSize: 12, fill: '#475569' }} />
+                            <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 12, fill: '#475569' }} unit="%" />
                             <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                             <Line yAxisId="l" type="monotone" dataKey="입찰수" stroke="#94a3b8" strokeWidth={1.5} dot={false} />
                             <Line yAxisId="r" type="monotone" dataKey="낙찰율" stroke="#2563eb" strokeWidth={2} dot={false} />
@@ -292,7 +292,7 @@ export default function StatisticsPage() {
                           <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                             <Building2 className="h-4 w-4 text-blue-500" />기관별 낙찰률
                           </CardTitle>
-                          <span className="text-xs text-slate-400">상위 20개</span>
+                          <span className="text-xs text-slate-500">상위 20개</span>
                         </CardHeader>
                         <CardContent className="p-0">
                           <div className="overflow-auto max-h-72">
@@ -300,23 +300,23 @@ export default function StatisticsPage() {
                               <Table>
                                 <TableHeader className="bg-slate-50">
                                   <TableRow>
-                                    <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide w-8">#</TableHead>
-                                    <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide">기관명</TableHead>
-                                    <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide text-right">건수</TableHead>
-                                    <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide text-right">낙찰률</TableHead>
-                                    <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide text-right">경쟁</TableHead>
+                                    <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide w-8">#</TableHead>
+                                    <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide">기관명</TableHead>
+                                    <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">건수</TableHead>
+                                    <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">낙찰률</TableHead>
+                                    <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">경쟁</TableHead>
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                   {(agencies as AgencyStatItem[]).slice(0, 20).map((a, idx) => (
                                     <TableRow key={a.agency_id} className="hover:bg-slate-50/80 transition-colors">
-                                      <TableCell className="py-2 text-xs text-slate-400 font-mono">{idx + 1}</TableCell>
+                                      <TableCell className="py-2 text-sm text-slate-500 font-mono">{idx + 1}</TableCell>
                                       <TableCell className="py-2 text-xs truncate max-w-[130px] font-medium text-slate-700">{a.agency_name}</TableCell>
-                                      <TableCell className="py-2 text-right text-xs text-slate-600">{a.bid_count.toLocaleString()}</TableCell>
+                                      <TableCell className="py-2 text-right text-sm text-slate-600">{a.bid_count.toLocaleString()}</TableCell>
                                       <TableCell className="py-2 text-right text-xs font-semibold text-blue-600">
                                         {a.avg_rate ? (a.avg_rate * 100).toFixed(2) + '%' : '-'}
                                       </TableCell>
-                                      <TableCell className="py-2 text-right text-xs text-slate-400">
+                                      <TableCell className="py-2 text-right text-sm text-slate-500">
                                         {a.avg_competitor_count ? a.avg_competitor_count.toFixed(1) : '-'}
                                       </TableCell>
                                     </TableRow>
@@ -336,14 +336,14 @@ export default function StatisticsPage() {
                           <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                             <Activity className="h-4 w-4 text-blue-500" />낙찰률 분포
                           </CardTitle>
-                          <span className="text-xs text-slate-400">80~100% 구간</span>
+                          <span className="text-xs text-slate-500">80~100% 구간</span>
                         </CardHeader>
                         <CardContent className="pt-4">
                           <ResponsiveContainer width="100%" height={240}>
                             <BarChart data={(rateDist as RateDistItem[]).filter((d) => d.rate_pct >= 80 && d.rate_pct <= 100)}>
                               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                              <XAxis dataKey="rate_pct" tick={{ fontSize: 9, fill: '#94a3b8' }} unit="%" interval={4} />
-                              <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                              <XAxis dataKey="rate_pct" tick={{ fontSize: 12, fill: '#475569' }} unit="%" interval={4} />
+                              <YAxis tick={{ fontSize: 12, fill: '#475569' }} />
                               <Tooltip
                                 contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
                                 formatter={(v) => [v, '건수']}
@@ -364,7 +364,7 @@ export default function StatisticsPage() {
                         <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                           <Database className="h-4 w-4 text-blue-500" />월별 × 공종별 낙찰률 히트맵
                         </CardTitle>
-                        <span className="text-xs text-slate-400">색상 진할수록 높은 낙찰률</span>
+                        <span className="text-xs text-slate-500">색상 진할수록 높은 낙찰률</span>
                       </CardHeader>
                       <CardContent className="pt-4">
                         <div className="overflow-x-auto">
@@ -404,19 +404,19 @@ export default function StatisticsPage() {
                         </div>
                         {/* 범례 */}
                         <div className="flex items-center gap-2 mt-3">
-                          <span className="text-xs text-slate-400">낮음</span>
+                          <span className="text-xs text-slate-500">낮음</span>
                           <div className="flex gap-0.5">
                             {[0.1, 0.25, 0.4, 0.55, 0.7, 0.85, 1.0].map((o) => (
                               <div key={o} className="w-5 h-3 rounded-sm" style={{ backgroundColor: `rgba(37,99,235,${o})` }} />
                             ))}
                           </div>
-                          <span className="text-xs text-slate-400">높음</span>
+                          <span className="text-xs text-slate-500">높음</span>
                         </div>
                       </CardContent>
                     </Card>
                   )}
                 </>
-              ) : <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+              ) : <div className="flex flex-col items-center justify-center py-20 text-slate-500">
                   <BarChart3 className="h-10 w-10 mb-3 opacity-30" />
                   <p className="text-sm">데이터가 없습니다</p>
                 </div>}
@@ -439,14 +439,14 @@ export default function StatisticsPage() {
                         <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                           <MapPin className="h-4 w-4 text-blue-500" />지역별 평균 낙찰률
                         </CardTitle>
-                        <span className="text-xs text-slate-400">상위 12개</span>
+                        <span className="text-xs text-slate-500">상위 12개</span>
                       </CardHeader>
                       <CardContent className="pt-4">
                         {regionChartData.length > 0 ? (
                           <ResponsiveContainer width="100%" height={300}>
                             <BarChart data={regionChartData} layout="vertical">
                               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                              <XAxis type="number" tick={{ fontSize: 10, fill: '#94a3b8' }} unit="%" domain={['auto','auto']} />
+                              <XAxis type="number" tick={{ fontSize: 12, fill: '#475569' }} unit="%" domain={['auto','auto']} />
                               <YAxis type="category" dataKey="name" width={80} tick={{ fontSize: 10, fill: '#64748b' }} />
                               <Tooltip
                                 contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
@@ -455,7 +455,7 @@ export default function StatisticsPage() {
                               <Bar dataKey="rate" fill="#2563eb" radius={[0, 3, 3, 0]} opacity={0.85} />
                             </BarChart>
                           </ResponsiveContainer>
-                        ) : <div className="flex items-center justify-center h-40 text-sm text-slate-400">데이터 없음</div>}
+                        ) : <div className="flex items-center justify-center h-40 text-sm text-slate-500">데이터 없음</div>}
                       </CardContent>
                     </Card>
 
@@ -464,7 +464,7 @@ export default function StatisticsPage() {
                         <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                           <Activity className="h-4 w-4 text-emerald-500" />지역별 입찰 비중
                         </CardTitle>
-                        <span className="text-xs text-slate-400">상위 8개 지역</span>
+                        <span className="text-xs text-slate-500">상위 8개 지역</span>
                       </CardHeader>
                       <CardContent className="pt-4">
                         {regions.length > 0 ? (
@@ -481,7 +481,7 @@ export default function StatisticsPage() {
                               />
                             </PieChart>
                           </ResponsiveContainer>
-                        ) : <div className="flex items-center justify-center h-40 text-sm text-slate-400">데이터 없음</div>}
+                        ) : <div className="flex items-center justify-center h-40 text-sm text-slate-500">데이터 없음</div>}
                       </CardContent>
                     </Card>
                   </div>
@@ -492,14 +492,14 @@ export default function StatisticsPage() {
                         <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                           <BarChart3 className="h-4 w-4 text-amber-500" />공종별 낙찰률
                         </CardTitle>
-                        <span className="text-xs text-slate-400">상위 15개 공종</span>
+                        <span className="text-xs text-slate-500">상위 15개 공종</span>
                       </CardHeader>
                       <CardContent className="pt-4">
                         <ResponsiveContainer width="100%" height={260}>
                           <BarChart data={industryChartData}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                            <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#94a3b8' }} interval={0} angle={-25} textAnchor="end" height={54} />
-                            <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} unit="%" domain={['auto','auto']} />
+                            <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#475569' }} interval={0} angle={-25} textAnchor="end" height={54} />
+                            <YAxis tick={{ fontSize: 12, fill: '#475569' }} unit="%" domain={['auto','auto']} />
                             <Tooltip
                               contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
                               formatter={(v) => [`${v}%`, '낙찰률']}
@@ -517,18 +517,18 @@ export default function StatisticsPage() {
                         <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                           <Database className="h-4 w-4 text-blue-500" />공종별 상세 통계
                         </CardTitle>
-                        <span className="text-xs text-slate-400">{industries.length}개 공종</span>
+                        <span className="text-xs text-slate-500">{industries.length}개 공종</span>
                       </CardHeader>
                       <CardContent className="p-0">
                         <div className="overflow-hidden rounded-b-lg">
                           <Table>
                             <TableHeader className="bg-slate-50">
                               <TableRow>
-                                <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide">공종명</TableHead>
-                                <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide text-right">입찰 건수</TableHead>
-                                <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide text-right">평균 낙찰률</TableHead>
-                                <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide text-right">평균 경쟁사</TableHead>
-                                <TableHead className="font-semibold text-slate-600 text-xs uppercase tracking-wide text-right">총 금액</TableHead>
+                                <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide">공종명</TableHead>
+                                <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">입찰 건수</TableHead>
+                                <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">평균 낙찰률</TableHead>
+                                <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">평균 경쟁사</TableHead>
+                                <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">총 금액</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -542,7 +542,7 @@ export default function StatisticsPage() {
                                   <TableCell className="text-right text-slate-500">
                                     {ind.avg_competitor_count ? ind.avg_competitor_count.toFixed(1) : '-'}
                                   </TableCell>
-                                  <TableCell className="text-right text-slate-400 text-xs">{fmtAmt(ind.total_amount)}</TableCell>
+                                  <TableCell className="text-right text-slate-500 text-xs">{fmtAmt(ind.total_amount)}</TableCell>
                                 </TableRow>
                               ))}
                             </TableBody>
@@ -567,7 +567,7 @@ export default function StatisticsPage() {
               {clusterLoading ? (
                 <Card className="bg-white border-slate-200 shadow-sm">
                   <CardContent className="py-16 text-center">
-                    <div className="flex flex-col items-center gap-3 text-slate-400">
+                    <div className="flex flex-col items-center gap-3 text-slate-500">
                       <GitBranch className="h-8 w-8 animate-pulse" />
                       <p className="text-sm">클러스터 분석 중...</p>
                     </div>
@@ -579,14 +579,14 @@ export default function StatisticsPage() {
                 </Card>
               ) : !cluster || cluster.error ? (
                 <Card className="bg-white border-slate-200 shadow-sm">
-                  <CardContent className="py-10 text-center text-slate-400 text-sm">{cluster?.error ?? '분석 데이터 부족'}</CardContent>
+                  <CardContent className="py-10 text-center text-slate-500 text-sm">{cluster?.error ?? '분석 데이터 부족'}</CardContent>
                 </Card>
               ) : (
                 <>
                   <div className="flex items-center gap-3 px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg">
                     <div className="flex items-center gap-1.5 text-sm text-slate-700">
                       <span className="font-semibold text-slate-900">{cluster.total_count.toLocaleString()}건</span>
-                      <span className="text-slate-400">분석 →</span>
+                      <span className="text-slate-500">분석 →</span>
                       <span className="font-semibold text-blue-600">{cluster.clusters.length}개</span>
                       <span>클러스터로 분류됨</span>
                     </div>
@@ -624,7 +624,7 @@ export default function StatisticsPage() {
                               </div>
                             ))}
                           </div>
-                          <p className="text-xs text-slate-400 mt-3">
+                          <p className="text-xs text-slate-500 mt-3">
                             금액 범위: {fmtAmt(c.amount_range[0])} ~ {fmtAmt(c.amount_range[1])}
                           </p>
                         </CardContent>
@@ -638,14 +638,14 @@ export default function StatisticsPage() {
                         <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                           <Activity className="h-4 w-4 text-blue-500" />클러스터별 금액 vs 낙찰률
                         </CardTitle>
-                        <span className="text-xs text-slate-400">산점도</span>
+                        <span className="text-xs text-slate-500">산점도</span>
                       </CardHeader>
                       <CardContent className="pt-4">
                         <ResponsiveContainer width="100%" height={240}>
                           <ScatterChart>
                             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                            <XAxis dataKey="avg_amount" name="평균금액" tickFormatter={(v) => fmtAmt(v)} tick={{ fontSize: 10, fill: '#94a3b8' }} type="number" />
-                            <YAxis dataKey="avg_rate" name="낙찰률" tickFormatter={(v) => typeof v === 'number' ? (v*100).toFixed(1) : '0'} unit="%" tick={{ fontSize: 10, fill: '#94a3b8' }} type="number" />
+                            <XAxis dataKey="avg_amount" name="평균금액" tickFormatter={(v) => fmtAmt(v)} tick={{ fontSize: 12, fill: '#475569' }} type="number" />
+                            <YAxis dataKey="avg_rate" name="낙찰률" tickFormatter={(v) => typeof v === 'number' ? (v*100).toFixed(1) : '0'} unit="%" tick={{ fontSize: 12, fill: '#475569' }} type="number" />
                             <Tooltip
                               contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
                               cursor={{ strokeDasharray: '3 3' }}
@@ -670,7 +670,7 @@ export default function StatisticsPage() {
           <TabsContent value="level3" className="mt-0">
             <div className="p-6 max-w-[1440px] mx-auto w-full space-y-5">
               {mlLoading ? <Skeleton className="h-64 w-full rounded-xl" /> : !modelInfo ? (
-                <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+                <div className="flex flex-col items-center justify-center py-20 text-slate-500">
                   <Cpu className="h-10 w-10 mb-3 opacity-30" />
                   <p className="text-sm">모델 정보가 없습니다</p>
                 </div>
@@ -693,7 +693,7 @@ export default function StatisticsPage() {
                         ].map(({ label, value, mono }) => (
                           <div key={label} className="flex justify-between items-center">
                             <span className="text-xs text-slate-500">{label}</span>
-                            <span className={cn('text-xs font-medium text-slate-800', mono && 'font-mono bg-slate-100 px-2 py-0.5 rounded')}>{value}</span>
+                            <span className={cn('text-sm font-medium text-slate-800', mono && 'font-mono bg-slate-100 px-2 py-0.5 rounded')}>{value}</span>
                           </div>
                         ))}
                       </CardContent>
@@ -727,10 +727,10 @@ export default function StatisticsPage() {
                               style={{ width: `${Math.min(100, modelInfo.data_availability.winner_results / 20 * 100)}%` }}
                             />
                           </div>
-                          <p className="text-xs text-slate-400 mt-1">ML 기준: 20건 ({modelInfo.data_availability.winner_results}/20)</p>
+                          <p className="text-xs text-slate-500 mt-1">ML 기준: 20건 ({modelInfo.data_availability.winner_results}/20)</p>
                         </div>
                         <div className={cn(
-                          'flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium',
+                          'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium',
                           modelInfo.data_availability.ready_for_ml
                             ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                             : 'bg-amber-50 text-amber-700 border border-amber-200'
@@ -755,7 +755,7 @@ export default function StatisticsPage() {
                         </div>
                         {modelInfo.period_data && (
                           <div className="border-t border-slate-100 pt-3 space-y-2">
-                            <p className="text-xs text-slate-400">{selectedLabel} 집계</p>
+                            <p className="text-xs text-slate-500">{selectedLabel} 집계</p>
                             <div className="flex justify-between text-xs">
                               <span className="text-slate-500">기간 내 입찰결과</span>
                               <span className="font-semibold text-slate-700">{modelInfo.period_data.results.toLocaleString()}건</span>
@@ -796,7 +796,7 @@ export default function StatisticsPage() {
                           </div>
                         ))}
                       </div>
-                      <p className="text-xs text-slate-400 mt-4 flex items-start gap-1.5">
+                      <p className="text-xs text-slate-500 mt-4 flex items-start gap-1.5">
                         <span className="text-slate-300 mt-0.5">*</span>
                         상용 AI 없이 로컬 ML 모델만 사용. 낙찰결과 20건 이상 시 ML 모드 자동 전환.
                       </p>
@@ -812,7 +812,7 @@ export default function StatisticsPage() {
             <div className="p-6 max-w-[1440px] mx-auto w-full space-y-5">
               {/* 필터 바 */}
               <div className="flex flex-wrap items-center gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <SlidersHorizontal className="h-4 w-4 text-slate-400 shrink-0" />
+                <SlidersHorizontal className="h-4 w-4 text-slate-500 shrink-0" />
                 <Select value={srateAgencyId != null ? String(srateAgencyId) : 'all'} onValueChange={(v) => setSrateAgencyId(v === 'all' ? null : Number(v))}>
                   <SelectTrigger className="w-48 h-8 text-xs bg-white border-slate-200">
                     <SelectValue placeholder="발주기관 전체" />
@@ -834,7 +834,7 @@ export default function StatisticsPage() {
                 <div className="ml-auto flex items-center rounded-lg border border-slate-200 overflow-hidden bg-white">
                   {(['count', 'ratio'] as const).map((m) => (
                     <button key={m} onClick={() => setSrateViewMode(m)}
-                      className={cn('px-3 py-1.5 text-xs font-medium transition-colors',
+                      className={cn('px-3 py-1.5 text-sm font-medium transition-colors',
                         srateViewMode === m ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'
                       )}>
                       {m === 'count' ? '빈도수' : '비율(%)'}
@@ -887,9 +887,9 @@ export default function StatisticsPage() {
                         <div className="flex items-center justify-between">
                           <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                             <Activity className="h-4 w-4 text-blue-500" />사정율 분포
-                            <span className="text-xs font-normal text-slate-400">(소수점 3자리 · 누적 포함)</span>
+                            <span className="text-xs font-normal text-slate-500">(소수점 3자리 · 누적 포함)</span>
                           </CardTitle>
-                          <span className="text-xs text-slate-400">
+                          <span className="text-xs text-slate-500">
                             P25: {srateDist.p25 != null ? (srateDist.p25*100).toFixed(3)+'%' : '-'}
                             {' · '}P75: {srateDist.p75 != null ? (srateDist.p75*100).toFixed(3)+'%' : '-'}
                           </span>
@@ -897,7 +897,7 @@ export default function StatisticsPage() {
                       </CardHeader>
                       <CardContent className="pt-4">
                         {binsWithCumul.length === 0 ? (
-                          <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                          <div className="flex flex-col items-center justify-center py-16 text-slate-500">
                             <SlidersHorizontal className="h-8 w-8 mb-3 opacity-30" />
                             <p className="text-sm">데이터가 없습니다.</p>
                           </div>
@@ -905,9 +905,9 @@ export default function StatisticsPage() {
                           <ResponsiveContainer width="100%" height={320}>
                             <ComposedChart data={binsWithCumul} margin={{ left: -10, right: 40 }}>
                               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                              <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#94a3b8' }} interval={Math.floor(binsWithCumul.length / 10)} angle={-30} textAnchor="end" height={40} />
-                              <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#94a3b8' }} label={{ value: srateViewMode === 'ratio' ? '%' : '건', position: 'insideTopLeft', fontSize: 10, fill: '#94a3b8' }} />
-                              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: '#94a3b8' }} unit="%" domain={[0, 100]} />
+                              <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#475569' }} interval={Math.floor(binsWithCumul.length / 10)} angle={-30} textAnchor="end" height={40} />
+                              <YAxis yAxisId="left" tick={{ fontSize: 12, fill: '#475569' }} label={{ value: srateViewMode === 'ratio' ? '%' : '건', position: 'insideTopLeft', fontSize: 12, fill: '#475569' }} />
+                              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12, fill: '#475569' }} unit="%" domain={[0, 100]} />
                               <Tooltip
                                 contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
                                 formatter={(v: number, name: string) => [
@@ -930,7 +930,7 @@ export default function StatisticsPage() {
                 )
               })()}
               {!srateDist && (
-                <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+                <div className="flex flex-col items-center justify-center py-20 text-slate-500">
                   <SlidersHorizontal className="h-10 w-10 mb-3 opacity-30" />
                   <p className="text-sm">탭을 선택하면 데이터를 불러옵니다.</p>
                 </div>

@@ -46,7 +46,7 @@ export default function BacktestPage() {
           <FlaskConical className="h-6 w-6 text-purple-600" />
           <div>
             <h1 className="text-xl font-bold">백테스트 엔진</h1>
-            <p className="text-xs text-muted-foreground">과거 투찰 이력 vs 시스템 추천 — 수주율 개선 시뮬레이션</p>
+            <p className="text-sm text-muted-foreground">과거 투찰 이력 vs 시스템 추천 — 수주율 개선 시뮬레이션</p>
           </div>
         </div>
         <div className="flex gap-1">
@@ -89,16 +89,16 @@ export default function BacktestPage() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <Card className="p-4 text-center">
               <div className="text-3xl font-bold text-gray-800">{data.total_bids}</div>
-              <div className="text-xs text-muted-foreground mt-1">분석 건수</div>
+              <div className="text-sm text-muted-foreground mt-1">분석 건수</div>
             </Card>
             <Card className="p-4 text-center">
               <div className="text-3xl font-bold text-blue-600">{data.actual_win_rate}%</div>
-              <div className="text-xs text-muted-foreground mt-1">실제 수주율</div>
+              <div className="text-sm text-muted-foreground mt-1">실제 수주율</div>
               <div className="text-xs text-gray-500">{data.actual_wins}건 낙찰</div>
             </Card>
             <Card className="p-4 text-center border-purple-200 bg-purple-50">
               <div className="text-3xl font-bold text-purple-600">{data.simulated_win_rate}%</div>
-              <div className="text-xs text-muted-foreground mt-1">시스템 추천시 수주율</div>
+              <div className="text-sm text-muted-foreground mt-1">시스템 추천시 수주율</div>
               <div className="text-xs text-gray-500">{data.simulated_wins}건 예상</div>
             </Card>
             <Card className={cn(
@@ -111,7 +111,7 @@ export default function BacktestPage() {
               )}>
                 {data.improvement_pct > 0 ? '+' : ''}{data.improvement_pct}%p
               </div>
-              <div className="text-xs text-muted-foreground mt-1">예상 수주율 개선</div>
+              <div className="text-sm text-muted-foreground mt-1">예상 수주율 개선</div>
               {data.improvement_pct > 0 ? (
                 <div className="flex items-center justify-center gap-0.5 text-xs text-green-600 mt-0.5">
                   <TrendingUp className="h-3 w-3" /> 개선 예상
@@ -134,8 +134,8 @@ export default function BacktestPage() {
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={data.monthly_trend} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                    <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                    <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#475569' }} />
+                    <YAxis tick={{ fontSize: 12, fill: '#475569' }} />
                     <Tooltip
                       contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: 12 }}
                       formatter={(v: number, name: string) =>

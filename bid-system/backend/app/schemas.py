@@ -959,27 +959,63 @@ class PerformanceRecord(BaseModel):
     period:  int    # 공사 기간 (개월)
     agency:  str
 
+class ConstructionCapability(BaseModel):
+    industry_name: str
+    year:          int
+    amount:        int = 0
+    perf_3y:       int = 0
+    perf_5y:       int = 0
+    last_updated:  Optional[str] = None
+    is_closed:     bool = False
+    is_suspended:  bool = False
+
 class CompanyProfileRequest(BaseModel):
+    # 기본정보
     company_name:        str
     biz_reg_no:          Optional[str] = None
+    phone:               Optional[str] = None
+    address:             Optional[str] = None
+    ceo_name:            Optional[str] = None
+    is_women_company:    bool = False
+    # 경영상태
+    credit_grade:              Optional[str] = None
+    credit_valid_date:         Optional[str] = None
+    ppsq_rating:               Optional[float] = None
+    moi_rating:                Optional[float] = None
+    debt_ratio:                Optional[float] = None
+    total_debt:                Optional[int] = None
+    equity:                    Optional[int] = None
+    current_ratio:             Optional[float] = None
+    current_assets:            Optional[int] = None
+    current_liabilities:       Optional[int] = None
+    region:                    Optional[str] = None
+    general_operation_period:  Optional[str] = None
+    specialty_operation_period:Optional[str] = None
+    disclosure_year:           Optional[int] = None
+    # 시공능력
+    construction_capabilities: List[ConstructionCapability] = []
+    # 면허/등록
     license_codes:       List[str] = []
     region_codes:        List[str] = []
+    # 재무/보증
     bond_limit_total:    int = 0
     bond_limit_used:     int = 0
     annual_revenue:      int = 0
+    # 수주 목표
     max_concurrent_bids: int = 5
     target_min_margin:   float = 0.05
     target_regions:      List[str] = []
     target_industries:   List[int] = []
-    performance_records: dict = {}      # {업종코드: [PerformanceRecord]}
+    # 공사 역량
+    performance_records: dict = {}
     workforce_count:     int = 0
     monthly_win_target:  int = 3
 
 class CompanyProfileResponse(CompanyProfileRequest):
-    id:         int
-    bond_usage_rate:     float = 0.0    # 사용률 계산값
-    remaining_bond:      int   = 0
-    updated_at:          Optional[datetime] = None
+    id:              int
+    bond_usage_rate: float = 0.0
+    remaining_bond:  int   = 0
+    updated_at:      Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 

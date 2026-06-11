@@ -24,6 +24,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import PrismHistogram from '@/components/PrismHistogram'
 
 const fmt = (n: number) => new Intl.NumberFormat('ko-KR').format(Math.round(n))
 const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`
@@ -31,6 +32,20 @@ const fmtRate = (n: number) => `${(n * 100).toFixed(3)}%`
 const fmtDate = (s: string | null) => (s ? s.slice(0, 10) : '-')
 
 // ── TabInfo ──────────────────────────────────────────────────────────────
+
+const SCORE_LABELS: Record<string, string> = {
+  competition:    '경쟁강도',
+  personal_track: '발주처 이력',
+  market_trend:   '시장 추세',
+  amount_fit:     '금액 적합도',
+}
+
+const SCORE_BAR_COLORS: Record<string, string> = {
+  competition:    'bg-blue-500',
+  personal_track: 'bg-emerald-500',
+  market_trend:   'bg-amber-500',
+  amount_fit:     'bg-purple-500',
+}
 
 function TabInfo({ bid, score }: { bid: BidDetail; score: OpportunityScore | undefined }) {
   const grade = score?.grade
@@ -50,56 +65,56 @@ function TabInfo({ bid, score }: { bid: BidDetail; score: OpportunityScore | und
         <CardContent className="pt-4">
           <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
             <div>
-              <dt className="text-xs text-slate-400 mb-0.5">공고번호</dt>
+              <dt className="text-xs text-slate-500 mb-0.5">공고번호</dt>
               <dd className="font-mono text-xs text-slate-700 bg-slate-50 rounded px-2 py-1 inline-block">{bid.announcement_no}</dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-400 mb-0.5">발주처</dt>
+              <dt className="text-xs text-slate-500 mb-0.5">발주처</dt>
               <dd className="font-medium text-slate-800">{bid.agency_name}</dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-400 mb-0.5">업종</dt>
+              <dt className="text-xs text-slate-500 mb-0.5">업종</dt>
               <dd className="text-slate-700">{bid.industry_name ?? '-'}</dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-400 mb-0.5">지역</dt>
+              <dt className="text-xs text-slate-500 mb-0.5">지역</dt>
               <dd className="text-slate-700">{bid.region_name ?? '-'}</dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-400 mb-0.5">기초금액</dt>
+              <dt className="text-xs text-slate-500 mb-0.5">기초금액</dt>
               <dd className="font-semibold text-slate-900">₩{fmt(bid.base_amount)}원</dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-400 mb-0.5">공고일</dt>
+              <dt className="text-xs text-slate-500 mb-0.5">공고일</dt>
               <dd className="text-slate-700">{fmtDate(bid.notice_date)}</dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-400 mb-0.5">개찰일</dt>
+              <dt className="text-xs text-slate-500 mb-0.5">개찰일</dt>
               <dd className="font-medium text-slate-800">{fmtDate(bid.bid_open_date)}</dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-400 mb-0.5">마감일</dt>
+              <dt className="text-xs text-slate-500 mb-0.5">마감일</dt>
               <dd className="text-slate-700">{fmtDate(bid.bid_close_date)}</dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-400 mb-0.5">입찰방법</dt>
+              <dt className="text-xs text-slate-500 mb-0.5">입찰방법</dt>
               <dd className="text-slate-700">{bid.bid_method ?? '-'}</dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-400 mb-0.5">계약방법</dt>
+              <dt className="text-xs text-slate-500 mb-0.5">계약방법</dt>
               <dd className="text-slate-700">{bid.contract_method ?? '-'}</dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-400 mb-0.5">공사위치</dt>
+              <dt className="text-xs text-slate-500 mb-0.5">공사위치</dt>
               <dd className="text-slate-700">{bid.construction_site ?? '-'}</dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-400 mb-0.5">지역제한</dt>
+              <dt className="text-xs text-slate-500 mb-0.5">지역제한</dt>
               <dd className="text-slate-700">{bid.region_restriction ? (bid.eligible_regions ?? '있음') : '없음'}</dd>
             </div>
             {bid.contact_name && (
               <div>
-                <dt className="text-xs text-slate-400 mb-0.5">담당자</dt>
+                <dt className="text-xs text-slate-500 mb-0.5">담당자</dt>
                 <dd className="text-slate-700">{bid.contact_name}{bid.contact_tel ? ` (${bid.contact_tel})` : ''}</dd>
               </div>
             )}
@@ -133,17 +148,31 @@ function TabInfo({ bid, score }: { bid: BidDetail; score: OpportunityScore | und
                 {grade}
               </div>
               <div>
-                <p className="text-3xl font-bold text-slate-900 tabular-nums">{score.score}<span className="text-lg font-normal text-slate-400 ml-0.5">점</span></p>
+                <p className="text-3xl font-bold text-slate-900 tabular-nums">{score.score}<span className="text-lg font-normal text-slate-500 ml-0.5">점</span></p>
                 {score.recommendation && <p className="text-xs text-slate-500 mt-0.5">{score.recommendation}</p>}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              {Object.entries(score.breakdown).map(([key, comp]) => (
-                <div key={key} className="flex items-center justify-between rounded-lg bg-slate-50 border border-slate-100 px-3 py-2 text-xs">
-                  <span className="text-slate-500">{key.replace('_', ' ')}</span>
-                  <span className="font-semibold text-slate-800">{comp.pts}<span className="text-slate-400 font-normal">/{comp.max}</span></span>
-                </div>
-              ))}
+              {Object.entries(score.breakdown).map(([key, comp]) => {
+                const barPct = Math.round((comp.pts / comp.max) * 100)
+                const barColor = SCORE_BAR_COLORS[key] ?? 'bg-slate-400'
+                return (
+                  <div key={key} className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2.5 text-xs">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-slate-600 font-medium">{SCORE_LABELS[key] ?? key}</span>
+                      <span className="font-bold text-slate-800 tabular-nums">
+                        {comp.pts}<span className="text-slate-500 font-normal text-xs">/{comp.max}</span>
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-200 rounded-full h-1 mb-1.5">
+                      <div className={cn('h-1 rounded-full transition-all', barColor)} style={{ width: `${barPct}%` }} />
+                    </div>
+                    {comp.note && (
+                      <p className="text-xs text-slate-500 leading-tight">{comp.note}</p>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </CardContent>
         </Card>
@@ -160,10 +189,10 @@ function TabInfo({ bid, score }: { bid: BidDetail; score: OpportunityScore | und
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50 hover:bg-slate-50 border-b border-slate-200">
-                  <TableHead className="text-xs text-slate-600 font-semibold">순위</TableHead>
-                  <TableHead className="text-xs text-slate-600 font-semibold">업체명</TableHead>
-                  <TableHead className="text-xs text-right text-slate-600 font-semibold">투찰율</TableHead>
-                  <TableHead className="text-xs text-right text-slate-600 font-semibold">사정율</TableHead>
+                  <TableHead className="text-sm text-slate-600 font-semibold">순위</TableHead>
+                  <TableHead className="text-sm text-slate-600 font-semibold">업체명</TableHead>
+                  <TableHead className="text-sm text-right text-slate-600 font-semibold">투찰율</TableHead>
+                  <TableHead className="text-sm text-right text-slate-600 font-semibold">사정율</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -172,8 +201,8 @@ function TabInfo({ bid, score }: { bid: BidDetail; score: OpportunityScore | und
                     'border-b border-slate-100 last:border-0',
                     r.is_winner ? 'bg-emerald-50' : 'hover:bg-slate-50'
                   )}>
-                    <TableCell className="text-xs text-slate-700">{r.rank}</TableCell>
-                    <TableCell className="text-xs font-medium text-slate-800">
+                    <TableCell className="text-sm text-slate-700">{r.rank}</TableCell>
+                    <TableCell className="text-sm font-medium text-slate-800">
                       {r.is_winner && <Trophy className="inline mr-1 h-3 w-3 text-amber-500" />}
                       {r.competitor_name}
                     </TableCell>
@@ -256,19 +285,19 @@ function TabStrategy({ bidId, bid }: { bidId: number; bid: BidDetail }) {
         <CardContent className="pt-4">
           <div className="flex items-end gap-6 mb-4">
             <div>
-              <p className="text-xs text-slate-400 mb-1">추천 투찰율</p>
+              <p className="text-xs text-slate-500 mb-1">추천 투찰율</p>
               <p className="text-4xl font-bold text-blue-600 tabular-nums">{fmtRate(rec.recommended_rate)}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-400 mb-1">추천 금액</p>
+              <p className="text-xs text-slate-500 mb-1">추천 금액</p>
               <p className="text-xl font-semibold text-slate-900 tabular-nums">₩{fmt(rec.recommended_amount)}원</p>
             </div>
             <div>
-              <p className="text-xs text-slate-400 mb-1">낙찰하한율</p>
+              <p className="text-xs text-slate-500 mb-1">낙찰하한율</p>
               <p className="text-sm font-medium text-slate-500">{fmtRate(rec.floor_rate)}</p>
             </div>
             <div className="ml-auto text-right">
-              <p className="text-xs text-slate-400 mb-1">신뢰도</p>
+              <p className="text-xs text-slate-500 mb-1">신뢰도</p>
               <span className={cn('text-xs font-semibold px-2.5 py-1 rounded-full border', confidenceColor)}>
                 {confidenceLabel}
               </span>
@@ -302,21 +331,21 @@ function TabStrategy({ bidId, bid }: { bidId: number; bid: BidDetail }) {
                     <span className="text-sm font-semibold text-slate-800">{meta.label}</span>
                   </div>
                   <div className="flex gap-1">
-                    {isRec && <Badge className="text-[10px] h-5 bg-blue-500 text-white">추천</Badge>}
-                    {belowFloor && <Badge className="text-[10px] h-5 bg-red-500 text-white">실격위험</Badge>}
+                    {isRec && <Badge className="text-xs h-5 bg-blue-500 text-white">추천</Badge>}
+                    {belowFloor && <Badge className="text-xs h-5 bg-red-500 text-white">실격위험</Badge>}
                   </div>
                 </div>
                 <p className="text-2xl font-bold text-slate-900 tabular-nums">{fmtRate(s.rate)}</p>
                 <p className="text-xs text-slate-500 mt-0.5">₩{fmt(s.amount)}원</p>
                 <div className="mt-2.5 flex gap-3 text-xs pt-2 border-t border-slate-200/60">
                   <div>
-                    <span className="text-slate-400">승률 </span>
+                    <span className="text-slate-500">승률 </span>
                     <strong className={cn('font-semibold', meta.iconColor)}>
                       {s.win_prob > 0 ? fmtPct(s.win_prob) : '-'}
                     </strong>
                   </div>
                   <div>
-                    <span className="text-slate-400">기댓값 </span>
+                    <span className="text-slate-500">기댓값 </span>
                     <strong className="text-slate-700">{s.win_prob > 0 ? `₩${fmt(ev)}원` : '-'}</strong>
                   </div>
                 </div>
@@ -335,7 +364,7 @@ function TabStrategy({ bidId, bid }: { bidId: number; bid: BidDetail }) {
         <CardContent className="pt-4">
           <div className="grid grid-cols-3 gap-3 text-xs">
             <div className="bg-slate-50 border border-slate-100 rounded-lg p-3">
-              <p className="text-slate-400 mb-1">사정율 통계</p>
+              <p className="text-slate-500 mb-1">사정율 통계</p>
               <p className="font-semibold text-slate-900">평균 {fmtRate(rec.evidence.srate_stats.mean)}</p>
               <p className="text-slate-500 mt-0.5">
                 {rec.evidence.srate_stats.sample_count}건 | {rec.evidence.srate_stats.trend_direction}
@@ -343,25 +372,25 @@ function TabStrategy({ bidId, bid }: { bidId: number; bid: BidDetail }) {
             </div>
             {rec.evidence.prism_top && (
               <div className="bg-slate-50 border border-slate-100 rounded-lg p-3">
-                <p className="text-slate-400 mb-1">PRISM 최고확률</p>
+                <p className="text-slate-500 mb-1">PRISM 최고확률</p>
                 <p className="font-semibold text-slate-900">{fmtRate(rec.evidence.prism_top.rate)}</p>
                 <p className="text-slate-500 mt-0.5">확률 {fmtPct(rec.evidence.prism_top.probability)}</p>
               </div>
             )}
             {rec.evidence.yega_top && (
               <div className="bg-slate-50 border border-slate-100 rounded-lg p-3">
-                <p className="text-slate-400 mb-1">예가 최고확률</p>
+                <p className="text-slate-500 mb-1">예가 최고확률</p>
                 <p className="font-semibold text-slate-900">{fmtRate(rec.evidence.yega_top.rate)}</p>
                 <p className="text-slate-500 mt-0.5">확률 {fmtPct(rec.evidence.yega_top.probability)}</p>
               </div>
             )}
             <div className="bg-slate-50 border border-slate-100 rounded-lg p-3">
-              <p className="text-slate-400 mb-1">개인 편향 보정</p>
+              <p className="text-slate-500 mb-1">개인 편향 보정</p>
               <p className="font-semibold text-slate-900">{rec.evidence.personal_bias.applied ? '적용됨' : '미적용'}</p>
               <p className="text-slate-500 mt-0.5">{fmtRate(rec.evidence.personal_bias.rate_diff_mean)} 차이</p>
             </div>
             <div className="bg-slate-50 border border-slate-100 rounded-lg p-3">
-              <p className="text-slate-400 mb-1">낙찰하한율</p>
+              <p className="text-slate-500 mb-1">낙찰하한율</p>
               <p className="font-semibold text-slate-900">{fmtRate(rec.floor_rate)}</p>
               <p className="text-slate-500 mt-0.5">₩{fmt(bid.base_amount * rec.floor_rate)}원</p>
             </div>
@@ -380,13 +409,13 @@ function TabStrategy({ bidId, bid }: { bidId: number; bid: BidDetail }) {
             <div className="flex gap-4 text-xs text-slate-500 mb-3">
               <span>표본 <strong className="text-slate-700">{winZones.sample_count}건</strong></span>
               <span>평균 낙찰율 <strong className="text-slate-700">{fmtRate(winZones.mean_winner_rate)}</strong></span>
-              {winZones.agency_name && <span className="text-slate-400">{winZones.agency_name}</span>}
+              {winZones.agency_name && <span className="text-slate-500">{winZones.agency_name}</span>}
             </div>
-            <ResponsiveContainer width="100%" height={120}>
+            <ResponsiveContainer width="100%" height={200}>
               <BarChart data={winZones.zones} margin={{ top: 0, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="range_lo" tickFormatter={(v: number) => `${(v * 100).toFixed(1)}%`} tick={{ fontSize: 9, fill: '#94a3b8' }} />
-                <YAxis tick={{ fontSize: 9, fill: '#94a3b8' }} />
+                <XAxis dataKey="range_lo" tickFormatter={(v: number) => `${(v * 100).toFixed(1)}%`} tick={{ fontSize: 12, fill: '#475569' }} />
+                <YAxis tick={{ fontSize: 12, fill: '#475569' }} />
                 <Tooltip
                   formatter={(v: number) => [`${(v * 100).toFixed(1)}%`, '확률']}
                   contentStyle={{ fontSize: 11, border: '1px solid #e2e8f0', borderRadius: 8 }}
@@ -448,7 +477,7 @@ function TabQualification({ bid }: { bid: BidDetail }) {
           <div className="grid grid-cols-2 gap-3">
             {floors.map(({ label, value }) => (
               <div key={label} className="bg-slate-50 border border-slate-100 rounded-lg p-3.5">
-                <p className="text-xs text-slate-400 mb-1">{label}</p>
+                <p className="text-xs text-slate-500 mb-1">{label}</p>
                 <p className="text-base font-semibold text-slate-900">{value}</p>
               </div>
             ))}
@@ -478,13 +507,13 @@ function TabQualification({ bid }: { bid: BidDetail }) {
                   'rounded-lg p-2.5 border',
                   label === 'P50' ? 'bg-blue-50 border-blue-200' : 'bg-slate-50 border-slate-100'
                 )}>
-                  <p className={cn('mb-1', label === 'P50' ? 'text-blue-500 font-semibold' : 'text-slate-400')}>{label}</p>
+                  <p className={cn('mb-1', label === 'P50' ? 'text-blue-500 font-semibold' : 'text-slate-500')}>{label}</p>
                   <p className={cn('font-semibold', label === 'P50' ? 'text-blue-700' : 'text-slate-700')}>{fmtRate(value)}</p>
                 </div>
               ))}
             </div>
             {range.srate_source && (
-              <p className="text-[10px] text-slate-400 mt-3">
+              <p className="text-xs text-slate-500 mt-3">
                 데이터 출처: {range.srate_source}
                 {range.inpo21c_n != null ? ` (${range.inpo21c_n}건)` : ''}
               </p>
@@ -513,21 +542,21 @@ function TabCompetitors({ bidId }: { bidId: number }) {
         <Card className="relative overflow-hidden bg-white border-slate-200 shadow-sm">
           <div className="absolute top-0 left-0 right-0 h-0.5 bg-blue-500" />
           <CardContent className="pt-4 pb-4 text-center">
-            <p className="text-xs text-slate-400 mb-1">총 참여업체</p>
+            <p className="text-xs text-slate-500 mb-1">총 참여업체</p>
             <p className="text-2xl font-bold text-slate-900 tabular-nums">{radar.total_participants}</p>
           </CardContent>
         </Card>
         <Card className="relative overflow-hidden bg-white border-slate-200 shadow-sm">
           <div className="absolute top-0 left-0 right-0 h-0.5 bg-emerald-500" />
           <CardContent className="pt-4 pb-4 text-center">
-            <p className="text-xs text-slate-400 mb-1">낙찰업체</p>
+            <p className="text-xs text-slate-500 mb-1">낙찰업체</p>
             <p className="text-sm font-semibold text-slate-900 truncate">{radar.winner_company ?? '-'}</p>
           </CardContent>
         </Card>
         <Card className="relative overflow-hidden bg-white border-slate-200 shadow-sm">
           <div className="absolute top-0 left-0 right-0 h-0.5 bg-amber-500" />
           <CardContent className="pt-4 pb-4 text-center">
-            <p className="text-xs text-slate-400 mb-1">낙찰율</p>
+            <p className="text-xs text-slate-500 mb-1">낙찰율</p>
             <p className="text-xl font-bold text-slate-900 tabular-nums">
               {radar.winner_rate != null ? fmtRate(radar.winner_rate) : '-'}
             </p>
@@ -546,11 +575,11 @@ function TabCompetitors({ bidId }: { bidId: number }) {
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50 hover:bg-slate-50 border-b border-slate-200">
-                  <TableHead className="text-xs text-slate-600 font-semibold">업체명</TableHead>
-                  <TableHead className="text-xs text-right text-slate-600 font-semibold">공동입찰</TableHead>
-                  <TableHead className="text-xs text-right text-slate-600 font-semibold">평균 투찰율</TableHead>
-                  <TableHead className="text-xs text-right text-slate-600 font-semibold">낙찰 횟수</TableHead>
-                  <TableHead className="text-xs text-slate-600 font-semibold">위협도</TableHead>
+                  <TableHead className="text-sm text-slate-600 font-semibold">업체명</TableHead>
+                  <TableHead className="text-sm text-right text-slate-600 font-semibold">공동입찰</TableHead>
+                  <TableHead className="text-sm text-right text-slate-600 font-semibold">평균 투찰율</TableHead>
+                  <TableHead className="text-sm text-right text-slate-600 font-semibold">낙찰 횟수</TableHead>
+                  <TableHead className="text-sm text-slate-600 font-semibold">위협도</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -559,7 +588,7 @@ function TabCompetitors({ bidId }: { bidId: number }) {
                   const risk = winRate > 0.3 ? 'HIGH' : winRate > 0.15 ? 'MEDIUM' : 'LOW'
                   return (
                     <TableRow key={r.company_name} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
-                      <TableCell className="text-xs font-medium text-slate-800">{r.company_name}</TableCell>
+                      <TableCell className="text-sm font-medium text-slate-800">{r.company_name}</TableCell>
                       <TableCell className="text-xs text-right text-slate-600">{r.co_bid_count}건</TableCell>
                       <TableCell className="text-xs text-right font-mono text-slate-700">
                         {r.avg_bid_rate != null ? fmtRate(r.avg_bid_rate) : '-'}
@@ -568,7 +597,7 @@ function TabCompetitors({ bidId }: { bidId: number }) {
                       <TableCell className="text-xs">
                         <Badge
                           variant="outline"
-                          className={cn('text-[10px] font-semibold',
+                          className={cn('text-xs font-semibold',
                             risk === 'HIGH' ? 'border-red-200 text-red-600 bg-red-50' :
                             risk === 'MEDIUM' ? 'border-amber-200 text-amber-600 bg-amber-50' :
                             'border-emerald-200 text-emerald-600 bg-emerald-50',
@@ -597,10 +626,10 @@ function TabCompetitors({ bidId }: { bidId: number }) {
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50 hover:bg-slate-50 border-b border-slate-200">
-                  <TableHead className="text-xs text-slate-600 font-semibold">순위</TableHead>
-                  <TableHead className="text-xs text-slate-600 font-semibold">업체명</TableHead>
-                  <TableHead className="text-xs text-right text-slate-600 font-semibold">투찰율</TableHead>
-                  <TableHead className="text-xs text-slate-600 font-semibold">낙찰</TableHead>
+                  <TableHead className="text-sm text-slate-600 font-semibold">순위</TableHead>
+                  <TableHead className="text-sm text-slate-600 font-semibold">업체명</TableHead>
+                  <TableHead className="text-sm text-right text-slate-600 font-semibold">투찰율</TableHead>
+                  <TableHead className="text-sm text-slate-600 font-semibold">낙찰</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -609,8 +638,8 @@ function TabCompetitors({ bidId }: { bidId: number }) {
                     'border-b border-slate-100 last:border-0',
                     p.is_winner ? 'bg-emerald-50' : 'hover:bg-slate-50'
                   )}>
-                    <TableCell className="text-xs text-slate-700">{p.rank}</TableCell>
-                    <TableCell className="text-xs font-medium text-slate-800">{p.company_name}</TableCell>
+                    <TableCell className="text-sm text-slate-700">{p.rank}</TableCell>
+                    <TableCell className="text-sm font-medium text-slate-800">{p.company_name}</TableCell>
                     <TableCell className="text-xs text-right font-mono text-slate-700">
                       {p.bid_rate != null ? fmtRate(p.bid_rate) : '-'}
                     </TableCell>
@@ -665,15 +694,15 @@ function TabAgency({ agencyId, agencyName }: { agencyId: number | undefined; age
                 {histogram.mean != null && <span>평균 <strong className="text-slate-900">{fmtRate(histogram.mean)}</strong></span>}
                 {histogram.percentiles?.p50 != null && <span>중앙값 <strong className="text-slate-900">{fmtRate(histogram.percentiles.p50)}</strong></span>}
               </div>
-              <ResponsiveContainer width="100%" height={140}>
+              <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={histogram.bins} margin={{ top: 0, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis
                     dataKey="range_lo"
                     tickFormatter={(v: number) => `${(v * 100).toFixed(1)}%`}
-                    tick={{ fontSize: 9, fill: '#94a3b8' }}
+                    tick={{ fontSize: 12, fill: '#475569' }}
                   />
-                  <YAxis tick={{ fontSize: 9, fill: '#94a3b8' }} />
+                  <YAxis tick={{ fontSize: 12, fill: '#475569' }} />
                   <Tooltip
                     formatter={(v: number) => [v, '건수']}
                     labelFormatter={(v: number) => `${(v * 100).toFixed(1)}%`}
@@ -684,7 +713,7 @@ function TabAgency({ agencyId, agencyName }: { agencyId: number | undefined; age
               </ResponsiveContainer>
             </>
           ) : (
-            <p className="text-sm text-slate-400">히스토그램 데이터가 없습니다.</p>
+            <p className="text-sm text-slate-500">히스토그램 데이터가 없습니다.</p>
           )}
         </CardContent>
       </Card>
@@ -702,11 +731,11 @@ function TabAgency({ agencyId, agencyName }: { agencyId: number | undefined; age
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50 hover:bg-slate-50 border-b border-slate-200">
-                  <TableHead className="text-xs text-slate-600 font-semibold">공고명</TableHead>
-                  <TableHead className="text-xs text-right text-slate-600 font-semibold">기초금액</TableHead>
-                  <TableHead className="text-xs text-right text-slate-600 font-semibold">사정율</TableHead>
-                  <TableHead className="text-xs text-right text-slate-600 font-semibold">개찰일</TableHead>
-                  <TableHead className="text-xs text-right text-slate-600 font-semibold">참여사</TableHead>
+                  <TableHead className="text-sm text-slate-600 font-semibold">공고명</TableHead>
+                  <TableHead className="text-sm text-right text-slate-600 font-semibold">기초금액</TableHead>
+                  <TableHead className="text-sm text-right text-slate-600 font-semibold">사정율</TableHead>
+                  <TableHead className="text-sm text-right text-slate-600 font-semibold">개찰일</TableHead>
+                  <TableHead className="text-sm text-right text-slate-600 font-semibold">참여사</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -728,7 +757,7 @@ function TabAgency({ agencyId, agencyName }: { agencyId: number | undefined; age
               </TableBody>
             </Table>
           ) : (
-            <p className="text-sm text-slate-400 p-4">이력 데이터가 없습니다.</p>
+            <p className="text-sm text-slate-500 p-4">이력 데이터가 없습니다.</p>
           )}
         </CardContent>
       </Card>
@@ -754,21 +783,21 @@ function TabYega({ bid }: { bid: BidDetail }) {
         <Card className="relative overflow-hidden bg-white border-slate-200 shadow-sm">
           <div className="absolute top-0 left-0 right-0 h-0.5 bg-slate-400" />
           <CardContent className="pt-4 pb-4 text-center">
-            <p className="text-xs text-slate-400 mb-1">총 조합 수</p>
+            <p className="text-xs text-slate-500 mb-1">총 조합 수</p>
             <p className="text-xl font-bold text-slate-900 tabular-nums">{fmt(yega.total_combinations)}</p>
           </CardContent>
         </Card>
         <Card className="relative overflow-hidden bg-white border-slate-200 shadow-sm">
           <div className="absolute top-0 left-0 right-0 h-0.5 bg-blue-500" />
           <CardContent className="pt-4 pb-4 text-center">
-            <p className="text-xs text-slate-400 mb-1">추천 투찰율</p>
+            <p className="text-xs text-slate-500 mb-1">추천 투찰율</p>
             <p className="text-xl font-bold text-blue-600 tabular-nums">{fmtRate(yega.recommended_rate)}</p>
           </CardContent>
         </Card>
         <Card className="relative overflow-hidden bg-white border-slate-200 shadow-sm">
           <div className="absolute top-0 left-0 right-0 h-0.5 bg-emerald-500" />
           <CardContent className="pt-4 pb-4 text-center">
-            <p className="text-xs text-slate-400 mb-1">낙찰하한율</p>
+            <p className="text-xs text-slate-500 mb-1">낙찰하한율</p>
             <p className="text-xl font-bold text-emerald-700 tabular-nums">{fmtRate(yega.floor_rate)}</p>
           </CardContent>
         </Card>
@@ -784,11 +813,11 @@ function TabYega({ bid }: { bid: BidDetail }) {
           <Table>
             <TableHeader>
               <TableRow className="bg-slate-50 hover:bg-slate-50 border-b border-slate-200">
-                <TableHead className="text-xs text-slate-600 font-semibold">순위</TableHead>
-                <TableHead className="text-xs text-right text-slate-600 font-semibold">예가율</TableHead>
-                <TableHead className="text-xs text-right text-slate-600 font-semibold">빈도</TableHead>
-                <TableHead className="text-xs text-right text-slate-600 font-semibold">확률</TableHead>
-                <TableHead className="text-xs text-right text-slate-600 font-semibold">누적확률</TableHead>
+                <TableHead className="text-sm text-slate-600 font-semibold">순위</TableHead>
+                <TableHead className="text-sm text-right text-slate-600 font-semibold">예가율</TableHead>
+                <TableHead className="text-sm text-right text-slate-600 font-semibold">빈도</TableHead>
+                <TableHead className="text-sm text-right text-slate-600 font-semibold">확률</TableHead>
+                <TableHead className="text-sm text-right text-slate-600 font-semibold">누적확률</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -817,11 +846,11 @@ function TabYega({ bid }: { bid: BidDetail }) {
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-4">
-            <ResponsiveContainer width="100%" height={140}>
+            <ResponsiveContainer width="100%" height={220}>
               <BarChart data={yega.chart_bins} margin={{ top: 0, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="rate_pct" tickFormatter={(v: number) => `${v.toFixed(1)}%`} tick={{ fontSize: 9, fill: '#94a3b8' }} />
-                <YAxis tick={{ fontSize: 9, fill: '#94a3b8' }} />
+                <XAxis dataKey="rate_pct" tickFormatter={(v: number) => `${v.toFixed(1)}%`} tick={{ fontSize: 12, fill: '#475569' }} />
+                <YAxis tick={{ fontSize: 12, fill: '#475569' }} />
                 <Tooltip
                   formatter={(v: number) => [v, '건수']}
                   labelFormatter={(v: number) => `${v.toFixed(3)}%`}
@@ -918,7 +947,7 @@ export default function BidDetailPage() {
           </Button>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full border', statusConfig.badge)}>
+              <span className={cn('inline-flex items-center gap-1.5 text-sm font-medium px-2 py-0.5 rounded-full border', statusConfig.badge)}>
                 <span className={cn('inline-block h-1.5 w-1.5 rounded-full', statusConfig.dot)} />
                 {statusConfig.label}
               </span>
@@ -928,13 +957,13 @@ export default function BidDetailPage() {
                 </span>
               )}
               {bid.source === 'g2b' && (
-                <Badge variant="info" className="text-[10px] px-1.5 py-0">G2B</Badge>
+                <Badge variant="info" className="text-xs px-1.5 py-0">G2B</Badge>
               )}
             </div>
             <h1 className="text-base font-bold leading-tight line-clamp-2 text-slate-900">{bid.title}</h1>
             <div className="flex items-center gap-4 mt-1.5 text-xs text-slate-500">
               <span className="flex items-center gap-1">
-                <Building2 className="h-3.5 w-3.5 text-slate-400" />{bid.agency_name}
+                <Building2 className="h-3.5 w-3.5 text-slate-500" />{bid.agency_name}
               </span>
               <span className="font-medium text-slate-700">₩{fmt(bid.base_amount)}원</span>
               {bid.bid_open_date && (
@@ -983,6 +1012,9 @@ export default function BidDetailPage() {
               <TabsTrigger value="yega" className="text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-blue-600">
                 예가분석
               </TabsTrigger>
+              <TabsTrigger value="prism" className="text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-amber-600 font-semibold">
+                🎯 프리즘
+              </TabsTrigger>
             </TabsList>
           </div>
 
@@ -1004,6 +1036,13 @@ export default function BidDetailPage() {
             </TabsContent>
             <TabsContent value="yega" className="mt-0">
               <TabYega bid={bid} />
+            </TabsContent>
+            <TabsContent value="prism" className="mt-0">
+              <PrismHistogram
+                bidId={bidId}
+                baseAmount={bid.base_amount ?? 0}
+                agencyName={bid.agency_name}
+              />
             </TabsContent>
           </div>
         </Tabs>

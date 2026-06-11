@@ -68,7 +68,7 @@ function StatCard({
           <div>
             <p className="text-sm font-medium text-slate-500">{label}</p>
             <p className="text-2xl font-bold mt-1 tabular-nums text-slate-900">{value}</p>
-            {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
+            {sub && <p className="text-xs text-slate-500 mt-1">{sub}</p>}
           </div>
           {Icon && (
             <div className={cn('rounded-xl p-2.5', a.iconBg)}>
@@ -378,7 +378,7 @@ export default function MyBidsPage() {
                 <TableBody>
                   {isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center py-12 text-slate-400">
+                      <TableCell colSpan={9} className="text-center py-12 text-slate-500">
                         <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" />
                         불러오는 중...
                       </TableCell>
@@ -387,7 +387,7 @@ export default function MyBidsPage() {
                     <TableRow>
                       <TableCell colSpan={9} className="text-center py-16">
                         <FileText className="h-10 w-10 text-slate-200 mx-auto mb-3" />
-                        <p className="text-slate-400 text-sm">투찰 이력이 없습니다.</p>
+                        <p className="text-slate-500 text-sm">투찰 이력이 없습니다.</p>
                         <p className="text-slate-300 text-xs mt-1">이력 추가 버튼으로 등록하세요.</p>
                       </TableCell>
                     </TableRow>
@@ -405,7 +405,7 @@ export default function MyBidsPage() {
                         <TableCell className="text-right font-mono font-semibold text-slate-800">{pct(rec.submitted_rate)}</TableCell>
                         <TableCell className={cn(
                           "text-right font-mono text-sm",
-                          rec.recommendation_rate != null ? "text-blue-600 font-medium" : "text-slate-400"
+                          rec.recommendation_rate != null ? "text-blue-600 font-medium" : "text-slate-500"
                         )}>
                           {pct(rec.recommendation_rate)}
                         </TableCell>
@@ -432,11 +432,11 @@ export default function MyBidsPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-1 justify-end">
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-blue-600 hover:bg-blue-50" onClick={() => openEdit(rec)}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:text-blue-600 hover:bg-blue-50" onClick={() => openEdit(rec)}>
                               <Edit2 className="h-3.5 w-3.5" />
                             </Button>
                             <Button
-                              variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50"
+                              variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:text-red-600 hover:bg-red-50"
                               onClick={() => { if (confirm('삭제하시겠습니까?')) deleteMut.mutate(rec.id) }}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -470,13 +470,13 @@ export default function MyBidsPage() {
                   </CardHeader>
                   <CardContent className="p-5">
                     {scatterData.length === 0 ? (
-                      <p className="text-sm text-slate-400 text-center py-10">AI 추천률이 있는 이력 데이터가 없습니다.</p>
+                      <p className="text-sm text-slate-500 text-center py-10">AI 추천률이 있는 이력 데이터가 없습니다.</p>
                     ) : (
                       <ResponsiveContainer width="100%" height={280}>
                         <ScatterChart margin={{ left: -10, right: 10 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                          <XAxis dataKey="x" name="AI 추천률" unit="%" type="number" domain={['auto', 'auto']} tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                          <YAxis dataKey="y" name="투찰률" unit="%" type="number" domain={['auto', 'auto']} tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                          <XAxis dataKey="x" name="AI 추천률" unit="%" type="number" domain={['auto', 'auto']} tick={{ fontSize: 12, fill: '#475569' }} />
+                          <YAxis dataKey="y" name="투찰률" unit="%" type="number" domain={['auto', 'auto']} tick={{ fontSize: 12, fill: '#475569' }} />
                           <Tooltip cursor={{ strokeDasharray: '3 3' }} formatter={(v: number) => v + '%'} />
                           <Scatter data={scatterData.filter((p) => p.result === 'won')} fill="#10b981" name="낙찰" opacity={0.8} />
                           <Scatter data={scatterData.filter((p) => p.result === 'lost')} fill="#94a3b8" name="미낙찰" opacity={0.5} />
@@ -494,13 +494,13 @@ export default function MyBidsPage() {
                   </CardHeader>
                   <CardContent className="p-5">
                     {analysis.monthly_accuracy.length === 0 ? (
-                      <p className="text-sm text-slate-400 text-center py-10">월별 데이터가 없습니다.</p>
+                      <p className="text-sm text-slate-500 text-center py-10">월별 데이터가 없습니다.</p>
                     ) : (
                       <ResponsiveContainer width="100%" height={200}>
                         <LineChart data={analysis.monthly_accuracy} margin={{ left: -10, right: 10 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                          <XAxis dataKey="year_month" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                          <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} unit="%" />
+                          <XAxis dataKey="year_month" tick={{ fontSize: 12, fill: '#475569' }} />
+                          <YAxis tick={{ fontSize: 12, fill: '#475569' }} unit="%" />
                           <Tooltip formatter={(v: number) => [v + '%', 'MAE']} />
                           <Line type="monotone" dataKey="mae" stroke="#3b82f6" dot={{ r: 3, fill: '#3b82f6' }} strokeWidth={2} connectNulls />
                         </LineChart>
@@ -541,7 +541,7 @@ export default function MyBidsPage() {
                             {m.text}
                           </div>
                         ))}
-                        <p className="text-[10px] text-slate-400 pt-1">기준: 최근 {sorted.length}개월 투찰 이력</p>
+                        <p className="text-xs text-slate-500 pt-1">기준: 최근 {sorted.length}개월 투찰 이력</p>
                       </CardContent>
                     </Card>
                   )
@@ -551,7 +551,7 @@ export default function MyBidsPage() {
             {!analysis && (
               <div className="text-center py-16">
                 <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2 text-slate-300" />
-                <p className="text-sm text-slate-400">분석 데이터를 불러오는 중...</p>
+                <p className="text-sm text-slate-500">분석 데이터를 불러오는 중...</p>
               </div>
             )}
           </TabsContent>
@@ -563,7 +563,7 @@ export default function MyBidsPage() {
                 <Card className="bg-white border-slate-200 shadow-sm">
                   <CardContent className="py-16 text-center">
                     <BarChart2 className="h-10 w-10 text-slate-200 mx-auto mb-3" />
-                    <p className="text-slate-400 text-sm">투찰 이력이 쌓이면 역산 분석이 가능합니다.</p>
+                    <p className="text-slate-500 text-sm">투찰 이력이 쌓이면 역산 분석이 가능합니다.</p>
                     <p className="text-slate-300 text-xs mt-1">낙찰 결과(실제 낙찰률)가 입력된 이력이 필요합니다.</p>
                   </CardContent>
                 </Card>
@@ -577,7 +577,7 @@ export default function MyBidsPage() {
                         <p className={cn("text-2xl font-bold mt-1 tabular-nums", gapData.mean_diff != null && gapData.mean_diff > 0 ? "text-amber-600" : "text-blue-600")}>
                           {gapData.mean_diff != null ? `${gapData.mean_diff > 0 ? '+' : ''}${(gapData.mean_diff * 100).toFixed(3)}%` : '-'}
                         </p>
-                        <p className="text-xs text-slate-400 mt-1">
+                        <p className="text-xs text-slate-500 mt-1">
                           {gapData.consistent_direction === 'too_high' ? '▲ 낙찰자보다 높게 투찰' : gapData.consistent_direction === 'too_low' ? '▼ 낙찰자보다 낮게 투찰' : '— 혼합 패턴'}
                         </p>
                       </CardContent>
@@ -590,7 +590,7 @@ export default function MyBidsPage() {
                           <p className="text-2xl font-bold mt-1 tabular-nums text-amber-600">
                             -{(gapData.win_if_lower_by * 100).toFixed(3)}%
                           </p>
-                          <p className="text-xs text-slate-400 mt-1">낮게 투찰하면 낙찰 구간 진입</p>
+                          <p className="text-xs text-slate-500 mt-1">낮게 투찰하면 낙찰 구간 진입</p>
                         </CardContent>
                       </Card>
                     ) : (
@@ -598,8 +598,8 @@ export default function MyBidsPage() {
                         <div className="absolute top-0 left-0 right-0 h-0.5 bg-slate-300" />
                         <CardContent className="p-5">
                           <p className="text-sm font-medium text-slate-500">낙찰 가능 구간</p>
-                          <p className="text-2xl font-bold mt-1 tabular-nums text-slate-400">-</p>
-                          <p className="text-xs text-slate-400 mt-1">{gapData.consistent_direction === 'too_low' ? '낙찰자보다 낮게 투찰 중' : '패턴 미확정'}</p>
+                          <p className="text-2xl font-bold mt-1 tabular-nums text-slate-500">-</p>
+                          <p className="text-xs text-slate-500 mt-1">{gapData.consistent_direction === 'too_low' ? '낙찰자보다 낮게 투찰 중' : '패턴 미확정'}</p>
                         </CardContent>
                       </Card>
                     )}
@@ -608,7 +608,7 @@ export default function MyBidsPage() {
                       <CardContent className="p-5">
                         <p className="text-sm font-medium text-slate-500">분석 건수</p>
                         <p className="text-2xl font-bold mt-1 tabular-nums text-slate-900">{gapData.total_analyzed}건</p>
-                        <p className="text-xs text-slate-400 mt-1">중앙값 {gapData.median_diff != null ? `${gapData.median_diff > 0 ? '+' : ''}${(gapData.median_diff * 100).toFixed(3)}%` : '-'}</p>
+                        <p className="text-xs text-slate-500 mt-1">중앙값 {gapData.median_diff != null ? `${gapData.median_diff > 0 ? '+' : ''}${(gapData.median_diff * 100).toFixed(3)}%` : '-'}</p>
                       </CardContent>
                     </Card>
                   </div>
@@ -617,18 +617,18 @@ export default function MyBidsPage() {
                     <CardHeader className="border-b border-slate-100 pb-4">
                       <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
                         <BarChart2 className="h-4 w-4 text-blue-600" />낙찰자 대비 투찰 격차 분포
-                        <span className="text-xs font-normal text-slate-400 ml-1">(양수: 내가 높게 / 음수: 내가 낮게)</span>
+                        <span className="text-xs font-normal text-slate-500 ml-1">(양수: 내가 높게 / 음수: 내가 낮게)</span>
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-5">
                       {gapData.buckets.length === 0 ? (
-                        <p className="text-sm text-slate-400 text-center py-10">분포 데이터 없음</p>
+                        <p className="text-sm text-slate-500 text-center py-10">분포 데이터 없음</p>
                       ) : (
                         <ResponsiveContainer width="100%" height={240}>
                           <BarChart data={gapData.buckets.map((b) => ({ mid: +((b.range_lo + b.range_hi) / 2 * 100).toFixed(3), count: b.count, positive: b.range_lo >= 0 }))} margin={{ left: -10, right: 10 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                            <XAxis dataKey="mid" unit="%" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                            <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} />
+                            <XAxis dataKey="mid" unit="%" tick={{ fontSize: 12, fill: '#475569' }} />
+                            <YAxis tick={{ fontSize: 12, fill: '#475569' }} allowDecimals={false} />
                             <Tooltip formatter={(v: number) => [v + '건', '빈도']} labelFormatter={(l) => `격차 ${l}%`} />
                             <ReferenceLine x={0} stroke="#475569" strokeDasharray="4 4" strokeWidth={1.5} />
                             <Bar dataKey="count" radius={[3, 3, 0, 0]}>
@@ -664,7 +664,7 @@ export default function MyBidsPage() {
             ) : (
               <div className="text-center py-16">
                 <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2 text-slate-300" />
-                <p className="text-sm text-slate-400">분석 데이터를 불러오는 중...</p>
+                <p className="text-sm text-slate-500">분석 데이터를 불러오는 중...</p>
               </div>
             )}
           </TabsContent>
@@ -674,7 +674,7 @@ export default function MyBidsPage() {
             {!winPattern ? (
               <div className="text-center py-16">
                 <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2 text-slate-300" />
-                <p className="text-sm text-slate-400">분석 데이터를 불러오는 중...</p>
+                <p className="text-sm text-slate-500">분석 데이터를 불러오는 중...</p>
               </div>
             ) : (
               <>
@@ -735,10 +735,10 @@ export default function MyBidsPage() {
                                 <span className="w-3 h-3 rounded-full shrink-0" style={{ background: d.fill }} />
                                 <span className="text-slate-600 w-20">{d.name}</span>
                                 <span className="font-mono font-semibold text-slate-800">{d.value}건</span>
-                                <span className="text-slate-400 text-xs">({total > 0 ? (d.value / total * 100).toFixed(1) : 0}%)</span>
+                                <span className="text-slate-500 text-xs">({total > 0 ? (d.value / total * 100).toFixed(1) : 0}%)</span>
                               </div>
                             ))}
-                            <p className="text-xs text-slate-400 pt-2 leading-relaxed">
+                            <p className="text-xs text-slate-500 pt-2 leading-relaxed">
                               높게 투찰: submitted &gt; winner<br />
                               낮게 투찰: submitted &lt; winner (하한 이상)<br />
                               하한 미달: 최저 투찰률 미만 투찰
@@ -774,7 +774,7 @@ export default function MyBidsPage() {
                               <TableCell className="max-w-xs truncate font-medium text-slate-800">{a.agency_name}</TableCell>
                               <TableCell className="text-right text-slate-600">{a.total}</TableCell>
                               <TableCell className="text-right text-slate-600">{a.won}</TableCell>
-                              <TableCell className={cn('text-right font-mono font-semibold', a.win_rate >= 10 ? 'text-emerald-600' : a.win_rate > 0 ? 'text-blue-600' : 'text-slate-400')}>
+                              <TableCell className={cn('text-right font-mono font-semibold', a.win_rate >= 10 ? 'text-emerald-600' : a.win_rate > 0 ? 'text-blue-600' : 'text-slate-500')}>
                                 {a.win_rate.toFixed(1)}%
                               </TableCell>
                               <TableCell className={cn('text-right font-mono text-sm', a.avg_rate_diff == null ? 'text-slate-400' : a.avg_rate_diff > 0 ? 'text-amber-600' : 'text-blue-600')}>
@@ -799,8 +799,8 @@ export default function MyBidsPage() {
                       <ResponsiveContainer width="100%" height={200}>
                         <LineChart data={winPattern.by_year} margin={{ left: -10, right: 10 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                          <XAxis dataKey="year" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                          <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} unit="%" domain={[0, 'auto']} />
+                          <XAxis dataKey="year" tick={{ fontSize: 12, fill: '#475569' }} />
+                          <YAxis tick={{ fontSize: 12, fill: '#475569' }} unit="%" domain={[0, 'auto']} />
                           <Tooltip formatter={(v: number, name: string) => [name === 'win_rate' ? `${v.toFixed(1)}%` : v + '건', name === 'win_rate' ? '승률' : name === 'won' ? '낙찰' : '참여']} />
                           <Legend formatter={(v) => v === 'win_rate' ? '승률 (%)' : v === 'won' ? '낙찰 건수' : '참여 건수'} />
                           <Line type="monotone" dataKey="win_rate" stroke="#10b981" dot={{ r: 4, fill: '#10b981' }} strokeWidth={2.5} name="win_rate" />
@@ -815,7 +815,7 @@ export default function MyBidsPage() {
                   <Card className="bg-white border-slate-200 shadow-sm">
                     <CardContent className="py-16 text-center">
                       <BarChart2 className="h-10 w-10 text-slate-200 mx-auto mb-3" />
-                      <p className="text-slate-400 text-sm">결과가 확정된 투찰 이력이 없습니다.</p>
+                      <p className="text-slate-500 text-sm">결과가 확정된 투찰 이력이 없습니다.</p>
                       <p className="text-slate-300 text-xs mt-1">낙찰 결과(won/lost)가 입력된 이력이 필요합니다.</p>
                     </CardContent>
                   </Card>
@@ -834,9 +834,9 @@ export default function MyBidsPage() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div ref={annoRef} className="relative">
-              <Label className="text-xs font-medium text-slate-600 mb-1.5 block">공고번호 (자동완성)</Label>
+              <Label className="text-sm font-medium text-slate-600 mb-1.5 block">공고번호 (자동완성)</Label>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
                 <Input
                   className="pl-9 border-slate-200"
                   value={annoInput}
@@ -854,9 +854,9 @@ export default function MyBidsPage() {
                       className="w-full text-left px-3 py-2.5 hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0"
                       onMouseDown={() => handleSelectBid(item)}
                     >
-                      <div className="text-xs font-mono text-slate-400">{item.announcement_no}</div>
+                      <div className="text-xs font-mono text-slate-500">{item.announcement_no}</div>
                       <div className="text-sm font-medium text-slate-800 truncate">{item.title}</div>
-                      <div className="text-xs text-slate-400">{item.agency_name} · {item.base_amount ? `${(item.base_amount / 1e8).toFixed(1)}억` : '-'}</div>
+                      <div className="text-xs text-slate-500">{item.agency_name} · {item.base_amount ? `${(item.base_amount / 1e8).toFixed(1)}억` : '-'}</div>
                     </button>
                   ))}
                 </div>
@@ -864,40 +864,40 @@ export default function MyBidsPage() {
             </div>
 
             <div>
-              <Label className="text-xs font-medium text-slate-600 mb-1.5 block">공고명 *</Label>
+              <Label className="text-sm font-medium text-slate-600 mb-1.5 block">공고명 *</Label>
               <Input className="border-slate-200" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="공고명 입력 (자동완성 또는 직접 입력)" />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs font-medium text-slate-600 mb-1.5 block">발주기관</Label>
+                <Label className="text-sm font-medium text-slate-600 mb-1.5 block">발주기관</Label>
                 <Input className="border-slate-200" value={form.agency_name} onChange={(e) => setForm((f) => ({ ...f, agency_name: e.target.value }))} placeholder="발주기관명" />
               </div>
               <div>
-                <Label className="text-xs font-medium text-slate-600 mb-1.5 block">투찰일</Label>
+                <Label className="text-sm font-medium text-slate-600 mb-1.5 block">투찰일</Label>
                 <Input type="date" className="border-slate-200" value={form.bid_date} onChange={(e) => setForm((f) => ({ ...f, bid_date: e.target.value }))} />
               </div>
             </div>
 
             <div>
-              <Label className="text-xs font-medium text-slate-600 mb-1.5 block">기초금액 (원)</Label>
+              <Label className="text-sm font-medium text-slate-600 mb-1.5 block">기초금액 (원)</Label>
               <Input type="number" className="border-slate-200" value={form.base_amount} onChange={(e) => setForm((f) => ({ ...f, base_amount: e.target.value }))} placeholder="예: 500000000" />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs font-medium text-slate-600 mb-1.5 block">투찰률 (%) *</Label>
+                <Label className="text-sm font-medium text-slate-600 mb-1.5 block">투찰률 (%) *</Label>
                 <Input type="number" step="0.0001" className="border-slate-200" value={form.submitted_rate} onChange={(e) => setForm((f) => ({ ...f, submitted_rate: e.target.value }))} placeholder="예: 87.9300" />
               </div>
               <div>
-                <Label className="text-xs font-medium text-slate-600 mb-1.5 block">AI 추천률 (%)</Label>
+                <Label className="text-sm font-medium text-slate-600 mb-1.5 block">AI 추천률 (%)</Label>
                 <Input type="number" step="0.0001" className="border-slate-200" value={form.recommendation_rate} onChange={(e) => setForm((f) => ({ ...f, recommendation_rate: e.target.value }))} placeholder="예: 87.9500" />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs font-medium text-slate-600 mb-1.5 block">결과</Label>
+                <Label className="text-sm font-medium text-slate-600 mb-1.5 block">결과</Label>
                 <Select value={form.result} onValueChange={(v) => setForm((f) => ({ ...f, result: v }))}>
                   <SelectTrigger className="border-slate-200"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -908,7 +908,7 @@ export default function MyBidsPage() {
                 </Select>
               </div>
               <div>
-                <Label className="text-xs font-medium text-slate-600 mb-1.5 block">낙찰자 사정율 (%)</Label>
+                <Label className="text-sm font-medium text-slate-600 mb-1.5 block">낙찰자 사정율 (%)</Label>
                 <Input type="number" step="0.0001" className="border-slate-200" value={form.actual_winner_rate} onChange={(e) => setForm((f) => ({ ...f, actual_winner_rate: e.target.value }))} placeholder="예: 87.9100" disabled={form.result === 'pending'} />
               </div>
             </div>
@@ -924,7 +924,7 @@ export default function MyBidsPage() {
             )}
 
             <div>
-              <Label className="text-xs font-medium text-slate-600 mb-1.5 block">메모</Label>
+              <Label className="text-sm font-medium text-slate-600 mb-1.5 block">메모</Label>
               <Input className="border-slate-200" value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="메모 (선택)" />
             </div>
           </div>
@@ -947,7 +947,7 @@ export default function MyBidsPage() {
             <div className="space-y-4 py-2">
               <p className="text-sm font-medium text-slate-700 truncate bg-slate-50 rounded-lg p-3">{editRecord.title}</p>
               <div>
-                <Label className="text-xs font-medium text-slate-600 mb-1.5 block">결과</Label>
+                <Label className="text-sm font-medium text-slate-600 mb-1.5 block">결과</Label>
                 <Select value={updateForm.result} onValueChange={(v) => setUpdateForm((f) => ({ ...f, result: v }))}>
                   <SelectTrigger className="border-slate-200"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -958,11 +958,11 @@ export default function MyBidsPage() {
                 </Select>
               </div>
               <div>
-                <Label className="text-xs font-medium text-slate-600 mb-1.5 block">실제 낙찰률 (%)</Label>
+                <Label className="text-sm font-medium text-slate-600 mb-1.5 block">실제 낙찰률 (%)</Label>
                 <Input type="number" step="0.0001" className="border-slate-200" value={updateForm.actual_winner_rate} onChange={(e) => setUpdateForm((f) => ({ ...f, actual_winner_rate: e.target.value }))} placeholder="예: 87.93" />
               </div>
               <div>
-                <Label className="text-xs font-medium text-slate-600 mb-1.5 block">메모</Label>
+                <Label className="text-sm font-medium text-slate-600 mb-1.5 block">메모</Label>
                 <Input className="border-slate-200" value={updateForm.note} onChange={(e) => setUpdateForm((f) => ({ ...f, note: e.target.value }))} placeholder="메모 (선택)" />
               </div>
             </div>

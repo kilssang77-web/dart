@@ -177,102 +177,109 @@ def update_industry_filters(
 
 @router.post("/ml/retrain")
 def retrain_ml(
-    db: Session = Depends(get_db),
     _: User = Depends(require_role("admin")),
 ):
-    """ML 모델 재학습 — assessment_rate_stats 집계 + Engine A+B 학습."""
-    import traceback
-    from ...ml.assessment import compute_and_store_stats, train_srate_model
-    from ...ml.engine import train_models, build_features, FEATURE_COLS, get_engine
-    import pandas as pd
-    import math
-    from datetime import datetime, timedelta
-
-    results = {}
-
-    # Engine A: 사정율 통계 및 모델
-    try:
-        n = compute_and_store_stats(db)
-        results["srate_stats"] = n
-        ok = train_srate_model(db)
-        results["srate_model"] = "trained" if ok else "skipped_insufficient_data"
-    except Exception as e:
-        results["srate_error"] = str(e)
-
-    # Engine B: 낙찰률 회귀 모델
-    try:
-        rows = db.execute(text("""
-            SELECT b.id, b.agency_id, b.industry_id,
-                   COALESCE(b.region_id, 0) AS region_id,
-                   b.base_amount, b.bid_open_date,
-                   COALESCE(b.region_restriction, false),
-                   b.construction_period, r.bid_rate
-            FROM bids b
-            JOIN bid_results r ON r.bid_id = b.id AND r.is_winner = true
-            WHERE b.industry_id = ANY(ARRAY[20,24,31])
-              AND b.base_amount > 0
-              AND r.bid_rate BETWEEN 0.80 AND 1.00
-            ORDER BY b.bid_open_date
-        """)).fetchall()
-
-        cutoff = datetime.now() - timedelta(days=24*30)
-        hist_rows = db.execute(text("""
-            SELECT b.id, b.agency_id, b.industry_id,
-                   COALESCE(b.region_id, 0), b.base_amount, b.bid_open_date,
-                   r.bid_rate,
-                   (SELECT COUNT(*) FROM bid_results r2 WHERE r2.bid_id = b.id)
-            FROM bids b
-            LEFT JOIN bid_results r ON r.bid_id = b.id AND r.is_winner = true
-            WHERE b.bid_open_date >= :cutoff AND b.base_amount > 0
-        """), {"cutoff": cutoff}).fetchall()
-
-        hist_df = pd.DataFrame(hist_rows, columns=[
-            "id","agency_id","industry_id","region_id",
-            "base_amount","bid_open_date","winner_rate","competitor_count"
-        ])
-        for col in ["winner_rate","base_amount","competitor_count"]:
-            hist_df[col] = pd.to_numeric(hist_df[col], errors="coerce")
-
-        records = []
-        for row in rows:
-            bid_id, agency_id, industry_id, region_id, base_amount, bid_open_date, region_restriction, construction_period, winner_rate = row
-            if winner_rate is None:
-                continue
-            hist_before = hist_df[hist_df["bid_open_date"] < bid_open_date].copy() if bid_open_date else hist_df.copy()
+    """ML 모델 재학습 — assessment_rate_stats 집계 + Engine A+B 학습 (별도 스레드)."""
+    import threading
+    def _run():
+        import traceback
+        import pandas as pd
+        from datetime import datetime, timedelta
+        from ...database import SessionLocal
+        from ...ml.assessment import compute_and_store_stats, train_srate_model
+        from ...ml.engine import train_models, build_features, FEATURE_COLS, get_engine
+        db = SessionLocal()
+        results = {}
+        try:
+            # Engine A: 사정율 통계 및 모델
             try:
-                feats = build_features(
-                    agency_id=int(agency_id) if agency_id else 0,
-                    industry_id=int(industry_id) if industry_id else 0,
-                    region_id=int(region_id),
-                    base_amount=int(base_amount),
-                    construction_period=int(construction_period) if construction_period else None,
-                    region_restriction=bool(region_restriction),
-                    bid_open_date=bid_open_date,
-                    historical_df=hist_before,
-                )
-                feats["target_rate"] = float(winner_rate)
-                feats["is_winner"]   = True
-                records.append(feats)
-            except Exception:
-                pass
+                n = compute_and_store_stats(db)
+                results["srate_stats"] = n
+                ok = train_srate_model(db)
+                results["srate_model"] = "trained" if ok else "skipped_insufficient_data"
+            except Exception as e:
+                results["srate_error"] = str(e)
 
-        if len(records) >= 20:
-            train_df = pd.DataFrame(records)
-            for col in FEATURE_COLS:
-                if col not in train_df.columns:
-                    train_df[col] = None
-            res = train_models(train_df)
-            if res:
-                get_engine().reload()
-                results["engine_b"] = res
-            else:
-                results["engine_b"] = "failed"
-        else:
-            results["engine_b"] = f"skipped_insufficient_data ({len(records)}건)"
-    except Exception as e:
-        results["engine_b_error"] = traceback.format_exc()
+            # Engine B: 낙찰률 회귀 모델
+            try:
+                rows = db.execute(text("""
+                    SELECT b.id, b.agency_id, b.industry_id,
+                           COALESCE(b.region_id, 0) AS region_id,
+                           b.base_amount, b.bid_open_date,
+                           COALESCE(b.region_restriction, false),
+                           b.construction_period, r.bid_rate
+                    FROM bids b
+                    JOIN bid_results r ON r.bid_id = b.id AND r.is_winner = true
+                    WHERE b.industry_id = ANY(ARRAY[20,24,31])
+                      AND b.base_amount > 0
+                      AND r.bid_rate BETWEEN 0.80 AND 1.00
+                    ORDER BY b.bid_open_date
+                """)).fetchall()
 
-    return {"status": "ok", "results": results}
+                cutoff = datetime.now() - timedelta(days=24*30)
+                hist_rows = db.execute(text("""
+                    SELECT b.id, b.agency_id, b.industry_id,
+                           COALESCE(b.region_id, 0), b.base_amount, b.bid_open_date,
+                           r.bid_rate,
+                           (SELECT COUNT(*) FROM bid_results r2 WHERE r2.bid_id = b.id)
+                    FROM bids b
+                    LEFT JOIN bid_results r ON r.bid_id = b.id AND r.is_winner = true
+                    WHERE b.bid_open_date >= :cutoff AND b.base_amount > 0
+                """), {"cutoff": cutoff}).fetchall()
+
+                hist_df = pd.DataFrame(hist_rows, columns=[
+                    "id","agency_id","industry_id","region_id",
+                    "base_amount","bid_open_date","winner_rate","competitor_count"
+                ])
+                for col in ["winner_rate","base_amount","competitor_count"]:
+                    hist_df[col] = pd.to_numeric(hist_df[col], errors="coerce")
+
+                records = []
+                for row in rows:
+                    bid_id, agency_id, industry_id, region_id, base_amount, bid_open_date, region_restriction, construction_period, winner_rate = row
+                    if winner_rate is None:
+                        continue
+                    hist_before = hist_df[hist_df["bid_open_date"] < bid_open_date].copy() if bid_open_date else hist_df.copy()
+                    try:
+                        feats = build_features(
+                            agency_id=int(agency_id) if agency_id else 0,
+                            industry_id=int(industry_id) if industry_id else 0,
+                            region_id=int(region_id),
+                            base_amount=int(base_amount),
+                            construction_period=int(construction_period) if construction_period else None,
+                            region_restriction=bool(region_restriction),
+                            bid_open_date=bid_open_date,
+                            historical_df=hist_before,
+                        )
+                        feats["target_rate"] = float(winner_rate)
+                        feats["is_winner"]   = True
+                        records.append(feats)
+                    except Exception:
+                        pass
+
+                if len(records) >= 20:
+                    train_df = pd.DataFrame(records)
+                    for col in FEATURE_COLS:
+                        if col not in train_df.columns:
+                            train_df[col] = None
+                    res = train_models(train_df)
+                    if res:
+                        get_engine().reload()
+                        results["engine_b"] = res
+                    else:
+                        results["engine_b"] = "failed"
+                else:
+                    results["engine_b"] = f"skipped_insufficient_data ({len(records)}건)"
+            except Exception as e:
+                results["engine_b_error"] = traceback.format_exc()
+
+            logger.info("ML 재학습 완료: %s", results)
+        finally:
+            db.close()
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return {"status": "started", "message": "ML 재학습 시작됨 (별도 스레드) — 완료까지 1~3분 소요"}
 
 
 @router.get("/collector-status")
@@ -369,6 +376,12 @@ def system_status(db: Session = Depends(get_db), _: User = Depends(require_role(
     }
 
 
+@router.get("/ml/status")
+def ml_status_stub(_: User = Depends(require_role("admin"))):
+    """레거시 호환 stub — 구 클라이언트 캐시가 이 URL을 폴링해도 404 루프가 발생하지 않도록."""
+    return {"status": "ok", "message": "Use /admin/system-status"}
+
+
 @router.get("/inpo21c/status")
 def inpo21c_status(_: User = Depends(require_role("admin"))):
     """inpo21c 쿠키 유효성 및 수집 통계 조회."""
@@ -404,6 +417,29 @@ def inpo21c_status(_: User = Depends(require_role("admin"))):
         "status":       status,
         "message":      message,
     }
+
+
+@router.post("/ml/compute-frequency")
+def compute_frequency_tables(
+    _: User = Depends(require_role("admin")),
+):
+    """사정율 빈도 분포 v2 재구축 (0.001 버킷 × 발주처 × 12M/24M/48M)."""
+    import threading
+    def _run():
+        from ...database import SessionLocal
+        from ...ml.assessment import compute_srate_frequency_v2
+        db = SessionLocal()
+        try:
+            cnt = compute_srate_frequency_v2(db)
+            logger.info("사정율 빈도 v2 재구축 완료: %d rows", cnt)
+        except Exception:
+            import traceback
+            logger.error("빈도 재구축 오류:\n%s", traceback.format_exc())
+        finally:
+            db.close()
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return {"status": "started", "message": "사정율 빈도 테이블 재구축 시작 (1~3분 소요)"}
 
 
 _TRIGGER_COLLECT_TYPES = {"all", "notices", "results"}
@@ -611,6 +647,13 @@ def update_inpo21c_cookie(
     return {"message": "inpo21c 쿠키 업데이트 완료"}
 
 
+@router.get("/inpo21c/collect-progress")
+def inpo21c_collect_progress(_: User = Depends(require_role("admin"))):
+    """inpo21c 수집 진행 상태 폴링 엔드포인트 (프론트엔드 2초 간격 호출)."""
+    from ...collector.inpo21c import get_collect_progress
+    return get_collect_progress()
+
+
 @router.post("/inpo21c/collect")
 def trigger_inpo21c_collect(
     background_tasks: BackgroundTasks,
@@ -732,7 +775,7 @@ def start_inpo21c_backfill(
 @router.post("/inpo21c/collect-national")
 def trigger_inpo21c_national(
     background_tasks: BackgroundTasks,
-    max_pages: int = 100,
+    max_pages: int = 500,
     _: User = Depends(require_role("admin")),
 ):
     """inpo21c 전국 낙찰 결과 즉시 수집 (division 비의존 — 맞춤설정 외 전국 커버리지 확보)."""
@@ -756,19 +799,36 @@ def trigger_inpo21c_bid_notices(
     max_pages: int = 5,
     _: User = Depends(require_role("admin")),
 ):
-    """inpo21c 입찰공고 중 사전정보 즉시 수집 -- 예가방법, 낙찰하한율 등 개찰 전 파악 (백그라운드)."""
+    """inpo21c 입찰공고 사전정보 수집 + bids 자동 동기화 (백그라운드).
+
+    G2B BidPublicInfoService02 대체: info21c 공고 → bids 테이블 자동 등록.
+    """
     def _run():
         from ...database import SessionLocal
         from ...collector.inpo21c import collect_bid_notices_inpo21c
+        from ...services import InpoNoticesSyncService
         _db = SessionLocal()
         try:
             result = collect_bid_notices_inpo21c(_db, max_pages=max_pages)
             logger.info("inpo21c 입찰공고 수집 완료: %s", result)
+            sync = InpoNoticesSyncService().sync(_db)
+            logger.info("inpo21c → bids 동기화: %s", sync)
         finally:
             _db.close()
 
     background_tasks.add_task(_run)
-    return {"message": f"inpo21c 입찰공고 수집 시작됨 (최대 {max_pages}페이지)"}
+    return {"message": f"inpo21c 입찰공고 수집 + bids 동기화 시작됨 (최대 {max_pages}페이지)"}
+
+
+@router.post("/inpo21c/sync-to-bids")
+def sync_inpo21c_notices_to_bids(
+    _: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """inpo21c_bid_notices → bids 즉시 동기화 (G2B API 대체 수동 트리거)."""
+    from ...services import InpoNoticesSyncService
+    result = InpoNoticesSyncService().sync(db)
+    return result
 
 
 @router.get("/inpo21c/stats")

@@ -296,7 +296,7 @@ export default function QualificationPage() {
                   className="border-slate-200 focus:border-blue-400"
                 />
                 {base > 0 && (
-                  <p className="text-xs text-slate-400">{(base / 1e8).toFixed(1)}억원</p>
+                  <p className="text-xs text-slate-500">{(base / 1e8).toFixed(1)}억원</p>
                 )}
               </div>
 
@@ -378,7 +378,7 @@ export default function QualificationPage() {
                     className="border-slate-200 focus:border-blue-400"
                   />
                   {expAmt && parseWon(expAmt) > 0 && (
-                    <p className="text-xs text-slate-400">{(parseWon(expAmt) / 1e8).toFixed(1)}억원</p>
+                    <p className="text-xs text-slate-500">{(parseWon(expAmt) / 1e8).toFixed(1)}억원</p>
                   )}
                 </div>
               )}
@@ -393,7 +393,7 @@ export default function QualificationPage() {
                     className="border-slate-200 focus:border-blue-400"
                   />
                   {revExpAmt && parseWon(revExpAmt) > 0 && (
-                    <p className="text-xs text-slate-400">{(parseWon(revExpAmt) / 1e8).toFixed(1)}억원</p>
+                    <p className="text-xs text-slate-500">{(parseWon(revExpAmt) / 1e8).toFixed(1)}억원</p>
                   )}
                 </div>
               )}
@@ -454,7 +454,7 @@ export default function QualificationPage() {
 
                 {/* 총점 진행바 */}
                 <div className="space-y-1.5 mb-5">
-                  <div className="flex justify-between text-xs text-slate-400">
+                  <div className="flex justify-between text-xs text-slate-500">
                     <span>0점</span>
                     <span className="font-medium text-slate-600">기준선 65점</span>
                     <span>100점</span>
@@ -472,19 +472,19 @@ export default function QualificationPage() {
                 {result.minRate != null && base > 0 && (
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-white rounded-xl p-4 border border-slate-200">
-                      <p className="text-xs text-slate-400 mb-1.5">최소 투찰금액 (신용등급 기준)</p>
+                      <p className="text-xs text-slate-500 mb-1.5">최소 투찰금액 (신용등급 기준)</p>
                       <p className="text-xl font-bold font-mono text-blue-600">
                         {fmtAmountKrw(base * result.minRate)}
                       </p>
-                      <p className="text-xs text-slate-400 mt-1">{fmtPct(result.minRate)}</p>
+                      <p className="text-xs text-slate-500 mt-1">{fmtPct(result.minRate)}</p>
                     </div>
                     {result.optimalRate != null && (
                       <div className="bg-white rounded-xl p-4 border-2 border-blue-200">
-                        <p className="text-xs text-slate-400 mb-1.5">권장 투찰금액</p>
+                        <p className="text-xs text-slate-500 mb-1.5">권장 투찰금액</p>
                         <p className="text-xl font-bold font-mono text-blue-600">
                           {fmtAmountKrw(base * result.optimalRate)}
                         </p>
-                        <p className="text-xs text-slate-400 mt-1">{fmtPct(result.optimalRate)}</p>
+                        <p className="text-xs text-slate-500 mt-1">{fmtPct(result.optimalRate)}</p>
                       </div>
                     )}
                   </div>
@@ -504,7 +504,7 @@ export default function QualificationPage() {
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-slate-700">{item.label}</span>
                         {item.note && (
-                          <span className="text-xs text-slate-400 bg-slate-50 border border-slate-100 rounded px-1.5 py-0.5">
+                          <span className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-1.5 py-0.5">
                             {item.note}
                           </span>
                         )}
@@ -529,7 +529,7 @@ export default function QualificationPage() {
                   <span className="text-sm text-slate-700">합계</span>
                   <span className={cn('text-base', result.pass ? 'text-emerald-600' : 'text-red-600')}>
                     {result.totalScore}점
-                    <span className="text-xs font-normal text-slate-400 ml-1">(기준 {result.minScore}점)</span>
+                    <span className="text-xs font-normal text-slate-500 ml-1">(기준 {result.minScore}점)</span>
                   </span>
                 </div>
               </CardContent>
@@ -594,20 +594,20 @@ export default function QualificationPage() {
                   {/* 핵심 결과: 최소 시공실적 */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div className="col-span-2 bg-white rounded-xl p-4 border border-blue-200">
-                      <p className="text-xs text-slate-400 mb-1.5">최소 필요 시공실적</p>
+                      <p className="text-xs text-slate-500 mb-1.5">최소 필요 시공실적</p>
                       <p className="text-3xl font-bold font-mono text-blue-700">
                         {revResult.minExpBillion !== null ? fmtBillion(revResult.minExpBillion) : '계산 불가'}
                       </p>
-                      <p className="text-xs text-slate-400 mt-1.5">
+                      <p className="text-xs text-slate-500 mt-1.5">
                         만점 기준 요구실적 {fmtBillion(revResult.expRequired)} 중 {((revResult.expScoreNeeded / 30) * 100).toFixed(0)}% 이상
                       </p>
                     </div>
                     <div className="bg-white rounded-xl p-4 border border-blue-200">
-                      <p className="text-xs text-slate-400 mb-1.5">필요 시공실적 점수</p>
+                      <p className="text-xs text-slate-500 mb-1.5">필요 시공실적 점수</p>
                       <p className="text-2xl font-bold font-mono text-blue-700">
                         {revResult.expScoreNeeded}점
                       </p>
-                      <p className="text-xs text-slate-400 mt-1.5">/ 30점 만점</p>
+                      <p className="text-xs text-slate-500 mt-1.5">/ 30점 만점</p>
                     </div>
                   </div>
                 </CardContent>
@@ -623,22 +623,22 @@ export default function QualificationPage() {
                 <CardContent className="p-5">
                   <div className="grid grid-cols-2 gap-3 mb-4">
                     <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-                      <p className="text-xs text-slate-400 mb-1.5">최소 투찰금액</p>
+                      <p className="text-xs text-slate-500 mb-1.5">최소 투찰금액</p>
                       <p className="text-2xl font-bold font-mono text-blue-600">
                         {fmtAmountKrw(revResult.minAmount)}
                       </p>
-                      <p className="text-xs text-slate-400 mt-1">
+                      <p className="text-xs text-slate-500 mt-1">
                         투찰률 {fmtPct(revResult.minRate)} ({credit.replace(/[+-]/g,'')}등급 기준)
                       </p>
                     </div>
                     <div className="bg-slate-50 rounded-xl p-4 border border-blue-100">
-                      <p className="text-xs text-slate-400 mb-1.5">발주금액</p>
+                      <p className="text-xs text-slate-500 mb-1.5">발주금액</p>
                       <p className="text-2xl font-bold font-mono text-slate-900">{(base / 1e8).toFixed(2)}억원</p>
-                      <p className="text-xs text-slate-400 mt-1">기초금액 기준</p>
+                      <p className="text-xs text-slate-500 mt-1">기초금액 기준</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-2 text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2.5">
-                    <Info className="h-3.5 w-3.5 mt-0.5 shrink-0 text-slate-400" />
+                    <Info className="h-3.5 w-3.5 mt-0.5 shrink-0 text-slate-500" />
                     <span>
                       신용등급 {credit.replace(/[+-]/g,'')}: 최소 투찰률 {revResult.minRate * 100}% (A등급 88%, B등급 87%, C등급 86%, D등급 85%)
                     </span>
@@ -664,7 +664,7 @@ export default function QualificationPage() {
                       <div className="flex items-center gap-2">
                         <span className="text-sm text-slate-600">{item.label}</span>
                         {item.note && (
-                          <span className="text-xs text-slate-400 bg-slate-50 border border-slate-100 rounded px-1.5 py-0.5">
+                          <span className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-1.5 py-0.5">
                             {item.note}
                           </span>
                         )}
@@ -723,25 +723,25 @@ export default function QualificationPage() {
                 <CardContent className="p-5 space-y-4">
                   <div className="grid grid-cols-3 gap-3 text-center">
                     <div className="bg-white rounded-xl p-3.5 border border-slate-200">
-                      <p className="text-xs text-slate-400 mb-1">보유 시공실적 점수</p>
+                      <p className="text-xs text-slate-500 mb-1">보유 시공실적 점수</p>
                       <p className="text-xl font-bold font-mono text-slate-900">{revResult.currentExpScore}점</p>
-                      <p className="text-xs text-slate-400 mt-0.5">/ 30점</p>
+                      <p className="text-xs text-slate-500 mt-0.5">/ 30점</p>
                     </div>
                     <div className="bg-white rounded-xl p-3.5 border border-slate-200">
-                      <p className="text-xs text-slate-400 mb-1">예상 합산 점수</p>
+                      <p className="text-xs text-slate-500 mb-1">예상 합산 점수</p>
                       <p className={cn('text-xl font-bold font-mono', revResult.wouldPass ? 'text-emerald-600' : 'text-amber-600')}>
                         {revResult.totalWithCurrent}점
                       </p>
-                      <p className="text-xs text-slate-400 mt-0.5">기준 65점</p>
+                      <p className="text-xs text-slate-500 mt-0.5">기준 65점</p>
                     </div>
                     <div className="bg-white rounded-xl p-3.5 border border-slate-200">
-                      <p className="text-xs text-slate-400 mb-1">
+                      <p className="text-xs text-slate-500 mb-1">
                         {revResult.expGap !== null && revResult.expGap >= 0 ? '실적 여유' : '실적 부족'}
                       </p>
                       <p className={cn('text-xl font-bold font-mono', revResult.expGap !== null && revResult.expGap >= 0 ? 'text-emerald-600' : 'text-amber-600')}>
                         {revResult.expGap !== null ? `${revResult.expGap >= 0 ? '+' : ''}${revResult.expGap.toFixed(2)}억` : '-'}
                       </p>
-                      <p className="text-xs text-slate-400 mt-0.5">최소실적 대비</p>
+                      <p className="text-xs text-slate-500 mt-0.5">최소실적 대비</p>
                     </div>
                   </div>
 

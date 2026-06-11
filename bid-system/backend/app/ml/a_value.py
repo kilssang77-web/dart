@@ -30,6 +30,24 @@ def calc_a_value(base_amount: int, srate_center: float) -> int:
     return round(base_amount * srate_center)
 
 
+def calc_a_value_from_ratio(base_amount: int, a_ratio: float = 0.910) -> int:
+    """
+    기초금액 × A값비율(예정가/기초금액) → 예정가격 추정.
+    inpo21c 실증 전국 평균 a_ratio = 0.910.
+
+    실제 투찰금액 = calc_a_value_from_ratio(base_amount, a_ratio) × 추천_사정율
+    """
+    return round(base_amount * a_ratio)
+
+
+def calc_bid_price(base_amount: int, srate: float, a_ratio: float = 0.910) -> int:
+    """
+    기초금액 + A값비율 + 사정율 → 실제 투찰금액 계산.
+    투찰금액 = 기초금액 × a_ratio × srate
+    """
+    return round(base_amount * a_ratio * srate)
+
+
 def calc_floor_price(a_value: int, floor_rate: float) -> int:
     """A값 × 낙찰하한율 → 낙찰하한가."""
     return round(a_value * floor_rate)

@@ -78,7 +78,7 @@ function RiskBadge({ level }: { level: string }) {
     UNKNOWN: { label: '미상', className: 'bg-slate-100 text-slate-500 border-slate-200' },
   }
   const m = map[level] ?? map.UNKNOWN
-  return <span className={cn('text-[10px] px-1.5 py-0.5 rounded border font-semibold', m.className)}>{m.label}</span>
+  return <span className={cn('text-xs px-1.5 py-0.5 rounded border font-semibold', m.className)}>{m.label}</span>
 }
 
 export default function JointBidPage() {
@@ -161,12 +161,12 @@ export default function JointBidPage() {
           {scoredList.length > 0 && (
             <div className="flex items-center gap-4 text-sm">
               <div className="text-right">
-                <p className="text-xs text-slate-400">탐색 결과</p>
+                <p className="text-xs text-slate-500">탐색 결과</p>
                 <p className="font-bold text-slate-900">{scoredList.length}<span className="text-xs font-normal text-slate-500 ml-0.5">개사</span></p>
               </div>
               {top3avg != null && (
                 <div className="text-right">
-                  <p className="text-xs text-slate-400">상위 3사 평균</p>
+                  <p className="text-xs text-slate-500">상위 3사 평균</p>
                   <p className="font-bold text-blue-600">{top3avg}<span className="text-xs font-normal text-slate-500 ml-0.5">점</span></p>
                 </div>
               )}
@@ -190,7 +190,7 @@ export default function JointBidPage() {
           <CardContent className="px-5 pb-5">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
               <div className="space-y-1.5">
-                <Label className="text-xs text-slate-600 font-medium">공고 ID</Label>
+                <Label className="text-sm text-slate-600 font-medium">공고 ID</Label>
                 <Input
                   placeholder="예: 12345"
                   value={aiBidId}
@@ -205,7 +205,7 @@ export default function JointBidPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-slate-600 font-medium">귀사 실적금액 (원)</Label>
+                <Label className="text-sm text-slate-600 font-medium">귀사 실적금액 (원)</Label>
                 <Input
                   type="number"
                   placeholder="예: 500000000"
@@ -215,7 +215,7 @@ export default function JointBidPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-slate-600 font-medium">귀사 참여지분율 (%)</Label>
+                <Label className="text-sm text-slate-600 font-medium">귀사 참여지분율 (%)</Label>
                 <Select value={aiPartRate} onValueChange={setAiPartRate}>
                   <SelectTrigger className="border-slate-200"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -256,25 +256,25 @@ export default function JointBidPage() {
                   <span className="text-slate-500">{aiResult.threshold_note}</span>
                 </div>
                 {aiResult.partners.length === 0 ? (
-                  <p className="text-xs text-slate-400 text-center py-6">매칭 가능한 업체가 없습니다.</p>
+                  <p className="text-xs text-slate-500 text-center py-6">매칭 가능한 업체가 없습니다.</p>
                 ) : (
                   <div className="rounded-xl overflow-hidden border border-slate-200">
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-slate-50">
-                          <TableHead className="text-xs text-slate-500">업체명</TableHead>
-                          <TableHead className="text-xs text-slate-500">사업자번호</TableHead>
-                          <TableHead className="text-center text-xs text-slate-500">적격 예상</TableHead>
-                          <TableHead className="text-right text-xs text-slate-500">파트너 지분</TableHead>
-                          <TableHead className="text-right text-xs text-slate-500">낙찰률</TableHead>
-                          <TableHead className="text-right text-xs text-slate-500">궁합점수</TableHead>
+                          <TableHead className="text-sm text-slate-500">업체명</TableHead>
+                          <TableHead className="text-sm text-slate-500">사업자번호</TableHead>
+                          <TableHead className="text-center text-sm text-slate-500">적격 예상</TableHead>
+                          <TableHead className="text-right text-sm text-slate-500">파트너 지분</TableHead>
+                          <TableHead className="text-right text-sm text-slate-500">낙찰률</TableHead>
+                          <TableHead className="text-right text-sm text-slate-500">궁합점수</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {aiResult.partners.slice(0, 20).map((p) => (
                           <TableRow key={p.competitor_id} className="hover:bg-slate-50 transition-colors">
                             <TableCell className="font-semibold text-sm text-slate-800">{p.name}</TableCell>
-                            <TableCell className="text-xs font-mono text-slate-400">{p.biz_reg_no ?? '-'}</TableCell>
+                            <TableCell className="text-xs font-mono text-slate-500">{p.biz_reg_no ?? '-'}</TableCell>
                             <TableCell className="text-center">
                               {p.qualification_ok
                                 ? <CheckCircle2 className="h-4 w-4 text-emerald-500 mx-auto" />
@@ -289,7 +289,7 @@ export default function JointBidPage() {
                             <TableCell className="text-right">
                               <span className={cn(
                                 'text-xs font-bold tabular-nums',
-                                p.compat_score >= 60 ? 'text-emerald-700' : p.compat_score >= 40 ? 'text-amber-700' : 'text-slate-400'
+                                p.compat_score >= 60 ? 'text-emerald-700' : p.compat_score >= 40 ? 'text-amber-700' : 'text-slate-500'
                               )}>
                                 {p.compat_score}
                               </span>
@@ -301,7 +301,7 @@ export default function JointBidPage() {
                   </div>
                 )}
                 {aiResult.partners.length > 20 && (
-                  <p className="text-xs text-slate-400 text-center">상위 20개사 표시 (전체 {aiResult.partners.length}개사)</p>
+                  <p className="text-xs text-slate-500 text-center">상위 20개사 표시 (전체 {aiResult.partners.length}개사)</p>
                 )}
               </div>
             )}
@@ -325,7 +325,7 @@ export default function JointBidPage() {
                   <span className="text-xs font-semibold text-slate-800">{label}</span>
                   <span className="ml-auto text-xs font-bold text-slate-500">{max}점</span>
                 </div>
-                <p className="text-[11px] text-slate-400">{desc}</p>
+                <p className="text-[11px] text-slate-500">{desc}</p>
               </CardContent>
             </Card>
           ))}
@@ -335,17 +335,17 @@ export default function JointBidPage() {
         <Card className="bg-white border-slate-200 shadow-sm">
           <CardHeader className="pb-3 pt-4 px-5">
             <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
-              <Search className="h-4 w-4 text-slate-400" />
+              <Search className="h-4 w-4 text-slate-500" />
               탐색 조건
             </CardTitle>
           </CardHeader>
           <CardContent className="px-5 pb-5">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="space-y-1.5 md:col-span-2">
-                <Label className="text-xs text-slate-600 font-medium">업체명 검색</Label>
+                <Label className="text-sm text-slate-600 font-medium">업체명 검색</Label>
                 <div className="flex gap-2">
                   <div className="relative flex-1">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
                     <Input
                       placeholder="업체명 입력..."
                       value={keyword}
@@ -361,7 +361,7 @@ export default function JointBidPage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs text-slate-600 font-medium">내 목표 투찰률 (%)</Label>
+                <Label className="text-sm text-slate-600 font-medium">내 목표 투찰률 (%)</Label>
                 <Input
                   type="number"
                   step="0.1"
@@ -375,7 +375,7 @@ export default function JointBidPage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs text-slate-600 font-medium">최소 궁합점수</Label>
+                <Label className="text-sm text-slate-600 font-medium">최소 궁합점수</Label>
                 <Select value={minScore} onValueChange={(v) => { setMinScore(v); setPage(1) }}>
                   <SelectTrigger className="border-slate-200"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -389,7 +389,7 @@ export default function JointBidPage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs text-slate-600 font-medium">위험등급 필터</Label>
+                <Label className="text-sm text-slate-600 font-medium">위험등급 필터</Label>
                 <Select value={riskFilter} onValueChange={(v) => { setRiskFilter(v); setPage(1) }}>
                   <SelectTrigger className="border-slate-200"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -402,7 +402,7 @@ export default function JointBidPage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs text-slate-600 font-medium">정렬 기준</Label>
+                <Label className="text-sm text-slate-600 font-medium">정렬 기준</Label>
                 <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
                   <SelectTrigger className="border-slate-200"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -420,10 +420,10 @@ export default function JointBidPage() {
         <Card className="bg-white border-slate-200 shadow-sm">
           <CardHeader className="pb-3 pt-4 px-5">
             <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
-              <Users className="h-4 w-4 text-slate-400" />
+              <Users className="h-4 w-4 text-slate-500" />
               후보 협정사 목록
               {scoredList.length > 0 && (
-                <span className="ml-1 text-xs font-normal text-slate-400">— {scoredList.length}개사</span>
+                <span className="ml-1 text-xs font-normal text-slate-500">— {scoredList.length}개사</span>
               )}
             </CardTitle>
           </CardHeader>
@@ -432,13 +432,13 @@ export default function JointBidPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50 border-b border-slate-200">
-                    <TableHead className="w-8 text-xs text-slate-500">#</TableHead>
-                    <TableHead className="text-xs text-slate-500">업체명</TableHead>
-                    <TableHead className="text-xs text-slate-500">위험</TableHead>
-                    <TableHead className="text-right text-xs text-slate-500">궁합점수</TableHead>
-                    <TableHead className="text-right text-xs text-slate-500">낙찰률</TableHead>
-                    <TableHead className="text-right text-xs text-slate-500">평균 투찰률</TableHead>
-                    <TableHead className="text-right text-xs text-slate-500">입찰건</TableHead>
+                    <TableHead className="w-8 text-sm text-slate-500">#</TableHead>
+                    <TableHead className="text-sm text-slate-500">업체명</TableHead>
+                    <TableHead className="text-sm text-slate-500">위험</TableHead>
+                    <TableHead className="text-right text-sm text-slate-500">궁합점수</TableHead>
+                    <TableHead className="text-right text-sm text-slate-500">낙찰률</TableHead>
+                    <TableHead className="text-right text-sm text-slate-500">평균 투찰률</TableHead>
+                    <TableHead className="text-right text-sm text-slate-500">입찰건</TableHead>
                     <TableHead className="w-8" />
                   </TableRow>
                 </TableHeader>
@@ -472,7 +472,7 @@ export default function JointBidPage() {
                               )}
                               onClick={() => setExpandedId(expanded ? null : c.id)}
                             >
-                              <TableCell className="text-xs text-slate-400 font-mono">{rank}</TableCell>
+                              <TableCell className="text-sm text-slate-500 font-mono">{rank}</TableCell>
                               <TableCell>
                                 <div className="flex items-center gap-2">
                                   {isTop3 && (
@@ -487,16 +487,16 @@ export default function JointBidPage() {
                               <TableCell className="text-right">
                                 <CompatBar score={c._compat.total} />
                               </TableCell>
-                              <TableCell className="text-right font-mono text-xs text-slate-600 tabular-nums">
+                              <TableCell className="text-right font-mono text-sm text-slate-600 tabular-nums">
                                 {(c.win_rate * 100).toFixed(1)}%
                               </TableCell>
-                              <TableCell className="text-right font-mono text-xs text-slate-600 tabular-nums">
+                              <TableCell className="text-right font-mono text-sm text-slate-600 tabular-nums">
                                 {c.avg_bid_rate != null ? (c.avg_bid_rate * 100).toFixed(3) + '%' : '-'}
                               </TableCell>
-                              <TableCell className="text-right text-xs text-slate-600">{c.total_bids}건</TableCell>
+                              <TableCell className="text-right text-sm text-slate-600">{c.total_bids}건</TableCell>
                               <TableCell>
                                 {expanded
-                                  ? <ChevronUp className="h-3.5 w-3.5 text-slate-400" />
+                                  ? <ChevronUp className="h-3.5 w-3.5 text-slate-500" />
                                   : <ChevronDown className="h-3.5 w-3.5 text-slate-300" />}
                               </TableCell>
                             </TableRow>
@@ -511,7 +511,7 @@ export default function JointBidPage() {
                                       <ResponsiveContainer width="100%" height={180}>
                                         <RadarChart data={radarData} margin={{ top: 5, right: 20, bottom: 5, left: 20 }}>
                                           <PolarGrid stroke="#e2e8f0" />
-                                          <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: '#64748b' }} />
+                                          <PolarAngleAxis dataKey="subject" tick={{ fontSize: 12, fill: '#64748b' }} />
                                           <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
                                           <Radar dataKey="value" stroke="#2563eb" fill="#2563eb" fillOpacity={0.15} strokeWidth={2} />
                                         </RadarChart>
@@ -548,10 +548,10 @@ export default function JointBidPage() {
                                             c._compat.total >= 75 ? 'text-emerald-600' : c._compat.total >= 55 ? 'text-amber-600' : 'text-red-500'
                                           )}>
                                             {c._compat.total}
-                                            <span className="text-sm font-normal text-slate-400 ml-0.5">점</span>
+                                            <span className="text-sm font-normal text-slate-500 ml-0.5">점</span>
                                           </span>
                                         </div>
-                                        <p className="text-[10px] text-slate-400 mt-0.5">
+                                        <p className="text-xs text-slate-500 mt-0.5">
                                           P25~P75 투찰구간: {c.p25_rate != null ? (c.p25_rate * 100).toFixed(3) : '-'}% ~ {c.p75_rate != null ? (c.p75_rate * 100).toFixed(3) : '-'}%
                                         </p>
                                       </div>
@@ -566,7 +566,7 @@ export default function JointBidPage() {
 
                   {!isLoading && paginated.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-12 text-slate-400 text-sm">
+                      <TableCell colSpan={8} className="text-center py-12 text-slate-500 text-sm">
                         조건에 맞는 업체가 없습니다. 필터를 조정해보세요.
                       </TableCell>
                     </TableRow>
@@ -579,7 +579,7 @@ export default function JointBidPage() {
               <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 bg-slate-50/50">
                 <Button variant="outline" size="sm" className="border-slate-200"
                   onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>이전</Button>
-                <span className="text-xs text-slate-400 tabular-nums">{page} / {totalPages} ({scoredList.length}개사)</span>
+                <span className="text-xs text-slate-500 tabular-nums">{page} / {totalPages} ({scoredList.length}개사)</span>
                 <Button variant="outline" size="sm" className="border-slate-200"
                   onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages}>다음</Button>
               </div>
@@ -588,7 +588,7 @@ export default function JointBidPage() {
         </Card>
 
         {/* 안내 */}
-        <p className="text-xs text-slate-400 px-1">
+        <p className="text-xs text-slate-500 px-1">
           * 궁합점수는 수집된 입찰 데이터 기반 참고 지표입니다. 실제 협정 체결 전 재무상태·면허 등을 반드시 확인하세요.
         </p>
       </div>

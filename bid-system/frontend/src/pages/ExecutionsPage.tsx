@@ -50,9 +50,9 @@ const fmtRate = (r: number | null | undefined) =>
 // ── 상태 배지 ────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: ExecutionStatus }) {
-  const m = STATUS_META[status]
+  const m = STATUS_META[status] ?? { label: status, color: 'bg-gray-100 text-gray-600 border-gray-300', icon: null }
   return (
-    <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border', m.color)}>
+    <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-sm font-medium border', m.color)}>
       {m.icon}
       {m.label}
     </span>
@@ -82,7 +82,7 @@ function SummaryBar() {
           <div className={cn('text-lg font-bold', s === '낙찰' ? 'text-green-600' : s === '패찰' ? 'text-red-500' : 'text-gray-800')}>
             {counts[s] ?? 0}
           </div>
-          <div className="text-xs text-muted-foreground mt-0.5">{s}</div>
+          <div className="text-sm text-muted-foreground mt-0.5">{s}</div>
         </Card>
       ))}
       {winRate != null && (
@@ -154,7 +154,7 @@ function KanbanCard({
       </div>
 
       {/* 메타 정보 */}
-      <div className="space-y-1 text-xs text-muted-foreground">
+      <div className="space-y-1 text-sm text-muted-foreground">
         {exec.agency_name && (
           <div className="truncate">{exec.agency_name}</div>
         )}
@@ -217,7 +217,7 @@ function KanbanColumn({
   items: BidExecution[]
   onStatusChange: (id: number, status: ExecutionStatus) => void
 }) {
-  const meta = STATUS_META[status]
+  const meta = STATUS_META[status] ?? { label: status, color: 'bg-gray-100 text-gray-700 border-gray-300', colBg: 'bg-gray-50', icon: null }
 
   return (
     <div className="flex flex-col min-w-[220px] max-w-[260px] flex-shrink-0">
@@ -227,14 +227,14 @@ function KanbanColumn({
           {meta.icon}
           {meta.label}
         </span>
-        <span className="text-xs text-muted-foreground ml-auto font-medium">{items.length}</span>
+        <span className="text-sm text-muted-foreground ml-auto font-medium">{items.length}</span>
       </div>
 
       {/* 카드 목록 */}
       <div className={cn('flex-1 rounded-b-lg border p-2 space-y-2 min-h-[120px]', meta.colBg)}>
         {items.length === 0 ? (
           <div className="flex items-center justify-center h-16 border-2 border-dashed border-gray-200 rounded-lg">
-            <span className="text-xs text-muted-foreground">없음</span>
+            <span className="text-sm text-muted-foreground">없음</span>
           </div>
         ) : (
           items.map((exec) => (
@@ -315,7 +315,7 @@ function ExecutionRow({
             <StatusBadge status={exec.status} />
             <span className="text-sm font-medium truncate max-w-sm">{exec.title}</span>
           </div>
-          <div className="text-xs text-muted-foreground mt-0.5 flex gap-3 flex-wrap">
+          <div className="text-sm text-muted-foreground mt-0.5 flex gap-3 flex-wrap">
             <span>{exec.agency_name ?? '-'}</span>
             <span>기초 {fmt(exec.base_amount)}</span>
             {exec.bid_open_date && (
@@ -349,37 +349,37 @@ function ExecutionRow({
         <div className="px-4 pb-4 border-t bg-gray-50 text-sm">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
             <div>
-              <div className="text-xs text-muted-foreground">공고번호</div>
+              <div className="text-sm text-muted-foreground">공고번호</div>
               <div className="font-mono text-xs">{exec.announcement_no ?? '-'}</div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">낙찰하한율</div>
+              <div className="text-sm text-muted-foreground">낙찰하한율</div>
               <div>{fmtRate(exec.floor_rate)}</div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">A값</div>
+              <div className="text-sm text-muted-foreground">A값</div>
               <div>{exec.a_value != null ? exec.a_value.toLocaleString() : '-'}</div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">추천 투찰율</div>
+              <div className="text-sm text-muted-foreground">추천 투찰율</div>
               <div className="text-blue-600 font-medium">{fmtRate(exec.recommended_rate)}</div>
             </div>
             {exec.winner_rate != null && (
               <>
                 <div>
-                  <div className="text-xs text-muted-foreground">낙찰자</div>
+                  <div className="text-sm text-muted-foreground">낙찰자</div>
                   <div className="truncate">{exec.winner_name ?? '-'}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-muted-foreground">낙찰율</div>
+                  <div className="text-sm text-muted-foreground">낙찰율</div>
                   <div>{fmtRate(exec.winner_rate)}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-muted-foreground">낙찰금액</div>
+                  <div className="text-sm text-muted-foreground">낙찰금액</div>
                   <div>{fmt(exec.winner_amount)}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-muted-foreground">순위 / 참여</div>
+                  <div className="text-sm text-muted-foreground">순위 / 참여</div>
                   <div>{exec.result_rank ?? '-'} / {exec.total_bidders ?? '-'}</div>
                 </div>
               </>
@@ -461,7 +461,7 @@ function NewExecutionForm({ onClose }: { onClose: () => void }) {
         </div>
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-muted-foreground">공고명 *</label>
+            <label className="text-sm text-muted-foreground">공고명 *</label>
             <Input
               value={form.title}
               onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
@@ -470,7 +470,7 @@ function NewExecutionForm({ onClose }: { onClose: () => void }) {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-muted-foreground">발주기관</label>
+              <label className="text-sm text-muted-foreground">발주기관</label>
               <Input
                 value={form.agency_name}
                 onChange={(e) => setForm((f) => ({ ...f, agency_name: e.target.value }))}
@@ -478,7 +478,7 @@ function NewExecutionForm({ onClose }: { onClose: () => void }) {
               />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">개찰일</label>
+              <label className="text-sm text-muted-foreground">개찰일</label>
               <Input
                 type="date"
                 value={form.bid_open_date}
@@ -488,7 +488,7 @@ function NewExecutionForm({ onClose }: { onClose: () => void }) {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-muted-foreground">기초금액 (원)</label>
+              <label className="text-sm text-muted-foreground">기초금액 (원)</label>
               <Input
                 value={form.base_amount}
                 onChange={(e) => setForm((f) => ({ ...f, base_amount: e.target.value }))}
@@ -496,7 +496,7 @@ function NewExecutionForm({ onClose }: { onClose: () => void }) {
               />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">낙찰하한율</label>
+              <label className="text-sm text-muted-foreground">낙찰하한율</label>
               <Input
                 value={form.floor_rate}
                 onChange={(e) => setForm((f) => ({ ...f, floor_rate: e.target.value }))}
@@ -505,7 +505,7 @@ function NewExecutionForm({ onClose }: { onClose: () => void }) {
             </div>
           </div>
           <div>
-            <label className="text-xs text-muted-foreground">공고번호</label>
+            <label className="text-sm text-muted-foreground">공고번호</label>
             <Input
               value={form.announcement_no}
               onChange={(e) => setForm((f) => ({ ...f, announcement_no: e.target.value }))}
@@ -513,7 +513,7 @@ function NewExecutionForm({ onClose }: { onClose: () => void }) {
             />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground">메모</label>
+            <label className="text-sm text-muted-foreground">메모</label>
             <Input
               value={form.note}
               onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
@@ -595,7 +595,7 @@ export default function ExecutionsPage() {
           <ClipboardList className="h-6 w-6 text-blue-600" />
           <div>
             <h1 className="text-xl font-bold">투찰 실행 관리</h1>
-            <p className="text-xs text-muted-foreground">진행중 {activeCount}건 · 전체 {data?.total ?? 0}건</p>
+            <p className="text-sm text-muted-foreground">진행중 {activeCount}건 · 전체 {data?.total ?? 0}건</p>
           </div>
         </div>
         <div className="flex gap-2 flex-wrap items-center">
@@ -604,7 +604,7 @@ export default function ExecutionsPage() {
             <button
               onClick={() => setViewMode('list')}
               className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors',
+                'flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors',
                 viewMode === 'list'
                   ? 'bg-blue-600 text-white'
                   : 'bg-white text-gray-600 hover:bg-gray-50'
@@ -616,7 +616,7 @@ export default function ExecutionsPage() {
             <button
               onClick={() => setViewMode('kanban')}
               className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors border-l',
+                'flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors border-l',
                 viewMode === 'kanban'
                   ? 'bg-blue-600 text-white'
                   : 'bg-white text-gray-600 hover:bg-gray-50'
