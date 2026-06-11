@@ -60,7 +60,7 @@ def _prog_start(job_type: str, max_pages: int) -> None:
             "running": True, "job_type": job_type,
             "page": 0, "max_pages": max_pages, "total_pages": 0,
             "bids": 0, "participants": 0, "yega": 0, "skipped": 0,
-            "pct": 0.0, "started_at": datetime.now().isoformat(), "finished_at": None, "error": None,
+            "pct": 0.0, "started_at": datetime.now(timezone.utc).isoformat(), "finished_at": None, "error": None,
         })
 
 
@@ -83,7 +83,7 @@ def _prog_done(error: str | None = None) -> None:
     with _prog_lock:
         _prog["running"] = False
         _prog["pct"] = 100.0
-        _prog["finished_at"] = datetime.now().isoformat()
+        _prog["finished_at"] = datetime.now(timezone.utc).isoformat()
         if error:
             _prog["error"] = error
 
