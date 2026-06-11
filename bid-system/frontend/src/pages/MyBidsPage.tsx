@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, CheckCircle2, XCircle, Clock, Trash2, Edit2, Search, Download, Loader2, AlertCircle, FileText, TrendingUp, Target, BarChart2 } from 'lucide-react'
+import { Plus, CheckCircle2, XCircle, Clock, Trash2, Edit2, Search, Download, Upload, Loader2, AlertCircle, FileText, TrendingUp, Target, BarChart2, Info } from 'lucide-react'
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, BarChart, Bar, ReferenceLine, Cell, PieChart, Pie, Legend
@@ -116,8 +116,167 @@ function ExcelDownloadButton() {
   return (
     <Button variant="outline" onClick={handleDownload} disabled={loading} className="gap-2 border-slate-200 text-slate-600 hover:bg-slate-50">
       {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-      Excel
+      내보내기
     </Button>
+  )
+}
+
+interface ImportResult { imported: number; skipped: number; errors: string[]; details: string[] }
+
+function ExcelUploadModal({ onDone }: { onDone: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [file, setFile] = useState<File | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState<ImportResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const reset = () => { setFile(null); setResult(null); setError(null) }
+  const handleClose = (o: boolean) => { if (!o) { reset() } setOpen(o) }
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (!f) return
+    if (!f.name.toLowerCase().endsWith('.xlsx')) { setError('xlsx 파일만 업로드 가능합니다.'); return }
+    setFile(f); setError(null); setResult(null)
+  }
+
+  const handleUpload = async () => {
+    if (!file) return
+    setLoading(true); setError(null)
+    try {
+      const res = await myBidsApi.importExcel(file)
+      setResult(res)
+      if (res.imported > 0) onDone()
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? '업로드 중 오류가 발생했습니다.'
+      setError(msg)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const COLS = ['공고번호', '공고제목*', '발주처', '입찰일', '기초금액', '제출투찰률*', '추천투찰률', '결과', '실제낙찰률', '비고']
+
+  return (
+    <>
+      <Button variant="outline" onClick={() => setOpen(true)} className="gap-2 border-slate-200 text-slate-600 hover:bg-slate-50">
+        <Upload className="h-4 w-4" />업로드
+      </Button>
+      <Dialog open={open} onOpenChange={handleClose}>
+        <DialogContent className="max-w-lg bg-white">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-semibold text-slate-800">
+              <Upload className="h-4 w-4 text-blue-600" />투찰이력 엑셀 업로드
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            {/* 컬럼 안내 */}
+            {!result && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+                <p className="text-xs font-semibold text-blue-700 flex items-center gap-1.5">
+                  <Info className="h-3.5 w-3.5" />엑셀 파일 형식 (* 필수)
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  {COLS.map((c) => (
+                    <span key={c} className={cn(
+                      'text-xs px-2 py-0.5 rounded border font-mono',
+                      c.endsWith('*') ? 'bg-blue-100 text-blue-700 border-blue-300 font-semibold' : 'bg-white text-slate-600 border-slate-200'
+                    )}>{c.replace('*', '')}</span>
+                  ))}
+                </div>
+                <ul className="text-xs text-blue-600 space-y-0.5 list-disc list-inside">
+                  <li>투찰률: 소수(0.87123) 또는 퍼센트(87.123) 모두 허용</li>
+                  <li>결과: 낙찰·수주 → 낙찰 / 유찰·패찰·미낙찰 → 미낙찰 / 기타 → 진행중</li>
+                  <li>동일 공고번호가 이미 존재하면 중복 건너뜀</li>
+                  <li>기존 내보내기 파일을 그대로 업로드 가능</li>
+                </ul>
+              </div>
+            )}
+
+            {/* 파일 선택 */}
+            {!result && (
+              <div
+                onClick={() => inputRef.current?.click()}
+                className={cn(
+                  'border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors',
+                  file ? 'border-blue-400 bg-blue-50' : 'border-slate-200 hover:border-blue-300 hover:bg-slate-50'
+                )}
+              >
+                <input ref={inputRef} type="file" accept=".xlsx" className="hidden" onChange={handleFile} />
+                {file ? (
+                  <div className="space-y-1">
+                    <FileText className="h-8 w-8 text-blue-500 mx-auto" />
+                    <p className="text-sm font-semibold text-blue-700">{file.name}</p>
+                    <p className="text-xs text-slate-500">{(file.size / 1024).toFixed(1)} KB</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <Upload className="h-8 w-8 text-slate-300 mx-auto" />
+                    <p className="text-sm text-slate-500">클릭하여 xlsx 파일 선택</p>
+                    <p className="text-xs text-slate-400">또는 파일을 여기에 드래그</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 오류 */}
+            {error && (
+              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
+                <AlertCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+                <p className="text-sm text-red-700">{error}</p>
+              </div>
+            )}
+
+            {/* 결과 */}
+            {result && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { label: '등록 완료', value: result.imported, color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-200' },
+                    { label: '건너뜀', value: result.skipped, color: 'text-slate-500', bg: 'bg-slate-50 border-slate-200' },
+                  ].map(({ label, value, color, bg }) => (
+                    <div key={label} className={cn('border rounded-lg p-3 text-center', bg)}>
+                      <p className={cn('text-2xl font-bold tabular-nums', color)}>{value}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">{label}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {result.errors.length > 0 && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-1 max-h-32 overflow-y-auto">
+                    <p className="text-xs font-semibold text-red-600">처리 오류 ({result.errors.length}건)</p>
+                    {result.errors.map((e, i) => <p key={i} className="text-xs text-red-600">{e}</p>)}
+                  </div>
+                )}
+
+                {result.details.length > 0 && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 max-h-40 overflow-y-auto">
+                    <p className="text-xs font-semibold text-slate-500 mb-1">처리 내역 (최대 50건)</p>
+                    {result.details.map((d, i) => <p key={i} className="text-xs text-slate-600">{d}</p>)}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            {result ? (
+              <Button onClick={() => handleClose(false)} className="bg-blue-600 hover:bg-blue-700">닫기</Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => handleClose(false)} className="border-slate-200">취소</Button>
+                <Button onClick={handleUpload} disabled={!file || loading} className="gap-2 bg-blue-600 hover:bg-blue-700">
+                  {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {loading ? '업로드 중...' : '업로드'}
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 
@@ -298,6 +457,10 @@ export default function MyBidsPage() {
           </div>
           <div className="flex items-center gap-2">
             <ExcelDownloadButton />
+            <ExcelUploadModal onDone={() => {
+              qc.invalidateQueries({ queryKey: ['my-bids'] })
+              qc.invalidateQueries({ queryKey: ['my-bids-stats'] })
+            }} />
             <Button onClick={() => setShowAdd(true)} className="gap-2 bg-blue-600 hover:bg-blue-700">
               <Plus className="h-4 w-4" />이력 추가
             </Button>

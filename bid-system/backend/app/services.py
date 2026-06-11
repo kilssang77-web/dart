@@ -2846,6 +2846,182 @@ class BookmarkService:
 
 
 # ==================================================
+# 투찰이력 엑셀 업로드 서비스
+# ==================================================
+
+class MyBidImportService:
+    """투찰이력 엑셀 파일 → MyBidRecord 일괄 등록."""
+
+    RESULT_MAP = {
+        "낙찰": "won", "수주": "won", "won": "won",
+        "유찰": "lost", "패찰": "lost", "미낙찰": "lost", "lost": "lost",
+    }
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    # ── 숫자 파싱 헬퍼 ──────────────────────────────────────
+    @staticmethod
+    def _to_float(val) -> float | None:
+        if val is None or str(val).strip() in ("", "-"):
+            return None
+        try:
+            return float(str(val).replace("%", "").replace(",", "").strip())
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _to_int(val) -> int:
+        if val is None:
+            return 0
+        try:
+            return int(float(str(val).replace(",", "").strip()))
+        except (ValueError, TypeError):
+            return 0
+
+    @staticmethod
+    def _to_date(val):
+        """문자열 또는 datetime/date → date 객체."""
+        if val is None:
+            return None
+        from datetime import date, datetime
+        if isinstance(val, date):
+            return val if isinstance(val, date) and not isinstance(val, datetime) else val.date()
+        s = str(val).strip()
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", "%Y%m%d"):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except ValueError:
+                continue
+        return None
+
+    # ── 헤더 정규화 (다양한 표기 허용) ─────────────────────
+    _HEADER_ALIASES: dict[str, str] = {
+        # 공고번호
+        "공고번호": "공고번호", "announcement_no": "공고번호",
+        # 공고제목
+        "공고제목": "공고제목", "공고명": "공고제목", "제목": "공고제목", "title": "공고제목",
+        # 발주처
+        "발주처": "발주처", "발주기관": "발주처", "agency": "발주처", "agency_name": "발주처",
+        # 입찰일
+        "입찰일": "입찰일", "투찰일": "입찰일", "bid_date": "입찰일",
+        # 기초금액
+        "기초금액": "기초금액", "예정가격": "기초금액", "base_amount": "기초금액",
+        # 제출투찰률
+        "제출투찰률": "제출투찰률", "투찰률": "제출투찰률", "투찰율": "제출투찰률",
+        "submitted_rate": "제출투찰률",
+        # 추천투찰률
+        "추천투찰률": "추천투찰률", "ai추천률": "추천투찰률", "ai추천율": "추천투찰률",
+        "recommendation_rate": "추천투찰률",
+        # 결과
+        "결과": "결과", "result": "결과", "낙패": "결과",
+        # 실제낙찰률
+        "실제낙찰률": "실제낙찰률", "낙찰률": "실제낙찰률", "actual_winner_rate": "실제낙찰률",
+        # 비고
+        "비고": "비고", "메모": "비고", "note": "비고",
+    }
+
+    def _normalize_headers(self, raw: list[str]) -> list[str]:
+        return [self._HEADER_ALIASES.get(h.strip(), h.strip()) for h in raw]
+
+    # ── 메인 임포트 ─────────────────────────────────────────
+    def import_excel(self, file_bytes: bytes, user_id: int) -> dict:
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+        ws = wb.active
+
+        headers: list[str] = []
+        imported = skipped = 0
+        errors: list[str] = []
+        details: list[str] = []
+
+        for row_idx, row in enumerate(ws.iter_rows(values_only=True), 1):
+            if not headers:
+                headers = self._normalize_headers([str(c or "") for c in row])
+                continue
+
+            if all(v is None or str(v).strip() == "" for v in row):
+                continue
+
+            rd = dict(zip(headers, row))
+            title = str(rd.get("공고제목") or "").strip()
+            if not title:
+                skipped += 1
+                continue
+
+            announcement_no = str(rd.get("공고번호") or "").strip() or None
+
+            # 중복 체크: 같은 사용자의 동일 공고번호
+            if announcement_no:
+                exists = self.db.query(MyBidRecord).filter(
+                    MyBidRecord.user_id == user_id,
+                    MyBidRecord.announcement_no == announcement_no,
+                ).first()
+                if exists:
+                    skipped += 1
+                    details.append(f"중복 건너뜀: {title[:40]} ({announcement_no})")
+                    continue
+
+            submitted_rate_raw = self._to_float(rd.get("제출투찰률"))
+            if submitted_rate_raw is None:
+                errors.append(f"행 {row_idx}: 제출투찰률 없음 — {title[:40]}")
+                skipped += 1
+                continue
+
+            # 투찰률이 퍼센트 표기(예: 87.123)이면 /100
+            submitted_rate = submitted_rate_raw / 100 if submitted_rate_raw > 1 else submitted_rate_raw
+
+            result_raw = str(rd.get("결과") or "").strip()
+            result = self.RESULT_MAP.get(result_raw, "pending")
+
+            actual_winner_raw = self._to_float(rd.get("실제낙찰률"))
+            actual_winner_rate = None
+            if actual_winner_raw is not None:
+                actual_winner_rate = actual_winner_raw / 100 if actual_winner_raw > 1 else actual_winner_raw
+
+            rec_raw = self._to_float(rd.get("추천투찰률"))
+            recommendation_rate = None
+            if rec_raw is not None:
+                recommendation_rate = rec_raw / 100 if rec_raw > 1 else rec_raw
+
+            rate_diff = None
+            if submitted_rate is not None and actual_winner_rate is not None:
+                rate_diff = round(submitted_rate - actual_winner_rate, 6)
+
+            try:
+                rec = MyBidRecord(
+                    user_id=user_id,
+                    announcement_no=announcement_no,
+                    title=title,
+                    agency_name=str(rd.get("발주처") or "").strip() or None,
+                    bid_date=self._to_date(rd.get("입찰일")),
+                    base_amount=self._to_int(rd.get("기초금액")),
+                    submitted_rate=submitted_rate,
+                    recommendation_rate=recommendation_rate,
+                    result=result,
+                    actual_winner_rate=actual_winner_rate,
+                    rate_diff=rate_diff,
+                    note=str(rd.get("비고") or "").strip() or None,
+                )
+                self.db.add(rec)
+                imported += 1
+                details.append(f"등록: {title[:40]}")
+            except Exception as exc:
+                self.db.rollback()
+                errors.append(f"행 {row_idx} 저장 실패: {exc}")
+                skipped += 1
+
+        self.db.commit()
+        return {
+            "imported": imported,
+            "skipped": skipped,
+            "competitors_added": 0,
+            "errors": errors[:30],
+            "details": details[:50],
+        }
+
+
+# ==================================================
 # 투찰 정확도 분석 서비스
 # ==================================================
 

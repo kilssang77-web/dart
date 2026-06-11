@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter, Depends, HTTPException, Query
+﻿from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -7,8 +7,8 @@ import io
 
 from ...database import get_db
 from ...models import MyBidRecord, User
-from ...schemas import MyBidRecordCreate, MyBidRecordUpdate, MyBidRecordOut, MyBidAnalysisResponse, DefeatAnalysisResponse, GapAnalysisResponse, WinPatternResponse
-from ...services import MyBidAnalysisService, DefeatAnalysisService, WinPatternService, SekihaiService
+from ...schemas import MyBidRecordCreate, MyBidRecordUpdate, MyBidRecordOut, MyBidAnalysisResponse, DefeatAnalysisResponse, GapAnalysisResponse, WinPatternResponse, SucviewImportResult
+from ...services import MyBidAnalysisService, DefeatAnalysisService, WinPatternService, SekihaiService, MyBidImportService
 from ...common.security import get_current_user
 
 router = APIRouter(prefix="/my-bids", tags=["투찰이력"])
@@ -159,6 +159,20 @@ def export_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
     )
+
+
+@router.post("/import/excel", response_model=SucviewImportResult)
+async def import_excel(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """투찰이력 엑셀 파일 일괄 업로드 (.xlsx)."""
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="xlsx 파일만 업로드 가능합니다.")
+    content = await file.read()
+    result = MyBidImportService(db).import_excel(file_bytes=content, user_id=user.id)
+    return result
 
 
 @router.post("", response_model=MyBidRecordOut, status_code=201)

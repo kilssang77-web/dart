@@ -225,6 +225,10 @@ export const myBidsApi = {
     api.get('/my-bids/win-pattern').then((r) => r.data),
   exportExcel: (): Promise<Blob> =>
     api.get('/my-bids/export/excel', { responseType: 'blob' }).then((r) => r.data),
+  importExcel: (file: File): Promise<{ imported: number; skipped: number; errors: string[]; details: string[] }> => {
+    const fd = new FormData(); fd.append('file', file)
+    return api.post('/my-bids/import/excel', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data)
+  },
   inpoRank: (announcementNo: string): Promise<import('../types').SekihaiInfo> =>
     api.get('/my-bids/inpo-rank', { params: { announcement_no: announcementNo } }).then((r) => r.data),
   inpoRankBatch: (announcementNos: string[]): Promise<Record<string, import('../types').SekihaiInfo>> =>
