@@ -517,6 +517,18 @@ export interface OverviewStatsWithChange {
   avg_competitors_change: number | null
 }
 
+export interface CollectionLogDetail {
+  label?: string
+  source?: string
+  endpoint?: string
+  api_base?: string
+  date_from?: string
+  date_to?: string
+  days_back?: number
+  total_processed?: number
+  error_details?: string[]
+}
+
 export interface CollectionLogOut {
   id: number
   collect_type: string
@@ -525,6 +537,7 @@ export interface CollectionLogOut {
   fail_count: number
   duration_sec: number | null
   error_summary: string | null
+  detail_json: string | null
   created_at: string
 }
 

@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Users, ShieldCheck, Activity, Plus, Pencil, Trash2, RefreshCw, Database, Layers, Search, CheckSquare, Square, Save, ChevronDown, Loader2, Zap, Download } from 'lucide-react'
+import { Users, ShieldCheck, Activity, Plus, Pencil, Trash2, RefreshCw, Database, Layers, Search, CheckSquare, Square, Save, ChevronDown, Loader2, Zap, Download, Info, ExternalLink, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { adminApi, statsApi } from '@/api'
-import type { AdminUser, SystemStatus, ModelInfo, IndustryFilterItem, CollectionLogOut, CollectorStatus } from '@/types'
+import type { AdminUser, SystemStatus, ModelInfo, IndustryFilterItem, CollectionLogOut, CollectionLogDetail, CollectorStatus } from '@/types'
 import { useAuthStore } from '@/store/auth'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -45,6 +45,7 @@ export default function AdminPage() {
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [triggerMsg, setTriggerMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [inpoCollectMsg, setInpoCollectMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [selectedLog, setSelectedLog] = useState<CollectionLogOut | null>(null)
 
   const { data: users = [], isLoading: usersLoading } = useQuery<AdminUser[]>({
     queryKey: ['admin-users'], queryFn: adminApi.users, enabled: tab === 'users',
@@ -173,8 +174,146 @@ export default function AdminPage() {
   const activeCount = currentChecked.size
   const totalCount = industryFilters.length
 
+  const COLLECT_TYPE_META: Record<string, { label: string; color: string }> = {
+    notice_cnstwk: { label: '공사 입찰공고', color: 'bg-blue-50 text-blue-700 border-blue-200' },
+    notice_servc:  { label: '용역 입찰공고', color: 'bg-violet-50 text-violet-700 border-violet-200' },
+    notice_thng:   { label: '물품 입찰공고', color: 'bg-amber-50 text-amber-700 border-amber-200' },
+    result:        { label: '낙찰결과',      color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+    inpo21c:       { label: 'inpo21c 공고',  color: 'bg-orange-50 text-orange-700 border-orange-200' },
+    inpo21c_yega:  { label: 'inpo21c 예가',  color: 'bg-rose-50 text-rose-700 border-rose-200' },
+  }
+
+  function formatDateRange(from?: string, to?: string) {
+    if (!from || !to) return null
+    const fmt = (s: string) => `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`
+    return `${fmt(from)} ~ ${fmt(to)}`
+  }
+
+  function CollectionLogModal() {
+    if (!selectedLog) return null
+    const meta = COLLECT_TYPE_META[selectedLog.collect_type] ?? { label: selectedLog.collect_type, color: 'bg-slate-100 text-slate-600 border-slate-200' }
+    const detail: CollectionLogDetail = selectedLog.detail_json ? (() => { try { return JSON.parse(selectedLog.detail_json!) } catch { return {} } })() : {}
+    const isSuccess = selectedLog.fail_count === 0
+    const dateRange = formatDateRange(detail.date_from, detail.date_to)
+    return (
+      <Dialog open={!!selectedLog} onOpenChange={(o) => { if (!o) setSelectedLog(null) }}>
+        <DialogContent className="max-w-lg bg-white">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-semibold text-slate-800">
+              <Database className="h-4 w-4 text-blue-600" />수집 상세 정보
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              #{selectedLog.id} · {new Date(selectedLog.collected_at).toLocaleString('ko-KR')}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            {/* 상태 요약 */}
+            <div className={cn('flex items-center gap-3 px-4 py-3 rounded-lg border', isSuccess ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200')}>
+              {isSuccess
+                ? <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+                : <AlertCircle className="h-5 w-5 text-red-500 shrink-0" />}
+              <div>
+                <p className={cn('text-sm font-semibold', isSuccess ? 'text-emerald-700' : 'text-red-700')}>
+                  {isSuccess ? '수집 성공' : `수집 완료 (실패 ${selectedLog.fail_count}건 포함)`}
+                </p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  성공 {selectedLog.success_count}건 · 실패 {selectedLog.fail_count}건 · 소요 {selectedLog.duration_sec?.toFixed(1) ?? '-'}초
+                </p>
+              </div>
+            </div>
+
+            {/* 수집 유형 */}
+            <div className="space-y-2.5">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">수집 유형</p>
+              <div className="flex items-center gap-2">
+                <span className={cn('text-xs font-semibold px-2.5 py-1 rounded-full border', meta.color)}>
+                  {meta.label}
+                </span>
+                <span className="text-xs text-slate-400 font-mono">{selectedLog.collect_type}</span>
+              </div>
+            </div>
+
+            {/* 수집 소스 */}
+            {(detail.source || detail.endpoint) && (
+              <div className="space-y-2.5">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">수집 소스</p>
+                <div className="bg-slate-50 rounded-lg border border-slate-200 p-3 space-y-2">
+                  {detail.source && (
+                    <div className="flex items-center gap-2">
+                      <Info className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                      <span className="text-sm text-slate-700">{detail.source}</span>
+                    </div>
+                  )}
+                  {detail.endpoint && (
+                    <div className="flex items-center gap-2">
+                      <ExternalLink className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                      <span className="text-sm font-mono text-blue-600">{detail.endpoint}</span>
+                    </div>
+                  )}
+                  {detail.api_base && (
+                    <p className="text-xs text-slate-400 font-mono pl-5 break-all">{detail.api_base}</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 수집 기간 */}
+            {dateRange && (
+              <div className="space-y-2.5">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">수집 기간</p>
+                <div className="bg-slate-50 rounded-lg border border-slate-200 px-3 py-2.5 flex items-center justify-between">
+                  <span className="text-sm text-slate-700 font-mono">{dateRange}</span>
+                  {detail.days_back && (
+                    <span className="text-xs text-slate-400">최근 {detail.days_back}일</span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 처리 건수 */}
+            {detail.total_processed !== undefined && (
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: 'API 처리', value: detail.total_processed, color: 'text-slate-700' },
+                  { label: '저장 성공', value: selectedLog.success_count, color: 'text-emerald-600' },
+                  { label: '저장 실패', value: selectedLog.fail_count, color: selectedLog.fail_count > 0 ? 'text-red-600' : 'text-slate-400' },
+                ].map(({ label, value, color }) => (
+                  <div key={label} className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-center">
+                    <p className={cn('text-lg font-bold tabular-nums', color)}>{value}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{label}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 실패 원인 */}
+            {(selectedLog.error_summary || (detail.error_details && detail.error_details.length > 0)) && (
+              <div className="space-y-2.5">
+                <p className="text-xs font-semibold text-red-500 uppercase tracking-wide">실패 원인</p>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
+                  {selectedLog.error_summary && (
+                    <p className="text-xs text-red-700 font-medium">{selectedLog.error_summary}</p>
+                  )}
+                  {detail.error_details && detail.error_details.length > 0 && (
+                    <div className="space-y-1 pt-1 border-t border-red-200">
+                      {detail.error_details.map((err, i) => (
+                        <p key={i} className="text-xs text-red-600 font-mono break-all">{err}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
+      <CollectionLogModal />
       {/* Sticky Header */}
       <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-sm border-b border-slate-200 px-6 py-4">
         <div className="flex items-center gap-3">
@@ -383,18 +522,12 @@ export default function AdminPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {collectionLogs.map((log) => (
-                            <TableRow key={log.id} className="hover:bg-slate-50/50 border-b border-slate-100">
+                          {collectionLogs.map((log) => {
+                            const m = COLLECT_TYPE_META[log.collect_type] ?? { label: log.collect_type, color: 'bg-slate-100 text-slate-600 border-slate-200' }
+                            return (
+                            <TableRow key={log.id} onClick={() => setSelectedLog(log)} className="hover:bg-blue-50/40 border-b border-slate-100 cursor-pointer">
                               <TableCell>
-                                <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full border',
-                                  log.collect_type === 'notice_cnstwk'
-                                    ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                    : log.collect_type === 'notice_servc'
-                                    ? 'bg-slate-100 text-slate-600 border-slate-200'
-                                    : 'bg-white text-slate-500 border-slate-200'
-                                )}>
-                                  {log.collect_type}
-                                </span>
+                                <span className={cn('text-xs font-semibold px-2.5 py-0.5 rounded-full border', m.color)}>{m.label}</span>
                               </TableCell>
                               <TableCell className="text-sm text-slate-500 whitespace-nowrap">
                                 {new Date(log.collected_at).toLocaleString('ko-KR')}
@@ -407,7 +540,8 @@ export default function AdminPage() {
                               </TableCell>
                               <TableCell className="text-right text-sm text-slate-500">{log.duration_sec?.toFixed(1) ?? '-'}</TableCell>
                             </TableRow>
-                          ))}
+                            )
+                          })}
                         </TableBody>
                       </Table>
                     </CardContent>
@@ -604,6 +738,16 @@ export default function AdminPage() {
 
                 {/* 수집 로그 테이블 */}
                 <Card className="bg-white border-slate-200 shadow-sm overflow-hidden">
+                  <CardHeader className="border-b border-slate-100 pb-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <Database className="h-4 w-4 text-blue-600" />수집 이력
+                      </CardTitle>
+                      <span className="text-xs text-slate-400 flex items-center gap-1">
+                        <Info className="h-3 w-3" />행 클릭 시 상세 정보
+                      </span>
+                    </div>
+                  </CardHeader>
                   <CardContent className="p-0">
                     <Table>
                       <TableHeader>
@@ -622,17 +766,15 @@ export default function AdminPage() {
                               수집 이력이 없습니다.
                             </TableCell>
                           </TableRow>
-                        ) : collectionLogs.map((log) => (
-                          <TableRow key={log.id} className="hover:bg-slate-50/50 border-b border-slate-100">
+                        ) : collectionLogs.map((log) => {
+                          const m = COLLECT_TYPE_META[log.collect_type] ?? { label: log.collect_type, color: 'bg-slate-100 text-slate-600 border-slate-200' }
+                          return (
+                          <TableRow key={log.id} onClick={() => setSelectedLog(log)} className="hover:bg-blue-50/40 border-b border-slate-100 cursor-pointer">
                             <TableCell className="text-sm text-slate-500 whitespace-nowrap">
                               {new Date(log.collected_at).toLocaleString('ko-KR')}
                             </TableCell>
                             <TableCell>
-                              <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full border',
-                                log.collect_type === 'notice_cnstwk' ? 'bg-blue-50 text-blue-700 border-blue-200' : log.collect_type === 'notice_servc' ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-white text-slate-500 border-slate-200'
-                              )}>
-                                {log.collect_type}
-                              </span>
+                              <span className={cn('text-xs font-semibold px-2.5 py-0.5 rounded-full border', m.color)}>{m.label}</span>
                             </TableCell>
                             <TableCell className={cn('text-center font-bold text-sm', log.success_count > 0 ? 'text-emerald-600' : 'text-slate-500')}>
                               {log.success_count}
@@ -644,7 +786,8 @@ export default function AdminPage() {
                               {log.duration_sec?.toFixed(1) ?? '-'}
                             </TableCell>
                           </TableRow>
-                        ))}
+                          )
+                        })}
                       </TableBody>
                     </Table>
                   </CardContent>

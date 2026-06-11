@@ -313,6 +313,7 @@ class CollectionLog(Base):
     fail_count    = Column(Integer, default=0)
     duration_sec  = Column(Numeric(8, 2))
     error_summary = Column(Text)
+    detail_json   = Column(Text)          # JSON: source, endpoint, date_range, pages, errors[]
     created_at    = Column(DateTime(timezone=True), server_default=func.now())
 
 

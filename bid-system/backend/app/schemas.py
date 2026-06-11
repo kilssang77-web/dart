@@ -611,6 +611,7 @@ class CollectionLogOut(BaseModel):
     fail_count: int
     duration_sec: Optional[float]
     error_summary: Optional[str]
+    detail_json: Optional[str]
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

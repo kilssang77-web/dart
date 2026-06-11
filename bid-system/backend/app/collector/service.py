@@ -1,9 +1,10 @@
-﻿"""怨듦퀬쨌?숈같寃곌낵 ?섏쭛 ?쒕퉬????DB upsert 諛?CollectionLog 湲곕줉"""
+"""怨듦퀬쨌?숈같寃곌낵 ?섏쭛 ?쒕퉬????DB upsert 諛?CollectionLog 湲곕줉"""
 from __future__ import annotations
 
+import json
 import time
 from datetime import date, datetime, timedelta, timezone
-from typing import Literal
+from typing import Any, Literal
 
 from loguru import logger
 from sqlalchemy.exc import IntegrityError
@@ -183,6 +184,7 @@ def _record_log(
     fail: int,
     duration: float,
     error_summary: str | None = None,
+    detail: dict[str, Any] | None = None,
 ) -> CollectionLog:
     log = CollectionLog(
         collect_type=collect_type,
@@ -191,6 +193,7 @@ def _record_log(
         fail_count=fail,
         duration_sec=round(duration, 2),
         error_summary=error_summary,
+        detail_json=json.dumps(detail, ensure_ascii=False) if detail else None,
     )
     db.add(log)
     db.commit()
@@ -212,7 +215,26 @@ def _check_keyword_match(db: Session, bid: Bid) -> None:
 
 # ------------------------------------------------------------------ #
 # 怨듦컻 ?쒕퉬???⑥닔                                                     #
-# ------------------------------------------------------------------ #
+_NOTICE_META = {
+    'notice_cnstwk': {
+        'label': '공사 입찰공고',
+        'source': '나라장터 G2B API',
+        'endpoint': 'getBidPblancListInfoCnstwk',
+        'api_base': 'https://apis.data.go.kr/1230000/ad/BidPublicInfoService',
+    },
+    'notice_servc': {
+        'label': '용역 입찰공고',
+        'source': '나라장터 G2B API',
+        'endpoint': 'getBidPblancListInfoServc',
+        'api_base': 'https://apis.data.go.kr/1230000/ad/BidPublicInfoService',
+    },
+    'notice_thng': {
+        'label': '물품 입찰공고',
+        'source': '나라장터 G2B API',
+        'endpoint': 'getBidPblancListInfoThng',
+        'api_base': 'https://apis.data.go.kr/1230000/ad/BidPublicInfoService',
+    },
+}
 
 
 def collect_notices(
@@ -221,7 +243,7 @@ def collect_notices(
     collect_type: CollectType,
     days_back: int = 7,
 ) -> CollectionLog:
-    """怨듭궗/?⑹뿭/臾쇳뭹 怨듦퀬 ?섏쭛 ??bids + agencies upsert + CollectionLog 湲곕줉"""
+    """공사/용역/물품 공고 수집 — bids + agencies upsert + CollectionLog 기록"""
     paginate_fn = {
         "notice_cnstwk": client.paginate_construction_bids,
         "notice_servc": client.paginate_service_bids,
@@ -231,6 +253,7 @@ def collect_notices(
     bgn_dt, end_dt = _date_range(days_back)
     success = fail = 0
     errors: list[str] = []
+    error_details: list[str] = []
     t0 = time.monotonic()
 
     try:
@@ -246,11 +269,26 @@ def collect_notices(
                 except Exception as exc:
                     db.rollback()
                     fail += 1
-                    errors.append(str(exc)[:200])
+                    msg = str(exc)
+                    errors.append(msg[:200])
+                    error_details.append(f"[{notice.announcement_no}] {msg[:150]}")
                     logger.warning("bid upsert failed {}: {}", notice.announcement_no, exc)
     except Exception as exc:
-        errors.append(f"?섏씠吏?ㅼ씠???ㅻ쪟: {str(exc)[:200]}")
-        logger.error("怨듦퀬 ?섏쭛 以묐떒: {}", exc)
+        msg = str(exc)
+        errors.append(f"페이지네이션 오류: {msg[:200]}")
+        error_details.append(f"API 호출 실패: {msg[:200]}")
+        logger.error("공고 수집 실패: {}", exc)
+
+    meta = _NOTICE_META.get(collect_type, {})
+    detail = {
+        **meta,
+        "date_from": bgn_dt,
+        "date_to": end_dt,
+        "days_back": days_back,
+        "total_processed": success + fail,
+    }
+    if error_details:
+        detail["error_details"] = error_details[:20]
 
     return _record_log(
         db,
@@ -259,6 +297,7 @@ def collect_notices(
         fail,
         time.monotonic() - t0,
         "; ".join(errors) if errors else None,
+        detail=detail,
     )
 
 
@@ -267,10 +306,11 @@ def collect_results(
     client: NarajangterClient,
     days_back: int = 30,
 ) -> CollectionLog:
-    """?숈같寃곌낵 ?섏쭛 ??bid_results + competitors upsert + CollectionLog 湲곕줉"""
+    """낙찰결과 수집 — bid_results + competitors upsert + CollectionLog 기록"""
     bgn_dt, end_dt = _date_range(days_back)
     success = fail = 0
     errors: list[str] = []
+    error_details: list[str] = []
     t0 = time.monotonic()
 
     try:
@@ -283,7 +323,7 @@ def collect_results(
                         .first()
                     )
                     if not bid:
-                        logger.debug("怨듦퀬 ?놁쓬, 嫄대꼫?: {}", result_data.announcement_no)
+                        logger.debug("공고 없음, 건너뜀: {}", result_data.announcement_no)
                         continue
                     competitor = _upsert_competitor(
                         db, result_data.competitor_name, result_data.biz_reg_no
@@ -294,13 +334,28 @@ def collect_results(
                 except Exception as exc:
                     db.rollback()
                     fail += 1
-                    errors.append(str(exc)[:200])
-                    logger.warning(
-                        "?숈같寃곌낵 ????ㅽ뙣 {}: {}", result_data.announcement_no, exc
-                    )
+                    msg = str(exc)
+                    errors.append(msg[:200])
+                    error_details.append(f"[{result_data.announcement_no}] {msg[:150]}")
+                    logger.warning("낙찰결과 저장 실패 {}: {}", result_data.announcement_no, exc)
     except Exception as exc:
-        errors.append(f"?섏씠吏?ㅼ씠???ㅻ쪟: {str(exc)[:200]}")
-        logger.error("?숈같寃곌낵 ?섏쭛 以묐떒: {}", exc)
+        msg = str(exc)
+        errors.append(f"페이지네이션 오류: {msg[:200]}")
+        error_details.append(f"API 호출 실패: {msg[:200]}")
+        logger.error("낙찰결과 수집 실패: {}", exc)
+
+    detail = {
+        "label": "낙찰결과",
+        "source": "나라장터 G2B API",
+        "endpoint": "getScsbidListSttusCnstwk",
+        "api_base": "https://apis.data.go.kr/1230000/as/ScsbidInfoService",
+        "date_from": bgn_dt,
+        "date_to": end_dt,
+        "days_back": days_back,
+        "total_processed": success + fail,
+    }
+    if error_details:
+        detail["error_details"] = error_details[:20]
 
     return _record_log(
         db,
@@ -309,6 +364,7 @@ def collect_results(
         fail,
         time.monotonic() - t0,
         "; ".join(errors) if errors else None,
+        detail=detail,
     )
 
 

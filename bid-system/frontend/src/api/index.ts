@@ -182,6 +182,8 @@ export const adminApi = {
     api.put('/admin/industries/filters', { active_ids }).then((r) => r.data),
   collectionLogs: (days = 7): Promise<CollectionLogOut[]> =>
     api.get('/admin/collection-logs', { params: { days } }).then((r) => r.data),
+  collectionLogDetail: (id: number): Promise<CollectionLogOut> =>
+    api.get(`/admin/collection-logs/${id}`).then((r) => r.data),
   triggerCollect: (collectType: 'all' | 'notices' | 'results'): Promise<{ message: string }> =>
     api.post('/admin/collect/trigger', null, { params: { collect_type: collectType } }).then((r) => r.data),
   inpo21cStatus: (): Promise<{ has_cookie: boolean; cookie_valid: boolean; has_autologin: boolean; can_collect: boolean; status: string; message: string }> =>

@@ -629,6 +629,18 @@ def collection_logs(
     )
 
 
+@router.get("/collection-logs/{log_id}", response_model=CollectionLogOut)
+def collection_log_detail(
+    log_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin")),
+):
+    log = db.query(CollectionLog).filter(CollectionLog.id == log_id).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="수집 로그를 찾을 수 없습니다.")
+    return log
+
+
 class InpoCookieBody(BaseModel):
     cookie: str
 
