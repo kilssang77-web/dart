@@ -241,6 +241,121 @@ export default function AdminPage() {
     },
   }
 
+  interface ErrorInterpretation {
+    icon: 'duplicate' | 'api' | 'network' | 'auth' | 'unknown'
+    title: string
+    cause: string
+    impact: string
+    severity: 'warning' | 'error'
+  }
+
+  function interpretErrorMessage(raw: string): ErrorInterpretation {
+    const r = raw.toLowerCase()
+
+    if (r.includes('uniqueviolation') && r.includes('uq_bid_competitor')) {
+      return {
+        icon: 'duplicate', severity: 'warning',
+        title: '낙찰결과 중복 저장 시도',
+        cause: '동일 공고에 동일 경쟁업체 결과가 이미 DB에 존재합니다. API가 이전에 수집한 데이터를 다시 반환한 것입니다.',
+        impact: '데이터 손실 없음 — 기존 레코드가 그대로 유지됩니다. 정상적인 중복 방지 처리입니다.',
+      }
+    }
+    if (r.includes('uniqueviolation') && r.includes('competitors_biz_reg_no_key')) {
+      return {
+        icon: 'duplicate', severity: 'warning',
+        title: '경쟁업체 중복 등록 시도',
+        cause: '동일한 사업자번호를 가진 경쟁업체가 이미 DB에 등록되어 있습니다. 동시 수집 또는 재수집 시 발생하는 정상적인 충돌입니다.',
+        impact: '데이터 손실 없음 — 기존 경쟁업체 정보가 그대로 유지됩니다.',
+      }
+    }
+    if (r.includes('uniqueviolation')) {
+      return {
+        icon: 'duplicate', severity: 'warning',
+        title: '중복 데이터 저장 시도',
+        cause: '이미 DB에 존재하는 데이터를 다시 저장하려 했습니다.',
+        impact: '기존 데이터는 유지됩니다. 중복 방지 제약조건이 정상 동작한 것입니다.',
+      }
+    }
+    if (r.includes('500 internal server error') && (r.includes('getbidresultlist') || r.includes('bidpublicinfoservice02'))) {
+      return {
+        icon: 'api', severity: 'error',
+        title: '나라장터 구 API 엔드포인트 오류',
+        cause: '공공데이터포털의 getBidResultListInfoCnstwk 엔드포인트가 HTTP 500 오류를 반환했습니다. 해당 엔드포인트는 현재 폐기된 구 버전입니다.',
+        impact: '낙찰결과 수집이 실패했습니다. 현재는 ScsbidInfoService로 대체 수집 중이므로 이후 일정에서는 정상 수집됩니다.',
+      }
+    }
+    if (r.includes('500 internal server error')) {
+      return {
+        icon: 'api', severity: 'error',
+        title: '나라장터 API 서버 오류',
+        cause: '공공데이터포털(data.go.kr) 서버가 HTTP 500 오류를 반환했습니다. 서버 측 일시적 장애입니다.',
+        impact: '해당 수집 배치가 실패했습니다. 다음 정기 수집 시 자동 재시도됩니다.',
+      }
+    }
+    if (r.includes('404') || r.includes('not found')) {
+      return {
+        icon: 'api', severity: 'error',
+        title: 'API 엔드포인트 없음',
+        cause: '요청한 API 주소가 존재하지 않습니다. 엔드포인트 URL이 변경됐거나 폐기된 API입니다.',
+        impact: '해당 수집 유형이 전체 실패했습니다. 엔드포인트 URL 점검이 필요합니다.',
+      }
+    }
+    if (r.includes('connectionerror') || r.includes('connection refused') || r.includes('timeout') || r.includes('timed out')) {
+      return {
+        icon: 'network', severity: 'error',
+        title: '네트워크 연결 실패',
+        cause: '나라장터 API 서버에 연결할 수 없거나 응답 시간이 초과됐습니다. 네트워크 장애 또는 서버 점검 중일 수 있습니다.',
+        impact: '해당 수집 배치가 실패했습니다. 다음 정기 수집 시 자동 재시도됩니다.',
+      }
+    }
+    if (r.includes('페이지네이션 오류') || r.includes('api 호출 실패')) {
+      return {
+        icon: 'api', severity: 'error',
+        title: 'API 호출 중단',
+        cause: 'API 페이지 목록 조회 중 오류가 발생해 수집이 중단됐습니다. 이전 페이지까지의 데이터는 정상 저장됩니다.',
+        impact: '일부 데이터가 수집되지 않았을 수 있습니다. 다음 정기 수집에서 보완됩니다.',
+      }
+    }
+    if (r.includes('importerror') || r.includes('modulenotfounderror')) {
+      return {
+        icon: 'unknown', severity: 'error',
+        title: '수집 모듈 로드 실패',
+        cause: '수집 코드의 모듈 의존성 오류가 발생했습니다. 시스템 업데이트 후 재시작이 필요한 상태입니다.',
+        impact: '수집이 전혀 실행되지 않았습니다. 컨테이너 재시작으로 해결됩니다.',
+      }
+    }
+    if (r.includes('invalid api key') || r.includes('servicekey') || r.includes('인증') || r.includes('401') || r.includes('403')) {
+      return {
+        icon: 'auth', severity: 'error',
+        title: 'API 인증 오류',
+        cause: '공공데이터포털 API 키가 유효하지 않거나 만료됐습니다.',
+        impact: '인증 문제가 해결될 때까지 수집이 불가합니다. API 키 재발급이 필요합니다.',
+      }
+    }
+    return {
+      icon: 'unknown', severity: 'error',
+      title: '알 수 없는 오류',
+      cause: '수집 중 예상치 못한 오류가 발생했습니다.',
+      impact: '일부 데이터가 수집되지 않았을 수 있습니다. 다음 정기 수집에서 자동 재시도됩니다.',
+    }
+  }
+
+  function groupErrorDetails(errors: string[]): Array<{ interpretation: ErrorInterpretation; count: number; samples: string[] }> {
+    const groups = new Map<string, { interpretation: ErrorInterpretation; count: number; samples: string[] }>()
+    for (const err of errors) {
+      const interp = interpretErrorMessage(err)
+      const key = interp.title
+      const existing = groups.get(key)
+      if (existing) {
+        existing.count++
+        if (existing.samples.length < 2) existing.samples.push(err.replace(/^\[.*?\]\s*/, '').slice(0, 60))
+      } else {
+        groups.set(key, { interpretation: interp, count: 1, samples: [] })
+      }
+    }
+    return Array.from(groups.values())
+  }
+
   function formatDateRange(from?: string, to?: string) {
     if (!from || !to) return null
     const fmt = (s: string) => `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`
@@ -354,23 +469,53 @@ export default function AdminPage() {
             )}
 
             {/* 실패 원인 */}
-            {(selectedLog.error_summary || (detail.error_details && detail.error_details.length > 0)) && (
-              <div className="space-y-2.5">
-                <p className="text-xs font-semibold text-red-500 uppercase tracking-wide">실패 원인</p>
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
-                  {selectedLog.error_summary && (
-                    <p className="text-xs text-red-700 font-medium">{selectedLog.error_summary}</p>
-                  )}
-                  {detail.error_details && detail.error_details.length > 0 && (
-                    <div className="space-y-1 pt-1 border-t border-red-200">
-                      {detail.error_details.map((err, i) => (
-                        <p key={i} className="text-xs text-red-600 font-mono break-all">{err}</p>
-                      ))}
-                    </div>
-                  )}
+            {(selectedLog.error_summary || (detail.error_details && detail.error_details.length > 0)) && (() => {
+              const summaryInterp = selectedLog.error_summary ? interpretErrorMessage(selectedLog.error_summary) : null
+              const detailGroups = detail.error_details && detail.error_details.length > 0
+                ? groupErrorDetails(detail.error_details) : []
+              const allGroups = summaryInterp
+                ? [{ interpretation: summaryInterp, count: selectedLog.fail_count || 1, samples: [] }, ...detailGroups.filter(g => g.interpretation.title !== summaryInterp.title)]
+                : detailGroups
+              return (
+                <div className="space-y-2.5">
+                  <p className="text-xs font-semibold text-red-500 uppercase tracking-wide">실패 원인 분석</p>
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {allGroups.map((group, i) => {
+                      const { interpretation: interp, count } = group
+                      const isWarning = interp.severity === 'warning'
+                      return (
+                        <div key={i} className={cn('rounded-lg border p-3 space-y-2', isWarning ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200')}>
+                          {/* 제목 + 건수 */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              {isWarning
+                                ? <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                                : <AlertCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />}
+                              <span className={cn('text-sm font-semibold', isWarning ? 'text-amber-700' : 'text-red-700')}>{interp.title}</span>
+                            </div>
+                            {count > 1 && (
+                              <span className={cn('text-xs font-bold px-2 py-0.5 rounded-full shrink-0', isWarning ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700')}>
+                                {count}건
+                              </span>
+                            )}
+                          </div>
+                          {/* 원인 */}
+                          <div>
+                            <p className="text-xs font-medium text-slate-500 mb-1">원인</p>
+                            <p className={cn('text-sm leading-relaxed', isWarning ? 'text-amber-800' : 'text-red-800')}>{interp.cause}</p>
+                          </div>
+                          {/* 영향 */}
+                          <div>
+                            <p className="text-xs font-medium text-slate-500 mb-1">영향 및 조치</p>
+                            <p className={cn('text-sm leading-relaxed', isWarning ? 'text-amber-700' : 'text-red-700')}>{interp.impact}</p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
+              )
+            })()}
           </div>
         </DialogContent>
       </Dialog>
