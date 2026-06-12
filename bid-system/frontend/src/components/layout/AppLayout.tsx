@@ -2,11 +2,12 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Home, Search, BookMarked, Swords, Sparkles, ShieldCheck, Users,
+  Home, Search, Swords, ShieldCheck, Users,
   TrendingUp, Handshake, BarChart2, ClipboardList, KeyRound,
   Building2, ShieldAlert, LogOut, Bell, PanelLeftClose, PanelLeftOpen,
   Globe, Activity, Target, Briefcase, LayoutDashboard, PieChart, Gauge,
-  ChevronRight, ListChecks, FlaskConical, Radar, PackageCheck,
+  ChevronRight, ChevronDown, ListChecks, FlaskConical, Radar, PackageCheck,
+  BookOpen,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { authApi, notificationsApi } from '@/api'
@@ -18,7 +19,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 ─────────────────────────────────────────────────────────── */
 const NAV_GROUPS = [
   {
-    label: null,
+    label: '홈',
     items: [
       { to: '/today',     label: '오늘의 입찰', icon: Home },
       { to: '/dashboard', label: '대시보드',     icon: LayoutDashboard },
@@ -27,17 +28,17 @@ const NAV_GROUPS = [
   {
     label: '입찰공고',
     items: [
-      { to: '/bids',         label: '입찰공고',  icon: Search },
+      { to: '/bids',          label: '입찰공고',  icon: Search },
       { to: '/bid-selection', label: '입찰 선택', icon: Target },
     ],
   },
   {
     label: '투찰 실행',
     items: [
-      { to: '/executions',       label: '투찰 관리',   icon: ListChecks },
-      { to: '/portfolio',        label: '포트폴리오',  icon: PackageCheck },
-      { to: '/our-competitors',  label: '자사 경쟁사', icon: Radar },
-      { to: '/backtest',         label: '백테스트',    icon: FlaskConical },
+      { to: '/executions',      label: '투찰 관리',   icon: ListChecks },
+      { to: '/portfolio',       label: '포트폴리오',  icon: PackageCheck },
+      { to: '/our-competitors', label: '자사 경쟁사', icon: Radar },
+      { to: '/backtest',        label: '백테스트',    icon: FlaskConical },
     ],
   },
   {
@@ -63,14 +64,18 @@ const NAV_GROUPS = [
   },
 ]
 
+const ADMIN_ITEMS = [
+  { to: '/keywords',        label: '키워드 설정',   icon: KeyRound },
+  { to: '/company-profile', label: '회사 프로파일', icon: Briefcase },
+]
+
+const ALL_GROUP_KEYS = [...NAV_GROUPS.map(g => g.label), '관리']
+
 /* ───────────────────────────────────────────────────────────
    단일 NavItem
 ─────────────────────────────────────────────────────────── */
 function NavItem({
-  to,
-  label,
-  icon: Icon,
-  collapsed,
+  to, label, icon: Icon, collapsed,
 }: {
   to: string
   label: string
@@ -94,22 +99,19 @@ function NavItem({
         collapsed ? 'h-9 w-9 mx-auto justify-center' : 'h-9 px-3',
         isActive
           ? 'bg-white/[0.12] text-white'
-          : 'text-slate-400 hover:bg-white/[0.06] hover:text-slate-200',
+          : 'text-slate-200 hover:bg-white/[0.08] hover:text-white',
       )}
     >
-      {/* 활성 좌측 인디케이터 */}
       {isActive && !collapsed && (
         <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-blue-400" />
       )}
-
       <Icon
         className={cn(
           'shrink-0 transition-colors',
           collapsed ? 'h-[17px] w-[17px]' : 'h-4 w-4',
-          isActive ? 'text-blue-400' : 'text-slate-500 group-hover:text-slate-300',
+          isActive ? 'text-blue-400' : 'text-slate-300 group-hover:text-white',
         )}
       />
-
       {!collapsed && (
         <span className={cn('truncate text-[13px] leading-none', isActive ? 'font-medium' : 'font-normal')}>
           {label}
@@ -121,14 +123,16 @@ function NavItem({
 
 /* ───────────────────────────────────────────────────────────
    AppLayout
-─────────────────────────────────────────────────────── */
+─────────────────────────────────────────────────────────── */
 export default function AppLayout() {
   const { setUser, logout } = useAuthStore()
   const navigate = useNavigate()
   const [collapsed, setCollapsed] = useState(false)
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(ALL_GROUP_KEYS.map(k => [k, false]))
+  )
 
   const { data: user } = useQuery({ queryKey: ['me'], queryFn: authApi.me, retry: false })
-
   const { data: notifData } = useQuery({
     queryKey: ['notifications', 'unread-count'],
     queryFn: notificationsApi.unreadCount,
@@ -140,8 +144,13 @@ export default function AppLayout() {
   useEffect(() => { if (user) setUser(user) }, [user, setUser])
 
   const initials = (user?.name || user?.email || 'U').slice(0, 2).toUpperCase()
-  const roleLabel =
-    user?.role === 'admin' ? '관리자' : user?.role === 'analyst' ? '분석가' : '뷰어'
+  const roleLabel = user?.role === 'admin' ? '관리자' : user?.role === 'analyst' ? '분석가' : '뷰어'
+
+  const toggleGroup = (key: string) =>
+    setOpenGroups(prev => ({ ...prev, [key]: !prev[key] }))
+
+  const openManual = () =>
+    window.open('/manual', '_blank', 'width=1280,height=900,scrollbars=yes,resizable=yes')
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -163,83 +172,124 @@ export default function AppLayout() {
           'flex items-center border-b border-white/[0.06]',
           collapsed ? 'h-14 justify-center' : 'h-14 px-4 gap-3',
         )}>
-          {/* 로고 아이콘 */}
           <div className="relative shrink-0">
             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 shadow-lg shadow-blue-900/40">
               <Activity className="h-[15px] w-[15px] text-white" />
             </div>
-            {/* 온라인 인디케이터 */}
             <span className="absolute -bottom-0.5 -right-0.5 flex h-2.5 w-2.5 items-center justify-center rounded-full bg-[#0f172a]">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
             </span>
           </div>
-
           {!collapsed && (
             <div className="flex-1 min-w-0">
               <p className="text-[14px] font-bold text-white leading-none tracking-tight">
                 BidAI <span className="text-blue-400">Pro</span>
               </p>
-              <p className="text-xs text-slate-500 mt-[3px] leading-none">수주율 최적화 시스템</p>
+              <p className="text-xs text-slate-400 mt-[3px] leading-none">수주율 최적화 시스템</p>
             </div>
           )}
         </div>
 
+        {/* ── 사용자 매뉴얼 버튼 ── */}
+        <div className={cn(
+          'border-b border-white/[0.06]',
+          collapsed ? 'flex justify-center py-1.5' : 'px-2 py-1.5',
+        )}>
+          {collapsed ? (
+            <button
+              onClick={openManual}
+              title="사용자 매뉴얼"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 hover:bg-white/[0.08] hover:text-white transition-colors"
+            >
+              <BookOpen className="h-4 w-4" />
+            </button>
+          ) : (
+            <button
+              onClick={openManual}
+              className="w-full flex items-center gap-2.5 h-8 px-3 rounded-lg text-slate-200 hover:bg-white/[0.08] hover:text-white transition-colors"
+            >
+              <BookOpen className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+              <span className="text-[12.5px]">사용자 매뉴얼</span>
+            </button>
+          )}
+        </div>
+
         {/* ── 네비게이션 영역 ── */}
-        <nav className="flex-1 overflow-y-auto overflow-x-hidden py-3">
-          {NAV_GROUPS.map((group, gi) => (
-            <div key={gi} className={cn('px-2', gi > 0 && 'mt-1')}>
+        <nav className="flex-1 overflow-y-auto overflow-x-hidden py-2">
 
-              {/* 그룹 레이블 */}
-              {group.label && !collapsed && (
-                <div className="flex items-center gap-2 px-2 pt-3 pb-1.5">
-                  <span className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-600 select-none whitespace-nowrap">
-                    {group.label}
-                  </span>
-                  <div className="flex-1 h-px bg-white/[0.04]" />
-                </div>
-              )}
-              {group.label && collapsed && gi > 0 && (
-                <div className="my-2 mx-auto h-px w-6 bg-white/[0.08]" />
-              )}
+          {NAV_GROUPS.map((group) => {
+            const isOpen = openGroups[group.label]
+            return (
+              <div key={group.label} className="px-2 mb-0.5">
+                {/* 그룹 헤더 */}
+                {collapsed ? (
+                  <div className="my-1.5 mx-auto h-px w-6 bg-white/[0.08]" />
+                ) : (
+                  <button
+                    onClick={() => toggleGroup(group.label)}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white/[0.05] transition-colors group"
+                  >
+                    <span className="flex-1 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-400 group-hover:text-slate-300 select-none whitespace-nowrap">
+                      {group.label}
+                    </span>
+                    {isOpen
+                      ? <ChevronDown className="h-3 w-3 text-slate-500 group-hover:text-slate-400 shrink-0" />
+                      : <ChevronRight className="h-3 w-3 text-slate-500 group-hover:text-slate-400 shrink-0" />
+                    }
+                  </button>
+                )}
 
-              {/* 아이템들 */}
+                {/* 아이템 목록 (펼침 상태이거나 축소 모드) */}
+                {(isOpen || collapsed) && (
+                  <div className="space-y-[2px]">
+                    {group.items.map((item) => (
+                      <NavItem key={item.to} {...item} collapsed={collapsed} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+
+          {/* ── 관리 그룹 ── */}
+          <div className="px-2 mb-0.5">
+            {collapsed ? (
+              <div className="my-1.5 mx-auto h-px w-6 bg-white/[0.08]" />
+            ) : (
+              <button
+                onClick={() => toggleGroup('관리')}
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white/[0.05] transition-colors group"
+              >
+                <span className="flex-1 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-400 group-hover:text-slate-300 select-none">
+                  관리
+                </span>
+                {openGroups['관리']
+                  ? <ChevronDown className="h-3 w-3 text-slate-500 group-hover:text-slate-400 shrink-0" />
+                  : <ChevronRight className="h-3 w-3 text-slate-500 group-hover:text-slate-400 shrink-0" />
+                }
+              </button>
+            )}
+            {(openGroups['관리'] || collapsed) && (
               <div className="space-y-[2px]">
-                {group.items.map((item) => (
+                {ADMIN_ITEMS.map(item => (
                   <NavItem key={item.to} {...item} collapsed={collapsed} />
                 ))}
-              </div>
-            </div>
-          ))}
-
-          {/* 관리 메뉴 */}
-          <div className="px-2 mt-1">
-            {!collapsed && (
-              <div className="flex items-center gap-2 px-2 pt-3 pb-1.5">
-                <span className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-600 select-none">관리</span>
-                <div className="flex-1 h-px bg-white/[0.04]" />
+                {user?.role === 'admin' && (
+                  <NavItem to="/admin" label="시스템 관리" icon={ShieldAlert} collapsed={collapsed} />
+                )}
               </div>
             )}
-            {collapsed && <div className="my-2 mx-auto h-px w-6 bg-white/[0.08]" />}
-            <div className="space-y-[2px]">
-              <NavItem to="/keywords"        label="키워드 설정"   icon={KeyRound}   collapsed={collapsed} />
-              <NavItem to="/company-profile" label="회사 프로파일" icon={Briefcase}  collapsed={collapsed} />
-              {user?.role === 'admin' && (
-                <NavItem to="/admin" label="시스템 관리" icon={ShieldAlert} collapsed={collapsed} />
-              )}
-            </div>
           </div>
         </nav>
 
         {/* ── 하단 사용자 영역 ── */}
         <div className="border-t border-white/[0.06]">
-
-          {/* 알림 + 로그아웃 (축소 모드) */}
           {collapsed ? (
             <div className="flex flex-col items-center gap-1 py-2 px-2">
               <button
                 onClick={() => navigate('/notifications')}
                 title="알림"
-                className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-white/[0.06] hover:text-slate-200 transition-colors"
+                className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-white/[0.06] hover:text-slate-200 transition-colors"
               >
                 <Bell className="h-4 w-4" />
                 {unreadCount > 0 && (
@@ -251,20 +301,19 @@ export default function AppLayout() {
               <button
                 onClick={() => { logout(); navigate('/login') }}
                 title="로그아웃"
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-white/[0.06] hover:text-red-400 transition-colors"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-white/[0.06] hover:text-red-400 transition-colors"
               >
                 <LogOut className="h-4 w-4" />
               </button>
             </div>
           ) : (
             <div className="p-3 space-y-1">
-              {/* 알림 버튼 */}
               <button
                 onClick={() => navigate('/notifications')}
-                className="w-full flex items-center gap-3 h-9 px-3 rounded-lg text-slate-500 hover:bg-white/[0.06] hover:text-slate-200 transition-colors group"
+                className="w-full flex items-center gap-3 h-9 px-3 rounded-lg text-slate-300 hover:bg-white/[0.06] hover:text-white transition-colors group"
               >
                 <div className="relative shrink-0">
-                  <Bell className="h-4 w-4 group-hover:text-slate-300 transition-colors" />
+                  <Bell className="h-4 w-4 group-hover:text-white transition-colors" />
                   {unreadCount > 0 && (
                     <span className="absolute -top-1 -right-1.5 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white leading-none px-0.5">
                       {unreadCount > 9 ? '9+' : unreadCount}
@@ -277,7 +326,6 @@ export default function AppLayout() {
                 )}
               </button>
 
-              {/* 사용자 정보 */}
               <div className="flex items-center gap-2.5 h-10 px-2 rounded-lg hover:bg-white/[0.04] transition-colors group">
                 <Avatar className="h-7 w-7 shrink-0">
                   <AvatarFallback className="text-[11px] bg-gradient-to-br from-blue-500 to-blue-700 text-white font-semibold">
@@ -285,15 +333,15 @@ export default function AppLayout() {
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[12px] font-medium text-slate-300 truncate leading-none">
+                  <p className="text-[12px] font-medium text-slate-200 truncate leading-none">
                     {user?.name || user?.email}
                   </p>
-                  <p className="text-xs text-slate-600 mt-[3px] leading-none">{roleLabel}</p>
+                  <p className="text-xs text-slate-500 mt-[3px] leading-none">{roleLabel}</p>
                 </div>
                 <button
                   onClick={() => { logout(); navigate('/login') }}
                   title="로그아웃"
-                  className="shrink-0 flex h-6 w-6 items-center justify-center rounded-md text-slate-600 hover:bg-white/[0.08] hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                  className="shrink-0 flex h-6 w-6 items-center justify-center rounded-md text-slate-500 hover:bg-white/[0.08] hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
                 >
                   <LogOut className="h-3.5 w-3.5" />
                 </button>
@@ -302,7 +350,7 @@ export default function AppLayout() {
           )}
         </div>
 
-        {/* ── 접기/펼치기 탭 (사이드바 우측 엣지) ── */}
+        {/* ── 접기/펼치기 탭 ── */}
         <button
           onClick={() => setCollapsed(!collapsed)}
           title={collapsed ? '메뉴 펼치기' : '메뉴 접기'}

@@ -32,6 +32,7 @@ import ExecutionsPage        from '@/pages/ExecutionsPage'
 import OurCompetitorsPage   from '@/pages/OurCompetitorsPage'
 import BacktestPage         from '@/pages/BacktestPage'
 import PortfolioPage        from '@/pages/PortfolioPage'
+import ManualPage           from '@/pages/ManualPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -43,7 +44,8 @@ export default function App() {
     <ErrorBoundary>
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={<LoginPage />} />
+        <Route path="/login"  element={<LoginPage />} />
+        <Route path="/manual" element={<ManualPage />} />
         <Route
           path="/"
           element={
