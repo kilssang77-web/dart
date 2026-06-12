@@ -290,7 +290,19 @@ class RecommendEngine:
                 self._rate_models = rate_models
                 self._imputer     = imputer
                 win_path = MODEL_DIR / "win_model.pkl"
-                self._win_model = joblib.load(win_path) if win_path.exists() else None
+                if win_path.exists():
+                    _wm = joblib.load(win_path)
+                    # win_model 피처 수 호환성 검사 — 불일치 시 무시 (Monte Carlo 사용)
+                    if hasattr(_wm, "n_features_in_") and _wm.n_features_in_ != len(FEATURE_COLS):
+                        logger.warning(
+                            f"win_model 피처 수 불일치 (저장={_wm.n_features_in_}, 현재={len(FEATURE_COLS)}) "
+                            "— win_model 무시, Monte Carlo 사용"
+                        )
+                        self._win_model = None
+                    else:
+                        self._win_model = _wm
+                else:
+                    self._win_model = None
                 with open(MODEL_DIR / "meta.json") as f:
                     meta = json.load(f)
                 self._version = meta.get("version", "unknown")
