@@ -13,12 +13,20 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+// 401 발생 시 로그아웃 — /auth/me 또는 /auth/login 에서만 트리거
+// 배경 폴링(admin/ml/status 등) 401이 세션을 끊지 않도록 엔드포인트 한정
+const AUTH_LOGOUT_PATHS = ['/auth/me', '/auth/login']
+
 api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
-      localStorage.removeItem('token')
-      window.location.href = '/login'
+      const url: string = err.config?.url ?? ''
+      const isAuthEndpoint = AUTH_LOGOUT_PATHS.some((p) => url.includes(p))
+      if (isAuthEndpoint && !window.location.pathname.startsWith('/login')) {
+        localStorage.removeItem('token')
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(err)
   }

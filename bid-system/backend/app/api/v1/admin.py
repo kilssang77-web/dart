@@ -377,8 +377,8 @@ def system_status(db: Session = Depends(get_db), _: User = Depends(require_role(
 
 
 @router.get("/ml/status")
-def ml_status_stub(_: User = Depends(require_role("admin"))):
-    """레거시 호환 stub — 구 클라이언트 캐시가 이 URL을 폴링해도 404 루프가 발생하지 않도록."""
+def ml_status_stub():
+    """레거시 호환 stub — 인증 없이 200 반환해 구 클라이언트 캐시 폴링이 401 루프를 유발하지 않도록."""
     return {"status": "ok", "message": "Use /admin/system-status"}
 
 
