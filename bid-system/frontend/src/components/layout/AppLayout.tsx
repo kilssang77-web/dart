@@ -2,12 +2,12 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Home, Search, Swords, ShieldCheck, Users,
-  TrendingUp, Handshake, BarChart2, ClipboardList, KeyRound,
-  Building2, ShieldAlert, LogOut, Bell, PanelLeftClose, PanelLeftOpen,
-  Globe, Activity, Target, Briefcase, LayoutDashboard, PieChart, Gauge,
-  ChevronRight, ChevronDown, ListChecks, FlaskConical, Radar, PackageCheck,
-  BookOpen, Crosshair,
+  Search, Users,
+  TrendingUp, KeyRound,
+  ShieldAlert, LogOut, Bell, PanelLeftClose, PanelLeftOpen,
+  Activity, Target, Briefcase, LayoutDashboard, PieChart,
+  ChevronRight, ChevronDown, ListChecks, FlaskConical,
+  BookOpen, Crosshair, ClipboardCheck, BarChart3,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { authApi, notificationsApi } from '@/api'
@@ -16,52 +16,39 @@ import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 
 /* ───────────────────────────────────────────────────────────
-   NAV 구조
+   NAV 구조 (5그룹 최적화)
 ─────────────────────────────────────────────────────────── */
 const NAV_GROUPS = [
   {
-    label: '홈',
+    label: '핵심 업무',
     items: [
-      { to: '/decision',  label: '오늘의 투찰', icon: Crosshair },
-      { to: '/today',     label: '오늘의 입찰', icon: Home },
-      { to: '/dashboard', label: '대시보드',     icon: LayoutDashboard },
+      { to: '/decision',  label: '투찰 결정 (AI)', icon: Crosshair },
+      { to: '/dashboard', label: '대시보드',        icon: LayoutDashboard },
+      { to: '/kpi',       label: 'KPI 분석',        icon: Activity },
     ],
   },
   {
-    label: '입찰공고',
+    label: '공고 관리',
     items: [
-      { to: '/bids',          label: '입찰공고',  icon: Search },
-      { to: '/bid-selection', label: '입찰 선택', icon: Target },
+      { to: '/bids',          label: '입찰공고 검색', icon: Search },
+      { to: '/bid-selection', label: '공고 선별',     icon: Target },
+      { to: '/executions',    label: '투찰 관리',     icon: ListChecks },
     ],
   },
   {
-    label: '투찰 실행',
+    label: 'AI 분석',
     items: [
-      { to: '/executions',      label: '투찰 관리',   icon: ListChecks },
-      { to: '/portfolio',       label: '포트폴리오',  icon: PackageCheck },
-      { to: '/our-competitors', label: '자사 경쟁사', icon: Radar },
-      { to: '/backtest',        label: '백테스트',    icon: FlaskConical },
+      { to: '/competitors', label: '경쟁사 분석', icon: Users },
+      { to: '/yega',        label: '예가 분석',   icon: TrendingUp },
+      { to: '/backtest',    label: '백테스트',    icon: FlaskConical },
     ],
   },
   {
-    label: '입찰 전략',
+    label: '성과 분석',
     items: [
-      { to: '/recommend',     label: 'AI 투찰 추천', icon: Swords },
-      { to: '/qualification', label: '적격 심사',     icon: ShieldCheck },
-      { to: '/competitors',   label: '경쟁사 분석',   icon: Users },
-      { to: '/yega',          label: '예가 분석',     icon: TrendingUp },
-      { to: '/joint-bid',     label: '파트너 탐색',   icon: Handshake },
-    ],
-  },
-  {
-    label: '성과·분석',
-    items: [
-      { to: '/performance',   label: '수주 현황',       icon: BarChart2 },
-      { to: '/kpi-dashboard', label: 'KPI 대시보드',    icon: Gauge },
-      { to: '/my-bids',       label: '투찰 이력',       icon: ClipboardList },
-      { to: '/statistics',    label: '통계 분석',       icon: PieChart },
-      { to: '/market-intel',  label: '시장 인텔리전스', icon: Globe },
-      { to: '/agencies',      label: '발주기관',        icon: Building2 },
+      { to: '/journal-history', label: '투찰 이력 분석', icon: ClipboardCheck },
+      { to: '/statistics',      label: '통계 분석',      icon: PieChart },
+      { to: '/performance',     label: '수주 현황',      icon: BarChart3 },
     ],
   },
 ]

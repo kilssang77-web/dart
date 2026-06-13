@@ -1,8 +1,8 @@
 import { useState, useCallback } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { decisionApi } from '@/api'
-import type { BidContext, SimulateBidResponse, ZoneItem } from '@/types'
-import { Search, Target, Zap, TrendingUp, Shield, AlertCircle, CheckCircle2, ChevronRight, Info, Users, X } from 'lucide-react'
+import { decisionApi, journalApi } from '@/api'
+import type { BidContext, SimulateBidResponse, ZoneItem, JournalOut } from '@/types'
+import { Search, Target, Zap, TrendingUp, Shield, AlertCircle, CheckCircle2, Info, Users, X, BookOpen, ClipboardCheck, Trophy } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /* ─────────────────────────────────────────────────────────────
@@ -104,28 +104,56 @@ function YegaGrid({
     onChange(next)
   }
 
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
+    const text = e.clipboardData.getData('text')
+    const nums = text
+      .split(/[\t\n\r,;\s]+/)
+      .map(s => s.replace(/,/g, '').trim())
+      .filter(s => /^\d{6,}$/.test(s))
+      .slice(0, 15)
+    if (nums.length >= 3) {
+      e.preventDefault()
+      const next = Array(15).fill('') as string[]
+      nums.forEach((v, i) => { next[i] = v })
+      onChange(next)
+    }
+  }, [onChange])
+
+  const filledCount = values.filter(v => v !== '' && v !== 0).length
+
   return (
-    <div className="grid grid-cols-3 gap-2">
-      {values.map((v, i) => {
-        const num = typeof v === 'string' ? Number(v.replace(/,/g, '')) : v
-        const rate = num && baseAmount ? (num / baseAmount * 100).toFixed(3) : ''
-        return (
-          <div key={i} className="relative">
-            <label className="absolute -top-2 left-2 bg-white px-1 text-xs text-gray-400 font-mono">
-              #{String(i + 1).padStart(2, '0')}
-            </label>
-            <input
-              value={v}
-              onChange={e => update(i, e.target.value)}
-              placeholder="예비가격(원)"
-              className="w-full border rounded px-2 py-1.5 text-sm font-mono text-right focus:outline-none focus:ring-1 focus:ring-blue-400"
-            />
-            {rate && (
-              <div className="text-right text-xs text-gray-400 mt-0.5 font-mono">{rate}%</div>
-            )}
-          </div>
-        )
-      })}
+    <div>
+      <div
+        className="grid grid-cols-3 gap-2"
+        onPaste={handlePaste}
+      >
+        {values.map((v, i) => {
+          const num = typeof v === 'string' ? Number(v.replace(/,/g, '')) : v
+          const rate = num && baseAmount ? (num / baseAmount * 100).toFixed(3) : ''
+          return (
+            <div key={i} className="relative">
+              <label className="absolute -top-2 left-2 bg-white px-1 text-xs text-gray-400 font-mono">
+                #{String(i + 1).padStart(2, '0')}
+              </label>
+              <input
+                value={v}
+                onChange={e => update(i, e.target.value)}
+                placeholder="예비가격(원)"
+                className="w-full border rounded px-2 py-1.5 text-sm font-mono text-right focus:outline-none focus:ring-1 focus:ring-blue-400"
+              />
+              {rate && (
+                <div className="text-right text-xs text-gray-400 mt-0.5 font-mono">{rate}%</div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      {filledCount > 0 && filledCount < 15 && (
+        <p className="text-xs text-amber-600 mt-2">{filledCount}/15 입력됨 — 엑셀에서 복사 후 붙여넣기(Ctrl+V)로 한번에 입력 가능</p>
+      )}
+      {filledCount === 0 && (
+        <p className="text-xs text-gray-400 mt-2">엑셀 15개 셀 복사 후 이 영역에 붙여넣기(Ctrl+V)하면 자동 입력됩니다</p>
+      )}
     </div>
   )
 }
@@ -211,6 +239,33 @@ export default function TenderDecisionPage() {
   const [competitorRateText, setCompetitorRateText] = useState('')
   const [showCompetitorPanel, setShowCompetitorPanel] = useState(false)
 
+  // 피드백 루프 — 투찰 결정 기록
+  const [journalRecord, setJournalRecord] = useState<JournalOut | null>(null)
+  const [showResultPanel, setShowResultPanel] = useState(false)
+  const [submittedRateInput, setSubmittedRateInput] = useState('')
+  const [strategyChosen, setStrategyChosen] = useState('balanced')
+  const [resultForm, setResultForm] = useState<{
+    result: '낙찰' | '패찰' | '무효' | '취소'
+    actual_srate: string
+    our_rank: string
+    total_bidders: string
+    winner_rate: string
+    winner_amount: string
+    winner_biz_no: string
+    winner_name: string
+    note: string
+  }>({
+    result: '패찰',
+    actual_srate: '',
+    our_rank: '',
+    total_bidders: '',
+    winner_rate: '',
+    winner_amount: '',
+    winner_biz_no: '',
+    winner_name: '',
+    note: '',
+  })
+
   // 공고 컨텍스트 조회
   const { data: ctx } = useQuery<BidContext>({
     queryKey: ['bid-context', bidId],
@@ -247,8 +302,55 @@ export default function TenderDecisionPage() {
         n_sim: 30_000,
       })
     },
-    onSuccess: (data) => setResult(data),
+    onSuccess: (data) => {
+      setResult(data)
+      // 새 시뮬레이션 시 저널 상태 초기화
+      setJournalRecord(null)
+      setShowResultPanel(false)
+      setSubmittedRateInput('')
+      setStrategyChosen('balanced')
+    },
     onError: () => { /* 에러는 simulateMut.error로 표시 */ },
+  })
+
+  // 투찰 결정 기록
+  const journalMut = useMutation({
+    mutationFn: () => {
+      const rate = parseFloat(submittedRateInput) / 100
+      return journalApi.create({
+        bid_id: bidId!,
+        pred_log_id: result?.pred_log_id ?? null,
+        recommended_rate: result?.optimal?.rate ?? null,
+        recommended_amount: result?.optimal?.amount ?? null,
+        pred_win_prob: result?.optimal?.win_prob ?? null,
+        pred_srate_center: ctx?.srate_center ?? null,
+        strategy_chosen: strategyChosen,
+        submitted_rate: rate,
+        submitted_amount: result ? Math.round(result.base_amount * rate) : null,
+        floor_rate: result?.floor_rate ?? null,
+      })
+    },
+    onSuccess: (data) => setJournalRecord(data),
+  })
+
+  // 개찰 결과 입력
+  const resultMut = useMutation({
+    mutationFn: () =>
+      journalApi.recordResult(journalRecord!.id, {
+        result: resultForm.result,
+        actual_srate: resultForm.actual_srate ? parseFloat(resultForm.actual_srate) / 100 : null,
+        our_rank: resultForm.our_rank ? parseInt(resultForm.our_rank) : null,
+        total_bidders: resultForm.total_bidders ? parseInt(resultForm.total_bidders) : null,
+        winner_rate: resultForm.winner_rate ? parseFloat(resultForm.winner_rate) / 100 : null,
+        winner_amount: resultForm.winner_amount ? parseInt(resultForm.winner_amount.replace(/,/g, '')) : null,
+        winner_biz_no: resultForm.winner_biz_no || null,
+        winner_name: resultForm.winner_name || null,
+        note: resultForm.note || null,
+      }),
+    onSuccess: (data) => {
+      setJournalRecord(data)
+      setShowResultPanel(false)
+    },
   })
 
   const handleBidSelect = (id: number, title: string) => {
@@ -257,6 +359,10 @@ export default function TenderDecisionPage() {
     setResult(null)
     setYegaInputs(Array(15).fill(''))
     setCompetitorRateText('')
+    setJournalRecord(null)
+    setShowResultPanel(false)
+    setSubmittedRateInput('')
+    setStrategyChosen('balanced')
   }
 
   const canSimulate = bidId !== null && (
@@ -607,10 +713,287 @@ export default function TenderDecisionPage() {
                           <span className="text-gray-500">평균 순위</span>
                           <span className="font-semibold">{s.avg_rank?.toFixed(1) ?? '-'}위</span>
                         </div>
+                        {s.expected_profit != null && s.expected_profit > 0 && (
+                          <div className="flex justify-between text-xs pt-1 border-t border-dashed">
+                            <span className="text-gray-500">기대이익</span>
+                            <span className="font-mono font-semibold text-emerald-600">
+                              {s.expected_profit >= 1e8
+                                ? (s.expected_profit / 1e8).toFixed(1) + '억'
+                                : (s.expected_profit / 1e4).toFixed(0) + '만원'}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )
                 })}
+              </div>
+
+              {/* ── 투찰 결정 기록 (피드백 루프) ── */}
+              <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+                <div className="px-5 py-4 border-b bg-amber-50 flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-amber-600" />
+                  <span className="font-semibold text-sm text-amber-800">투찰 결정 기록</span>
+                  <span className="text-xs text-amber-600 ml-1">— 개찰 결과와 함께 AI 모델 피드백에 활용됩니다</span>
+                </div>
+
+                {/* 결과 기록 완료 상태 */}
+                {journalRecord?.result ? (
+                  <div className="p-5 space-y-4">
+                    <div className={cn(
+                      'flex items-center gap-2 p-3 rounded-lg text-sm font-semibold',
+                      journalRecord.result === '낙찰' ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-50 text-gray-700'
+                    )}>
+                      {journalRecord.result === '낙찰'
+                        ? <Trophy className="w-4 h-4 shrink-0" />
+                        : <CheckCircle2 className="w-4 h-4 shrink-0" />}
+                      <span>결과 기록 완료: <strong>{journalRecord.result}</strong></span>
+                      <span className="text-xs font-normal opacity-60 ml-1">저널 #{journalRecord.id}</span>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                      {journalRecord.rate_gap !== null && (
+                        <div className={cn('rounded p-2.5', Math.abs(journalRecord.rate_gap) < 0.005 ? 'bg-emerald-50' : 'bg-amber-50')}>
+                          <div className="text-gray-400">투찰률 편차</div>
+                          <div className={cn('font-mono font-semibold mt-0.5', Math.abs(journalRecord.rate_gap) < 0.005 ? 'text-emerald-700' : 'text-amber-700')}>
+                            {journalRecord.rate_gap > 0 ? '+' : ''}{(journalRecord.rate_gap * 100).toFixed(3)}%
+                          </div>
+                          <div className="text-gray-400 mt-0.5">낙찰가 대비</div>
+                        </div>
+                      )}
+                      {journalRecord.srate_error !== null && (
+                        <div className={cn('rounded p-2.5', Math.abs(journalRecord.srate_error) < 0.003 ? 'bg-emerald-50' : 'bg-amber-50')}>
+                          <div className="text-gray-400">사정율 예측 오차</div>
+                          <div className={cn('font-mono font-semibold mt-0.5', Math.abs(journalRecord.srate_error) < 0.003 ? 'text-emerald-700' : 'text-amber-700')}>
+                            {journalRecord.srate_error > 0 ? '+' : ''}{(journalRecord.srate_error * 100).toFixed(3)}%
+                          </div>
+                          <div className="text-gray-400 mt-0.5">실제 vs AI 예측</div>
+                        </div>
+                      )}
+                      {journalRecord.our_rank !== null && (
+                        <div className="bg-gray-50 rounded p-2.5">
+                          <div className="text-gray-400">투찰 순위</div>
+                          <div className="font-semibold mt-0.5">{journalRecord.our_rank}위 / {journalRecord.total_bidders ?? '-'}개사</div>
+                        </div>
+                      )}
+                      {journalRecord.actual_srate !== null && (
+                        <div className="bg-gray-50 rounded p-2.5">
+                          <div className="text-gray-400">실제 사정율</div>
+                          <div className="font-mono font-semibold mt-0.5">{ratePct(journalRecord.actual_srate)}</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                /* 저널 생성 완료 — 개찰 결과 대기 */
+                ) : journalRecord ? (
+                  <div className="p-5 space-y-4">
+                    <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 p-3 rounded-lg text-sm">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      <span>투찰 결정 기록 완료 (저널 #{journalRecord.id})</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 text-xs">
+                      <div className="bg-gray-50 rounded p-2.5">
+                        <div className="text-gray-400">실제 투찰률</div>
+                        <div className="font-mono font-semibold mt-0.5">{journalRecord.submitted_rate ? ratePct(journalRecord.submitted_rate) : '-'}</div>
+                      </div>
+                      <div className="bg-gray-50 rounded p-2.5">
+                        <div className="text-gray-400">AI 추천률</div>
+                        <div className="font-mono font-semibold mt-0.5">{journalRecord.recommended_rate ? ratePct(journalRecord.recommended_rate) : '-'}</div>
+                      </div>
+                      <div className="bg-gray-50 rounded p-2.5">
+                        <div className="text-gray-400">선택 전략</div>
+                        <div className="font-semibold mt-0.5">{journalRecord.strategy_chosen || '-'}</div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setShowResultPanel(p => !p)}
+                      className="w-full flex items-center justify-between px-4 py-3 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+                    >
+                      <div className="flex items-center gap-2">
+                        <ClipboardCheck className="w-4 h-4" />
+                        개찰 결과 입력
+                      </div>
+                      <span className="text-xs opacity-80">{showResultPanel ? '접기 ▲' : '펼치기 ▼'}</span>
+                    </button>
+                    {showResultPanel && (
+                      <div className="border rounded-lg p-4 space-y-4">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs text-gray-500 mb-1 block">결과 *</label>
+                            <select
+                              value={resultForm.result}
+                              onChange={e => setResultForm(f => ({ ...f, result: e.target.value as typeof f.result }))}
+                              className="w-full border rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+                            >
+                              <option value="낙찰">낙찰</option>
+                              <option value="패찰">패찰</option>
+                              <option value="무효">무효</option>
+                              <option value="취소">취소</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-500 mb-1 block">실제 사정율 (%)</label>
+                            <input
+                              value={resultForm.actual_srate}
+                              onChange={e => setResultForm(f => ({ ...f, actual_srate: e.target.value }))}
+                              placeholder="예) 90.234"
+                              className="w-full border rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-500 mb-1 block">우리 순위</label>
+                            <input
+                              value={resultForm.our_rank}
+                              onChange={e => setResultForm(f => ({ ...f, our_rank: e.target.value }))}
+                              placeholder="예) 3"
+                              type="number"
+                              className="w-full border rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-500 mb-1 block">총 투찰업체 수</label>
+                            <input
+                              value={resultForm.total_bidders}
+                              onChange={e => setResultForm(f => ({ ...f, total_bidders: e.target.value }))}
+                              placeholder="예) 12"
+                              type="number"
+                              className="w-full border rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+                            />
+                          </div>
+                        </div>
+                        <details>
+                          <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">낙찰자 정보 (선택)</summary>
+                          <div className="mt-3 grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-xs text-gray-500 mb-1 block">낙찰률 (%)</label>
+                              <input
+                                value={resultForm.winner_rate}
+                                onChange={e => setResultForm(f => ({ ...f, winner_rate: e.target.value }))}
+                                placeholder="예) 90.234"
+                                className="w-full border rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-500 mb-1 block">낙찰금액 (원)</label>
+                              <input
+                                value={resultForm.winner_amount}
+                                onChange={e => setResultForm(f => ({ ...f, winner_amount: e.target.value }))}
+                                placeholder="원 단위"
+                                className="w-full border rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-blue-400"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-500 mb-1 block">낙찰업체 사업자번호</label>
+                              <input
+                                value={resultForm.winner_biz_no}
+                                onChange={e => setResultForm(f => ({ ...f, winner_biz_no: e.target.value }))}
+                                placeholder="000-00-00000"
+                                className="w-full border rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-500 mb-1 block">낙찰업체명</label>
+                              <input
+                                value={resultForm.winner_name}
+                                onChange={e => setResultForm(f => ({ ...f, winner_name: e.target.value }))}
+                                placeholder="업체명"
+                                className="w-full border rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+                              />
+                            </div>
+                          </div>
+                        </details>
+                        <div>
+                          <label className="text-xs text-gray-500 mb-1 block">메모</label>
+                          <textarea
+                            value={resultForm.note}
+                            onChange={e => setResultForm(f => ({ ...f, note: e.target.value }))}
+                            placeholder="특이사항, 후기 등..."
+                            rows={2}
+                            className="w-full border rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
+                          />
+                        </div>
+                        <button
+                          onClick={() => resultMut.mutate()}
+                          disabled={resultMut.isPending}
+                          className="w-full py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                          {resultMut.isPending ? '저장 중...' : (
+                            <>
+                              <ClipboardCheck className="w-4 h-4" />
+                              개찰 결과 저장
+                            </>
+                          )}
+                        </button>
+                        {resultMut.isError && (
+                          <div className="text-xs text-red-600 flex items-center gap-1 bg-red-50 rounded p-2">
+                            <AlertCircle className="w-3 h-3 shrink-0" />
+                            저장 중 오류가 발생했습니다. 다시 시도해주세요.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                /* 저널 미생성 — 투찰률 입력 */
+                ) : (
+                  <div className="p-5 space-y-4">
+                    <div className="text-xs text-gray-500 leading-relaxed bg-amber-50 border border-amber-100 rounded-lg p-3">
+                      실제 투찰한 투찰률을 기록하세요. 개찰 결과와 함께 AI 모델 피드백에 활용됩니다.
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">실제 투찰률 (%) *</label>
+                        <div className="relative">
+                          <input
+                            value={submittedRateInput}
+                            onChange={e => setSubmittedRateInput(e.target.value)}
+                            placeholder={result?.optimal ? (result.optimal.rate * 100).toFixed(3) : '예) 90.234'}
+                            className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-400"
+                          />
+                          {result?.optimal && !submittedRateInput && (
+                            <button
+                              onClick={() => setSubmittedRateInput((result.optimal!.rate * 100).toFixed(3))}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-blue-600 hover:text-blue-800 font-medium"
+                            >
+                              최적값 사용
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">선택 전략</label>
+                        <select
+                          value={strategyChosen}
+                          onChange={e => setStrategyChosen(e.target.value)}
+                          className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        >
+                          <option value="aggressive">공격형</option>
+                          <option value="balanced">균형형</option>
+                          <option value="conservative">보수형</option>
+                          <option value="custom">직접 입력</option>
+                        </select>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => journalMut.mutate()}
+                      disabled={!submittedRateInput || journalMut.isPending}
+                      className="w-full py-2.5 bg-amber-600 text-white rounded-lg text-sm font-semibold hover:bg-amber-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {journalMut.isPending ? '기록 중...' : (
+                        <>
+                          <BookOpen className="w-4 h-4" />
+                          투찰 결정 기록
+                        </>
+                      )}
+                    </button>
+                    {journalMut.isError && (
+                      <div className="text-xs text-red-600 flex items-center gap-1 bg-red-50 rounded p-2">
+                        <AlertCircle className="w-3 h-3 shrink-0" />
+                        기록 중 오류가 발생했습니다. 다시 시도해주세요.
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* 분석 탭 */}

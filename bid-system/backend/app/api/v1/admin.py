@@ -382,6 +382,121 @@ def ml_status_stub():
     return {"status": "ok", "message": "Use /admin/system-status"}
 
 
+@router.get("/ml/performance")
+def ml_performance(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin")),
+):
+    """bid_journal 기반 모델 성능 지표 실시간 계산 후 model_performance_log에 저장."""
+    from datetime import date
+    from ...models import ModelPerformanceLog
+    from ...ml.engine import get_model_meta
+
+    row = db.execute(text("""
+        SELECT
+            COUNT(*)                                                        AS total,
+            COUNT(result)                                                   AS with_result,
+            SUM(CASE WHEN result = '낙찰' THEN 1 ELSE 0 END)              AS wins,
+            AVG(ABS(srate_error))                                           AS mae_srate,
+            SQRT(AVG(POWER(srate_error, 2)))                                AS rmse_srate,
+            AVG(ABS(rate_gap))                                              AS avg_rate_gap,
+            AVG(CASE WHEN result != '낙찰' THEN ABS(rate_gap) ELSE NULL END) AS avg_rate_gap_loss,
+            AVG(CASE WHEN result = '낙찰' THEN rate_delta ELSE NULL END)   AS avg_rate_delta_win,
+            COUNT(CASE WHEN result IS NOT NULL AND submitted_rate IS NOT NULL THEN 1 END)::float
+                / NULLIF(COUNT(CASE WHEN submitted_rate IS NOT NULL THEN 1 END)::float, 0)
+                                                                            AS feedback_completeness
+        FROM bid_journal
+        WHERE submitted_rate IS NOT NULL
+    """)).fetchone()
+
+    meta = get_model_meta()
+    today = date.today()
+
+    total            = int(row[0] or 0)
+    with_result      = int(row[1] or 0)
+    wins             = int(row[2] or 0)
+    mae_srate        = float(row[3]) if row[3] is not None else None
+    rmse_srate       = float(row[4]) if row[4] is not None else None
+    avg_rate_gap     = float(row[5]) if row[5] is not None else None
+    avg_rate_gap_loss= float(row[6]) if row[6] is not None else None
+    avg_delta_win    = float(row[7]) if row[7] is not None else None
+    completeness     = float(row[8]) if row[8] is not None else 0.0
+
+    win_rate = wins / with_result if with_result > 0 else None
+
+    # model_performance_log에 오늘 기록 upsert
+    try:
+        existing = db.execute(text("""
+            SELECT id FROM model_performance_log
+            WHERE model_name = 'bid_journal_feedback' AND eval_date = :today
+        """), {"today": today}).fetchone()
+
+        if existing:
+            db.execute(text("""
+                UPDATE model_performance_log SET
+                    sample_count = :sample_count,
+                    mae          = :mae,
+                    rmse         = :rmse,
+                    win_rate_with_model = :win_rate,
+                    model_version = :version
+                WHERE id = :id
+            """), {
+                "sample_count": with_result,
+                "mae": mae_srate,
+                "rmse": rmse_srate,
+                "win_rate": win_rate,
+                "version": meta.get("version"),
+                "id": existing[0],
+            })
+        else:
+            db.execute(text("""
+                INSERT INTO model_performance_log
+                    (model_name, model_version, eval_date, sample_count, mae, rmse, win_rate_with_model)
+                VALUES
+                    ('bid_journal_feedback', :version, :today, :sample_count, :mae, :rmse, :win_rate)
+            """), {
+                "version": meta.get("version"),
+                "today": today,
+                "sample_count": with_result,
+                "mae": mae_srate,
+                "rmse": rmse_srate,
+                "win_rate": win_rate,
+            })
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.warning("model_performance_log 저장 실패: %s", e)
+
+    # 최근 30일 일별 낙찰 현황
+    daily = db.execute(text("""
+        SELECT DATE(created_at) AS day,
+               COUNT(*)         AS total,
+               SUM(CASE WHEN result = '낙찰' THEN 1 ELSE 0 END) AS wins
+        FROM bid_journal
+        WHERE result IS NOT NULL AND created_at >= NOW() - INTERVAL '30 days'
+        GROUP BY day ORDER BY day DESC
+    """)).fetchall()
+
+    return {
+        "model_version":       meta.get("version", "unknown"),
+        "eval_date":           today.isoformat(),
+        "total_journals":      total,
+        "with_result":         with_result,
+        "wins":                wins,
+        "win_rate":            round(win_rate, 4) if win_rate is not None else None,
+        "mae_srate":           round(mae_srate, 6) if mae_srate is not None else None,
+        "rmse_srate":          round(rmse_srate, 6) if rmse_srate is not None else None,
+        "avg_rate_gap":        round(avg_rate_gap, 6) if avg_rate_gap is not None else None,
+        "avg_rate_gap_loss":   round(avg_rate_gap_loss, 6) if avg_rate_gap_loss is not None else None,
+        "avg_rate_delta_win":  round(avg_delta_win, 6) if avg_delta_win is not None else None,
+        "feedback_completeness": round(completeness, 4),
+        "daily_results": [
+            {"date": str(r[0]), "total": r[1], "wins": r[2]}
+            for r in daily
+        ],
+    }
+
+
 @router.get("/inpo21c/status")
 def inpo21c_status(_: User = Depends(require_role("admin"))):
     """inpo21c 쿠키 유효성 및 수집 통계 조회."""
@@ -416,6 +531,67 @@ def inpo21c_status(_: User = Depends(require_role("admin"))):
         "can_collect":  can_collect,
         "status":       status,
         "message":      message,
+    }
+
+
+@router.post("/journal/auto-fill")
+def trigger_journal_auto_fill(
+    background_tasks: BackgroundTasks,
+    _: User = Depends(require_role("admin")),
+):
+    """투찰저널 개찰결과 자동 수집 즉시 실행 (스케줄 대기 없이)."""
+    from ...collector.scheduler import run_journal_auto_fill_job
+    background_tasks.add_task(run_journal_auto_fill_job)
+    return {"status": "started", "message": "개찰결과 자동 수집 시작됨 (백그라운드)"}
+
+
+@router.get("/ml/bias-report")
+def ml_bias_report(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin")),
+):
+    """기관별 사정율 예측 편향 리포트 — bid_journal.srate_error 기반."""
+    rows = db.execute(text("""
+        SELECT
+            b.agency_id,
+            a.name AS agency_name,
+            COUNT(*)                         AS n,
+            ROUND(AVG(j.srate_error)::numeric, 6)    AS bias_mean,
+            ROUND(STDDEV(j.srate_error)::numeric, 6) AS bias_std,
+            ROUND(AVG(ABS(j.srate_error))::numeric, 6) AS mae
+        FROM bid_journal j
+        JOIN bids b ON b.id = j.bid_id
+        LEFT JOIN agencies a ON a.id = b.agency_id
+        WHERE j.srate_error IS NOT NULL
+        GROUP BY b.agency_id, a.name
+        HAVING COUNT(*) >= 3
+        ORDER BY ABS(AVG(j.srate_error)) DESC
+        LIMIT 30
+    """)).fetchall()
+
+    global_row = db.execute(text("""
+        SELECT COUNT(*), ROUND(AVG(srate_error)::numeric, 6), ROUND(AVG(ABS(srate_error))::numeric, 6)
+        FROM bid_journal
+        WHERE srate_error IS NOT NULL
+    """)).fetchone()
+
+    return {
+        "global": {
+            "n":    int(global_row[0] or 0),
+            "bias": float(global_row[1]) if global_row[1] else None,
+            "mae":  float(global_row[2]) if global_row[2] else None,
+        },
+        "by_agency": [
+            {
+                "agency_id":   r[0],
+                "agency_name": r[1],
+                "n":           int(r[2]),
+                "bias_mean":   float(r[3]) if r[3] else None,
+                "bias_std":    float(r[4]) if r[4] else None,
+                "mae":         float(r[5]) if r[5] else None,
+            }
+            for r in rows
+        ],
     }
 
 
@@ -874,4 +1050,79 @@ def inpo21c_stats(
         "bids_with_yega":   row[4] or 0,
         "bid_notices":      row[5] or 0,
         "linked_to_g2b":    row[6] or 0,
+    }
+
+
+@router.get("/ml/calibration")
+def ml_calibration(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin")),
+):
+    """
+    모델 캘리브레이션 통계.
+    bid_journal의 pred_win_prob vs 실제 낙찰 결과로 ECE(Expected Calibration Error) 계산.
+    예측 확률이 실제 낙찰률과 얼마나 일치하는지 측정.
+    """
+    rows = db.execute(text("""
+        SELECT
+            FLOOR(pred_win_prob * 10) / 10.0   AS prob_bucket,
+            COUNT(*)                            AS n,
+            AVG(CASE WHEN result = '낙찰' THEN 1.0 ELSE 0.0 END) AS actual_win_rate,
+            AVG(pred_win_prob)                  AS avg_pred_prob,
+            COUNT(CASE WHEN result = '낙찰' THEN 1 END) AS wins
+        FROM bid_journal
+        WHERE pred_win_prob IS NOT NULL
+          AND result IN ('낙찰', '패찰')
+        GROUP BY prob_bucket
+        ORDER BY prob_bucket
+    """)).fetchall()
+
+    if not rows:
+        return {
+            "ece":              None,
+            "total_samples":    0,
+            "calibration_bins": [],
+            "message":          "캘리브레이션 데이터 없음 (저널 결과 입력 필요)",
+        }
+
+    bins = []
+    total_n = sum(int(r[1]) for r in rows)
+    ece = 0.0
+
+    for r in rows:
+        bucket, n, actual, avg_pred, wins = r
+        n = int(n)
+        actual = float(actual) if actual is not None else 0.0
+        avg_pred = float(avg_pred) if avg_pred is not None else 0.0
+        ece += (n / total_n) * abs(actual - avg_pred)
+        bins.append({
+            "prob_bucket":    round(float(bucket), 1),
+            "n":              n,
+            "actual_win_rate": round(actual, 4),
+            "avg_pred_prob":  round(avg_pred, 4),
+            "wins":           int(wins),
+            "calibration_gap": round(actual - avg_pred, 4),
+        })
+
+    srate_error_row = db.execute(text("""
+        SELECT
+            AVG(ABS(srate_error))  AS mae,
+            STDDEV(srate_error)    AS std,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY srate_error) AS median_bias
+        FROM bid_journal
+        WHERE srate_error IS NOT NULL
+    """)).fetchone()
+
+    return {
+        "ece":              round(ece, 4),
+        "total_samples":    total_n,
+        "calibration_bins": bins,
+        "srate_mae":        round(float(srate_error_row[0]), 4) if srate_error_row[0] else None,
+        "srate_std":        round(float(srate_error_row[1]), 4) if srate_error_row[1] else None,
+        "srate_median_bias": round(float(srate_error_row[2]), 4) if srate_error_row[2] else None,
+        "interpretation": (
+            "잘 캘리브레이션됨 (ECE < 0.05)" if ece < 0.05 else
+            "보통 (ECE 0.05~0.10)" if ece < 0.10 else
+            "캘리브레이션 개선 필요 (ECE > 0.10)"
+        ),
     }

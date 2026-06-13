@@ -16,6 +16,20 @@ from sqlalchemy import text
 logger = logging.getLogger(__name__)
 
 LOOKBACK_WEEKS = 16   # 기본 16주(4개월) 이력 분석
+DECAY_HALF_LIFE_DAYS = 60  # 지수 감쇠 반감기
+
+
+def _decay_weight(bid_date, reference_date: datetime, half_life_days: float = DECAY_HALF_LIFE_DAYS) -> float:
+    """최근 데이터일수록 높은 가중치 (지수 감쇠)."""
+    try:
+        if hasattr(bid_date, 'date'):
+            bd = bid_date
+        else:
+            bd = datetime.combine(bid_date, datetime.min.time())
+        days_ago = max(0.0, (reference_date - bd).total_seconds() / 86400)
+        return float(np.exp(-days_ago * np.log(2) / half_life_days))
+    except Exception:
+        return 1.0
 
 
 def compute_competition_features(
@@ -60,14 +74,36 @@ def compute_competition_features(
 
     df = pd.DataFrame(rows, columns=["competitor_id","bid_rate","is_winner","base_amount","bid_open_date"])
     df["bid_rate"] = pd.to_numeric(df["bid_rate"])
+    df["weight"] = df["bid_open_date"].apply(lambda d: _decay_weight(d, dt))
 
-    comp_agg = df.groupby("competitor_id").agg(
-        avg_rate   = ("bid_rate", "mean"),
-        std_rate   = ("bid_rate", lambda x: x.std() if len(x)>1 else 0.005),
-        bid_count  = ("bid_rate", "count"),
-        win_count  = ("is_winner","sum"),
-        agg_score  = ("bid_rate", lambda r: float(np.mean(np.array(r) < 0.88) * 10)),
-    ).reset_index()
+    def _wavg(group_df: pd.DataFrame, col: str) -> float:
+        w = group_df["weight"].values
+        v = group_df[col].values.astype(float)
+        ws = w.sum()
+        return float(np.dot(w, v) / ws) if ws > 0 else float(v.mean())
+
+    def _wstd(group_df: pd.DataFrame, col: str) -> float:
+        w = group_df["weight"].values
+        v = group_df[col].values.astype(float)
+        ws = w.sum()
+        if ws <= 0 or len(v) < 2:
+            return 0.005
+        mu = np.dot(w, v) / ws
+        return float(np.sqrt(np.dot(w, (v - mu) ** 2) / ws))
+
+    groups = df.groupby("competitor_id")
+    records = []
+    for cid, g in groups:
+        records.append({
+            "competitor_id": cid,
+            "avg_rate":  _wavg(g, "bid_rate"),
+            "std_rate":  _wstd(g, "bid_rate"),
+            "bid_count": len(g),
+            "win_count": float(g["is_winner"].sum()),
+            "agg_score": float(np.average(g["bid_rate"].values < 0.88, weights=g["weight"].values) * 10),
+            "eff_weight": float(g["weight"].sum()),
+        })
+    comp_agg = pd.DataFrame(records)
 
     # ── HHI (낙찰 집중도)
     wins = comp_agg.set_index("competitor_id")["win_count"]

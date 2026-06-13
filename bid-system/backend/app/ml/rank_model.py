@@ -82,3 +82,34 @@ def get_inpo_raw_rates(
 
     return np.array([float(r[0]) for r in rows])
 
+
+def get_journal_winner_rates(
+    db: Session,
+    agency_id: Optional[int] = None,
+) -> Optional[np.ndarray]:
+    """
+    bid_journal.winner_rate 실전 낙찰자 투찰률 배열 반환.
+    inpo21c 데이터 보완 또는 기관별 세부 캘리브레이션에 사용.
+    """
+    params: dict = {}
+    agency_clause = ""
+    if agency_id:
+        agency_clause = "AND b.agency_id = :aid"
+        params["aid"] = agency_id
+
+    rows = db.execute(text(f"""
+        SELECT j.winner_rate::float
+        FROM bid_journal j
+        JOIN bids b ON b.id = j.bid_id
+        WHERE j.winner_rate IS NOT NULL
+          AND j.winner_rate BETWEEN 0.800 AND 1.000
+          {agency_clause}
+        ORDER BY j.created_at DESC
+        LIMIT 500
+    """), params).fetchall()
+
+    if len(rows) < 5:
+        return None
+
+    return np.array([float(r[0]) for r in rows])
+

@@ -1265,12 +1265,13 @@ export interface ZoneItem {
 }
 
 export interface StrategyResult {
-  rate:        number
-  amount:      number
-  win_prob:    number
-  avg_rank:    number
-  valid_ratio: number
-  label:       string
+  rate:            number
+  amount:          number
+  win_prob:        number
+  avg_rank:        number
+  valid_ratio:     number
+  label:           string
+  expected_profit: number | null
 }
 
 export interface SimulateBidRequest {
@@ -1287,6 +1288,7 @@ export interface SimulateBidResponse {
   srate_center:     number
   srate_std:        number
   mode:             'real' | 'estimated'
+  pred_log_id:      number | null
   yega_candidates:  { idx: number; amount: number; rate: number }[]
   top_combinations: { combo: number[]; amount: number; rate: number; prob: number }[]
   all_zones:        ZoneItem[]
@@ -1294,5 +1296,113 @@ export interface SimulateBidResponse {
   strategies:       Record<string, StrategyResult>
   optimal:          { rate: number; amount: number; win_prob: number; srate: number; floor_ok: boolean }
   histogram:        { bin_center: number; count: number; prob: number }[]
+}
+
+// ── 투찰 저널 ────────────────────────────────────────────────
+
+export interface JournalCreateRequest {
+  bid_id:             number
+  pred_log_id?:       number | null
+  recommended_rate?:  number | null
+  recommended_amount?:number | null
+  pred_win_prob?:     number | null
+  pred_srate_center?: number | null
+  strategy_chosen?:   string | null
+  submitted_rate:     number
+  submitted_amount?:  number | null
+  floor_rate?:        number | null
+  note?:              string | null
+}
+
+export interface JournalResultRequest {
+  result:         '낙찰' | '패찰' | '무효' | '취소'
+  actual_srate?:  number | null
+  our_rank?:      number | null
+  total_bidders?: number | null
+  winner_rate?:   number | null
+  winner_amount?: number | null
+  winner_biz_no?: string | null
+  winner_name?:   string | null
+  note?:          string | null
+}
+
+export interface JournalOut {
+  id:                 number
+  bid_id:             number
+  announcement_no:    string | null
+  pred_log_id:        number | null
+  recommended_rate:   number | null
+  recommended_amount: number | null
+  pred_win_prob:      number | null
+  pred_srate_center:  number | null
+  strategy_chosen:    string | null
+  submitted_at:       string | null
+  submitted_rate:     number | null
+  submitted_amount:   number | null
+  floor_rate:         number | null
+  rate_delta:         number | null
+  opened_at:          string | null
+  result:             string | null
+  our_rank:           number | null
+  total_bidders:      number | null
+  actual_srate:       number | null
+  winner_rate:        number | null
+  winner_amount:      number | null
+  winner_biz_no:      string | null
+  winner_name:        string | null
+  rate_gap:           number | null
+  srate_error:        number | null
+  note:               string | null
+  created_at:         string | null
+}
+
+export interface JournalMonthlyTrend {
+  month:    string
+  total:    number
+  wins:     number
+  losses:   number
+  win_rate: number | null
+}
+
+export interface JournalStrategyStats {
+  strategy:   string
+  total:      number
+  wins:       number
+  win_rate:   number | null
+}
+
+export interface JournalStats {
+  total:                number
+  with_result:          number
+  pending_result:       number
+  wins:                 number
+  losses:               number
+  win_rate:             number | null
+  avg_srate_mae:        number | null
+  avg_rate_gap_loss:    number | null
+  avg_rate_delta:       number | null
+  feedback_completeness:number
+  monthly_trend:        JournalMonthlyTrend[]
+  strategy_stats:       JournalStrategyStats[]
+}
+
+export interface CalibrationBin {
+  prob_bucket:      number
+  n:                number
+  actual_win_rate:  number
+  avg_pred_prob:    number
+  wins:             number
+  calibration_gap:  number
+}
+
+export interface MlCalibration {
+  ece:               number | null
+  total_samples:     number
+  calibration_bins:  CalibrationBin[]
+  srate_mae:         number | null
+  srate_std:         number | null
+  srate_median_bias: number | null
+  interpretation:    string
+  message?:          string
 }
 

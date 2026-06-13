@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { BarChart2, Target, TrendingUp, Award, AlertTriangle, RefreshCw, Loader2, CheckCircle2, XCircle, Activity, Users, ChevronDown } from 'lucide-react'
-import { kpiApi, outcomesApi } from '../api'
+import { BarChart2, Target, TrendingUp, Award, AlertTriangle, RefreshCw, Loader2, CheckCircle2, XCircle, Activity, Users, ChevronDown, BookOpen, Gauge } from 'lucide-react'
+import { kpiApi, outcomesApi, journalApi, adminApi } from '../api'
+import type { JournalStats, MlCalibration } from '../types'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -197,6 +198,18 @@ export default function KPIDashboardPage() {
     refetchInterval: 60_000,
   })
 
+  const { data: journal } = useQuery<JournalStats>({
+    queryKey: ['journal-stats-kpi'],
+    queryFn: () => journalApi.stats(),
+    refetchInterval: 120_000,
+  })
+
+  const { data: calibration } = useQuery<MlCalibration>({
+    queryKey: ['ml-calibration'],
+    queryFn: () => adminApi.mlCalibration(),
+    staleTime: 5 * 60_000,
+  })
+
   const winRateStatus: StatusType = data
     ? data.win_rate >= 0.35 ? 'good' : data.win_rate >= 0.20 ? 'warn' : 'bad'
     : 'neutral'
@@ -389,6 +402,179 @@ export default function KPIDashboardPage() {
               <BarChart2 className="h-12 w-12 text-slate-200 mx-auto mb-4" />
               <p className="text-slate-500 font-medium">아직 투찰 결과 데이터가 없습니다.</p>
               <p className="text-slate-500 text-sm mt-1">아래에서 투찰 결과를 기록해보세요.</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ── AI 피드백 루프 분석 ── */}
+        {journal && journal.total > 0 && (
+          <div className="space-y-4">
+            <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">AI 피드백 루프 분석 (투찰 저널)</h2>
+
+            {/* 요약 카드 */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <KPICard
+                label="저널 낙찰률"
+                value={journal.win_rate != null ? `${(journal.win_rate * 100).toFixed(1)}%` : '—'}
+                subtitle={`${journal.wins}낙찰 / ${journal.with_result}결과입력`}
+                status={journal.win_rate != null ? (journal.win_rate >= 0.35 ? 'good' : journal.win_rate >= 0.20 ? 'warn' : 'bad') : 'neutral'}
+                icon={Award}
+              />
+              <KPICard
+                label="사정률 예측 MAE"
+                value={journal.avg_srate_mae != null ? journal.avg_srate_mae.toFixed(4) : '—'}
+                subtitle="낮을수록 정확 (목표 ≤0.003)"
+                status={journal.avg_srate_mae != null ? (journal.avg_srate_mae <= 0.003 ? 'good' : journal.avg_srate_mae <= 0.005 ? 'warn' : 'bad') : 'neutral'}
+                icon={Activity}
+              />
+              <KPICard
+                label="패찰 시 평균 rate_gap"
+                value={journal.avg_rate_gap_loss != null ? journal.avg_rate_gap_loss.toFixed(4) : '—'}
+                subtitle="낙찰자와 우리의 투찰률 차이"
+                status={journal.avg_rate_gap_loss != null ? (Math.abs(journal.avg_rate_gap_loss) <= 0.002 ? 'warn' : 'neutral') : 'neutral'}
+                icon={TrendingUp}
+              />
+              <KPICard
+                label="결과 입력 완결률"
+                value={`${(journal.feedback_completeness * 100).toFixed(0)}%`}
+                subtitle={`${journal.with_result}/${journal.total}건 완결`}
+                status={journal.feedback_completeness >= 0.8 ? 'good' : journal.feedback_completeness >= 0.5 ? 'warn' : 'bad'}
+                icon={CheckCircle2}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* 월별 낙찰률 추이 */}
+              {journal.monthly_trend.length > 0 && (
+                <Card className="bg-white border-slate-200 shadow-sm">
+                  <CardHeader className="border-b border-slate-100 pb-3">
+                    <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                      <BookOpen className="h-4 w-4 text-blue-600" />월별 저널 낙찰률 추이
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-4">
+                    <div className="flex items-end gap-1.5 h-28">
+                      {journal.monthly_trend.map((m) => {
+                        const wr = m.win_rate ?? 0
+                        const h = Math.max(4, Math.round(wr * 100))
+                        const isHigh = wr >= 0.35
+                        const hasBids = m.total > 0
+                        return (
+                          <div key={m.month} className="flex-1 flex flex-col items-center gap-1">
+                            <div className={cn('text-xs font-medium tabular-nums', isHigh ? 'text-emerald-600' : hasBids ? 'text-slate-500' : 'text-slate-300')}>
+                              {hasBids ? `${(wr * 100).toFixed(0)}%` : '—'}
+                            </div>
+                            <div
+                              className={cn('w-full rounded-t transition-all', isHigh ? 'bg-emerald-500' : hasBids ? 'bg-blue-400' : 'bg-slate-100')}
+                              style={{ height: `${h}%` }}
+                              title={`${m.wins}낙찰/${m.total}건`}
+                            />
+                            <div className="text-[10px] text-slate-400">{m.month.slice(5)}</div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* 전략별 성과 */}
+              {journal.strategy_stats.length > 0 && (
+                <Card className="bg-white border-slate-200 shadow-sm">
+                  <CardHeader className="border-b border-slate-100 pb-3">
+                    <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                      <Target className="h-4 w-4 text-blue-600" />전략별 낙찰 성과
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-4">
+                    <div className="space-y-3">
+                      {journal.strategy_stats.map((s) => {
+                        const wr = s.win_rate ?? 0
+                        const pct = Math.min(100, Math.round(wr * 100))
+                        const color = pct >= 35 ? 'bg-emerald-500' : pct >= 20 ? 'bg-blue-400' : 'bg-amber-400'
+                        const textColor = pct >= 35 ? 'text-emerald-600' : pct >= 20 ? 'text-blue-600' : 'text-amber-600'
+                        return (
+                          <div key={s.strategy}>
+                            <div className="flex items-center justify-between text-sm mb-1">
+                              <span className="font-medium text-slate-700">{s.strategy}</span>
+                              <span className={cn('font-semibold tabular-nums text-xs', textColor)}>
+                                {s.wins}/{s.total}건 ({pct}%)
+                              </span>
+                            </div>
+                            <div className="w-full bg-slate-100 rounded-full h-2">
+                              <div className={cn('h-2 rounded-full transition-all', color)} style={{ width: `${pct}%` }} />
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── 모델 캘리브레이션 ── */}
+        {calibration && calibration.total_samples > 0 && (
+          <Card className="bg-white border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 pb-4">
+              <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                <Gauge className="h-4 w-4 text-purple-600" />AI 확률 캘리브레이션
+                <span className={cn('ml-2 text-xs px-2 py-0.5 rounded-full font-medium',
+                  calibration.ece != null && calibration.ece < 0.05 ? 'bg-emerald-100 text-emerald-700' :
+                  calibration.ece != null && calibration.ece < 0.10 ? 'bg-amber-100 text-amber-700' :
+                  'bg-red-100 text-red-700'
+                )}>
+                  ECE {calibration.ece != null ? calibration.ece.toFixed(3) : 'N/A'}
+                </span>
+              </CardTitle>
+              <CardDescription className="text-slate-500">{calibration.interpretation}</CardDescription>
+            </CardHeader>
+            <CardContent className="p-5">
+              <div className="grid grid-cols-3 gap-4 mb-4 text-sm">
+                <div className="text-center p-3 bg-slate-50 rounded-lg">
+                  <div className="font-bold text-lg text-slate-800">{calibration.total_samples}</div>
+                  <div className="text-slate-500 text-xs">캘리브레이션 샘플</div>
+                </div>
+                {calibration.srate_mae != null && (
+                  <div className="text-center p-3 bg-slate-50 rounded-lg">
+                    <div className="font-bold text-lg text-blue-700">{(calibration.srate_mae * 100).toFixed(3)}%</div>
+                    <div className="text-slate-500 text-xs">사정률 예측 MAE</div>
+                  </div>
+                )}
+                {calibration.srate_median_bias != null && (
+                  <div className="text-center p-3 bg-slate-50 rounded-lg">
+                    <div className={cn('font-bold text-lg',
+                      Math.abs(calibration.srate_median_bias) < 0.002 ? 'text-emerald-700' : 'text-amber-700'
+                    )}>
+                      {calibration.srate_median_bias > 0 ? '+' : ''}{(calibration.srate_median_bias * 100).toFixed(3)}%
+                    </div>
+                    <div className="text-slate-500 text-xs">사정률 예측 편향</div>
+                  </div>
+                )}
+              </div>
+              {calibration.calibration_bins.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs text-slate-500 font-medium">예측 확률 구간별 실제 낙찰률</p>
+                  {calibration.calibration_bins.map((bin) => (
+                    <div key={bin.prob_bucket} className="flex items-center gap-3 text-xs">
+                      <span className="w-12 text-right font-mono text-slate-500">{(bin.prob_bucket * 100).toFixed(0)}%대</span>
+                      <div className="flex-1 relative h-4 bg-slate-100 rounded overflow-hidden">
+                        <div className="absolute inset-y-0 left-0 bg-blue-200 rounded" style={{ width: `${bin.avg_pred_prob * 100}%` }} />
+                        <div className="absolute inset-y-0 left-0 bg-emerald-400 rounded opacity-80" style={{ width: `${bin.actual_win_rate * 100}%` }} />
+                      </div>
+                      <span className={cn('w-16 text-right font-mono font-medium',
+                        Math.abs(bin.calibration_gap) < 0.05 ? 'text-emerald-600' : 'text-amber-600'
+                      )}>
+                        {(bin.actual_win_rate * 100).toFixed(1)}%
+                      </span>
+                      <span className="w-12 text-slate-400">n={bin.n}</span>
+                    </div>
+                  ))}
+                  <p className="text-xs text-slate-400 mt-1">🔵 예측 확률 | 🟢 실제 낙찰률</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

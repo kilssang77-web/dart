@@ -29,6 +29,7 @@ FEATURE_COLS = [
     "similar_bid_count", "similar_avg_rate", "similar_std_rate",
     "month_of_year", "is_q4", "has_region_restriction",
     "yega_top3_freq", "yega_entropy", "yega_mode_bucket",  # 복수예가 패턴 피처
+    "our_bid_rate",  # 낙찰 분류기 전용 — 실제 투찰 후보율 (재학습 필요)
 ]
 
 FEATURE_LABELS = {
@@ -179,6 +180,7 @@ def _zero_context_features() -> dict:
         "competitor_strength_score": 5.0, "similar_bid_count": 0,
         "similar_avg_rate": None,     "similar_std_rate": None,
         "yega_top3_freq": None, "yega_entropy": None, "yega_mode_bucket": None,
+        "our_bid_rate": None,
     }
 
 
@@ -347,10 +349,11 @@ class RecommendEngine:
         }
 
         win_probs = {}
+        our_bid_idx = FEATURE_COLS.index("our_bid_rate")
         for label, rate_key in [("at_lower",0.25),("at_center",0.50),("at_upper",0.75)]:
             if self._win_model is not None:
                 X_r = X.copy()
-                X_r[0, FEATURE_COLS.index("similar_avg_rate")] = rate_range[rate_key]
+                X_r[0, our_bid_idx] = rate_range[rate_key]
                 win_probs[label] = float(self._win_model.predict_proba(X_r)[0][1])
             else:
                 win_probs[label] = None
@@ -447,6 +450,15 @@ class RecommendEngine:
             "narrative_ko": narrative,
             "model_version": "rule-based-v1",
         }
+
+
+def get_model_meta() -> dict:
+    """현재 로드된 모델의 메타데이터 반환."""
+    try:
+        with open(MODEL_DIR / "meta.json") as f:
+            return json.load(f)
+    except Exception:
+        return {"version": "unknown"}
 
 
 # 싱글턴

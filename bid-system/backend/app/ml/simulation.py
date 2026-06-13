@@ -196,6 +196,64 @@ def monte_carlo_win_prob_empirical(
         "valid_ratio": round(valid_ratio, 4),
     }
 
+def monte_carlo_win_prob_gmm(
+    our_bid_rate: float,
+    floor_rate_pct: float,
+    srate_dist: np.ndarray,
+    n_competitors: int,
+    n_sim: int = 50_000,
+    rng: Optional[np.random.Generator] = None,
+    gmm_params: Optional[dict] = None,
+    agency_bias: float = 0.0,
+) -> dict:
+    """
+    Monte Carlo 낙찰확률 (GMM 3-cluster 경쟁사 분포 사용).
+
+    inpo21c 실측 데이터로 피팅한 GMM에서 경쟁사 투찰률을 샘플링.
+    공격형(floor 근처) / 균형형 / 안정형 3그룹이 자연스럽게 반영된다.
+    """
+    from .competitor_cluster import sample_competitor_rates, get_cluster_params
+
+    if rng is None:
+        rng = np.random.default_rng(42)
+
+    params = gmm_params or get_cluster_params()
+    n = len(srate_dist)
+    if n_sim != n:
+        idx    = rng.integers(0, n, size=n_sim)
+        srates = srate_dist[idx]
+    else:
+        srates = srate_dist[:n_sim]
+
+    effective_floor = floor_rate_pct * srates
+    valid       = (our_bid_rate >= effective_floor) & (our_bid_rate <= srates)
+    valid_ratio = float(valid.mean())
+
+    n_comp_eff = max(1, min(n_competitors, 20))
+    # GMM 샘플은 예정가격 대비 투찰률 → 기초금액 대비로 변환 (× srate)
+    comp_bids_rate  = sample_competitor_rates(n_comp_eff, n_sim, rng, params, agency_bias)
+    comp_bids       = comp_bids_rate * srates[:, None]
+
+    comp_valid    = (comp_bids >= floor_rate_pct * srates[:, None]) & (comp_bids <= srates[:, None])
+    comp_bids_eff = np.where(comp_valid, comp_bids, np.inf)
+    comp_min      = comp_bids_eff.min(axis=1)
+
+    win_mask = valid & (our_bid_rate <= comp_min)
+    win_prob = float(win_mask.mean())
+
+    if valid.any():
+        comp_lower = (comp_bids[valid] < our_bid_rate) & comp_valid[valid]
+        avg_rank   = float((comp_lower.sum(axis=1) + 1).mean())
+    else:
+        avg_rank = float(n_comp_eff + 1)
+
+    return {
+        "win_prob":    round(win_prob,    4),
+        "avg_rank":    round(avg_rank,    2),
+        "valid_ratio": round(valid_ratio, 4),
+    }
+
+
 def recommend_with_simulation(
     base_amount: int,
     industry_name: str,

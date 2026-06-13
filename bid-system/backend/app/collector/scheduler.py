@@ -249,6 +249,196 @@ def run_freq_rebuild_job() -> None:
         db.close()
 
 
+def _normalize_ano(s: str) -> str:
+    """공고번호 정규화 — 공백·하이픈·슬래시 제거 후 소문자."""
+    import re
+    return re.sub(r"[\s\-/]", "", s or "").lower()
+
+
+def _fetch_inpo_row(db, announcement_no: str, agency_id: int, bid_open_date, base_amount: int):
+    """
+    3단계 퍼지 매칭으로 inpo21c_bids에서 개찰 결과 조회.
+      1) 정확한 announcement_no 매칭
+      2) 정규화 announcement_no 매칭 (하이픈/공백 제거)
+      3) agency_id + 개찰일 ±1일 + base_amount ±3%
+    """
+    from sqlalchemy import text
+
+    BASE_SQL = """
+        SELECT ib.yega_ratio / 100.0 AS srate,
+               COUNT(ip.id)          AS total_bidders,
+               MIN(CASE WHEN ip.is_winner THEN ip.base_ratio END) AS winner_rate
+        FROM inpo21c_bids ib
+        LEFT JOIN inpo21c_participants ip ON ip.inpo21c_bid_id = ib.inpo21c_bid_id
+        WHERE {where}
+        GROUP BY ib.yega_ratio
+        LIMIT 1
+    """
+
+    # 1단계: 정확 매칭
+    if announcement_no:
+        r = db.execute(text(BASE_SQL.format(where="ib.announcement_no = :ano")),
+                       {"ano": announcement_no}).fetchone()
+        if r and (r[0] or r[2]):
+            return r, "exact"
+
+    # 2단계: 정규화 매칭 (다른 포맷 공고번호 처리)
+    if announcement_no:
+        norm = _normalize_ano(announcement_no)
+        r = db.execute(text(BASE_SQL.format(where="REGEXP_REPLACE(LOWER(ib.announcement_no), '[\\\\s\\\\-/]', '', 'g') = :norm")),
+                       {"norm": norm}).fetchone()
+        if r and (r[0] or r[2]):
+            return r, "normalized"
+
+    # 3단계: 기관 + 날짜 ±1일 + 금액 ±3%
+    if agency_id and bid_open_date and base_amount:
+        try:
+            lo = int(base_amount * 0.97)
+            hi = int(base_amount * 1.03)
+            r = db.execute(text("""
+                SELECT ib.yega_ratio / 100.0 AS srate,
+                       COUNT(ip.id)          AS total_bidders,
+                       MIN(CASE WHEN ip.is_winner THEN ip.base_ratio END) AS winner_rate
+                FROM inpo21c_bids ib
+                LEFT JOIN inpo21c_participants ip ON ip.inpo21c_bid_id = ib.inpo21c_bid_id
+                JOIN bids b2 ON b2.announcement_no = ib.announcement_no
+                WHERE b2.agency_id = :aid
+                  AND b2.bid_open_date BETWEEN :dt_lo AND :dt_hi
+                  AND b2.base_amount BETWEEN :lo AND :hi
+                GROUP BY ib.yega_ratio
+                ORDER BY COUNT(ip.id) DESC
+                LIMIT 1
+            """), {
+                "aid": agency_id,
+                "dt_lo": bid_open_date - __import__("datetime").timedelta(days=1),
+                "dt_hi": bid_open_date + __import__("datetime").timedelta(days=1),
+                "lo": lo, "hi": hi,
+            }).fetchone()
+            if r and (r[0] or r[2]):
+                return r, "fuzzy"
+        except Exception:
+            pass
+
+    return None, None
+
+
+def run_journal_auto_fill_job() -> None:
+    """
+    bid_journal 결과 자동 수집 (3단계 퍼지 매칭).
+
+    개찰일이 지난 pending 저널에 대해:
+      1단계: 정확한 announcement_no 매칭
+      2단계: 정규화 announcement_no (공백·하이픈 제거)
+      3단계: 기관 + 날짜 ±1일 + 금액 ±3% 퍼지 매칭
+    """
+    from app.database import SessionLocal
+    from sqlalchemy import text
+
+    db = SessionLocal()
+    try:
+        rows = db.execute(text("""
+            SELECT j.id, j.bid_id, j.announcement_no, j.submitted_rate,
+                   j.pred_srate_center, b.agency_id,
+                   b.bid_open_date, b.base_amount
+            FROM bid_journal j
+            JOIN bids b ON b.id = j.bid_id
+            WHERE j.result IS NULL
+              AND j.submitted_rate IS NOT NULL
+              AND (b.bid_open_date IS NULL OR b.bid_open_date <= NOW() - INTERVAL '2 hours')
+            ORDER BY b.bid_open_date DESC NULLS LAST
+            LIMIT 50
+        """)).fetchall()
+
+        if not rows:
+            logger.info("journal_auto_fill: 대기 건 없음")
+            return
+
+        filled = 0
+        match_stats = {"exact": 0, "normalized": 0, "fuzzy": 0, "bid_results": 0}
+
+        for row in rows:
+            jid, bid_id, announcement_no, submitted_rate, pred_srate, agency_id, bid_open_date, base_amount = row
+            try:
+                # 3단계 퍼지 매칭
+                inpo_row, match_type = _fetch_inpo_row(db, announcement_no, agency_id, bid_open_date, base_amount)
+
+                # bid_results 직접 조회 (fallback)
+                br_row = db.execute(text("""
+                    SELECT
+                        COUNT(*)                                    AS total,
+                        MIN(CASE WHEN is_winner THEN bid_rate END)  AS winner_rate,
+                        SUM(CASE WHEN bid_rate <= :srate THEN 1 ELSE 0 END) AS rank_approx
+                    FROM bid_results
+                    WHERE bid_id = :bid_id
+                """), {"bid_id": bid_id, "srate": float(submitted_rate)}).fetchone()
+
+                actual_srate  = float(inpo_row[0]) if inpo_row and inpo_row[0] else None
+                total_bidders = (int(inpo_row[1]) if inpo_row and inpo_row[1] else
+                                 (int(br_row[0]) if br_row and br_row[0] else None))
+                winner_rate   = (float(inpo_row[2]) if inpo_row and inpo_row[2] else
+                                 (float(br_row[1]) if br_row and br_row[1] else None))
+                our_rank      = int(br_row[2]) + 1 if br_row and br_row[2] is not None else None
+
+                if match_type:
+                    match_stats[match_type] = match_stats.get(match_type, 0) + 1
+                elif br_row and br_row[1]:
+                    match_stats["bid_results"] += 1
+
+                if winner_rate is None and actual_srate is None:
+                    continue
+
+                sub = float(submitted_rate)
+                if winner_rate is not None:
+                    result = '낙찰' if abs(sub - winner_rate) < 0.00005 else '패찰'
+                elif actual_srate is not None:
+                    result = '패찰'
+                else:
+                    continue
+
+                rate_gap    = round(winner_rate - sub, 6) if winner_rate else None
+                srate_error = round(float(actual_srate) - float(pred_srate), 6) if actual_srate and pred_srate else None
+
+                db.execute(text("""
+                    UPDATE bid_journal SET
+                        result        = :result,
+                        actual_srate  = :actual_srate,
+                        our_rank      = :our_rank,
+                        total_bidders = :total_bidders,
+                        winner_rate   = :winner_rate,
+                        rate_gap      = :rate_gap,
+                        srate_error   = :srate_error,
+                        opened_at     = NOW(),
+                        updated_at    = NOW()
+                    WHERE id = :jid
+                      AND result IS NULL
+                """), {
+                    "result":        result,
+                    "actual_srate":  actual_srate,
+                    "our_rank":      our_rank,
+                    "total_bidders": total_bidders,
+                    "winner_rate":   winner_rate,
+                    "rate_gap":      rate_gap,
+                    "srate_error":   srate_error,
+                    "jid":           jid,
+                })
+                db.commit()
+                filled += 1
+                logger.info("journal_auto_fill: #%d → %s [%s] (rate_gap=%.4f)",
+                            jid, result, match_type or "bid_results", rate_gap or 0)
+
+            except Exception as e:
+                db.rollback()
+                logger.warning("journal_auto_fill #%d 오류: %s", jid, e)
+
+        logger.info("journal_auto_fill 완료: %d/%d건 처리 매칭통계=%s",
+                    filled, len(rows), match_stats)
+
+    except Exception as e:
+        logger.error("journal_auto_fill 전체 오류: %s", e)
+    finally:
+        db.close()
+
+
 def create_scheduler() -> BackgroundScheduler:
     """BackgroundScheduler 생성 및 작업 등록."""
     scheduler = BackgroundScheduler(timezone="Asia/Seoul")
@@ -324,6 +514,14 @@ def create_scheduler() -> BackgroundScheduler:
         trigger=CronTrigger(day_of_week="sun", hour=4, minute=30, timezone="Asia/Seoul"),
         id="collect_inpo21c_national_weekly",
         name="inpo21c 전국 낙찰 수집 (매주 일 04:30 KST)",
+        replace_existing=True,
+    )
+    # 투찰 저널 자동 결과 수집 (매일 21:00 — 개찰 완료 후 inpo21c 데이터 안정화 후)
+    scheduler.add_job(
+        run_journal_auto_fill_job,
+        trigger=CronTrigger(hour=21, minute=0, timezone="Asia/Seoul"),
+        id="journal_auto_fill_daily",
+        name="투찰저널 개찰결과 자동 수집 (매일 21:00 KST)",
         replace_existing=True,
     )
 

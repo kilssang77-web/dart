@@ -199,6 +199,8 @@ export const adminApi = {
     api.get('/admin/inpo21c/collect-progress').then((r) => r.data),
   collectorStatus: (): Promise<CollectorStatus> =>
     api.get('/admin/collector-status').then((r) => r.data),
+  mlCalibration: (): Promise<import('@/types').MlCalibration> =>
+    api.get('/admin/ml/calibration').then((r) => r.data),
 }
 
 // -- 투찰 이력 --------------------------------------------------
@@ -431,4 +433,21 @@ export const decisionApi = {
 
   searchBids: (keyword: string, limit = 10) =>
     api.get('/bids', { params: { keyword, page: 1, size: limit, sort_by: 'notice_date' } }).then((r) => r.data?.items ?? r.data),
+}
+
+export const journalApi = {
+  create: (req: import('../types').JournalCreateRequest): Promise<import('../types').JournalOut> =>
+    api.post('/journal', req).then((r) => r.data),
+
+  recordResult: (journalId: number, req: import('../types').JournalResultRequest): Promise<import('../types').JournalOut> =>
+    api.put(`/journal/${journalId}/result`, req).then((r) => r.data),
+
+  list: (params?: { result?: string; page?: number; size?: number }) =>
+    api.get('/journal', { params }).then((r) => r.data as { total: number; items: import('../types').JournalOut[] }),
+
+  stats: (): Promise<import('../types').JournalStats> =>
+    api.get('/journal/stats').then((r) => r.data),
+
+  pending: () =>
+    api.get('/journal/pending').then((r) => r.data as { count: number; items: Record<string, unknown>[] }),
 }

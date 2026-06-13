@@ -156,6 +156,49 @@ def load_srate_stats(
             "region"   if reg and reg[0]             else
             "global"
         ),
+        # Journal 피드백 편향 (실전 개찰 결과 기반)
+        **_load_journal_bias(db, agency_id),
+    }
+
+
+# ──────────────────────────────────────────────
+# Journal 피드백 편향 계산 (내부 헬퍼)
+# ──────────────────────────────────────────────
+
+def _load_journal_bias(db: Session, agency_id: Optional[int]) -> dict:
+    """
+    bid_journal.srate_error(actual - predicted)로 기관별/전체 편향 계산.
+    양수 = 우리 모델이 낮게 예측함(실제가 더 높음) → center 상향 보정 필요.
+    """
+    agency_row = None
+    if agency_id:
+        try:
+            agency_row = db.execute(text("""
+                SELECT AVG(j.srate_error), COUNT(*)
+                FROM bid_journal j
+                JOIN bids b ON b.id = j.bid_id
+                WHERE b.agency_id = :aid
+                  AND j.srate_error IS NOT NULL
+                  AND j.created_at >= NOW() - INTERVAL '24 months'
+            """), {"aid": agency_id}).fetchone()
+        except Exception:
+            agency_row = None
+
+    try:
+        global_row = db.execute(text("""
+            SELECT AVG(srate_error), COUNT(*)
+            FROM bid_journal
+            WHERE srate_error IS NOT NULL
+              AND created_at >= NOW() - INTERVAL '24 months'
+        """)).fetchone()
+    except Exception:
+        global_row = None
+
+    return {
+        "journal_agency_bias":   float(agency_row[0]) if agency_row and agency_row[0] else None,
+        "journal_agency_bias_n": int(agency_row[1])   if agency_row and agency_row[1] else 0,
+        "journal_global_bias":   float(global_row[0]) if global_row and global_row[0] else None,
+        "journal_global_bias_n": int(global_row[1])   if global_row and global_row[1] else 0,
     }
 
 
@@ -455,6 +498,27 @@ def predict_srate(features_a: dict, base_amount: int) -> dict:
         delta  = center - old_c
         lower += delta;  upper += delta;  p10 += delta;  p90 += delta
         confidence = min(0.95, confidence + 0.05)
+
+    # Journal 피드백 편향 보정 — 실전 개찰 결과 기반 마지막 보정
+    j_agency_bias = features_a.get("journal_agency_bias")
+    j_agency_n    = int(features_a.get("journal_agency_bias_n") or 0)
+    j_global_bias = features_a.get("journal_global_bias")
+    j_global_n    = int(features_a.get("journal_global_bias_n") or 0)
+
+    if j_agency_bias is not None and j_agency_n >= 5:
+        # 기관별 실전 편향: n=5→38%, n=10→56%, n=20→71%, n=50→86%
+        w = min(0.85, j_agency_n / (j_agency_n + 8))
+        correction = float(j_agency_bias) * w
+        center += correction; lower += correction; upper += correction
+        p10    += correction; p90   += correction
+        srate_source += "+journal_agency"
+        confidence = min(0.95, confidence + 0.05)
+    elif j_global_bias is not None and j_global_n >= 10:
+        # 전체 편향 (약하게 — 기관별 데이터 없을 때만)
+        correction = float(j_global_bias) * 0.3
+        center += correction; lower += correction; upper += correction
+        p10    += correction; p90   += correction
+        srate_source += "+journal_global"
 
     # 사정율 범위 클램핑 (실제 데이터 기반: 0.87 ~ 1.05)
     lower  = max(0.87, lower)
