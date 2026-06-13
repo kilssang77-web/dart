@@ -174,7 +174,7 @@ export default function TenderRecommendPage() {
                 <div className="mt-2.5 flex flex-wrap gap-4 text-xs">
                   <span className="flex items-center gap-1 text-slate-500">
                     기초금액
-                    <strong className="text-slate-900 font-semibold">{(bid.base_amount / 1e8).toFixed(1)}억원</strong>
+                    <strong className="text-slate-900 font-semibold">{bid.base_amount > 0 ? (bid.base_amount / 1e8).toFixed(1) + '억원' : '-'}</strong>
                   </span>
                   <span className="flex items-center gap-1 text-slate-500">
                     <CalendarDays className="h-3 w-3" />개찰일

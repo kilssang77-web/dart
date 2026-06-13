@@ -336,7 +336,7 @@ export default function BidsPage() {
                             <span className="flex items-center gap-1">
                               <Building2 className="h-3 w-3" />{rec.agency_name}
                             </span>
-                            <span className="font-medium text-slate-700">{(rec.base_amount / 1e8).toFixed(1)}억</span>
+                            <span className="font-medium text-slate-700">{rec.base_amount > 0 ? (rec.base_amount / 1e8).toFixed(1) + '억' : '-'}</span>
                             {rec.open_date && (
                               <span>개찰 {new Date(rec.open_date).toLocaleDateString('ko-KR')}</span>
                             )}
@@ -656,7 +656,7 @@ export default function BidsPage() {
                             {bid.region_name ?? '-'}
                           </TableCell>
                           <TableCell className="text-right whitespace-nowrap font-medium text-slate-900 text-sm py-3">
-                            {(bid.base_amount / 1e8).toFixed(1)}억
+                            {bid.base_amount > 0 ? (bid.base_amount / 1e8).toFixed(1) + '억' : '-'}
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-slate-500 text-sm py-3">
                             {bid.bid_open_date

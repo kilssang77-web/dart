@@ -398,7 +398,7 @@ function TabHistory({ navigate }: { navigate: ReturnType<typeof useNavigate> }) 
                       {rec.bid_date ? new Date(rec.bid_date).toLocaleDateString('ko-KR') : '-'}
                     </TableCell>
                     <TableCell className="text-right text-sm text-slate-600 tabular-nums">
-                      {(rec.base_amount / 1e8).toFixed(1)}억
+                      {rec.base_amount > 0 ? (rec.base_amount / 1e8).toFixed(1) + '억' : '-'}
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm text-slate-700 tabular-nums">
                       {(rec.submitted_rate * 100).toFixed(3)}%

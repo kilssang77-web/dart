@@ -256,13 +256,21 @@ class NarajangterClient:
             except (TypeError, ValueError):
                 return None
 
+        def _normalize_rate(val: object) -> float | None:
+            # G2B API sucsfbidRate는 소수형(0.9029)과 퍼센트형(90.29) 혼재
+            # 1.5 초과이면 퍼센트형으로 판단해 /100 정규화
+            r = _safe_float(val)
+            if r is None:
+                return None
+            return r / 100 if r > 1.5 else r
+
         # ScsbidInfoService 필드명 매핑 (낙찰자 단건)
         return BidResult(
             announcement_no=item.get("bidNtceNo", ""),
             competitor_name=item.get("bidwinnrNm") or item.get("corpNm", ""),
             biz_reg_no=item.get("bidwinnrBizno") or item.get("bizRegNo"),
             bid_amount=_safe_int(item.get("sucsfbidAmt") or item.get("bidAmt")),
-            bid_rate=_safe_float(item.get("sucsfbidRate") or item.get("rate")),
+            bid_rate=_normalize_rate(item.get("sucsfbidRate") or item.get("rate")),
             rank=1,  # ScsbidInfoService는 낙찰자(1위)만 반환
             is_winner=True,
         )

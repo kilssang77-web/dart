@@ -437,7 +437,7 @@ export default function AgencyDetailPage() {
                               </span>
                             </TableCell>
                             <TableCell className="text-right whitespace-nowrap">
-                              <span className="text-sm font-medium text-slate-700">{(b.base_amount / 1e8).toFixed(1)}억</span>
+                              <span className="text-sm font-medium text-slate-700">{b.base_amount > 0 ? (b.base_amount / 1e8).toFixed(1) + '억' : '-'}</span>
                             </TableCell>
                             <TableCell className="whitespace-nowrap text-sm text-slate-500">
                               {b.bid_open_date ? new Date(b.bid_open_date).toLocaleDateString('ko-KR') : '-'}

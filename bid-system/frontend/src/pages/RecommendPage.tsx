@@ -1157,7 +1157,7 @@ export default function RecommendPage() {
                         >
                           <TableCell className="max-w-xs truncate text-slate-700">{s.title}</TableCell>
                           <TableCell className="whitespace-nowrap text-slate-600">{s.agency_name}</TableCell>
-                          <TableCell className="text-right text-slate-600">{(s.base_amount / 1e8).toFixed(1)}억</TableCell>
+                          <TableCell className="text-right text-slate-600">{s.base_amount > 0 ? (s.base_amount / 1e8).toFixed(1) + '억' : '-'}</TableCell>
                           <TableCell className="text-right font-mono font-semibold text-blue-600">
                             {s.winner_rate ? pct(s.winner_rate) + '%' : '-'}
                           </TableCell>
