@@ -1,9 +1,9 @@
 ﻿import { useEffect, useRef, useState, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { Wifi, WifiOff, RefreshCw, Clock, X, Search } from 'lucide-react'
+import { Wifi, WifiOff, RefreshCw, Clock, X, Search, BookOpen } from 'lucide-react'
 import { fmt } from '@/lib/utils'
-import { stocksApi } from '@/api/stocks'
+import { stocksApi, type Orderbook } from '@/api/stocks'
 
 interface TickData {
   code:        string
@@ -44,6 +44,15 @@ export function HTS() {
   const [watchQuery,    setWatchQuery]    = useState('')
   const [watchedCodes,  setWatchedCodes]  = useState<Map<string, string>>(new Map())
   const [showWatchSearch, setShowWatchSearch] = useState(false)
+  const [selectedCode,  setSelectedCode]  = useState<string | null>(null)
+
+  const { data: orderbook } = useQuery<Orderbook>({
+    queryKey:  ['orderbook', selectedCode],
+    queryFn:   () => stocksApi.getOrderbook(selectedCode!),
+    enabled:   !!selectedCode,
+    staleTime: 15_000,
+    refetchInterval: selectedCode ? 15_000 : false,
+  })
 
   const { data: watchResults } = useQuery({
     queryKey:  ['hts-watch-search', watchQuery],
@@ -141,8 +150,14 @@ export function HTS() {
       return 0
     })
 
+  const selectedTick = selectedCode ? ticks.get(selectedCode) : null
+  const obMaxQty = orderbook
+    ? Math.max(...[...orderbook.asks, ...orderbook.bids].map((l) => l.qty), 1)
+    : 1
+
   return (
-    <div className="p-4 space-y-3 h-full">
+    <div className="flex h-full">
+    <div className="flex-1 p-4 space-y-3 min-w-0 overflow-auto">
 
       {/* 상태 바 */}
       <div className="flex items-center gap-3 p-3 bg-[var(--card)] border border-[var(--border)] rounded-xl">
@@ -265,9 +280,11 @@ export function HTS() {
             return (
               <div
                 key={tick.code}
+                onClick={() => setSelectedCode((c) => c === tick.code ? null : tick.code)}
                 className={clsx(
                   'relative bg-[var(--card)] border border-[var(--border)] rounded-xl p-3 cursor-pointer',
                   'hover:border-cyan-500/40 transition-colors',
+                  selectedCode === tick.code && 'border-cyan-500/60 ring-1 ring-cyan-500/30',
                   dir === 'up' && 'flash-up',
                   dir === 'dn' && 'flash-dn'
                 )}
@@ -323,6 +340,101 @@ export function HTS() {
           })}
         </div>
       )}
+    </div>
+
+    {/* 호가창 사이드 패널 */}
+    {selectedCode && (
+      <div className="w-64 shrink-0 border-l border-[var(--border)] bg-[var(--card)] flex flex-col">
+        {/* 헤더 */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+          <div>
+            <div className="text-sm font-semibold text-[var(--fg)] flex items-center gap-1.5">
+              <BookOpen size={13} className="text-cyan-400" />
+              {selectedTick?.name ?? selectedCode}
+            </div>
+            {selectedTick && (
+              <div className={clsx(
+                'text-xs tabular mt-0.5',
+                selectedTick.change_rate > 0 ? 'text-red-400' : selectedTick.change_rate < 0 ? 'text-blue-400' : 'text-[var(--muted)]'
+              )}>
+                {selectedTick.price.toLocaleString()} ({selectedTick.change_rate > 0 ? '+' : ''}{selectedTick.change_rate.toFixed(2)}%)
+              </div>
+            )}
+          </div>
+          <button onClick={() => setSelectedCode(null)} className="text-[var(--muted)] hover:text-[var(--fg)]">
+            <X size={14} />
+          </button>
+        </div>
+
+        {/* 호가 테이블 */}
+        <div className="flex-1 overflow-y-auto p-2 space-y-px text-xs">
+          {(!orderbook || (orderbook.asks.length === 0 && orderbook.bids.length === 0)) ? (
+            <div className="flex flex-col items-center justify-center h-full text-[var(--muted)] gap-2 py-8">
+              <Clock size={18} className="opacity-40" />
+              <p className="text-center">장중 호가 데이터<br/>없음 (collector 연결 필요)</p>
+            </div>
+          ) : (
+            <>
+              {/* 매도 (역순 — 가장 낮은 매도가가 아래) */}
+              <div className="text-[10px] text-[var(--muted)] px-1 pt-1 pb-0.5 uppercase tracking-wider">매도 잔량</div>
+              {[...orderbook.asks].reverse().map((lv, i) => {
+                const pct = Math.min(100, (lv.qty / obMaxQty) * 100)
+                return (
+                  <div key={`ask-${i}`} className="flex items-center gap-1 h-5 relative px-1">
+                    <div className="absolute right-0 top-0 bottom-0 bg-blue-500/10 rounded"
+                         style={{ width: `${pct}%` }} />
+                    <span className="w-20 text-right tabular text-blue-400 font-medium relative z-10">
+                      {lv.price.toLocaleString()}
+                    </span>
+                    <span className="flex-1 text-right tabular text-[var(--muted)] relative z-10">
+                      {lv.qty.toLocaleString()}
+                    </span>
+                  </div>
+                )
+              })}
+
+              {/* 현재가 구분선 */}
+              {selectedTick && (
+                <div className="flex items-center gap-1 my-1 px-1">
+                  <div className="flex-1 h-px bg-[var(--border)]" />
+                  <span className={clsx(
+                    'text-xs font-bold tabular',
+                    selectedTick.change_rate > 0 ? 'text-red-400' : selectedTick.change_rate < 0 ? 'text-blue-400' : 'text-[var(--fg)]'
+                  )}>
+                    {selectedTick.price.toLocaleString()}
+                  </span>
+                  <div className="flex-1 h-px bg-[var(--border)]" />
+                </div>
+              )}
+
+              {/* 매수 */}
+              <div className="text-[10px] text-[var(--muted)] px-1 pt-0.5 pb-0.5 uppercase tracking-wider">매수 잔량</div>
+              {orderbook.bids.map((lv, i) => {
+                const pct = Math.min(100, (lv.qty / obMaxQty) * 100)
+                return (
+                  <div key={`bid-${i}`} className="flex items-center gap-1 h-5 relative px-1">
+                    <div className="absolute left-0 top-0 bottom-0 bg-red-500/10 rounded"
+                         style={{ width: `${pct}%` }} />
+                    <span className="w-20 text-right tabular text-red-400 font-medium relative z-10">
+                      {lv.price.toLocaleString()}
+                    </span>
+                    <span className="flex-1 text-right tabular text-[var(--muted)] relative z-10">
+                      {lv.qty.toLocaleString()}
+                    </span>
+                  </div>
+                )
+              })}
+
+              {/* 총 잔량 */}
+              <div className="flex justify-between px-1 pt-2 pb-1 border-t border-[var(--border)] mt-1 text-[10px]">
+                <span className="text-blue-400 tabular">매도 {orderbook.total_ask_qty.toLocaleString()}</span>
+                <span className="text-red-400 tabular">매수 {orderbook.total_bid_qty.toLocaleString()}</span>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    )}
     </div>
   )
 }

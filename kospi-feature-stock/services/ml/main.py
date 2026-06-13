@@ -143,6 +143,58 @@ async def reload_model():
     return {"status": "ok", "model_loaded": loaded}
 
 
+@app.get("/shap-explain")
+async def shap_explain():
+    """entry 모델 기준 SHAP 피처 기여도 — 중립 샘플(all-zero) 기준."""
+    if _predictor is None or not _predictor.is_ready():
+        return {"error": "model_not_loaded", "values": []}
+    try:
+        import shap
+        import numpy as np
+        import pandas as pd
+        from models.lgbm_predictor import FEATURE_COLUMNS
+
+        # 중립 샘플: RSI·MA ratio 등 중립값 설정, 나머지 0
+        neutral = {col: 0.0 for col in FEATURE_COLUMNS}
+        neutral.update({
+            "rsi14":       50.0,
+            "ma5_ratio":   1.0,
+            "ma20_ratio":  1.0,
+            "ma60_ratio":  1.0,
+            "bb_pct":      0.5,
+            "pos_52w":     0.5,
+        })
+        X = pd.DataFrame([neutral])[FEATURE_COLUMNS].fillna(0.0)
+
+        explainer  = shap.TreeExplainer(_predictor._entry)
+        shap_vals  = explainer.shap_values(X)
+        # TreeExplainer returns ndarray (n_samples, n_features) for binary
+        if isinstance(shap_vals, list):
+            shap_arr = shap_vals[1][0]    # positive class
+        else:
+            shap_arr = shap_vals[0]
+
+        base_value = float(
+            explainer.expected_value[1]
+            if isinstance(explainer.expected_value, (list, np.ndarray))
+            else explainer.expected_value
+        )
+
+        items = [
+            {"feature": f, "shap": round(float(v), 6)}
+            for f, v in zip(FEATURE_COLUMNS, shap_arr)
+        ]
+        items.sort(key=lambda x: abs(x["shap"]), reverse=True)
+        return {
+            "base_value": round(base_value, 6),
+            "values":     items[:25],
+            "note":       "neutral_sample",
+        }
+    except Exception as e:
+        logger.warning(f"SHAP explain error: {e}")
+        return {"error": str(e), "values": []}
+
+
 async def run():
     import uvicorn
     config = uvicorn.Config(

@@ -39,6 +39,20 @@ async def get_model_metrics():
         return None
 
 
+@router.get("/shap")
+async def get_shap():
+    """ML 서비스 SHAP 설명 프록시 — 중립 샘플 기준 피처 기여도."""
+    if _ML_SERVICE_URL:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(f"{_ML_SERVICE_URL}/shap-explain")
+                if resp.status_code == 200:
+                    return resp.json()
+        except Exception:
+            pass
+    return {"error": "ml_service_unavailable", "values": []}
+
+
 @router.get("/kafka-lag")
 async def get_kafka_lag(redis: redis_lib.Redis = Depends(get_redis)):
     """Redis에 저장된 Kafka 컨슈머 lag 반환 (detector가 30초마다 갱신)."""

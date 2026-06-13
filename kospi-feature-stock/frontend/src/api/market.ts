@@ -63,6 +63,18 @@ export interface KafkaLag {
   by_topic:  Record<string, number>
   error?:    string
 }
+
+export interface ShapValue {
+  feature: string
+  shap:    number
+}
+
+export interface ShapExplain {
+  base_value: number
+  values:     ShapValue[]
+  note?:      string
+  error?:     string
+}
 export interface IndexQuote {
   code?:        string
   name:         string
@@ -110,6 +122,9 @@ export const marketApi = {
 
   getKafkaLag: () =>
     http.get<KafkaLag>('/ml/kafka-lag').then((r) => r.data),
+
+  getShapExplain: () =>
+    http.get<ShapExplain>('/ml/shap').then((r) => r.data),
 
   runBacktest: (params: { start: string; end: string; event_type?: string; min_score?: number; stop_loss_pct?: number; target_pct?: number }) =>
     http.post<BacktestResult>('/backtest/run', params).then((r) => r.data),

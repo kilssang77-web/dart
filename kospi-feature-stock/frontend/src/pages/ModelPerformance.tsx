@@ -5,7 +5,7 @@ import { StatCard, Card, CardHeader, CardTitle, CardBody } from '@/components/ui
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
-import { marketApi, type ModelMetrics, type KafkaLag } from '@/api/market'
+import { marketApi, type ModelMetrics, type KafkaLag, type ShapExplain } from '@/api/market'
 import { fmt } from '@/lib/utils'
 
 const LAG_WARN  = 500
@@ -39,6 +39,13 @@ export function ModelPerformance() {
     queryFn:   marketApi.getKafkaLag,
     staleTime: 30_000,
     refetchInterval: 30_000,
+  })
+
+  const { data: shap } = useQuery<ShapExplain>({
+    queryKey:  ['shap-explain'],
+    queryFn:   marketApi.getShapExplain,
+    staleTime: 600_000,
+    retry: false,
   })
 
   const featureData = metrics?.feature_importance
@@ -204,6 +211,59 @@ export function ModelPerformance() {
             </CardBody>
           </Card>
         </>
+      )}
+
+      {/* SHAP 피처 기여도 (모델 로드 여부와 무관하게 표시 시도) */}
+      {shap && !shap.error && shap.values.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>SHAP 피처 기여도</CardTitle>
+              <span className="text-xs text-[var(--muted)]">중립 샘플 기준 · entry 모델 · base {shap.base_value.toFixed(4)}</span>
+            </div>
+          </CardHeader>
+          <CardBody>
+            <div className="space-y-1.5">
+              {shap.values.map(({ feature, shap: val }) => {
+                const positive  = val >= 0
+                const barW      = Math.min(100, Math.abs(val) / (shap.values[0] ? Math.abs(shap.values[0].shap) + 1e-9 : 1) * 100)
+                return (
+                  <div key={feature} className="flex items-center gap-2 text-xs">
+                    <span className="w-40 text-right text-[var(--muted)] font-mono truncate shrink-0">{feature}</span>
+                    <div className="flex-1 flex items-center gap-1 relative h-4">
+                      <div className="absolute inset-0 flex items-center">
+                        <div className="w-1/2 flex justify-end pr-0.5">
+                          {!positive && (
+                            <div
+                              className="h-3 rounded-l bg-blue-500/70"
+                              style={{ width: `${barW}%` }}
+                            />
+                          )}
+                        </div>
+                        <div className="w-px h-4 bg-[var(--border)]" />
+                        <div className="w-1/2 pl-0.5">
+                          {positive && (
+                            <div
+                              className="h-3 rounded-r bg-red-500/70"
+                              style={{ width: `${barW}%` }}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <span className={clsx(
+                      'w-16 text-right tabular font-semibold shrink-0',
+                      positive ? 'text-red-400' : 'text-blue-400'
+                    )}>
+                      {positive ? '+' : ''}{val.toFixed(4)}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+            <p className="text-xs text-[var(--muted)] mt-3">빨강=매수 확률 상승 기여 · 파랑=매수 확률 하락 기여</p>
+          </CardBody>
+        </Card>
       )}
     </div>
   )

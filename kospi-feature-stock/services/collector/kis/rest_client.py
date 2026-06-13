@@ -192,6 +192,38 @@ class KISRestClient:
             for r in data.get("output", [])
         ]
 
+    async def get_orderbook(self, code: str) -> dict:
+        """주식 호가 잔량 (FHKST01010200) — 매도/매수 각 10단계."""
+        try:
+            data = await self._get(
+                "/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn",
+                "FHKST01010200",
+                {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code},
+            )
+            o = data.get("output1", {})
+            if not o:
+                return {}
+            asks, bids = [], []
+            for i in range(1, 11):
+                ap = int(o.get(f"askp{i}", 0) or 0)
+                aq = int(o.get(f"askp_rsqn{i}", 0) or 0)
+                bp = int(o.get(f"bidp{i}", 0) or 0)
+                bq = int(o.get(f"bidp_rsqn{i}", 0) or 0)
+                if ap:
+                    asks.append({"price": ap, "qty": aq})
+                if bp:
+                    bids.append({"price": bp, "qty": bq})
+            return {
+                "code":         code,
+                "asks":         asks,           # 매도 (낮은가→높은가)
+                "bids":         bids,           # 매수 (높은가→낮은가)
+                "total_ask_qty": int(o.get("total_askp_rsqn", 0) or 0),
+                "total_bid_qty": int(o.get("total_bidp_rsqn", 0) or 0),
+                "ts":           datetime.now().isoformat(),
+            }
+        except Exception:
+            return {}
+
     async def get_current_price(self, code: str, exchange: str = "KRX") -> dict:
         """주식현재가 시세 (FHKST01010100) — 단건, 당일 OHLCV 누적 포함.
         minute-bar 폴링보다 경량. 전 종목 인트라데이 스캔용.

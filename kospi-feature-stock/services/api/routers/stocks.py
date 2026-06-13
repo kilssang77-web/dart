@@ -72,6 +72,22 @@ async def get_active_stocks(
     return [dict(r) for r in rows]
 
 
+@router.get("/{code}/orderbook")
+async def get_orderbook(
+    code: str,
+    redis: redis_lib.Redis = Depends(get_redis),
+):
+    """호가 잔량 — Redis 캐시 우선(collector가 30s 갱신), 없으면 빈 응답."""
+    try:
+        raw = await redis.get(f"orderbook:{code}")
+        if raw:
+            import orjson as _orjson
+            return _orjson.loads(raw)
+    except Exception:
+        pass
+    return {"code": code, "asks": [], "bids": [], "total_ask_qty": 0, "total_bid_qty": 0}
+
+
 @router.get("/{code}")
 async def get_stock(code: str, db: asyncpg.Pool = Depends(get_db)):
     row = await db.fetchrow("SELECT * FROM stocks WHERE code = $1", code)

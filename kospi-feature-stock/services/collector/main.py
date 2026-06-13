@@ -402,7 +402,7 @@ class StockCollector:
 
     # ── Watching 종목 즉시 스캔 (10초 주기) ───────────────────
     async def _watching_scan_loop(self):
-        """사용자가 열람 중인 종목(watching:*) 10초마다 즉시 스캔 → quote 캐시 갱신."""
+        """사용자가 열람 중인 종목(watching:*) 10초마다 즉시 스캔 → quote·호가창 캐시 갱신."""
         while True:
             await asyncio.sleep(10)
             if not is_market_open():
@@ -417,7 +417,11 @@ class StockCollector:
                     if snap and snap.get("price"):
                         snap["source"] = "intraday"
                         await self.redis.set(f"quote:{code}", orjson.dumps(snap), ex=1800)
-                    await asyncio.sleep(0.1)
+                    # 호가창 갱신 (장중 최신 10단계 호가)
+                    ob = await self.rest.get_orderbook(code)
+                    if ob and ob.get("asks"):
+                        await self.redis.set(f"orderbook:{code}", orjson.dumps(ob), ex=30)
+                    await asyncio.sleep(0.15)
             except Exception as e:
                 logger.error(f"[WatchScan] {e}")
 

@@ -27,4 +27,21 @@ export const stocksApi = {
 
   watchStock: (code: string) =>
     http.post(`/stocks/${code}/watch`).then((r) => r.data),
+
+  getOrderbook: (code: string) =>
+    http.get<Orderbook>(`/stocks/${code}/orderbook`).then((r) => r.data),
+}
+
+export interface OrderbookLevel {
+  price: number
+  qty:   number
+}
+
+export interface Orderbook {
+  code:           string
+  asks:           OrderbookLevel[]   // 매도 (낮은가→높은가)
+  bids:           OrderbookLevel[]   // 매수 (높은가→낮은가)
+  total_ask_qty:  number
+  total_bid_qty:  number
+  ts?:            string
 }
