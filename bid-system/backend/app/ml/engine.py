@@ -186,36 +186,36 @@ def _zero_context_features() -> dict:
 # 모델 학습
 # ──────────────────────────────────────────────────
 
-def train_models(df: pd.DataFrame) -> dict:
+def train_models(df: pd.DataFrame, clf_df: Optional["pd.DataFrame"] = None) -> dict:
     """
-    df 컬럼: feature_cols + target_rate + is_winner
+    df     : 낙찰 레코드 (feature_cols + target_rate + is_winner=True) — 분위수 회귀 전용
+    clf_df : 전체 참가자 레코드 (winners + non-winners) — 분류기 전용.
+             None 이면 df 를 그대로 사용(하위 호환).
     반환: 학습된 모델 정보 dict
     """
     import xgboost as xgb
     import lightgbm as lgb
     from sklearn.model_selection import train_test_split
     from sklearn.impute import SimpleImputer
-    from sklearn.pipeline import Pipeline
 
-    logger.info(f"모델 학습 시작 - 데이터 {len(df)}건")
+    logger.info(f"모델 학습 시작 - 낙찰={len(df)}건, 분류={len(clf_df) if clf_df is not None else len(df)}건")
 
     winner_df = df[df["is_winner"] == True].copy()
     if len(winner_df) < 20:
         logger.warning("낙찰 데이터 부족 — 규칙 기반 모드 유지")
         return {}
 
-    X = df[FEATURE_COLS].copy()
+    # imputer: 전체 데이터(clf_df)로 fit → 더 넓은 값 범위 커버
+    # keep_empty_features=True: 전체 NaN 피처(예: yega_*)도 컬럼 수 유지 → win_model 피처 수 일치 보장
+    all_for_imputer = clf_df if clf_df is not None else df
+    imputer = SimpleImputer(strategy="median", keep_empty_features=True)
+    imputer.fit(all_for_imputer[FEATURE_COLS].copy())
+
+    # ── 분위수 회귀 (XGBoost) — 낙찰 레코드만 사용
+    X_w   = imputer.transform(df[FEATURE_COLS].copy())
     y_rate = df["target_rate"].astype(float)
-    y_win  = df["is_winner"].astype(int)
+    X_tr_w, X_val_w, yr_tr, yr_val = train_test_split(X_w, y_rate, test_size=0.2, random_state=42)
 
-    imputer = SimpleImputer(strategy="median")
-    X_imp = imputer.fit_transform(X)
-
-    X_tr, X_val, yr_tr, yr_val, yw_tr, yw_val = train_test_split(
-        X_imp, y_rate, y_win, test_size=0.2, random_state=42
-    )
-
-    # 투찰률 분위수 모델 (XGBoost)
     rate_models = {}
     for q in [0.05, 0.25, 0.50, 0.75, 0.95]:
         m = xgb.XGBRegressor(
@@ -224,24 +224,31 @@ def train_models(df: pd.DataFrame) -> dict:
             objective="reg:quantileerror", quantile_alpha=q,
             tree_method="hist", random_state=42, verbosity=0,
         )
-        m.fit(X_tr, yr_tr, eval_set=[(X_val, yr_val)],
+        m.fit(X_tr_w, yr_tr, eval_set=[(X_val_w, yr_val)],
               verbose=False, early_stopping_rounds=30)
         rate_models[q] = m
+    logger.info("분위수 회귀 학습 완료")
 
-    # 낙찰확률 모델 (LightGBM) — 비낙찰 데이터가 있을 때만 학습
-    pos = int(yw_tr.sum())
-    neg = len(yw_tr) - pos
+    # ── 낙찰 분류기 (LightGBM) — winners + non-winners 필요
     win_model = None
+    clf_source = clf_df if clf_df is not None else df
+    X_c  = imputer.transform(clf_source[FEATURE_COLS].copy())
+    y_win = clf_source["is_winner"].astype(int).values
+
+    pos = int(y_win.sum())
+    neg = len(y_win) - pos
     if neg >= 5 and pos >= 5:
+        X_tr_c, X_val_c, yw_tr, yw_val = train_test_split(X_c, y_win, test_size=0.2, random_state=42, stratify=y_win)
         scale = neg / pos
         win_model = lgb.LGBMClassifier(
             n_estimators=200, num_leaves=31, learning_rate=0.05,
             min_child_samples=10, scale_pos_weight=scale,
             subsample=0.8, colsample_bytree=0.8, verbosity=-1, random_state=42,
         )
-        win_model.fit(X_tr, yw_tr, eval_set=[(X_val, yw_val)],
+        win_model.fit(X_tr_c, yw_tr, eval_set=[(X_val_c, yw_val)],
                       callbacks=[lgb.early_stopping(30, verbose=False),
                                   lgb.log_evaluation(-1)])
+        logger.info(f"낙찰 분류기 학습 완료 — pos={pos} neg={neg}")
     else:
         logger.info(f"낙찰 분류기 스킵 — pos={pos} neg={neg} (비낙찰 데이터 부족, Monte Carlo 사용)")
 
@@ -253,7 +260,8 @@ def train_models(df: pd.DataFrame) -> dict:
     joblib.dump(imputer,     MODEL_DIR / "imputer.pkl")
     with open(MODEL_DIR / "meta.json", "w") as f:
         json.dump({"version": version, "train_size": len(df),
-                   "winner_size": len(winner_df), "has_win_model": win_model is not None}, f)
+                   "winner_size": len(winner_df), "clf_size": len(clf_source),
+                   "has_win_model": win_model is not None}, f)
 
     logger.info(f"모델 학습 완료 — 버전: {version}")
     return {"version": version, "train_size": len(df)}

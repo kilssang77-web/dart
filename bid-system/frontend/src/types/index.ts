@@ -1274,9 +1274,10 @@ export interface StrategyResult {
 }
 
 export interface SimulateBidRequest {
-  yega_values:  number[] | null
-  our_bid_rate: number | null
-  n_sim:        number
+  yega_values:      number[] | null
+  our_bid_rate:     number | null
+  competitor_rates: number[] | null
+  n_sim:            number
 }
 
 export interface SimulateBidResponse {

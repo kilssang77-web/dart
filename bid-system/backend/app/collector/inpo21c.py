@@ -587,7 +587,7 @@ def _get_valid_cookie(settings) -> str | None:
     return None
 
 
-def collect_inpo21c(db: Session, max_pages: int = 4) -> dict:
+def collect_inpo21c(db: Session, max_pages: int = 100) -> dict:
     """
     inpo21c 낙찰 목록을 순회하며 세 가지 데이터를 함께 수집:
       1) 전 참여자 (inpo21c_participants) — 낙쳀업체(1순위) 포함 버그 수정

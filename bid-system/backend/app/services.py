@@ -6212,11 +6212,19 @@ class DecisionService:
             or features.get("global_comp_count")
             or 8
         )
+        # 경쟁사 투찰률: 수동 입력 우선, 없으면 DB 조회
         inpo_rates = None
-        try:
-            inpo_rates = get_inpo_raw_rates(db, expected_n)
-        except Exception:
-            pass
+        manual_rates = req.competitor_rates if req.competitor_rates else None
+        if manual_rates and len(manual_rates) >= 2:
+            valid = [r for r in manual_rates if 0.80 <= r <= 1.00]
+            if len(valid) >= 2:
+                inpo_rates = valid
+                expected_n = max(expected_n, len(valid))
+        if inpo_rates is None:
+            try:
+                inpo_rates = get_inpo_raw_rates(db, expected_n)
+            except Exception:
+                pass
 
         all_zones, top_zones = scan_zones_from_dist(
             srate_dist, floor_rate, base_amount,

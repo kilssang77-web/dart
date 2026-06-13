@@ -669,7 +669,7 @@ def inpo21c_collect_progress(_: User = Depends(require_role("admin"))):
 @router.post("/inpo21c/collect")
 def trigger_inpo21c_collect(
     background_tasks: BackgroundTasks,
-    max_pages: int = 4,
+    max_pages: int = 100,
     _: User = Depends(require_role("admin")),
     db: Session = Depends(get_db),
 ):

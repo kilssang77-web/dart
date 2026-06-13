@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { decisionApi } from '@/api'
 import type { BidContext, SimulateBidResponse, ZoneItem } from '@/types'
-import { Search, Target, Zap, TrendingUp, Shield, AlertCircle, CheckCircle2, ChevronRight, Info } from 'lucide-react'
+import { Search, Target, Zap, TrendingUp, Shield, AlertCircle, CheckCircle2, ChevronRight, Info, Users, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /* ─────────────────────────────────────────────────────────────
@@ -208,6 +208,8 @@ export default function TenderDecisionPage() {
   const [yegaInputs, setYegaInputs] = useState<(string | number)[]>(Array(15).fill(''))
   const [result, setResult] = useState<SimulateBidResponse | null>(null)
   const [activeTab, setActiveTab] = useState<'zones' | 'hist' | 'combo'>('zones')
+  const [competitorRateText, setCompetitorRateText] = useState('')
+  const [showCompetitorPanel, setShowCompetitorPanel] = useState(false)
 
   // 공고 컨텍스트 조회
   const { data: ctx } = useQuery<BidContext>({
@@ -215,6 +217,22 @@ export default function TenderDecisionPage() {
     queryFn: () => decisionApi.context(bidId!),
     enabled: bidId !== null,
   })
+
+  // 경쟁사 투찰률 파싱 (90.123% → 0.90123, 0.90123 → 0.90123)
+  const parsedCompetitorRates = (): number[] | null => {
+    if (!competitorRateText.trim()) return null
+    const raw = competitorRateText
+      .split(/[\n,;\s]+/)
+      .map(s => s.trim().replace('%', ''))
+      .filter(Boolean)
+      .map(s => {
+        const n = parseFloat(s)
+        if (isNaN(n)) return null
+        return n > 1 ? n / 100 : n  // 90.123 → 0.90123
+      })
+      .filter((n): n is number => n !== null && n >= 0.80 && n <= 1.00)
+    return raw.length >= 2 ? raw : null
+  }
 
   // 시뮬레이션 실행
   const simulateMut = useMutation({
@@ -225,6 +243,7 @@ export default function TenderDecisionPage() {
       return decisionApi.simulate(bidId!, {
         yega_values: yega_values && yega_values.length === 15 ? yega_values : null,
         our_bid_rate: null,
+        competitor_rates: parsedCompetitorRates(),
         n_sim: 30_000,
       })
     },
@@ -237,6 +256,7 @@ export default function TenderDecisionPage() {
     setBidTitle(title)
     setResult(null)
     setYegaInputs(Array(15).fill(''))
+    setCompetitorRateText('')
   }
 
   const canSimulate = bidId !== null && (
@@ -405,8 +425,68 @@ export default function TenderDecisionPage() {
                 )}
               </div>
 
-              {/* ── 2단 오른쪽: 기본 정보 + 참고 ── */}
-              <div className="bg-white rounded-xl border p-5 shadow-sm space-y-4">
+              {/* ── 2단 오른쪽: 경쟁사 투찰률 + 예측 정보 ── */}
+              <div className="space-y-4">
+                {/* 경쟁사 투찰률 수동 입력 패널 */}
+                <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+                  <button
+                    onClick={() => setShowCompetitorPanel(p => !p)}
+                    className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Users className="w-4 h-4 text-violet-500" />
+                      경쟁사 투찰률 입력
+                      {parsedCompetitorRates() && (
+                        <span className="ml-1 px-1.5 py-0.5 bg-violet-100 text-violet-700 rounded text-xs font-medium">
+                          {parsedCompetitorRates()!.length}개 입력됨
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-gray-400 text-xs">{showCompetitorPanel ? '접기 ▲' : '펼치기 ▼'}</span>
+                  </button>
+                  {showCompetitorPanel && (
+                    <div className="px-5 pb-4 space-y-3 border-t">
+                      <div className="pt-3 text-xs text-gray-500 leading-relaxed">
+                        info21c에서 확인한 경쟁사 투찰률을 입력하면 DB 평균 대신 실제 경쟁사 분포로 낙찰확률을 계산합니다.<br />
+                        형식: 한 줄에 하나씩 또는 쉼표 구분. <span className="font-mono bg-gray-100 px-1 rounded">90.123</span> 또는 <span className="font-mono bg-gray-100 px-1 rounded">0.90123</span> 모두 허용.
+                      </div>
+                      <div className="relative">
+                        <textarea
+                          value={competitorRateText}
+                          onChange={e => setCompetitorRateText(e.target.value)}
+                          placeholder={'예) 90.234\n89.876\n91.102\n...'}
+                          rows={5}
+                          className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none"
+                        />
+                        {competitorRateText && (
+                          <button
+                            onClick={() => setCompetitorRateText('')}
+                            className="absolute top-2 right-2 text-gray-300 hover:text-gray-500"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                      {parsedCompetitorRates() ? (
+                        <div className="text-xs text-violet-700 bg-violet-50 rounded p-2 flex flex-wrap gap-1">
+                          {parsedCompetitorRates()!.map((r, i) => (
+                            <span key={i} className="font-mono bg-violet-100 px-1.5 py-0.5 rounded">
+                              {(r * 100).toFixed(3)}%
+                            </span>
+                          ))}
+                        </div>
+                      ) : competitorRateText.trim() ? (
+                        <div className="text-xs text-amber-600 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3" />
+                          유효한 투찰률(0.80~1.00 또는 80~100%)이 2개 이상 필요합니다.
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+
+                {/* 예측 정보 */}
+                <div className="bg-white rounded-xl border p-5 shadow-sm space-y-4">
                 <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
                   <Info className="w-4 h-4 text-gray-400" />
                   예측 정보
@@ -455,6 +535,7 @@ export default function TenderDecisionPage() {
                     </div>
                   </div>
                 )}
+                </div>
               </div>
             </div>
           )}

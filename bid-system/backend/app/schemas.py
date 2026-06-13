@@ -1332,9 +1332,10 @@ class BidContextResponse(BaseModel):
 
 
 class SimulateBidRequest(BaseModel):
-    yega_values:  Optional[List[int]] = None  # None=추정 모드, 15개=실측 모드
-    our_bid_rate: Optional[float] = None
-    n_sim:        int = 30_000
+    yega_values:      Optional[List[int]]   = None   # None=추정 모드, 15개=실측 모드
+    our_bid_rate:     Optional[float]       = None
+    competitor_rates: Optional[List[float]] = None   # 경쟁사 투찰률 수동 입력 (0.80~1.00)
+    n_sim:            int                   = 30_000
 
 
 class ZoneItem(BaseModel):
