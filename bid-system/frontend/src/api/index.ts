@@ -419,3 +419,16 @@ export const backtestApi = {
   run: (months?: number): Promise<import('../types').BacktestResult> =>
     api.get('/backtest', { params: { months } }).then((r) => r.data),
 }
+
+// -- 투찰 결정 ---------------------------------------------
+
+export const decisionApi = {
+  context: (bidId: number): Promise<import('../types').BidContext> =>
+    api.get(`/bids/${bidId}/bid-context`).then((r) => r.data),
+
+  simulate: (bidId: number, req: import('../types').SimulateBidRequest): Promise<import('../types').SimulateBidResponse> =>
+    api.post(`/bids/${bidId}/simulate-bid`, req).then((r) => r.data),
+
+  searchBids: (keyword: string, limit = 10) =>
+    api.get('/bids', { params: { keyword, page: 1, size: limit, sort_by: 'notice_date' } }).then((r) => r.data?.items ?? r.data),
+}

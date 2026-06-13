@@ -10,6 +10,7 @@
   나머지 모든 공종: 87.745%
 """
 import numpy as np
+from itertools import combinations
 from typing import List, Optional
 
 from .a_value import FLOOR_RATE_TABLE, DEFAULT_FLOOR_RATE, calc_floor_rate as get_floor_rate
@@ -327,4 +328,91 @@ def recommend_with_simulation(
             "floor_abs_p50":  round(floor_abs_p50, 4),
         },
     }
+
+
+def simulate_yejung_from_real(
+    yega_values: List[int],
+    base_amount: int,
+) -> np.ndarray:
+    """
+    실측 15개 예비가격으로 C(15,4)=1,365 정확 사정률 분포 계산.
+    Monte Carlo 근사가 아닌 전수 열거 — 실측 입력 시 최대 정확도.
+
+    Args:
+        yega_values : 실제 15개 예비가격 금액 (원)
+        base_amount : 기초금액 (원)
+
+    Returns:
+        shape (1365,) 사정률 배열 — 각 C(15,4) 조합의 평균 / 기초금액
+    """
+    vals = np.array(yega_values, dtype=np.float64)
+    n = len(vals)
+    avgs = np.array([vals[list(c)].mean() for c in combinations(range(n), 4)])
+    return avgs / base_amount
+
+
+def scan_zones_from_dist(
+    srate_dist: np.ndarray,
+    floor_rate_pct: float,
+    base_amount: int,
+    inpo_rates: Optional[np.ndarray] = None,
+    expected_n_comp: int = 0,
+    scan_start: Optional[float] = None,
+    scan_end: Optional[float] = None,
+    scan_step: float = 0.001,
+    n_sim: int = 20_000,
+) -> tuple[list[dict], list[dict]]:
+    """
+    사정률 분포로 투찰구간별 낙찰확률 스캔 (기초금액 대비 투찰률 기준).
+
+    scan_start/end를 지정하지 않으면 srate_dist에서 동적 산출:
+      start = floor_rate_pct × p10(srate) × 0.99
+      end   = p95(srate) × 1.005
+
+    Returns:
+        (all_zones, top10)
+    """
+    rng = np.random.default_rng(42)
+    srate_p10  = float(np.percentile(srate_dist, 10))
+    srate_p95  = float(np.percentile(srate_dist, 95))
+    srate_med  = float(np.median(srate_dist))
+    eff_floor_abs = floor_rate_pct * srate_med
+
+    if scan_start is None:
+        scan_start = round(floor_rate_pct * srate_p10 * 0.995, 3)
+    if scan_end is None:
+        scan_end = round(srate_p95 * 1.005, 3)
+
+    # 스텝 수가 너무 많으면 step 조정
+    n_steps = int((scan_end - scan_start) / scan_step) + 2
+    if n_steps > 200:
+        scan_step = round((scan_end - scan_start) / 150, 4)
+
+    zones: list[dict] = []
+    rate = scan_start
+    while rate <= scan_end + 1e-9:
+        rate_r = round(rate, 4)
+        floor_ok = rate_r >= eff_floor_abs
+
+        if inpo_rates is not None and len(inpo_rates) >= 5 and expected_n_comp > 0:
+            wp = monte_carlo_win_prob_empirical(
+                rate_r, floor_rate_pct, srate_dist, inpo_rates, expected_n_comp, n_sim, rng,
+            )
+        else:
+            wp = monte_carlo_win_prob(
+                rate_r, floor_rate_pct, srate_dist, [], [], n_sim, rng,
+            )
+
+        zones.append({
+            "rate":        rate_r,
+            "amount":      int(round(rate_r * base_amount)),
+            "win_prob":    wp["win_prob"],
+            "valid_ratio": wp["valid_ratio"],
+            "floor_ok":    floor_ok,
+        })
+        rate += scan_step
+
+    valid_zones = [z for z in zones if z["floor_ok"]]
+    top10 = sorted(valid_zones, key=lambda z: z["win_prob"], reverse=True)[:10]
+    return zones, top10
 

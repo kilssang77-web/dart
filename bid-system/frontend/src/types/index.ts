@@ -1228,3 +1228,70 @@ export interface PrismHistogramResponse {
   top_zones:    PrismZone[]
 }
 
+// ── 투찰 결정 전용 (TenderDecisionPage) ──────────────────
+export interface BidContext {
+  bid_id:               number
+  announcement_no:      string
+  title:                string
+  base_amount:          number
+  agency_id:            number | null
+  agency_name:          string
+  industry_id:          number | null
+  industry_name:        string
+  floor_rate:           number
+  a_value:              number | null
+  srate_center:         number
+  srate_std:            number
+  expected_competitors: number
+  pos_weights:          number[] | null
+  competitor_zones:     CompetitorZone[]
+  notice_date:          string | null
+  bid_open_date:        string | null
+  status:               string | null
+}
+
+export interface CompetitorZone {
+  rate_center: number
+  rate_std:    number
+  count:       number
+}
+
+export interface ZoneItem {
+  rate:        number
+  amount:      number
+  win_prob:    number
+  valid_ratio: number
+  floor_ok:    boolean
+}
+
+export interface StrategyResult {
+  rate:        number
+  amount:      number
+  win_prob:    number
+  avg_rank:    number
+  valid_ratio: number
+  label:       string
+}
+
+export interface SimulateBidRequest {
+  yega_values:  number[] | null
+  our_bid_rate: number | null
+  n_sim:        number
+}
+
+export interface SimulateBidResponse {
+  bid_id:           number
+  base_amount:      number
+  floor_rate:       number
+  srate_center:     number
+  srate_std:        number
+  mode:             'real' | 'estimated'
+  yega_candidates:  { idx: number; amount: number; rate: number }[]
+  top_combinations: { combo: number[]; amount: number; rate: number; prob: number }[]
+  all_zones:        ZoneItem[]
+  top_zones:        ZoneItem[]
+  strategies:       Record<string, StrategyResult>
+  optimal:          { rate: number; amount: number; win_prob: number; srate: number; floor_ok: boolean }
+  histogram:        { bin_center: number; count: number; prob: number }[]
+}
+

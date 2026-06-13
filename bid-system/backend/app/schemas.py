@@ -1306,3 +1306,57 @@ class SucviewImportResult(BaseModel):
     errors:           List[str] = []
     details:          List[str] = []
 
+
+# ──────────────────────────────────────────────
+# 투찰 결정 전용 — TenderDecisionPage
+# ──────────────────────────────────────────────
+class BidContextResponse(BaseModel):
+    bid_id:               int
+    announcement_no:      str
+    title:                str
+    base_amount:          int
+    agency_id:            Optional[int]
+    agency_name:          str
+    industry_id:          Optional[int]
+    industry_name:        str
+    floor_rate:           float
+    a_value:              Optional[int]
+    srate_center:         float
+    srate_std:            float
+    expected_competitors: int
+    pos_weights:          Optional[List[float]]
+    competitor_zones:     List[dict]
+    notice_date:          Optional[date]
+    bid_open_date:        Optional[date]
+    status:               Optional[str]
+
+
+class SimulateBidRequest(BaseModel):
+    yega_values:  Optional[List[int]] = None  # None=추정 모드, 15개=실측 모드
+    our_bid_rate: Optional[float] = None
+    n_sim:        int = 30_000
+
+
+class ZoneItem(BaseModel):
+    rate:        float
+    amount:      int
+    win_prob:    float
+    valid_ratio: float
+    floor_ok:    bool
+
+
+class SimulateBidResponse(BaseModel):
+    bid_id:           int
+    base_amount:      int
+    floor_rate:       float
+    srate_center:     float
+    srate_std:        float
+    mode:             str        # "real" | "estimated"
+    yega_candidates:  List[dict]
+    top_combinations: List[dict]
+    all_zones:        List[ZoneItem]
+    top_zones:        List[ZoneItem]
+    strategies:       dict
+    optimal:          dict
+    histogram:        List[dict]
+

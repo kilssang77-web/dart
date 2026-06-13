@@ -33,6 +33,7 @@ import OurCompetitorsPage   from '@/pages/OurCompetitorsPage'
 import BacktestPage         from '@/pages/BacktestPage'
 import PortfolioPage        from '@/pages/PortfolioPage'
 import ManualPage           from '@/pages/ManualPage'
+import TenderDecisionPage   from '@/pages/TenderDecisionPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -84,6 +85,7 @@ export default function App() {
           <Route path="our-competitors"  element={<OurCompetitorsPage />} />
           <Route path="backtest"         element={<BacktestPage />} />
           <Route path="portfolio"        element={<PortfolioPage />} />
+          <Route path="decision"         element={<TenderDecisionPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -7,7 +7,7 @@ import {
   Building2, ShieldAlert, LogOut, Bell, PanelLeftClose, PanelLeftOpen,
   Globe, Activity, Target, Briefcase, LayoutDashboard, PieChart, Gauge,
   ChevronRight, ChevronDown, ListChecks, FlaskConical, Radar, PackageCheck,
-  BookOpen,
+  BookOpen, Crosshair,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { authApi, notificationsApi } from '@/api'
@@ -22,6 +22,7 @@ const NAV_GROUPS = [
   {
     label: '홈',
     items: [
+      { to: '/decision',  label: '오늘의 투찰', icon: Crosshair },
       { to: '/today',     label: '오늘의 입찰', icon: Home },
       { to: '/dashboard', label: '대시보드',     icon: LayoutDashboard },
     ],
