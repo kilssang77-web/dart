@@ -255,75 +255,75 @@ def create_scheduler() -> BackgroundScheduler:
 
     scheduler.add_job(
         run_collection_job,
-        trigger=CronTrigger(hour=6, minute=0, timezone="Asia/Seoul"),
+        trigger=CronTrigger(hour=6, minute=30, timezone="Asia/Seoul"),
         args=["notices"],
         id="collect_notices_daily",
-        name="공고 수집 (매일 06:00 KST)",
+        name="공고 수집 (매일 06:30 KST)",
         replace_existing=True,
     )
     scheduler.add_job(
         run_results_and_sync,
-        trigger=CronTrigger(hour=18, minute=0, timezone="Asia/Seoul"),
+        trigger=CronTrigger(hour=18, minute=30, timezone="Asia/Seoul"),
         id="collect_results_and_sync_daily",
-        name="개찰결과 수집 + 투찰이력 연계 (매일 18:00 KST)",
+        name="개찰결과 수집 + 투찰이력 연계 (매일 18:30 KST)",
         replace_existing=True,
     )
     scheduler.add_job(
         run_scsbid_job,
-        trigger=CronTrigger(hour=19, minute=0, timezone="Asia/Seoul"),
+        trigger=CronTrigger(hour=19, minute=30, timezone="Asia/Seoul"),
         id="collect_scsbid_daily",
-        name="낙찰정보서비스 참여자수 보강 (매일 19:00 KST)",
+        name="낙찰정보서비스 참여자수 보강 (매일 19:30 KST)",
         replace_existing=True,
     )
     scheduler.add_job(
         run_bid_notices_inpo21c_job,
-        trigger=CronTrigger(hour=9, minute=0, timezone="Asia/Seoul"),
+        trigger=CronTrigger(hour=9, minute=30, timezone="Asia/Seoul"),
         id="collect_bid_notices_inpo21c_daily",
-        name="inpo21c 입찰공고 사전정보 (매일 09:00 KST)",
+        name="inpo21c 입찰공고 사전정보 (매일 09:30 KST)",
         replace_existing=True,
     )
     scheduler.add_job(
         run_inpo21c_job,
-        trigger=CronTrigger(hour=19, minute=30, timezone="Asia/Seoul"),
+        trigger=CronTrigger(hour=20, minute=0, timezone="Asia/Seoul"),
         id="collect_inpo21c_daily",
-        name="inpo21c 전참여자+예가 수집 (매일 19:30 KST)",
+        name="inpo21c 전참여자+예가 수집 (매일 20:00 KST)",
         replace_existing=True,
     )
     scheduler.add_job(
         run_srate_spike_check_job,
-        trigger=CronTrigger(hour=7, minute=0, timezone="Asia/Seoul"),
+        trigger=CronTrigger(hour=7, minute=30, timezone="Asia/Seoul"),
         id="srate_spike_check_daily",
-        name="사정율 급변 알림 탐지 (매일 07:00 KST)",
+        name="사정율 급변 알림 탐지 (매일 07:30 KST)",
         replace_existing=True,
     )
     scheduler.add_job(
         run_execution_deadline_job,
-        trigger=CronTrigger(hour=8, minute=0, timezone="Asia/Seoul"),
+        trigger=CronTrigger(hour=8, minute=30, timezone="Asia/Seoul"),
         id="execution_deadline_notify_daily",
-        name="투찰 마감 임박 알림 D-0/D-1 (매일 08:00 KST)",
+        name="투찰 마감 임박 알림 D-0/D-1 (매일 08:30 KST)",
         replace_existing=True,
     )
-    for hr in (10, 16, 22):
+    for hr, mi in ((10, 30), (16, 30), (22, 30)):
         scheduler.add_job(
             run_post_open_collect_job,
-            trigger=CronTrigger(hour=hr, minute=0, timezone="Asia/Seoul"),
+            trigger=CronTrigger(hour=hr, minute=mi, timezone="Asia/Seoul"),
             id=f"post_open_collect_{hr}",
-            name=f"개찰 후 결과 수집 ({hr:02d}:00 KST)",
+            name=f"개찰 후 결과 수집 ({hr:02d}:{mi:02d} KST)",
             replace_existing=True,
         )
 
     scheduler.add_job(
         run_freq_rebuild_job,
-        trigger=CronTrigger(day_of_week="sun", hour=3, minute=0, timezone="Asia/Seoul"),
+        trigger=CronTrigger(day_of_week="sun", hour=4, minute=0, timezone="Asia/Seoul"),
         id="freq_rebuild_weekly",
-        name="발주기관 빈도표+전략 재계산 (매주 일 03:00 KST)",
+        name="발주기관 빈도표+전략 재계산 (매주 일 04:00 KST)",
         replace_existing=True,
     )
     scheduler.add_job(
         run_inpo21c_national_job,
-        trigger=CronTrigger(day_of_week="sun", hour=3, minute=30, timezone="Asia/Seoul"),
+        trigger=CronTrigger(day_of_week="sun", hour=4, minute=30, timezone="Asia/Seoul"),
         id="collect_inpo21c_national_weekly",
-        name="inpo21c 전국 낙찰 수집 (매주 일 03:30 KST)",
+        name="inpo21c 전국 낙찰 수집 (매주 일 04:30 KST)",
         replace_existing=True,
     )
 
