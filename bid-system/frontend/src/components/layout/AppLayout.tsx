@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { authApi, notificationsApi } from '@/api'
+import { silentRefresh, tokenMsRemaining } from '@/api/client'
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 
@@ -142,6 +143,21 @@ export default function AppLayout() {
   const unreadCount = notifData?.count ?? 0
 
   useEffect(() => { if (user) setUser(user) }, [user, setUser])
+
+  /* 토큰 만료 30분 전 자동 갱신 */
+  useEffect(() => {
+    const schedule = () => {
+      const ms = tokenMsRemaining()
+      if (ms <= 0) return
+      const refreshIn = Math.max(ms - 30 * 60 * 1000, 0)  // 30분 전
+      return window.setTimeout(async () => {
+        await silentRefresh()
+        schedule()  // 갱신 후 다음 타이머 재등록
+      }, refreshIn)
+    }
+    const id = schedule()
+    return () => { if (id) window.clearTimeout(id) }
+  }, [])
 
   const initials = (user?.name || user?.email || 'U').slice(0, 2).toUpperCase()
   const roleLabel = user?.role === 'admin' ? '관리자' : user?.role === 'analyst' ? '분석가' : '뷰어'

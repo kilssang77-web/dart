@@ -29,6 +29,13 @@ def me(current: User = Depends(get_current_user)):
     return current
 
 
+@router.post("/refresh", response_model=TokenResponse)
+def refresh(current: User = Depends(get_current_user)):
+    """유효한 토큰으로 새 토큰 발급 — 만료 전 자동 갱신용."""
+    token = create_token(current.id, current.role)
+    return TokenResponse(access_token=token, user_name=current.name or current.email, role=current.role)
+
+
 @router.post("/users", response_model=UserOut)
 def create_user(
     body: UserCreate,
