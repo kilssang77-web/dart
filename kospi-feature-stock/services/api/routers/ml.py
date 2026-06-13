@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 import httpx
 import redis.asyncio as redis_lib
 
-from api.deps import get_redis
+from deps import get_redis
 
 router = APIRouter()
 

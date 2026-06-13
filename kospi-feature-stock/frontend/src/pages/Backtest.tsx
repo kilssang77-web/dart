@@ -70,7 +70,9 @@ export function Backtest() {
     : tradeSortDir === 'asc' ? <ChevronUp size={10} className="inline" />
     : <ChevronDown size={10} className="inline" />
 
-  const equityFinal = result?.equity_curve?.at(-1)?.equity
+  const equityFinal = result?.equity_curve?.length
+    ? result.equity_curve[result.equity_curve.length - 1]?.equity
+    : undefined
   const totalReturn = equityFinal ? ((equityFinal - 1) * 100).toFixed(2) : null
 
   return (
