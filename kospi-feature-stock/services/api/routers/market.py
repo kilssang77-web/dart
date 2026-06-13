@@ -1,7 +1,13 @@
-from fastapi import APIRouter, Depends, Query
+﻿from fastapi import APIRouter, Depends, Query
 from datetime import datetime, timedelta, timezone
 import asyncpg
-from deps import get_db
+import asyncio
+import httpx
+import logging
+import orjson
+import os
+import redis.asyncio as redis_lib
+from deps import get_db, get_redis, enrich_live_prices
 
 router = APIRouter()
 
@@ -62,8 +68,9 @@ async def market_movers(
     market: str | None = None,
     limit: int = Query(default=10, le=30),
     db: asyncpg.Pool = Depends(get_db),
+    redis: redis_lib.Redis = Depends(get_redis),
 ):
-    """상승/하락 상위 종목 (직전 종가 대비 등락률 계산, UNKNOWN 제외)."""
+    """상승/하락 상위 종목. 순위는 직전 종가 기준, 현재가는 Redis 실시간 보정."""
     mkt_filter = "AND s.market = $2" if market else "AND s.market IN ('KOSPI','KOSDAQ')"
     params = [limit] + ([market.upper()] if market else [])
 
@@ -87,10 +94,12 @@ async def market_movers(
         ORDER BY c.change_rate ASC LIMIT $1
     """, *params)
 
-    return {
-        "gainers": [dict(r) for r in rows_up],
-        "losers":  [dict(r) for r in rows_down],
-    }
+    gainers = [dict(r) for r in rows_up]
+    losers  = [dict(r) for r in rows_down]
+    # 실시간 호가로 price / change_rate 보정
+    await enrich_live_prices(redis, gainers, price_field="price", rate_field="change_rate")
+    await enrich_live_prices(redis, losers,  price_field="price", rate_field="change_rate")
+    return {"gainers": gainers, "losers": losers}
 
 
 @router.get("/foreign-flow")
@@ -98,6 +107,7 @@ async def foreign_flow(
     market: str | None = None,
     limit: int = Query(default=10, le=30),
     db: asyncpg.Pool = Depends(get_db),
+    redis: redis_lib.Redis = Depends(get_redis),
 ):
     """외국인/기관 순매수 상위 종목 (UNKNOWN 제외)."""
     mkt_filter = "AND s.market = $2" if market else "AND s.market IN ('KOSPI','KOSDAQ')"
@@ -124,6 +134,8 @@ async def foreign_flow(
     """, *params)
 
     all_rows = [dict(r) for r in rows]
+    await enrich_live_prices(redis, all_rows, price_field="price", rate_field="change_rate")
+
     foreign_buy = sorted(
         [r for r in all_rows if (r.get("foreign_net") or 0) > 0],
         key=lambda x: -(x.get("foreign_net") or 0)
@@ -134,6 +146,141 @@ async def foreign_flow(
     )[:limit]
 
     return {"foreign_buy": foreign_buy, "inst_buy": inst_buy}
+
+
+_KIS_BASE = "https://openapi.koreainvestment.com:9443"
+_KIS_APP_KEY    = os.getenv("KIS_APP_KEY") or ""
+_KIS_APP_SECRET = os.getenv("KIS_APP_SECRET") or ""
+
+logger = logging.getLogger("api.market")
+
+if not _KIS_APP_KEY or not _KIS_APP_SECRET:
+    logger.warning(
+        "KIS_APP_KEY / KIS_APP_SECRET 환경변수가 설정되지 않았습니다. "
+        "지수 실시간 조회(/index-live)가 비활성화됩니다."
+    )
+
+
+async def _kis_index_quote(redis: redis_lib.Redis, market_code: str) -> dict | None:
+    """KIS 지수 현재가(FHKUP03500100 inquire-daily-indexchartprice) 조회."""
+    if not _KIS_APP_KEY or not _KIS_APP_SECRET:
+        return None
+
+    cache_key = f"market:idx:{market_code}"
+    try:
+        cached = await redis.get(cache_key)
+        if cached:
+            import json as _json
+            return _json.loads(cached)
+    except Exception as e:
+        logger.debug(f"Redis cache read failed for {cache_key}: {e}")
+
+    try:
+        raw = await redis.get("kis:access_token")
+        if not raw:
+            return None
+        token = raw.decode() if isinstance(raw, bytes) else raw
+        today = datetime.now().strftime("%Y%m%d")
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.get(
+                f"{_KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice",
+                headers={
+                    "Content-Type":  "application/json; charset=utf-8",
+                    "authorization": f"Bearer {token}",
+                    "appkey":        _KIS_APP_KEY,
+                    "appsecret":     _KIS_APP_SECRET,
+                    "tr_id":         "FHKUP03500100",
+                    "custtype":      "P",
+                },
+                params={
+                    "FID_COND_MRKT_DIV_CODE": "U",
+                    "FID_INPUT_ISCD":         market_code,
+                    "FID_INPUT_DATE_1":       today,
+                    "FID_INPUT_DATE_2":       today,
+                    "FID_PERIOD_DIV_CODE":    "D",
+                },
+            )
+            d = r.json()
+            if d.get("rt_cd") != "0":
+                logger.debug(f"KIS API non-zero rt_cd={d.get('rt_cd')} for {market_code}")
+                return None
+            o = d.get("output1") or {}
+            if isinstance(o, list):
+                o = o[0] if o else {}
+            price_str = o.get("bstp_nmix_prpr", "")
+            if not price_str or price_str == "0":
+                return None
+            result = {
+                "price":       round(float(price_str), 2),
+                "change":      round(float(o.get("bstp_nmix_prdy_vrss", 0) or 0), 2),
+                "change_rate": round(float(o.get("bstp_nmix_prdy_ctrt", 0) or 0), 2),
+                "open":        round(float(o.get("bstp_nmix_oprc", 0)    or 0), 2),
+                "high":        round(float(o.get("bstp_nmix_hgpr", 0)    or 0), 2),
+                "low":         round(float(o.get("bstp_nmix_lwpr", 0)    or 0), 2),
+                "volume":      int(o.get("acml_vol", 0) or 0),
+            }
+            try:
+                import json as _json
+                await redis.set(cache_key, _json.dumps(result), ex=30)
+            except Exception as e:
+                logger.debug(f"Redis cache write failed for {cache_key}: {e}")
+            return result
+    except asyncio.TimeoutError:
+        logger.warning(f"KIS index quote timeout for {market_code}")
+        return None
+    except Exception as e:
+        logger.error(f"KIS index quote error for {market_code}: {e}")
+        return None
+
+
+@router.get("/index-live")
+async def market_index_live(
+    db: asyncpg.Pool = Depends(get_db),
+    redis: redis_lib.Redis = Depends(get_redis),
+):
+    """KOSPI/KOSDAQ 실시간 지수 현재가 (KIS → Redis 30초 캐시, 실패 시 daily_bars 폴백)."""
+    cache_key = "market:index_live"
+    try:
+        raw = await redis.get(cache_key)
+        if raw:
+            return orjson.loads(raw)
+    except Exception:
+        pass
+
+    kospi  = await _kis_index_quote(redis, "0001")
+    kosdaq = await _kis_index_quote(redis, "1001")
+
+    if kospi and kosdaq:
+        result = {
+            "kospi":      {"code": "0001", "name": "KOSPI",  **kospi},
+            "kosdaq":     {"code": "1001", "name": "KOSDAQ", **kosdaq},
+            "source":     "realtime",
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            await redis.set(cache_key, orjson.dumps(result), ex=30)
+        except Exception:
+            pass
+        return result
+
+    # 실시간 실패 → daily_bars 폴백
+    row = await db.fetchrow(f"""
+        {_CHANGE_RATE_CTE}
+        SELECT
+            MAX(c.date)::TEXT AS data_date,
+            ROUND(AVG(c.change_rate) FILTER (WHERE s.market='KOSPI' )::NUMERIC, 2) AS kospi_change,
+            ROUND(AVG(c.change_rate) FILTER (WHERE s.market='KOSDAQ')::NUMERIC, 2) AS kosdaq_change
+        FROM computed c
+        JOIN stocks s ON s.code = c.code
+        WHERE s.market IN ('KOSPI', 'KOSDAQ')
+    """)
+    d = dict(row) if row else {}
+    return {
+        "kospi":     {"name": "KOSPI",  "change_rate": d.get("kospi_change",  0)},
+        "kosdaq":    {"name": "KOSDAQ", "change_rate": d.get("kosdaq_change", 0)},
+        "source":    "daily",
+        "data_date": d.get("data_date"),
+    }
 
 
 @router.get("/new-highs")
@@ -147,7 +294,7 @@ async def new_highs(
         SELECT DISTINCT ON (fe.code, fe.event_type)
             fe.code, s.name, s.market, s.sector,
             fe.event_type, fe.price, fe.change_rate, fe.signal_score,
-            fe.detected_at::TEXT
+            (fe.detected_at AT TIME ZONE 'Asia/Seoul')::TEXT AS detected_at
         FROM feature_events fe
         JOIN stocks s ON s.code = fe.code
         WHERE fe.event_type IN ('BREAKOUT_52W','BREAKOUT_26W','BREAKOUT_20D')

@@ -15,6 +15,10 @@ from kafka.consumer import KafkaConsumerWrapper
 from kafka.producer import KafkaProducerWrapper
 
 _COOLDOWN_MINUTES = int(os.environ.get("SIGNAL_COOLDOWN_MINUTES", "10"))
+# 분봉 기반 캔들스틱 탐지는 기본 비활성화.
+# 동일 패턴을 일봉 마감 후 batch_scanner에서 더 정확하게 탐지하므로
+# 중복 신호 및 데이터 불일치 방지를 위해 0으로 유지한다.
+_DETECTOR_CANDLE_ENABLED = os.environ.get("DETECTOR_CANDLE_ENABLED", "0") == "1"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -132,40 +136,40 @@ class FeatureStockDetector:
                         "signal_data":  amt_surge.signal_data,
                     })
 
-                # 장대양봉
-                if self.cnd_det.detect_long_white_candle(bar):
-                    await self._emit({
-                        "code":        code,
-                        "event_type":  "LONG_WHITE_CANDLE",
-                        "price":       int(bar.get("close", 0)),
-                        "change_rate": float(bar.get("change_rate", 0)),
-                        "signal_score": self.cnd_det.long_white_score(bar),
-                        "signal_data": bar,
-                    })
+                # 분봉 캔들스틱 탐지 (DETECTOR_CANDLE_ENABLED=1 일 때만 활성화)
+                # 기본값 0: 일봉 마감 후 batch_scanner에서 동일 패턴을 더 정확하게 탐지
+                if _DETECTOR_CANDLE_ENABLED:
+                    if self.cnd_det.detect_long_white_candle(bar):
+                        await self._emit({
+                            "code":        code,
+                            "event_type":  "LONG_WHITE_CANDLE",
+                            "price":       int(bar.get("close", 0)),
+                            "change_rate": float(bar.get("change_rate", 0)),
+                            "signal_score": self.cnd_det.long_white_score(bar),
+                            "signal_data": bar,
+                        })
 
-                # 망치형
-                if self.cnd_det.detect_hammer(bar):
-                    await self._emit({
-                        "code":        code,
-                        "event_type":  "HAMMER_CANDLE",
-                        "price":       int(bar.get("close", 0)),
-                        "change_rate": float(bar.get("change_rate", 0)),
-                        "signal_score": self.cnd_det.hammer_score(bar),
-                        "signal_data": bar,
-                    })
+                    if self.cnd_det.detect_hammer(bar):
+                        await self._emit({
+                            "code":        code,
+                            "event_type":  "HAMMER_CANDLE",
+                            "price":       int(bar.get("close", 0)),
+                            "change_rate": float(bar.get("change_rate", 0)),
+                            "signal_score": self.cnd_det.hammer_score(bar),
+                            "signal_data": bar,
+                        })
 
-                # 모닝스타 (3봉 슬라이딩 버퍼)
-                buf = self._bar_buffer.setdefault(code, deque(maxlen=3))
-                buf.append(bar)
-                if self.cnd_det.detect_morning_star(buf):
-                    await self._emit({
-                        "code":        code,
-                        "event_type":  "MORNING_STAR",
-                        "price":       int(bar.get("close", 0)),
-                        "change_rate": float(bar.get("change_rate", 0)),
-                        "signal_score": 0.68,
-                        "signal_data": {"bars": buf[-3:]},
-                    })
+                    buf = self._bar_buffer.setdefault(code, deque(maxlen=3))
+                    buf.append(bar)
+                    if self.cnd_det.detect_morning_star(buf):
+                        await self._emit({
+                            "code":        code,
+                            "event_type":  "MORNING_STAR",
+                            "price":       int(bar.get("close", 0)),
+                            "change_rate": float(bar.get("change_rate", 0)),
+                            "signal_score": 0.68,
+                            "signal_data": {"bars": buf[-3:]},
+                        })
 
     async def _process_supply_demand(self):
         async for batch in self.consumer.consume(["supply-demand"], batch_size=50):

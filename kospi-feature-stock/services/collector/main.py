@@ -191,7 +191,16 @@ class StockCollector:
         logger.info("DB pool created")
 
     async def run_tick_only(self):
-        """실시간 틱 + 분봉 (WebSocket) + 전 종목 인트라데이 REST 스캔."""
+        """실시간 틱 + 분봉 (WebSocket) + 전 종목 인트라데이 REST 스캔.
+
+        [제약사항] 이 모드는 배치 탐지를 포함하지 않습니다.
+        - 일봉 기반 신호 미발행 (배치 스캐너 미실행)
+        - Redis 통계(avg_vol_20d 등) 갱신 없음 — 초회 기동 시 DB에서 1회 초기화
+        - 모닝스타·장대양봉 등 일봉 캔들 패턴 신호 없음
+
+        사용 시기: 별도의 배치 서버가 운영 중이거나 실시간 모니터링만 필요할 때.
+        SERVICE_NAME=collector-tick 환경변수로 기동.
+        """
         await self.setup()
         cached_active = await self.redis.get("stocks:active_codes")
         if not cached_active and self.db:
@@ -200,6 +209,16 @@ class StockCollector:
             active_codes = await load_active_stocks(self.redis)
 
         all_codes = await load_all_stocks(self.db) if self.db else active_codes
+
+        # detector의 거래량 급증 판단 기준(avg_vol_20d 등)이 Redis에 없으면
+        # 최초 1회 DB에서 초기화한다. 이후 갱신은 run() 모드의 배치에서 처리.
+        if self.db:
+            stats_initialized = await self.redis.get("stats:initialized")
+            if not stats_initialized:
+                logger.info("[tick] Redis stats 초기화 중 (DB → Redis)...")
+                await self._update_redis_stats(all_codes)
+                await self.redis.set("stats:initialized", "1", ex=604_800)  # 7일
+                logger.info("[tick] Redis stats 초기화 완료")
 
         logger.info(f"[tick] WS={len(active_codes)} | REST-scan={len(all_codes)} stocks")
         await asyncio.gather(
