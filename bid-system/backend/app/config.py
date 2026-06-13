@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://:redispass123@localhost:6379/0"
     secret_key: str = _DEV_SECRET
     algorithm: str = "HS256"
-    access_token_expire_minutes: int = 480
+    access_token_expire_minutes: int = 10080  # 7일 — 업무 중 자동 로그아웃 방지
 
     first_admin_email: str = "admin@bid.local"
     first_admin_password: str = "admin1234"
