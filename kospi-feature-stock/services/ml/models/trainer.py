@@ -11,6 +11,7 @@ from sklearn.isotonic import IsotonicRegression
 from sklearn.metrics import (
     accuracy_score, brier_score_loss, f1_score,
     precision_score, recall_score, roc_auc_score,
+    precision_recall_curve,
 )
 
 logger = logging.getLogger(__name__)
@@ -102,26 +103,52 @@ class LGBMTrainer:
 
         # ── 모델 성능 지표 저장 ───────────────────────────────
         cal_proba = np.clip(cal.predict(raw_proba), 0.0, 1.0)
-        y_pred    = (cal_proba >= 0.5).astype(int)
+
+        # Recall ≥ 0.25 을 만족하는 최고 Precision 임계값 탐색
+        precs, recs, threshs = precision_recall_curve(np.array(y_val), cal_proba)
+        # threshs 길이 = precs 길이 - 1; 인덱스 정렬
+        recall_25_mask = recs[:-1] >= 0.25
+        if recall_25_mask.any():
+            best_idx = int(np.argmax(precs[:-1][recall_25_mask]))
+            opt_thresh = float(threshs[recall_25_mask][best_idx])
+        else:
+            # Recall 0.25 달성 불가 시 최대 Recall 임계값 사용
+            opt_thresh = float(threshs[int(np.argmax(recs[:-1]))])
+        opt_thresh = round(max(0.10, min(0.90, opt_thresh)), 4)
+
+        y_pred_05  = (cal_proba >= 0.5).astype(int)
+        y_pred_opt = (cal_proba >= opt_thresh).astype(int)
+
         fi = dict(zip(X_train.columns, model.feature_importances_.tolist()))
         top_fi = dict(sorted(fi.items(), key=lambda x: -x[1])[:30])
         metrics = {
-            "model_type":   "LightGBM (Entry)",
-            "trained_at":   datetime.now(timezone.utc).isoformat(),
-            "n_features":   len(feature_cols),
-            "n_train":      len(X_train),
-            "n_val":        len(X_val),
-            "auc":          round(float(auc), 4),
-            "f1":           round(float(f1_score(y_val, y_pred, zero_division=0)), 4),
-            "precision":    round(float(precision_score(y_val, y_pred, zero_division=0)), 4),
-            "recall":       round(float(recall_score(y_val, y_pred, zero_division=0)), 4),
-            "accuracy":     round(float(accuracy_score(y_val, y_pred)), 4),
-            "brier_score":  round(float(brier_score_loss(y_val, cal_proba)), 4),
+            "model_type":        "LightGBM (Entry)",
+            "trained_at":        datetime.now(timezone.utc).isoformat(),
+            "n_features":        len(feature_cols),
+            "n_train":           len(X_train),
+            "n_val":             len(X_val),
+            "auc":               round(float(auc), 4),
+            # @ threshold 0.5 (baseline)
+            "f1":                round(float(f1_score(y_val, y_pred_05, zero_division=0)), 4),
+            "precision":         round(float(precision_score(y_val, y_pred_05, zero_division=0)), 4),
+            "recall":            round(float(recall_score(y_val, y_pred_05, zero_division=0)), 4),
+            "accuracy":          round(float(accuracy_score(y_val, y_pred_05)), 4),
+            "brier_score":       round(float(brier_score_loss(y_val, cal_proba)), 4),
+            # @ optimal threshold (Recall ≥ 0.25)
+            "optimal_threshold": opt_thresh,
+            "opt_f1":            round(float(f1_score(y_val, y_pred_opt, zero_division=0)), 4),
+            "opt_precision":     round(float(precision_score(y_val, y_pred_opt, zero_division=0)), 4),
+            "opt_recall":        round(float(recall_score(y_val, y_pred_opt, zero_division=0)), 4),
             "feature_importance": top_fi,
         }
         with open(f"{model_dir}/model_metrics.json", "w") as fp:
             json.dump(metrics, fp, indent=2)
-        logger.info(f"model_metrics.json saved: AUC={auc:.4f}")
+        logger.info(
+            f"model_metrics.json saved: AUC={auc:.4f}  "
+            f"opt_threshold={opt_thresh:.3f}  "
+            f"opt_recall={metrics['opt_recall']:.3f}  "
+            f"opt_precision={metrics['opt_precision']:.3f}"
+        )
 
         return model
 
@@ -184,3 +211,37 @@ class LGBMTrainer:
     @staticmethod
     def make_label_risk(df: pd.DataFrame, fwd: int = 5, loss: float = -0.05) -> pd.Series:
         return (df["close"].pct_change(fwd).shift(-fwd) <= loss).astype(int)
+
+    @staticmethod
+    def make_labels_bulk(
+        feat_df: pd.DataFrame,
+        raw_df: pd.DataFrame,
+        entry_pct: float = 5.0,
+        risk_pct: float = 5.0,
+    ) -> "tuple[pd.Series, pd.Series]":
+        """멀티코드 DataFrame용 5일 선행 수익률 레이블 (데이터 누수 없음)."""
+        rdf = raw_df[["code", "date", "close"]].copy()
+        rdf["date"] = pd.to_datetime(rdf["date"])
+        rdf = rdf.sort_values(["code", "date"])
+        rdf["fwd5_close"] = rdf.groupby("code")["close"].shift(-5)
+        rdf["ret5"] = (rdf["fwd5_close"] / rdf["close"].replace(0, np.nan) - 1) * 100
+
+        fdf = feat_df[["__date", "__code"]].copy()
+        fdf["date"] = pd.to_datetime(fdf["__date"])
+        fdf["code"] = fdf["__code"]
+
+        merged = fdf[["code", "date"]].merge(
+            rdf[["code", "date", "ret5"]],
+            on=["code", "date"],
+            how="left",
+        )
+        ret = merged["ret5"]
+        entry_labels = pd.Series(
+            np.where(ret.notna(), (ret >= entry_pct).astype(float), np.nan),
+            dtype="float64",
+        )
+        risk_labels = pd.Series(
+            np.where(ret.notna(), (ret <= -risk_pct).astype(float), np.nan),
+            dtype="float64",
+        )
+        return entry_labels, risk_labels

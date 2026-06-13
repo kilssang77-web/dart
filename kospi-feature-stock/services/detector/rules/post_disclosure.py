@@ -5,9 +5,10 @@ import redis.asyncio as redis_lib
 
 logger = logging.getLogger(__name__)
 
-_SURGE_THRESHOLD = float(os.environ.get("POST_DISC_SURGE_PCT", "2.0"))   # 기본 2% (기존 3%에서 완화)
-_DISC_TTL        = int(os.environ.get("POST_DISC_TTL_SEC", "14400"))      # 기본 4시간 (기존 1시간에서 연장)
+_SURGE_THRESHOLD = float(os.environ.get("POST_DISC_SURGE_PCT", "3.0"))   # 3% 이상 상승 (오탐 방지)
+_DISC_TTL        = int(os.environ.get("POST_DISC_TTL_SEC", "14400"))      # 기본 4시간
 _FIRE_COOLDOWN   = int(os.environ.get("POST_DISC_COOLDOWN_SEC", "1800"))  # 같은 종목 30분 내 재발화 방지
+_MIN_PRICE       = int(os.environ.get("POST_DISC_MIN_PRICE", "1000"))     # 저가주 오탐 방지
 
 
 class PostDisclosureDetector:
@@ -29,8 +30,9 @@ class PostDisclosureDetector:
     async def detect(self, tick: dict) -> Optional[dict]:
         code        = tick.get("code", "")
         change_rate = float(tick.get("change_rate", 0.0))
+        price       = int(tick.get("price", 0))
 
-        if change_rate < _SURGE_THRESHOLD:
+        if price < _MIN_PRICE or change_rate < _SURGE_THRESHOLD:
             return None
 
         disc_flag = await self.redis.get(f"disclosure:recent:{code}")

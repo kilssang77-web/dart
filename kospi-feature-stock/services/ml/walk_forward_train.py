@@ -21,6 +21,7 @@ Test 세트: 완전 홀드아웃, 학습에 절대 사용 안 함
 import argparse
 import asyncio
 import logging
+import math
 import os
 import sys
 from pathlib import Path
@@ -122,6 +123,27 @@ async def load_disclosures(pool: asyncpg.Pool, start, end) -> pd.DataFrame:
     return pd.DataFrame([dict(r) for r in rows])
 
 
+async def load_news_sentiment(pool: asyncpg.Pool, start, end) -> pd.DataFrame:
+    rows = await pool.fetch(
+        """
+        SELECT nsl.code, DATE(n.published_at) AS date,
+               AVG(n.sentiment_score) AS avg_sentiment,
+               COUNT(*) AS news_count
+        FROM news n
+        JOIN news_stock_links nsl ON nsl.news_id = n.id
+        WHERE n.published_at BETWEEN $1::date AND $2::date
+          AND n.sentiment_score IS NOT NULL
+        GROUP BY nsl.code, DATE(n.published_at)
+        """,
+        start, end,
+    )
+    if not rows:
+        return pd.DataFrame(columns=["code", "date", "avg_sentiment", "news_count"])
+    df = pd.DataFrame([dict(r) for r in rows])
+    df["date"] = pd.to_datetime(df["date"])
+    return df
+
+
 # ── 피처 엔지니어링 ───────────────────────────────────────────────────────────
 
 def _safe(v, default=0.0):
@@ -133,7 +155,8 @@ def _safe(v, default=0.0):
         return default
 
 
-def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFrame) -> pd.DataFrame:
+def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFrame,
+                   news_df: pd.DataFrame | None = None) -> pd.DataFrame:
     """
     daily_bars DataFrame → 특징 행렬 (FEATURE_COLUMNS 기준).
     종목별 순서 정렬 후 롤링 계산.
@@ -143,6 +166,14 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
     if len(disc_df) > 0 and "date" in disc_df.columns:
         disc_df = disc_df.copy()
         disc_df["date"] = pd.to_datetime(disc_df["date"])
+
+    # Pre-group news data by code for O(log N) per-row lookup
+    news_by_code: dict = {}
+    if news_df is not None and len(news_df) > 0:
+        _ndf = news_df.copy()
+        _ndf["date"] = pd.to_datetime(_ndf["date"])
+        for _nc, _ng in _ndf.groupby("code"):
+            news_by_code[_nc] = _ng.sort_values("date").reset_index(drop=True)
 
     results = []
     for code, grp in df.groupby("code"):
@@ -307,6 +338,28 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
             foreign_net_ratio = f5 / a20_safe
             inst_net_ratio    = i5 / a20_safe
 
+            # Cyclical time features (day-of-week, month)
+            _ts = pd.Timestamp(date_val)
+            _dow = _ts.weekday()       # 0=Mon, 4=Fri
+            _mon = _ts.month           # 1-12
+            dow_sin   = math.sin(2 * math.pi * _dow / 7)
+            dow_cos   = math.cos(2 * math.pi * _dow / 7)
+            month_sin = math.sin(2 * math.pi * (_mon - 1) / 12)
+            month_cos = math.cos(2 * math.pi * (_mon - 1) / 12)
+
+            # News sentiment features (7d lookback, O(log N) via searchsorted)
+            news_s7 = 0.0
+            news_c7 = 0.0
+            if code in news_by_code:
+                _ng    = news_by_code[code]
+                _dates = _ng["date"].values
+                _t     = _ts
+                _lo    = np.searchsorted(_dates, np.datetime64(_t - pd.Timedelta(days=7)), side="left")
+                _hi    = np.searchsorted(_dates, np.datetime64(_t), side="right")
+                if _hi > _lo:
+                    news_s7 = float(_ng["avg_sentiment"].iloc[_lo:_hi].mean())
+                    news_c7 = float(_ng["news_count"].iloc[_lo:_hi].sum())
+
             feat = {
                 "return_1d":r1d, "return_3d":r3d, "return_5d":r5d,
                 "ma5_ratio":ma5_r, "ma20_ratio":ma20_r, "ma60_ratio":ma60_r,
@@ -333,6 +386,9 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
                 "vol_up_down_ratio": vol_ud_r,
                 "ma5_ma20_cross": ma5_ma20_cross, "ma20_ma60_cross": ma20_ma60_cross,
                 "foreign_net_ratio": foreign_net_ratio, "inst_net_ratio": inst_net_ratio,
+                "dow_sin": dow_sin, "dow_cos": dow_cos,
+                "month_sin": month_sin, "month_cos": month_cos,
+                "news_sentiment_7d": news_s7, "news_count_7d": news_c7,
                 "__code": code, "__date": date_val, "__close": c,
             }
             rows_feat.append(feat)
@@ -343,41 +399,6 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
     float_cols = [c for c in feat_df.columns if c not in ("__code", "__date")]
     feat_df[float_cols] = feat_df[float_cols].astype("float32")
     return feat_df
-
-
-def make_labels(feat_df: pd.DataFrame, raw_df: pd.DataFrame,
-                entry_pct: float = 5.0, risk_pct: float = 5.0) -> tuple[pd.Series, pd.Series]:
-    """
-    5일 후 수익률 기반 레이블 생성 (벡터화).
-    entry: return_5d_fwd >= entry_pct  /  risk: return_5d_fwd <= -risk_pct
-    데이터 누수 없음: 미래 수익률은 raw_df groupby.shift(-5)로 계산.
-    """
-    rdf = raw_df[["code", "date", "close"]].copy()
-    rdf["date"] = pd.to_datetime(rdf["date"])
-    rdf = rdf.sort_values(["code", "date"])
-    rdf["fwd5_close"] = rdf.groupby("code")["close"].shift(-5)
-    rdf["ret5"] = (rdf["fwd5_close"] / rdf["close"].replace(0, np.nan) - 1) * 100
-
-    fdf = feat_df.copy()
-    fdf["date"] = pd.to_datetime(fdf["__date"])
-    fdf["code"] = fdf["__code"]
-
-    merged = fdf[["code", "date"]].merge(
-        rdf[["code", "date", "ret5"]],
-        on=["code", "date"],
-        how="left",
-    )
-
-    ret = merged["ret5"]
-    entry_labels = pd.Series(
-        np.where(ret.notna(), (ret >= entry_pct).astype(float), np.nan),
-        dtype="float64",
-    )
-    risk_labels = pd.Series(
-        np.where(ret.notna(), (ret <= -risk_pct).astype(float), np.nan),
-        dtype="float64",
-    )
-    return entry_labels, risk_labels
 
 
 # ── 검증 리포트 ───────────────────────────────────────────────────────────────
@@ -441,21 +462,23 @@ async def main(args):
     kospi_va = await load_kospi(pool, val_start,   val_end)
     kospi_te = await load_kospi(pool, test_start,  test_end)
     disc_all = await load_disclosures(pool, all_start, all_end)
+    news_all = await load_news_sentiment(pool, all_start, all_end)
     await pool.close()
 
     logger.info(f"Raw data: train={len(tr_raw)} val={len(va_raw)} test={len(te_raw)}")
+    logger.info(f"News sentiment: {len(news_all)} (code,date) pairs")
 
     # 피처 엔지니어링
     logger.info("Building features...")
-    tr_feat = build_features(tr_raw, kospi_tr, disc_all)
-    va_feat = build_features(va_raw, kospi_va, disc_all)
-    te_feat = build_features(te_raw, kospi_te, disc_all)
+    tr_feat = build_features(tr_raw, kospi_tr, disc_all, news_all)
+    va_feat = build_features(va_raw, kospi_va, disc_all, news_all)
+    te_feat = build_features(te_raw, kospi_te, disc_all, news_all)
 
     # 레이블 생성
     logger.info("Generating labels (5-day forward returns)...")
-    tr_le, tr_lr = make_labels(tr_feat, tr_raw, args.entry_pct, args.risk_pct)
-    va_le, va_lr = make_labels(va_feat, va_raw, args.entry_pct, args.risk_pct)
-    te_le, te_lr = make_labels(te_feat, te_raw, args.entry_pct, args.risk_pct)
+    tr_le, tr_lr = LGBMTrainer.make_labels_bulk(tr_feat, tr_raw, args.entry_pct, args.risk_pct)
+    va_le, va_lr = LGBMTrainer.make_labels_bulk(va_feat, va_raw, args.entry_pct, args.risk_pct)
+    te_le, te_lr = LGBMTrainer.make_labels_bulk(te_feat, te_raw, args.entry_pct, args.risk_pct)
 
     # 피처 행렬 준비 (FEATURE_COLUMNS)
     def prep(feat_df, labels):
@@ -533,8 +556,8 @@ if __name__ == "__main__":
     parser.add_argument("--test-start",  default="2025-01-01")
     parser.add_argument("--test-end",    default="2026-06-06")
     parser.add_argument("--model-dir",   default="/models/lgbm")
-    parser.add_argument("--entry-pct",   type=float, default=5.0,
-                        help="진입 레이블 임계 수익률 %%")
+    parser.add_argument("--entry-pct",   type=float, default=3.0,
+                        help="진입 레이블 임계 수익률 %% (기본 3.0 → 양성 비율 ~6-8%%)")
     parser.add_argument("--risk-pct",    type=float, default=5.0,
                         help="리스크 레이블 임계 손실률 %%")
     parser.add_argument("--smote",       action="store_true",

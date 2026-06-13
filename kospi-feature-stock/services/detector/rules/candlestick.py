@@ -94,4 +94,8 @@ class CandlestickDetector:
         if range2 > 0 and body2 / range2 > 0.40:
             return False
 
+        # 갭 조건: b2 고가 < b1 종가, b3 시가 > b2 고가
+        if h2 >= c1 or o3 <= h2:
+            return False
+
         return True

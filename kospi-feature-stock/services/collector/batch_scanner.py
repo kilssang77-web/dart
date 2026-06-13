@@ -25,8 +25,9 @@ logger = logging.getLogger("batch_scanner")
 VOL_SURGE_RATIO    = float(os.environ.get("BATCH_VOL_SURGE_RATIO",    "3.0"))
 AMOUNT_SURGE_RATIO = float(os.environ.get("BATCH_AMOUNT_SURGE_RATIO", "3.0"))
 SUPPLY_SURGE_RATIO = float(os.environ.get("BATCH_SUPPLY_SURGE_RATIO", "3.0"))
-BREAKOUT_MIN_PCT   = float(os.environ.get("BATCH_BREAKOUT_MIN_PCT",   "0.001"))  # 0.1%
-MIN_AMOUNT         = int(os.environ.get("BATCH_MIN_AMOUNT",           "500000000"))  # 5억
+BREAKOUT_MIN_PCT        = float(os.environ.get("BATCH_BREAKOUT_MIN_PCT",       "0.001"))  # 0.1%
+MIN_AMOUNT              = int(os.environ.get("BATCH_MIN_AMOUNT",               "500000000"))  # 5억
+MORNING_STAR_DOJI_PCT   = float(os.environ.get("MORNING_STAR_DOJI_PCT",        "0.005"))  # 0.5% — 실전 기준
 
 TOP_N_ACTIVE       = int(os.environ.get("BATCH_TOP_N_ACTIVE", "80"))  # 다음날 실시간 대상
 
@@ -102,13 +103,17 @@ class BatchScanner:
         # 4. 거래량·수급 평균 (Redis 파이프라인)
         avgs_map = await self._fetch_redis_avgs(live_codes)
 
-        # 5. 시그널 판정 (detector 중복 제외)
+        # 5. 모닝스타 탐지용 최근 3일 일봉
+        recent_bars_map = await self._fetch_recent_bars(live_codes, today)
+
+        # 6. 시그널 판정 (detector 중복 제외)
         events: list[dict] = []
         for code in live_codes:
-            bar   = today_map[code]
-            highs = highs_map.get(code, {})
-            avgs  = avgs_map.get(code, {})
-            for ev in self._detect(code, bar, highs, avgs):
+            bar         = today_map[code]
+            highs       = highs_map.get(code, {})
+            avgs        = avgs_map.get(code, {})
+            recent_bars = recent_bars_map.get(code, [])
+            for ev in self._detect(code, bar, highs, avgs, recent_bars):
                 if (ev["code"], ev["event_type"]) not in already_detected:
                     events.append(ev)
 
@@ -149,6 +154,34 @@ class BatchScanner:
         )
         return {r["code"]: dict(r) for r in rows}
 
+    async def _fetch_recent_bars(
+        self, codes: list[str], today: date
+    ) -> dict[str, list[dict]]:
+        """모닝스타 탐지용 최근 3일 일봉 조회 (오늘 포함 역순 → 정방향으로 반환)."""
+        rows = await self.db.fetch(
+            """
+            SELECT DISTINCT ON (code, date) code, date, open, high, low, close, volume
+            FROM daily_bars
+            WHERE code = ANY($1::varchar[])
+              AND date <= $2
+              AND close > 0
+            ORDER BY code, date DESC
+            LIMIT $3
+            """,
+            codes, today, len(codes) * 3,
+        )
+        result: dict[str, list[dict]] = {}
+        for row in rows:
+            code = row["code"]
+            if code not in result:
+                result[code] = []
+            if len(result[code]) < 3:
+                result[code].append(dict(row))
+        # 오래된 것부터 정렬 (oldest → newest)
+        for code in result:
+            result[code].reverse()
+        return result
+
     async def _fetch_breakout_highs(
         self, codes: list[str], today: date
     ) -> dict[str, dict]:
@@ -176,27 +209,30 @@ class BatchScanner:
     # ─────────────────────────────────────────────────────────────
 
     async def _fetch_redis_avgs(self, codes: list[str]) -> dict[str, dict]:
-        """거래량·거래대금·수급 20일 평균을 Redis 파이프라인으로 일괄 조회."""
+        """거래량·거래대금·수급 20일 평균을 Redis 파이프라인으로 일괄 조회 (100개 청크)."""
         fields = ["avg_vol_20d", "avg_amount_20d", "avg_foreign_20d", "avg_inst_20d"]
-
-        pipe = self.redis.pipeline()
-        for code in codes:
-            for f in fields:
-                pipe.get(f"stats:{code}:{f}")
-        raw = await pipe.execute()
-
         result: dict[str, dict] = {}
-        for i, code in enumerate(codes):
-            base = i * len(fields)
-            vals = {}
-            for j, f in enumerate(fields):
-                v = raw[base + j]
-                if v is not None:
-                    try:
-                        vals[f] = float(v)
-                    except (ValueError, TypeError):
-                        pass
-            result[code] = vals
+
+        for chunk_start in range(0, len(codes), 100):
+            chunk = codes[chunk_start:chunk_start + 100]
+            pipe = self.redis.pipeline()
+            for code in chunk:
+                for f in fields:
+                    pipe.get(f"stats:{code}:{f}")
+            raw = await pipe.execute()
+
+            for i, code in enumerate(chunk):
+                base = i * len(fields)
+                vals = {}
+                for j, f in enumerate(fields):
+                    v = raw[base + j]
+                    if v is not None:
+                        try:
+                            vals[f] = float(v)
+                        except (ValueError, TypeError):
+                            pass
+                result[code] = vals
+
         return result
 
     # ─────────────────────────────────────────────────────────────
@@ -209,6 +245,7 @@ class BatchScanner:
         bar:  dict,
         highs: dict,
         avgs:  dict,
+        recent_bars: list[dict] | None = None,
     ) -> list[dict]:
         results: list[dict] = []
 
@@ -317,6 +354,38 @@ class BatchScanner:
                     "i_ratio": round(inst    / avg_i if avg_i else 0, 2),
                 },
             })
+
+        # ── 7. 모닝스타 패턴 ────────────────────────────────────
+        if recent_bars and len(recent_bars) >= 3:
+            b1, b2, b3 = recent_bars[-3], recent_bars[-2], recent_bars[-1]
+            b1_o = float(b1.get("open")  or 0)
+            b1_c = float(b1.get("close") or 0)
+            b2_o = float(b2.get("open")  or 0)
+            b2_c = float(b2.get("close") or 0)
+            b3_o = float(b3.get("open")  or 0)
+            b3_c = float(b3.get("close") or 0)
+
+            if all(x > 0 for x in [b1_o, b1_c, b2_o, b2_c, b3_o, b3_c]):
+                b1_body = abs(b1_c - b1_o)
+                b2_body = abs(b2_c - b2_o)
+                mid_b1  = (b1_o + b1_c) / 2
+
+                is_b1_bearish = b1_c < b1_o and b1_body / b1_o > 0.005   # 0.5%+ 하락 음봉
+                is_b2_doji    = b2_body / b2_o < MORNING_STAR_DOJI_PCT     # env: MORNING_STAR_DOJI_PCT (기본 0.5%)
+                is_b3_bullish = b3_c > b3_o and b3_c > mid_b1            # 양봉 + b1 중간 이상 회복
+
+                if is_b1_bearish and is_b2_doji and is_b3_bullish:
+                    recovery = (b3_c - mid_b1) / b1_body if b1_body > 0 else 0
+                    score    = min(0.85, 0.55 + min(recovery, 1.0) * 0.15)
+                    results.append({**base,
+                        "event_type":   "MORNING_STAR",
+                        "signal_score": round(score, 3),
+                        "signal_data":  {
+                            "b1_chg_pct":   round((b1_c - b1_o) / b1_o * 100, 2),
+                            "b2_body_pct":  round(b2_body / b2_o * 100, 3),
+                            "b3_recovery":  round(recovery, 3),
+                        },
+                    })
 
         # risk_score: 신호 강도의 역수 (간략 계산)
         for ev in results:
