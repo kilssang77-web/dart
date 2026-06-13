@@ -7,7 +7,7 @@ import redis.asyncio as redis_lib
 logger = logging.getLogger(__name__)
 
 _RATIO_THRESHOLD = float(os.environ.get("VOL_SURGE_RATIO", "5.0"))
-_MIN_AMOUNT      = int(os.environ.get("VOL_SURGE_MIN_AMOUNT", "1000000000"))
+_MIN_AMOUNT      = int(os.environ.get("VOL_SURGE_MIN_AMOUNT", "200000000"))
 _SCORE_K         = float(os.environ.get("VOL_SURGE_SCORE_K", "4.0"))
 
 

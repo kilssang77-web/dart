@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+from collections import deque
 from datetime import datetime, timedelta
 import redis.asyncio as redis_lib
 from rules.volume_surge import VolumeSurgeDetector
@@ -40,7 +41,8 @@ class FeatureStockDetector:
         self.vi_det    = VIDetector(self.redis)
         self.disc_det  = PostDisclosureDetector(self.redis)
         self._cooldown: dict[tuple, datetime] = {}
-        self._bar_buffer: dict[str, list[dict]] = {}  # 모닝스타용 종목별 최근 3봉
+        self._emit_count: int = 0
+        self._bar_buffer: dict[str, deque] = {}  # 모닝스타용 종목별 최근 3봉
 
     async def run(self):
         await asyncio.gather(
@@ -153,10 +155,8 @@ class FeatureStockDetector:
                     })
 
                 # 모닝스타 (3봉 슬라이딩 버퍼)
-                buf = self._bar_buffer.setdefault(code, [])
+                buf = self._bar_buffer.setdefault(code, deque(maxlen=3))
                 buf.append(bar)
-                if len(buf) > 3:
-                    buf.pop(0)
                 if self.cnd_det.detect_morning_star(buf):
                     await self._emit({
                         "code":        code,
@@ -189,6 +189,11 @@ class FeatureStockDetector:
         if last and now - last < timedelta(minutes=_COOLDOWN_MINUTES):
             return
         self._cooldown[ck] = now
+        self._emit_count += 1
+        if self._emit_count % 500 == 0:
+            cutoff = now - timedelta(minutes=_COOLDOWN_MINUTES * 2)
+            for k in [k for k, v in self._cooldown.items() if v < cutoff]:
+                del self._cooldown[k]
 
         signal.setdefault("detected_at", now.isoformat())
         signal.setdefault("signal_score", 0.5)

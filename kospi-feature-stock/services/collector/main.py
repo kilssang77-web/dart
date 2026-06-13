@@ -31,12 +31,22 @@ MARKET_CLOSE = dtime(15, 35)
 STATS_TIME   = dtime(16, 10)   # 장 마감 후 통계 갱신
 BATCH_TIME   = dtime(16, 40)   # 배치 탐지 시작 (stats 갱신 완료 후)
 
+NXT_ENABLED    = os.environ.get("NXT_ENABLED", "0") == "1"
+NXT_AFTER_OPEN  = dtime(16, 0)
+NXT_AFTER_CLOSE = dtime(20, 0)
+
 # 환경변수로 주요 파라미터 설정
 TICK_FLUSH_SEC   = int(os.environ.get("TICK_FLUSH_SEC", "5"))
 MINUTE_INTERVAL  = int(os.environ.get("MINUTE_INTERVAL_SEC", "60"))
 SUPPLY_INTERVAL  = int(os.environ.get("SUPPLY_INTERVAL_SEC", "1800"))
 BACKFILL_DAYS    = int(os.environ.get("DAILY_BACKFILL_DAYS", "260"))
 NEWS_INTERVAL    = int(os.environ.get("NEWS_INTERVAL_SEC", "1800"))
+
+# 전 종목 인트라데이 REST 스캔 — KIS 20 TPS 기준 안전 마진 87%
+INTRADAY_REQ_INTERVAL = float(os.environ.get("INTRADAY_REQ_INTERVAL", "0.09"))  # ~11 req/s
+INTRADAY_VOL_RATIO    = float(os.environ.get("INTRADAY_VOL_RATIO",    "3.0"))   # 거래량 급증 배율
+INTRADAY_AMT_RATIO    = float(os.environ.get("INTRADAY_AMT_RATIO",    "3.0"))   # 거래대금 급증 배율
+INTRADAY_MIN_AMOUNT   = int(os.environ.get("INTRADAY_MIN_AMOUNT",     "200000000"))  # 최소 2억
 
 
 def is_market_open() -> bool:
@@ -49,23 +59,71 @@ def is_after_close() -> bool:
     return now.weekday() < 5 and now.time() >= STATS_TIME
 
 
+def is_nxt_aftermarket() -> bool:
+    """NXT_ENABLED=1 이고 16:00~20:00(평일) 이면 True."""
+    if not NXT_ENABLED:
+        return False
+    now = datetime.now(_KST)
+    return now.weekday() < 5 and NXT_AFTER_OPEN <= now.time() <= NXT_AFTER_CLOSE
+
+
+_BASE_CODES = [
+    "005930", "000660", "035420", "005380", "051910",
+    "006400", "035720", "028260", "207940", "068270",
+    "323410", "105560", "055550", "086790", "032830",
+    "066570", "003550", "096770", "033780", "015760",
+]
+
+
 async def load_active_stocks(redis: redis_lib.Redis) -> list[str]:
     """실시간 모니터링 대상 (WebSocket·분봉): Redis 캐시 → 기본 20개 fallback."""
-    import orjson
     try:
         cached = await redis.get("stocks:active_codes")
         if cached:
-            codes = orjson.loads(cached)
+            try:
+                codes = orjson.loads(cached)
+            except Exception:
+                # redis-cli 등으로 저장된 unquoted 형식 [000660,005930,...] 복구
+                text = cached.decode() if isinstance(cached, bytes) else cached
+                raw = text.strip().lstrip("[").rstrip("]")
+                codes = [c.strip().strip('"').strip("'").zfill(6) for c in raw.split(",") if c.strip()]
             if codes and isinstance(codes, list):
+                # 형식 정상화: 항상 문자열, 6자리 0패딩
+                codes = [str(c).zfill(6) for c in codes if c]
+                # 손상된 값이면 DB에서 재초기화 (다음 호출을 위해)
                 return codes
     except Exception:
         pass
-    return [
-        "005930", "000660", "035420", "005380", "051910",
-        "006400", "035720", "028260", "207940", "068270",
-        "323410", "105560", "055550", "086790", "032830",
-        "066570", "003550", "096770", "033780", "015760",
-    ]
+    return _BASE_CODES
+
+
+async def refresh_active_codes_from_db(db: asyncpg.Pool, redis: redis_lib.Redis, top_n: int = 80) -> list[str]:
+    """Redis에 active_codes 없을 때 DB 거래대금 상위 N개로 초기화."""
+    try:
+        rows = await db.fetch(
+            """
+            SELECT code
+            FROM (
+                SELECT code, AVG(amount) AS avg_amt
+                FROM daily_bars
+                WHERE date >= CURRENT_DATE - INTERVAL '20 days'
+                  AND amount > 0
+                GROUP BY code
+            ) t
+            ORDER BY avg_amt DESC
+            LIMIT $1
+            """,
+            top_n,
+        )
+        top_codes = [r["code"] for r in rows]
+        merged = list(dict.fromkeys(top_codes + _BASE_CODES))[:100]
+        if merged:
+            await redis.set("stocks:active_codes", orjson.dumps(merged), ex=90_000)
+            logger.info(f"[ActiveCodes] Bootstrapped {len(merged)} codes from DB (top {top_n} by 20d avg amount)")
+        return merged
+    except Exception as e:
+        logger.warning(f"[ActiveCodes] DB bootstrap failed: {e}")
+        return _BASE_CODES
 
 
 async def load_all_stocks(db: asyncpg.Pool) -> list[str]:
@@ -77,6 +135,30 @@ async def load_all_stocks(db: asyncpg.Pool) -> list[str]:
         return [r["code"] for r in rows]
     except Exception as e:
         logger.warning(f"[AllStocks] DB load failed: {e}")
+        return []
+
+
+async def load_kospi_kosdaq(db: asyncpg.Pool) -> list[str]:
+    """KOSPI + KOSDAQ 활성 종목 — 인트라데이 REST 스캔 대상 (거래량 많은 순)."""
+    try:
+        rows = await db.fetch(
+            """
+            SELECT s.code
+            FROM stocks s
+            LEFT JOIN (
+                SELECT code, AVG(amount) AS avg_amt
+                FROM daily_bars
+                WHERE date >= CURRENT_DATE - INTERVAL '20 days' AND amount > 0
+                GROUP BY code
+            ) b ON b.code = s.code
+            WHERE s.is_active = TRUE
+              AND s.market IN ('KOSPI', 'KOSDAQ')
+            ORDER BY COALESCE(b.avg_amt, 0) DESC
+            """
+        )
+        return [r["code"] for r in rows]
+    except Exception as e:
+        logger.warning(f"[KospiKosdaq] DB load failed: {e}")
         return []
 
 
@@ -109,28 +191,42 @@ class StockCollector:
         logger.info("DB pool created")
 
     async def run_tick_only(self):
-        """실시간 틱 + 분봉만 수집 (ticker 전용 컨테이너용)."""
+        """실시간 틱 + 분봉 (WebSocket) + 전 종목 인트라데이 REST 스캔."""
         await self.setup()
-        active_codes = await load_active_stocks(self.redis)
-        logger.info(f"[tick] Starting tick+minute collection for {len(active_codes)} stocks")
+        cached_active = await self.redis.get("stocks:active_codes")
+        if not cached_active and self.db:
+            active_codes = await refresh_active_codes_from_db(self.db, self.redis, top_n=80)
+        else:
+            active_codes = await load_active_stocks(self.redis)
+
+        all_codes = await load_all_stocks(self.db) if self.db else active_codes
+
+        logger.info(f"[tick] WS={len(active_codes)} | REST-scan={len(all_codes)} stocks")
         await asyncio.gather(
             self._tick_loop(active_codes),
             self._tick_db_writer(),
             self._dynamic_tick_loop(),
             self._minute_bar_loop(active_codes),
+            self._watching_scan_loop(),
+            self._intraday_rest_scan_loop(all_codes),
             return_exceptions=True,
         )
 
     async def run(self):
         await self.setup()
 
-        # 실시간 모니터링: Redis 캐시 or 기본 20개
-        active_codes = await load_active_stocks(self.redis)
-
         # 전체 종목: DB에서 로드 (일봉 수집 + 배치 탐지)
         all_codes = await load_all_stocks(self.db)
         if not all_codes:
             logger.warning("[Run] stocks table empty — falling back to active_codes for all ops")
+
+        # 실시간 모니터링: Redis 캐시 → Redis 없으면 DB 상위 80개로 초기화
+        cached_active = await self.redis.get("stocks:active_codes")
+        if not cached_active and self.db:
+            active_codes = await refresh_active_codes_from_db(self.db, self.redis, top_n=80)
+        else:
+            active_codes = await load_active_stocks(self.redis)
+        if not all_codes:
             all_codes = active_codes
 
         logger.info(f"[Run] active={len(active_codes)} | all={len(all_codes)}")
@@ -159,13 +255,16 @@ class StockCollector:
         """공통 tick 처리: Kafka 전송 + Redis 최신가 캐시 + Pub/Sub 브로드캐스트 + DB 큐"""
         if not tick:
             return
-        await self.kafka.send("tick-data", tick, key=tick.get("code", ""))
+        try:
+            await self.kafka.send("tick-data", tick, key=tick.get("code", ""))
+        except Exception as e:
+            logger.warning(f"[Kafka] tick-data send failed: {e}")
         code = tick.get("code")
         if code:
             try:
                 payload = orjson.dumps(tick)
                 pipe = self.redis.pipeline()
-                pipe.set(f"quote:{code}", payload, ex=30)
+                pipe.set(f"quote:{code}", payload, ex=1800)
                 pipe.publish("channel:ticks", payload)
                 await pipe.execute()
             except Exception:
@@ -176,13 +275,24 @@ class StockCollector:
             pass
 
     # ── Tick 수집 (WebSocket) ────────────────────────────────
-    async def _tick_loop(self, codes: list[str]):
+    async def _tick_loop(self, _codes: list[str]):
+        """장중 + NXT 시간외 WebSocket 실시간 tick. 재연결마다 Redis active_codes 최신화."""
         while True:
-            if not is_market_open() or not codes:
+            in_nxt = is_nxt_aftermarket()
+            if not is_market_open() and not in_nxt:
                 await asyncio.sleep(30)
                 continue
+            # 재연결 시 최신 active_codes 로드 (BatchScanner 갱신 반영)
+            codes = await load_active_stocks(self.redis)
+            if not codes:
+                await asyncio.sleep(10)
+                continue
             try:
-                await self.ws.subscribe_tick(codes, self._on_tick)
+                logger.info(
+                    f"[WS] Subscribing {len(codes)} stocks "
+                    f"({'NXT after-market' if in_nxt else 'regular session'})"
+                )
+                await self.ws.subscribe_tick(codes, self._on_tick, include_nxt=in_nxt)
             except Exception as e:
                 logger.error(f"Tick loop error: {e}")
                 await asyncio.sleep(10)
@@ -193,7 +303,7 @@ class StockCollector:
 
         while True:
             await asyncio.sleep(30)
-            if not is_market_open():
+            if not is_market_open() and not is_nxt_aftermarket():
                 continue
             try:
                 keys = await self.redis.keys("watching:*")
@@ -247,20 +357,171 @@ class StockCollector:
             if not is_market_open():
                 await asyncio.sleep(60)
                 continue
+            today = datetime.now(_KST).strftime("%Y%m%d")
             for code in codes:
                 try:
                     bars = await self.rest.get_minute_bars(code)
-                    if bars:
+                    # API는 최신순(내림차순) 반환 → 오늘 날짜 bars만 필터 후 최근 5개
+                    today_bars = [b for b in bars if b.get("time", "")[:8] == today]
+                    recent = today_bars[:5] if today_bars else bars[:5]
+                    if recent:
                         await self.kafka.send(
                             "minute-bar",
-                            {"code": code, "bars": bars[-5:]},
+                            {"code": code, "bars": recent},
                             key=code,
                         )
-                        await write_minute_bars(self.db, code, bars[-5:])
+                        await write_minute_bars(self.db, code, recent)
                 except Exception as e:
                     logger.error(f"MinBar {code}: {e}")
                 await asyncio.sleep(0.15)
             await asyncio.sleep(MINUTE_INTERVAL)
+
+    # ── Watching 종목 즉시 스캔 (10초 주기) ───────────────────
+    async def _watching_scan_loop(self):
+        """사용자가 열람 중인 종목(watching:*) 10초마다 즉시 스캔 → quote 캐시 갱신."""
+        while True:
+            await asyncio.sleep(10)
+            if not is_market_open():
+                continue
+            try:
+                keys = await self.redis.keys("watching:*")
+                for k in keys:
+                    code = (k.decode() if isinstance(k, bytes) else k).split(":", 1)[-1]
+                    if not code:
+                        continue
+                    snap = await self.rest.get_current_price(code)
+                    if snap and snap.get("price"):
+                        snap["source"] = "intraday"
+                        await self.redis.set(f"quote:{code}", orjson.dumps(snap), ex=1800)
+                    await asyncio.sleep(0.1)
+            except Exception as e:
+                logger.error(f"[WatchScan] {e}")
+
+    # ── 전 종목 인트라데이 REST 스캔 ─────────────────────────
+    async def _intraday_rest_scan_loop(self, all_codes: list[str]):
+        """전 종목 장중 현재가 REST 폴링 → 신고가·거래량급증 탐지.
+
+        사이클 시간: len(all_codes) × INTRADAY_REQ_INTERVAL
+          2,000종목 × 0.09s ≈ 180s (3분) / 4,000종목 ≈ 360s (6분)
+        KIS TPS: minute_bar(~7/s) + intraday(~11/s) = ~18/s  (한도 20/s)
+        """
+        _scan_count   = 0
+        _signal_count = 0
+        _cycle_count  = 0
+        _last_log     = datetime.now()
+
+        while True:
+            if not is_market_open():
+                await asyncio.sleep(60)
+                continue
+
+            # active_codes 우선 순위, 나머지 후순
+            active_set = set(await load_active_stocks(self.redis))
+            ordered = (
+                [c for c in all_codes if c in active_set]
+                + [c for c in all_codes if c not in active_set]
+            )
+
+            cycle_start = asyncio.get_event_loop().time()
+            now_kst     = datetime.now(_KST)
+            # 장 중 경과 시간 비율 (0~1) → 거래량 정규화용
+            elapsed_min = (now_kst.hour * 60 + now_kst.minute) - 9 * 60
+            elapsed_pct = max(0.05, min(1.0, elapsed_min / 390))
+
+            for code in ordered:
+                if not is_market_open():
+                    break
+                try:
+                    snap = await self.rest.get_current_price(code)
+                    if not snap or not snap.get("price"):
+                        await asyncio.sleep(INTRADAY_REQ_INTERVAL)
+                        continue
+
+                    _scan_count += 1
+                    price  = snap["price"]
+                    volume = snap.get("volume", 0)
+                    amount = snap.get("amount", 0)
+                    cr     = snap.get("change_rate", 0.0)
+
+                    # ── 1. tick-data 발행 → 기존 BreakoutDetector 동작 ──
+                    await self.kafka.send(
+                        "tick-data",
+                        {"code": code, "price": price, "change_rate": cr,
+                         "volume": volume, "cum_amount": amount},
+                        key=code,
+                    )
+                    # Redis 최신가 캐시 (30분 TTL — 스캔 사이클 6분을 여러 번 커버)
+                    snap["source"] = "intraday"
+                    await self.redis.set(f"quote:{code}",
+                                         orjson.dumps(snap), ex=1800)
+
+                    # ── 2. 인트라데이 거래량·거래대금 급증 탐지 ─────
+                    if amount >= INTRADAY_MIN_AMOUNT:
+                        avg_v_raw = await self.redis.get(f"stats:{code}:avg_vol_20d")
+                        avg_a_raw = await self.redis.get(f"stats:{code}:avg_amount_20d")
+
+                        if avg_v_raw:
+                            avg_v    = float(avg_v_raw)
+                            exp_vol  = avg_v * elapsed_pct
+                            if exp_vol > 0 and volume / exp_vol >= INTRADAY_VOL_RATIO:
+                                ratio = volume / exp_vol
+                                score = min(0.95, 0.50 + (ratio - INTRADAY_VOL_RATIO)
+                                            / (INTRADAY_VOL_RATIO * 4))
+                                await self.kafka.send("feature-detected", {
+                                    "code": code, "event_type": "VOLUME_SURGE",
+                                    "price": price, "change_rate": cr,
+                                    "volume": volume, "volume_ratio": round(ratio, 2),
+                                    "amount": amount, "signal_score": round(score, 3),
+                                    "signal_data": {
+                                        "avg_vol_20d": round(avg_v),
+                                        "elapsed_pct": round(elapsed_pct, 3),
+                                        "ratio": round(ratio, 2),
+                                        "source": "intraday_rest",
+                                    },
+                                }, key=code)
+                                _signal_count += 1
+
+                        if avg_a_raw:
+                            avg_a    = float(avg_a_raw)
+                            exp_amt  = avg_a * elapsed_pct
+                            if exp_amt > 0 and amount / exp_amt >= INTRADAY_AMT_RATIO:
+                                ratio = amount / exp_amt
+                                score = min(0.90, 0.45 + (ratio - INTRADAY_AMT_RATIO)
+                                            / (INTRADAY_AMT_RATIO * 4))
+                                await self.kafka.send("feature-detected", {
+                                    "code": code, "event_type": "AMOUNT_SURGE",
+                                    "price": price, "change_rate": cr,
+                                    "volume": volume, "amount": amount,
+                                    "volume_ratio": round(ratio, 2),
+                                    "signal_score": round(score, 3),
+                                    "signal_data": {
+                                        "avg_amount_20d": round(avg_a),
+                                        "elapsed_pct": round(elapsed_pct, 3),
+                                        "ratio": round(ratio, 2),
+                                        "source": "intraday_rest",
+                                    },
+                                }, key=code)
+                                _signal_count += 1
+
+                except Exception as e:
+                    logger.debug(f"[IntradayScan] {code}: {e}")
+
+                await asyncio.sleep(INTRADAY_REQ_INTERVAL)
+
+            elapsed   = asyncio.get_event_loop().time() - cycle_start
+            _cycle_count += 1
+            now = datetime.now()
+            if (now - _last_log).total_seconds() >= 300:
+                rps = _scan_count / max((now - _last_log).total_seconds(), 1)
+                logger.info(
+                    f"[IntradayScan] cycles={_cycle_count} "
+                    f"last_cycle={elapsed:.1f}s scanned={_scan_count} "
+                    f"signals={_signal_count} rps={rps:.1f}"
+                )
+                _scan_count = _signal_count = _cycle_count = 0
+                _last_log = now
+
+            await asyncio.sleep(max(0, 5 - elapsed % 5))
 
     # ── 수급 수집 (REST, 30분, 장중) ────────────────────────
     async def _supply_demand_loop(self, codes: list[str]):
@@ -504,6 +765,85 @@ class StockCollector:
             except Exception as e:
                 logger.error(f"[BatchScan] Error: {e}")
 
+            # result_5d 자동 백필 (7일+ 경과 이벤트)
+            try:
+                n = await self._backfill_result_5d()
+                if n:
+                    logger.info(f"[Result5d] Backfilled {n} events")
+            except Exception as e:
+                logger.error(f"[Result5d] Error: {e}")
+
+            # ML 재학습 플래그 설정 (월요일 + 500개+ 레이블)
+            await self._maybe_trigger_ml_retrain()
+
+    # ── result_5d 자동 백필 ───────────────────────────────────
+    async def _backfill_result_5d(self) -> int:
+        """7일+ 경과 feature_events의 result_1d/3d/5d를 daily_bars 기준으로 계산."""
+        try:
+            async with self.db.acquire() as conn:
+                status = await conn.execute(
+                    """
+                    WITH events AS (
+                        SELECT id, code, price AS entry_price, detected_at::date AS det_date
+                        FROM feature_events
+                        WHERE result_5d IS NULL
+                          AND detected_at < NOW() - INTERVAL '7 days'
+                        LIMIT 500
+                    ),
+                    fwd AS (
+                        SELECT
+                            e.id,
+                            e.entry_price,
+                            (SELECT close FROM daily_bars WHERE code = e.code
+                             AND date > e.det_date ORDER BY date LIMIT 1 OFFSET 0) AS c1,
+                            (SELECT close FROM daily_bars WHERE code = e.code
+                             AND date > e.det_date ORDER BY date LIMIT 1 OFFSET 2) AS c3,
+                            (SELECT close FROM daily_bars WHERE code = e.code
+                             AND date > e.det_date ORDER BY date LIMIT 1 OFFSET 4) AS c5
+                        FROM events e
+                    )
+                    UPDATE feature_events fe
+                    SET
+                        result_1d = CASE WHEN fwd.entry_price > 0 AND fwd.c1 IS NOT NULL
+                                         THEN (fwd.c1 - fwd.entry_price) / fwd.entry_price END,
+                        result_3d = CASE WHEN fwd.entry_price > 0 AND fwd.c3 IS NOT NULL
+                                         THEN (fwd.c3 - fwd.entry_price) / fwd.entry_price END,
+                        result_5d = CASE WHEN fwd.entry_price > 0 AND fwd.c5 IS NOT NULL
+                                         THEN (fwd.c5 - fwd.entry_price) / fwd.entry_price END
+                    FROM fwd
+                    WHERE fe.id = fwd.id
+                      AND fwd.c5 IS NOT NULL
+                    """
+                )
+            # status = "UPDATE N"
+            return int(status.split()[-1])
+        except Exception as e:
+            logger.error(f"[Result5d] Backfill query error: {e}")
+            return 0
+
+    # ── ML 재학습 트리거 ──────────────────────────────────────
+    async def _maybe_trigger_ml_retrain(self) -> None:
+        """레이블 이벤트 500개+ 이고 월요일이면 Redis에 ml:retrain_needed 플래그 설정."""
+        try:
+            today_str = datetime.now(_KST).strftime("%Y%m%d")
+            last = await self.redis.get("ml:last_retrain_date")
+            if last and (last.decode() if isinstance(last, bytes) else last) == today_str:
+                return
+            if datetime.now(_KST).weekday() != 0:  # 월요일(0)만
+                return
+            async with self.db.acquire() as conn:
+                count = await conn.fetchval(
+                    "SELECT COUNT(*) FROM feature_events WHERE result_5d IS NOT NULL"
+                )
+            if count and count >= 500:
+                await self.redis.set("ml:retrain_needed", "1", ex=604_800)   # 7일
+                await self.redis.set("ml:last_retrain_date", today_str, ex=172_800)  # 2일
+                logger.info(
+                    f"[ML] Retrain flag set (ml:retrain_needed=1) — {count} labeled events"
+                )
+        except Exception as e:
+            logger.error(f"[ML] Retrain trigger error: {e}")
+
     # ── Redis 통계 갱신 ──────────────────────────────────────
     async def _update_redis_stats(self, codes: list[str]):
         logger.info(f"[Stats] Updating Redis stats for {len(codes)} stocks")
@@ -549,10 +889,10 @@ class StockCollector:
             if len(amounts) >= 20:
                 pipe.set(f"stats:{code}:avg_amount_20d", sum(amounts[:20]) / 20, ex=ex)
 
-            # 기간별 고가 (신고가 돌파 기준)
+            # 기간별 고가 (신고가 돌파 기준 — 오늘 종가 제외, 직전 N거래일 고가)
             for days, label in [(20, "20d"), (65, "13w"), (130, "26w"), (260, "52w")]:
-                if len(closes) >= days:
-                    pipe.set(f"stats:{code}:high_{days}d", max(closes[:days]), ex=ex)
+                if len(closes) > days:
+                    pipe.set(f"stats:{code}:high_{days}d", max(closes[1:days+1]), ex=ex)
 
             # 수급 평균
             for field, col in [("foreign", "foreign_net_buy"), ("inst", "inst_net_buy")]:

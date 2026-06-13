@@ -5,8 +5,10 @@ ML 추론 클라이언트.
 """
 import json
 import logging
+import math
 import os
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -46,6 +48,8 @@ FEATURE_COLUMNS: list[str] = [
     "vol_up_down_ratio",
     "ma5_ma20_cross", "ma20_ma60_cross",
     "foreign_net_ratio", "inst_net_ratio",
+    "dow_sin", "dow_cos", "month_sin", "month_cos",
+    "news_sentiment_7d", "news_count_7d",
 ]
 
 
@@ -57,6 +61,7 @@ class MLResult:
     hold_days: int = 5
     confidence: float = 0.0
     model_used: bool = False
+    atr_ratio: float = 0.0
 
 
 # ── 모델 지연 로딩 ────────────────────────────────────────────────
@@ -303,6 +308,19 @@ def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: li
     rel_strength_5d  = return_5d - kospi_return_5d
     market_vol_ratio = vol_ratio_20d
 
+    # ── 시간 인코딩 (sin/cos) ──
+    _now = datetime.now()
+    dow = _now.weekday()  # 0=Mon…4=Fri
+    month = _now.month
+    dow_sin   = math.sin(2 * math.pi * dow / 5)
+    dow_cos   = math.cos(2 * math.pi * dow / 5)
+    month_sin = math.sin(2 * math.pi * (month - 1) / 12)
+    month_cos = math.cos(2 * math.pi * (month - 1) / 12)
+
+    # 뉴스 피처 (추론 컨텍스트에서 뉴스 미제공 → 0.0 기본값)
+    news_sentiment_7d = 0.0
+    news_count_7d     = 0.0
+
     return {k: locals().get(k, 0.0) for k in FEATURE_COLUMNS}
 
 
@@ -367,6 +385,7 @@ async def get_ml_result(event: dict, db: asyncpg.Pool) -> MLResult:
     )
 
     feats = _compute_features(bars, sd, [dict(r) for r in disc_rows], kospi_rows=[dict(r) for r in kospi_rows])
+    _atr_ratio = feats.get("atr_ratio", 0.0)
 
     # ── ML 서비스 HTTP 추론 (우선) ──
     if _ML_SERVICE_URL:
@@ -386,6 +405,7 @@ async def get_ml_result(event: dict, db: asyncpg.Pool) -> MLResult:
                         hold_days=data["hold_days"],
                         confidence=data["confidence"],
                         model_used=data["model_used"],
+                        atr_ratio=_atr_ratio,
                     )
         except Exception as e:
             logger.warning(f"[MLClient] HTTP inference failed {code}, falling back to local: {e}")
@@ -417,6 +437,7 @@ async def get_ml_result(event: dict, db: asyncpg.Pool) -> MLResult:
                 hold_days=hold,
                 confidence=0.85,
                 model_used=True,
+                atr_ratio=_atr_ratio,
             )
         except Exception as e:
             logger.warning(f"[MLClient] LightGBM inference error {code}: {e}")
@@ -456,6 +477,7 @@ async def get_ml_result(event: dict, db: asyncpg.Pool) -> MLResult:
         hold_days=_hold_days(feats),
         confidence=0.5,
         model_used=False,
+        atr_ratio=_atr_ratio,
     )
 
 
@@ -525,7 +547,12 @@ async def get_similar_cases(event: dict, db: asyncpg.Pool) -> tuple[list, dict]:
                 )
                 search_method = "recency_fallback"
 
-        cases = [dict(r) for r in rows]
+        import decimal
+        def _to_native(v):
+            if isinstance(v, decimal.Decimal):
+                return float(v)
+            return v
+        cases = [{k: _to_native(v) for k, v in dict(r).items()} for r in rows]
         if not cases:
             return [], {"success_rate": 0.5, "avg_return_5d": 0.0, "avg_return_1d": 0.0, "count": 0, "search_method": search_method}
 

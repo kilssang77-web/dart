@@ -1,4 +1,4 @@
-version: '3.9'
+﻿version: '3.9'
 
 services:
   # ── Infrastructure ──────────────────────────────────────────────────────────
@@ -14,6 +14,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01_init.sql
+      - ./infra/postgres/V6__watchlist.sql:/docker-entrypoint-initdb.d/V6__watchlist.sql
     command: >
       postgres
         -c shared_preload_libraries='timescaledb,pg_stat_statements'
@@ -80,11 +81,11 @@ services:
     volumes:
       - kafka_data:/var/lib/kafka/data
     healthcheck:
-      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:29092", "--list"]
       interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   kafka-setup:
@@ -105,6 +106,7 @@ services:
         kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 4 --replication-factor 1 --config retention.ms=604800000 --topic feature-detected &&
         kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 2 --replication-factor 1 --config retention.ms=604800000 --topic signal-generated &&
         kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 2 --replication-factor 1 --config retention.ms=604800000 --topic recommendation &&
+        kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 2 --replication-factor 1 --config retention.ms=604800000 --topic disclosure-analyzed &&
         echo 'All topics created successfully'
       "
     restart: on-failure
@@ -133,7 +135,7 @@ services:
   collector-tick:
     build:
       context: ./services/collector
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.tick
     container_name: fstock-collector-tick
     depends_on:
       postgres:
@@ -142,6 +144,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      kafka-setup:
+        condition: service_completed_successfully
     env_file: .env
     environment:
       SERVICE_NAME: collector-tick
@@ -159,7 +163,7 @@ services:
   collector-daily:
     build:
       context: ./services/collector
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.batch
     container_name: fstock-collector-daily
     depends_on:
       postgres:
@@ -168,6 +172,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      kafka-setup:
+        condition: service_completed_successfully
     env_file: .env
     environment:
       SERVICE_NAME: collector-daily
@@ -186,7 +192,7 @@ services:
   collector-supply:
     build:
       context: ./services/collector
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.tick
     container_name: fstock-collector-supply
     depends_on:
       postgres:
@@ -205,13 +211,15 @@ services:
   collector-news:
     build:
       context: ./services/collector
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.batch
     container_name: fstock-collector-news
     depends_on:
       postgres:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      kafka-setup:
+        condition: service_completed_successfully
     env_file: .env
     environment:
       SERVICE_NAME: collector-news
@@ -229,7 +237,7 @@ services:
   collector-batch:
     build:
       context: ./services/collector
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.batch
     container_name: fstock-collector-batch
     depends_on:
       postgres:
@@ -238,6 +246,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      kafka-setup:
+        condition: service_completed_successfully
     env_file: .env
     environment:
       SERVICE_NAME: collector-batch
@@ -250,7 +260,7 @@ services:
   collector-backfill:
     build:
       context: ./services/collector
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.batch
     container_name: fstock-collector-backfill
     depends_on:
       postgres:
@@ -309,6 +319,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      kafka-setup:
+        condition: service_completed_successfully
     env_file: .env
     environment:
       SERVICE_NAME: detector
@@ -326,6 +338,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      kafka-setup:
+        condition: service_completed_successfully
     env_file: .env
     environment:
       SERVICE_NAME: analyzer
@@ -354,6 +368,12 @@ services:
       - ./services/ml:/app
       - model_cache:/models
       - ./scripts:/scripts
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   recommender:
@@ -369,7 +389,7 @@ services:
       kafka:
         condition: service_healthy
       ml:
-        condition: service_started
+        condition: service_healthy
     env_file: .env
     environment:
       ML_SERVICE_URL: "http://ml:8001"
@@ -377,6 +397,29 @@ services:
       - ./services/recommender:/app
       - model_cache:/models
     restart: unless-stopped
+
+  notifier:
+    build:
+      context: ./services/notifier
+      dockerfile: Dockerfile
+    container_name: fstock-notifier
+    depends_on:
+      kafka:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      SERVICE_NAME: notifier
+      NOTIFIER_PORT: "8003"
+    ports:
+      - "8003:8003"
+    volumes:
+      - ./services/notifier:/app
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   api:
     build:
@@ -400,6 +443,37 @@ services:
       - model_cache:/models
     restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: fstock-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+    depends_on:
+      - api
+      - ml
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: fstock-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
@@ -409,6 +483,8 @@ volumes:
   minio_data:
   model_cache:
   backfill_ckpt:
+  prometheus_data:
+  grafana_data:
 
 networks:
   default:
