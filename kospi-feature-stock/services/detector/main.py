@@ -1,8 +1,9 @@
 import asyncio
 import logging
 import os
+import orjson
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import redis.asyncio as redis_lib
 from rules.volume_surge import VolumeSurgeDetector
 from rules.amount_surge import AmountSurgeDetector
@@ -15,10 +16,15 @@ from kafka.consumer import KafkaConsumerWrapper
 from kafka.producer import KafkaProducerWrapper
 
 _COOLDOWN_MINUTES = int(os.environ.get("SIGNAL_COOLDOWN_MINUTES", "10"))
-# 분봉 기반 캔들스틱 탐지는 기본 비활성화.
+# 분봉 개별 캔들스틱 탐지는 기본 비활성화.
 # 동일 패턴을 일봉 마감 후 batch_scanner에서 더 정확하게 탐지하므로
 # 중복 신호 및 데이터 불일치 방지를 위해 0으로 유지한다.
 _DETECTOR_CANDLE_ENABLED = os.environ.get("DETECTOR_CANDLE_ENABLED", "0") == "1"
+# 세션 OHLC 기반 장중 캔들 탐지 (기본 활성화 — 세션 전체 등락 기준으로 더 안정적)
+_DETECTOR_SESSION_CANDLE_ENABLED = os.environ.get("DETECTOR_SESSION_CANDLE_ENABLED", "1") == "1"
+_SESSION_CANDLE_MIN_RETURN   = float(os.environ.get("SESSION_CANDLE_MIN_RETURN", "0.03"))   # 3%+
+_SESSION_CANDLE_HOUR_AFTER   = int(os.environ.get("SESSION_CANDLE_HOUR_AFTER",   "13"))     # 13시 이후
+_SESSION_OHLC_TTL            = 28800  # 8시간 (당일 세션 유효)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -136,7 +142,14 @@ class FeatureStockDetector:
                         "signal_data":  amt_surge.signal_data,
                     })
 
-                # 분봉 캔들스틱 탐지 (DETECTOR_CANDLE_ENABLED=1 일 때만 활성화)
+                # 세션 OHLC 누적 (세션 캔들 탐지에 사용)
+                if _DETECTOR_SESSION_CANDLE_ENABLED:
+                    await self._update_session_ohlc(code, bar)
+                    sig = await self._detect_session_candle(code, bar)
+                    if sig:
+                        await self._emit(sig)
+
+                # 분봉 개별 캔들스틱 탐지 (DETECTOR_CANDLE_ENABLED=1 일 때만 활성화)
                 # 기본값 0: 일봉 마감 후 batch_scanner에서 동일 패턴을 더 정확하게 탐지
                 if _DETECTOR_CANDLE_ENABLED:
                     if self.cnd_det.detect_long_white_candle(bar):
@@ -170,6 +183,75 @@ class FeatureStockDetector:
                             "signal_score": 0.68,
                             "signal_data": {"bars": buf[-3:]},
                         })
+
+    async def _update_session_ohlc(self, code: str, bar: dict):
+        """분봉 데이터로 당일 세션 OHLC를 Redis에 누적."""
+        today = datetime.now(timezone.utc).astimezone(
+            __import__("zoneinfo").ZoneInfo("Asia/Seoul")
+        ).strftime("%Y-%m-%d")
+        key = f"session:ohlc:{code}"
+        try:
+            raw = await self.redis.get(key)
+            if raw:
+                prev = orjson.loads(raw)
+                if prev.get("d") != today:
+                    prev = None
+            else:
+                prev = None
+
+            o = float(bar.get("open",  bar.get("close", 0)) or 0)
+            h = float(bar.get("high",  bar.get("close", 0)) or 0)
+            l = float(bar.get("low",   bar.get("close", 0)) or 0)
+            c = float(bar.get("close", 0) or 0)
+            v = int(bar.get("volume", 0) or 0)
+
+            if prev:
+                new_ohlc = {
+                    "d": today,
+                    "o": prev["o"],             # 세션 시작가 유지
+                    "h": max(prev["h"], h),
+                    "l": min(prev["l"], l),
+                    "c": c,
+                    "v": prev["v"] + v,
+                }
+            else:
+                new_ohlc = {"d": today, "o": o, "h": h, "l": l, "c": c, "v": v}
+
+            await self.redis.set(key, orjson.dumps(new_ohlc), ex=_SESSION_OHLC_TTL)
+        except Exception as e:
+            logger.debug(f"session ohlc update error {code}: {e}")
+
+    async def _detect_session_candle(self, code: str, bar: dict) -> dict | None:
+        """세션 OHLC 기준 장중 Long White Candle 탐지 (13시 이후, 세션 대비 3%+ 상승)."""
+        now_kst = datetime.now(timezone.utc).astimezone(
+            __import__("zoneinfo").ZoneInfo("Asia/Seoul")
+        )
+        if now_kst.hour < _SESSION_CANDLE_HOUR_AFTER:
+            return None
+
+        key = f"session:ohlc:{code}"
+        try:
+            raw = await self.redis.get(key)
+            if not raw:
+                return None
+            ohlc = orjson.loads(raw)
+            o, c = ohlc.get("o", 0), ohlc.get("c", 0)
+            if not o or not c:
+                return None
+            session_return = (c - o) / o
+            if session_return >= _SESSION_CANDLE_MIN_RETURN:
+                score = min(0.9, 0.5 + session_return * 5)
+                return {
+                    "code":        code,
+                    "event_type":  "LONG_WHITE_CANDLE",
+                    "price":       int(c),
+                    "change_rate": float(bar.get("change_rate", 0)),
+                    "signal_score": round(score, 3),
+                    "signal_data":  {"session_open": o, "session_return": round(session_return, 4)},
+                }
+        except Exception as e:
+            logger.debug(f"session candle detect error {code}: {e}")
+        return None
 
     async def _process_supply_demand(self):
         async for batch in self.consumer.consume(["supply-demand"], batch_size=50):

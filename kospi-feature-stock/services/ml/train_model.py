@@ -89,6 +89,29 @@ async def load_market_data(pool: asyncpg.Pool, start: str, end: str) -> tuple[pd
     return kospi_close, market_vol
 
 
+async def load_news_sentiment(pool: asyncpg.Pool, start: str, end: str) -> pd.DataFrame:
+    """뉴스 감성 점수를 (code, date) 키로 7일 롤링 평균으로 집계하여 반환."""
+    start_d, end_d = date_type.fromisoformat(start), date_type.fromisoformat(end)
+    rows = await pool.fetch(
+        """
+        SELECT nsl.code, DATE(n.published_at) AS date,
+               AVG(n.sentiment_score) AS avg_sentiment,
+               COUNT(*) AS news_count
+        FROM news n
+        JOIN news_stock_links nsl ON nsl.news_id = n.id
+        WHERE DATE(n.published_at) BETWEEN $1 AND $2
+          AND n.sentiment_score IS NOT NULL
+        GROUP BY nsl.code, DATE(n.published_at)
+        """,
+        start_d, end_d,
+    )
+    if not rows:
+        return pd.DataFrame(columns=["code", "date", "avg_sentiment", "news_count"])
+    df = pd.DataFrame([dict(r) for r in rows])
+    df["date"] = df["date"].astype(str)
+    return df
+
+
 async def main(args):
     pool = await asyncpg.create_pool(
         dsn=os.environ["POSTGRES_DSN"].replace("+asyncpg", ""),
@@ -98,8 +121,10 @@ async def main(args):
     raw = await load_data(pool, args.start, args.end)
     kospi_close, market_vol = await load_market_data(pool, args.start, args.end)
     disc_df = await load_disclosure_sentiment(pool, args.start, args.end)
+    news_df = await load_news_sentiment(pool, args.start, args.end)
     logger.info(f"Loaded {len(raw)} rows, {raw['code'].nunique()} stocks, "
-                f"KOSPI={len(kospi_close)} days, disclosures={len(disc_df)} rows")
+                f"KOSPI={len(kospi_close)} days, disclosures={len(disc_df)} rows, "
+                f"news_sentiment={len(news_df)} rows")
     await pool.close()
 
     tech = TechnicalFeatureExtractor()
@@ -132,6 +157,29 @@ async def main(args):
             else:
                 f["disclosure_sentiment"]     = 0.0
                 f["has_favorable_disclosure"] = 0
+
+            # 뉴스 감성 피처 주입 — 7일 롤링 평균
+            if not news_df.empty:
+                code_news = news_df[news_df["code"] == code][["date", "avg_sentiment", "news_count"]].copy()
+                if not code_news.empty:
+                    code_news = code_news.set_index("date").sort_index()
+                    # 일별 데이터가 없는 날은 forward-fill 후 7일 이동평균
+                    f_indexed = f.set_index("date")
+                    f_indexed["news_sentiment_7d"] = (
+                        code_news["avg_sentiment"].reindex(f_indexed.index)
+                        .fillna(method="ffill", limit=7).fillna(0.0)
+                    )
+                    f_indexed["news_count_7d"] = (
+                        code_news["news_count"].reindex(f_indexed.index)
+                        .fillna(0.0).rolling(7, min_periods=1).sum().clip(upper=50) / 50.0
+                    )
+                    f = f_indexed.reset_index()
+                else:
+                    f["news_sentiment_7d"] = 0.0
+                    f["news_count_7d"]     = 0.0
+            else:
+                f["news_sentiment_7d"] = 0.0
+                f["news_count_7d"]     = 0.0
 
             label_e = tr.make_label_entry(f, fwd=5, thr=0.05)
             label_r = tr.make_label_risk(f,   fwd=5, loss=-0.05)

@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import logging
 import os
 import traceback
@@ -16,7 +16,13 @@ logging.basicConfig(
 logger = logging.getLogger("recommender")
 
 # 기동 시 재처리할 최대 과거 범위 (기본 24시간)
-_RECOVERY_HOURS = int(os.environ.get("REC_RECOVERY_HOURS", "24"))
+_RECOVERY_HOURS   = int(os.environ.get("REC_RECOVERY_HOURS",   "24"))
+# 동일 종목+이벤트타입 재추천 억제 쿨다운 (분, 0=비활성)
+_COOLDOWN_MINUTES = int(os.environ.get("REC_COOLDOWN_MINUTES", "30"))
+# 당일 세션 진입가 앵커 유효 시간 (시간)
+_ANCHOR_HOURS     = int(os.environ.get("REC_ANCHOR_HOURS",     "8"))
+# 앵커 가격과 현재가 허용 괴리율 (초과 시 앵커 무시)
+_ANCHOR_BAND      = float(os.environ.get("REC_ANCHOR_BAND",    "0.03"))
 
 
 class RecommenderService:
@@ -65,6 +71,10 @@ class RecommenderService:
                     continue
                 try:
                     event_id = await self._save_feature_event(event)
+                    # 쿨다운 체크: feature_event는 저장하되 중복 추천 억제
+                    if await self._on_cooldown(event.get("code", ""), event.get("event_type", "UNKNOWN")):
+                        logger.debug(f"Cooldown skip: {event.get('code')} {event.get('event_type')}")
+                        continue
                     rec = await self._generate(event, recommender)
                     if rec:
                         await self._emit(rec, event, producer, feature_event_id=event_id)
@@ -124,7 +134,7 @@ class RecommenderService:
                     "risk_score":   _f(row["risk_score"], 0.3),
                     "signal_data":  orjson.loads(row["signal_data"]) if row["signal_data"] else {},
                 }
-                rec = await self._generate(event, recommender)
+                rec = await self._generate(event, recommender, use_anchor=False)
                 if rec:
                     await self._emit(rec, event, producer, feature_event_id=row["id"])
                     processed += 1
@@ -145,6 +155,7 @@ class RecommenderService:
                 "signal-generated",
                 value={
                     "code":            rec["code"],
+                    "name":            rec.get("name", rec["code"]),
                     "created_at":      rec["created_at"],
                     "action":          rec["action"],
                     "entry_price":     rec["entry_price"],
@@ -160,14 +171,68 @@ class RecommenderService:
                 f"target={rec['target_price']} prob={rec['success_prob']:.2f}"
             )
 
-    async def _generate(self, event: dict, recommender) -> dict | None:
+    async def _on_cooldown(self, code: str, event_type: str) -> bool:
+        """쿨다운 원자적 확인+설정. 이미 쿨다운 중이면 True 반환."""
+        if not _COOLDOWN_MINUTES or not code:
+            return False
+        key = f"rec:cd:{code}:{event_type}"
+        try:
+            # SET NX EX: 키가 없으면 설정(False 반환), 있으면 None 반환(쿨다운 중)
+            result = await self._redis.set(key, "1", nx=True, ex=_COOLDOWN_MINUTES * 60)
+            return result is None
+        except Exception:
+            return False
+
+    async def _get_anchor(self, code: str) -> int | None:
+        """당일 세션 진입가 앵커 조회."""
+        try:
+            val = await self._redis.get(f"rec:anchor:{code}")
+            return int(val) if val else None
+        except Exception:
+            return None
+
+    async def _set_anchor(self, code: str, price: int):
+        """당일 세션 진입가 앵커 최초 설정 (NX — 이미 있으면 변경 안 함)."""
+        try:
+            await self._redis.set(f"rec:anchor:{code}", str(price), nx=True, ex=_ANCHOR_HOURS * 3600)
+        except Exception:
+            pass
+
+    async def _generate(self, event: dict, recommender, use_anchor: bool = True) -> dict | None:
         from ml_client import get_ml_result, get_similar_cases
-        ml_result    = await get_ml_result(event, self._db)
+
+        # 당일 세션 진입가 앵커 적용
+        anchor_price: int | None = None
+        if use_anchor:
+            stored = await self._get_anchor(event.get("code", ""))
+            if stored:
+                current = int(event.get("price", 0))
+                if current and abs(current - stored) / stored <= _ANCHOR_BAND:
+                    anchor_price = stored
+
+        ml_result    = await get_ml_result(event, self._db, redis=self._redis)
         cases, stats = await get_similar_cases(event, self._db)
-        rec = recommender.recommend(event, ml_result, stats, cases)
+        rec = recommender.recommend(event, ml_result, stats, cases, anchor_price=anchor_price)
+
+        # BUY 신호 확정 시 앵커 최초 설정
+        if rec.action == "BUY" and use_anchor:
+            await self._set_anchor(rec.code, rec.entry_price)
+
+        # 종목명/시장 조회
+        stock_name, stock_market = rec.code, ""
+        try:
+            async with self._db.acquire() as _conn:
+                row = await _conn.fetchrow("SELECT name, market FROM stocks WHERE code=$1", rec.code)
+                if row:
+                    stock_name   = row["name"]
+                    stock_market = row["market"] or ""
+        except Exception:
+            pass
 
         return {
             "code":               rec.code,
+            "name":               stock_name,
+            "market":             stock_market,
             "created_at":         datetime.now(timezone.utc),
             "action":             rec.action,
             "entry_price":        rec.entry_price,
@@ -224,7 +289,7 @@ class RecommenderService:
 
     async def _save(self, rec: dict, feature_event_id: int | None = None):
         async with self._db.acquire() as conn:
-            await conn.execute(
+            rec_id = await conn.fetchval(
                 """
                 INSERT INTO recommendations (
                     code, created_at, action,
@@ -236,6 +301,7 @@ class RecommenderService:
                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
                     NOW() + ($16 * INTERVAL '1 day'), $17)
                 ON CONFLICT DO NOTHING
+                RETURNING id
                 """,
                 rec["code"], rec["created_at"], rec["action"],
                 rec["entry_price"], rec["entry_price_low"], rec["entry_price_high"],
@@ -247,6 +313,38 @@ class RecommenderService:
                 float(rec["expected_hold_days"]),
                 feature_event_id,
             )
+            # BUY 신호 확정 시 성과 추적 초기 row 등록 (텔레그램 발송 기준과 동일한 임계값 적용)
+            if rec_id and rec.get("action") == "BUY":
+                # Redis 런타임 telegram:config 의 min_prob 기준으로 필터
+                perf_min_prob = float(os.environ.get("REC_MIN_PROB", "0.22"))
+                try:
+                    raw = await self._redis.get("telegram:config")
+                    if raw:
+                        cfg = orjson.loads(raw)
+                        perf_min_prob = float(cfg.get("min_prob", perf_min_prob))
+                except Exception:
+                    pass
+                if rec.get("success_prob", 0) >= perf_min_prob:
+                    rationale = rec["rationale"]
+                    event_type = (
+                        rationale.get("event_type") if isinstance(rationale, dict)
+                        else getattr(rationale, "event_type", None)
+                    )
+                    await conn.execute(
+                        """
+                        INSERT INTO recommendation_performance
+                            (rec_id, code, entry_price, event_type, signal_time)
+                        VALUES ($1, $2, $3, $4, $5)
+                        ON CONFLICT (rec_id) DO NOTHING
+                        """,
+                        rec_id, rec["code"], rec["entry_price"],
+                        event_type, rec["created_at"],
+                    )
+                else:
+                    logger.debug(
+                        f"[PERF_TRACK] skip {rec['code']} prob={rec.get('success_prob',0):.3f} "
+                        f"< threshold={perf_min_prob:.3f}"
+                    )
 
     async def _publish_redis(self, rec: dict):
         await self._redis.publish(

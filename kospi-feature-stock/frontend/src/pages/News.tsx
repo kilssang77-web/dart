@@ -1,8 +1,8 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { clsx } from 'clsx'
-import { Hash, Newspaper, BarChart2 } from 'lucide-react'
+import { Hash, Newspaper, BarChart2, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react'
 import { newsApi } from '@/api/news'
 import { marketApi } from '@/api/market'
 import { SentimentBadge } from '@/components/ui/Badge'
@@ -11,7 +11,8 @@ import { fmt } from '@/lib/utils'
 export function News() {
   const nav = useNavigate()
   const [category, setCategory] = useState('')
-  const [hours,    setHours]    = useState('24')
+  const [hours,    setHours]    = useState('72')
+  const [expandedId, setExpandedId] = useState<number | null>(null)
 
   const { data: newsList, isLoading: newsLoading } = useQuery({
     queryKey:        ['news', category, hours],
@@ -65,40 +66,105 @@ export function News() {
 
         {/* 뉴스 피드 */}
         <div className="lg:col-span-2 space-y-2">
-          {newsList?.map((item) => (
-            <div
-              key={item.id}
-              className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 hover:border-cyan-500/30 transition-colors cursor-pointer"
-              onClick={() => item.code && nav(`/search?code=${item.code}`)}
-            >
+          {newsLoading && Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 space-y-3">
               <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-sm text-[var(--fg)] leading-snug">{item.title}</div>
-                  {item.content && (
-                    <div className="text-xs text-[var(--muted)] mt-1.5 line-clamp-2 leading-relaxed">
-                      {item.content}
-                    </div>
-                  )}
-                  <div className="flex items-center flex-wrap gap-2 mt-2.5">
-                    {item.corp_name && (
-                      <span className="text-[10px] font-medium text-cyan-400">{item.corp_name}</span>
-                    )}
-                    {item.keywords?.slice(0, 4).map((k) => (
-                      <span key={k} className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--border)] text-[var(--muted)]">
-                        {k}
-                      </span>
-                    ))}
-                    <span className="text-[10px] text-[var(--muted)] ml-auto">
-                      {item.source && `${item.source} · `}{fmt.dateTime(item.published_at)}
-                    </span>
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 skeleton rounded w-4/5" />
+                  <div className="h-4 skeleton rounded w-3/5" />
+                  <div className="flex gap-2 mt-2">
+                    <div className="h-3 skeleton rounded w-16" />
+                    <div className="h-3 skeleton rounded w-20" />
+                    <div className="h-3 skeleton rounded w-24 ml-auto" />
                   </div>
                 </div>
-                <div className="flex-shrink-0">
-                  <SentimentBadge category={item.category} />
-                </div>
+                <div className="h-5 skeleton rounded w-10 flex-shrink-0" />
               </div>
             </div>
           ))}
+          {newsList?.map((item) => {
+            const isExpanded = expandedId === item.id
+            return (
+              <div
+                key={item.id}
+                className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 hover:border-cyan-500/30 transition-colors"
+              >
+                {/* 헤더 — 제목 클릭시 종목 이동 */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div
+                      className="font-medium text-sm text-[var(--fg)] leading-snug cursor-pointer hover:text-cyan-400 transition-colors"
+                      onClick={() => item.codes?.[0] && nav(`/search?code=${item.codes[0]}`)}
+                    >
+                      {item.title}
+                    </div>
+                    <div className="flex items-center flex-wrap gap-2 mt-2">
+                      {item.corp_name && (
+                        <span className="text-xs font-medium text-cyan-400">{item.corp_name}</span>
+                      )}
+                      {item.keywords?.slice(0, 4).map((k) => (
+                        <span key={k} className="text-xs px-1.5 py-0.5 rounded bg-[var(--border)] text-[var(--muted)]">
+                          {k}
+                        </span>
+                      ))}
+                      <span className="text-xs text-[var(--muted)] ml-auto">
+                        {item.source && `${item.source} · `}{fmt.dateTime(item.published_at)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex-shrink-0">
+                    <SentimentBadge category={item.category} />
+                  </div>
+                </div>
+
+                {/* 본문 확장 */}
+                {isExpanded && (
+                  <div className="mt-3 pt-3 border-t border-[var(--border)] space-y-2">
+                    {item.content ? (
+                      <p className="text-sm text-[var(--fg)] leading-relaxed">{item.content}</p>
+                    ) : (
+                      <p className="text-sm text-[var(--muted)] italic">본문 미저장 — 원문보기로 전체 기사를 확인하세요.</p>
+                    )}
+                    {item.keywords && item.keywords.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {item.keywords.map((k) => (
+                          <span key={k} className="text-xs px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">{k}</span>
+                        ))}
+                      </div>
+                    )}
+                    {item.sentiment_score != null && (
+                      <div className="text-xs text-[var(--muted)]">
+                        감성 점수 <span className={clsx('font-semibold tabular', item.sentiment_score > 0 ? 'text-red-400' : item.sentiment_score < 0 ? 'text-blue-400' : 'text-[var(--muted)]')}>{item.sentiment_score.toFixed(2)}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 액션 버튼 */}
+                <div className="flex items-center gap-2 mt-2.5 pt-2 border-t border-[var(--border)]/50">
+                  <button
+                    onClick={() => setExpandedId(isExpanded ? null : item.id)}
+                    className="flex items-center gap-1 text-xs text-[var(--muted)] hover:text-cyan-400 transition-colors"
+                  >
+                    {isExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                    {isExpanded ? '접기' : '자세히보기'}
+                  </button>
+                  {item.url && (
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 transition-colors ml-auto font-medium"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ExternalLink size={10} />
+                      원문보기
+                    </a>
+                  )}
+                </div>
+              </div>
+            )
+          })}
           {!newsLoading && !newsList?.length && (
             <div className="py-16 text-center text-[var(--muted)] text-sm">
               뉴스 데이터가 없습니다
@@ -112,7 +178,7 @@ export function News() {
             <Hash size={14} className="text-cyan-400" />
             테마 클러스터
           </div>
-          {themes?.map((theme) => (
+          {themes?.filter((t, i, arr) => arr.findIndex(x => x.theme === t.theme) === i).map((theme) => (
             <div
               key={theme.theme}
               className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-3.5 hover:border-cyan-500/30 transition-colors"
@@ -122,10 +188,10 @@ export function News() {
                   <Hash size={11} className={theme.source === 'news' ? 'text-cyan-400' : 'text-purple-400'} />
                   <span className="text-xs font-semibold text-[var(--fg)]">{theme.theme}</span>
                 </div>
-                <span className="text-[10px] tabular text-[var(--muted)]">{theme.count}건</span>
+                <span className="text-xs tabular text-[var(--muted)]">{theme.count}건</span>
               </div>
 
-              <div className="flex items-center justify-between text-[9px] text-[var(--muted)]">
+              <div className="flex items-center justify-between text-xs text-[var(--muted)]">
                 <span>관련 종목 {theme.stock_count}개</span>
                 <div className="flex items-center gap-1.5">
                   <BarChart2 size={9} />
@@ -135,7 +201,7 @@ export function News() {
 
               <div className="mt-2">
                 <span className={clsx(
-                  'text-[9px] px-1.5 py-0.5 rounded border',
+                  'text-xs px-1.5 py-0.5 rounded border',
                   theme.source === 'news'
                     ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
                     : 'bg-purple-500/10 text-purple-400 border-purple-500/20'

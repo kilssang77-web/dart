@@ -138,8 +138,9 @@ def _safe(v, default=0.0) -> float:
         return default
 
 
-def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: list = None) -> dict:
-    """daily_bars rows(최신 → 과거 순) + 수급 + 공시 → FEATURE_COLUMNS dict."""
+def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: list = None,
+                      news_sentiment: dict | None = None) -> dict:
+    """daily_bars rows(최신 → 과거 순) + 수급 + 공시 + 뉴스감성 → FEATURE_COLUMNS dict."""
     if not rows:
         return {k: 0.0 for k in FEATURE_COLUMNS}
 
@@ -317,16 +318,20 @@ def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: li
     month_sin = math.sin(2 * math.pi * (month - 1) / 12)
     month_cos = math.cos(2 * math.pi * (month - 1) / 12)
 
-    # 뉴스 피처 (추론 컨텍스트에서 뉴스 미제공 → 0.0 기본값)
-    news_sentiment_7d = 0.0
-    news_count_7d     = 0.0
+    # 뉴스 피처 — Redis news:sentiment:{code} 에서 읽은 집계값 사용
+    if news_sentiment:
+        news_sentiment_7d = _safe(news_sentiment.get("avg_sentiment"), 0.0)
+        news_count_7d     = min(_safe(news_sentiment.get("count"), 0.0), 50.0) / 50.0
+    else:
+        news_sentiment_7d = 0.0
+        news_count_7d     = 0.0
 
     return {k: locals().get(k, 0.0) for k in FEATURE_COLUMNS}
 
 
 # ── 메인 공개 함수 ────────────────────────────────────────────────
 
-async def get_ml_result(event: dict, db: asyncpg.Pool) -> MLResult:
+async def get_ml_result(event: dict, db: asyncpg.Pool, redis=None) -> MLResult:
     _try_load_models()
     code = event.get("code", "")
 
@@ -384,7 +389,20 @@ async def get_ml_result(event: dict, db: asyncpg.Pool) -> MLResult:
         await _short_increasing(db, code, bars)
     )
 
-    feats = _compute_features(bars, sd, [dict(r) for r in disc_rows], kospi_rows=[dict(r) for r in kospi_rows])
+    # Redis에서 종목별 뉴스 감성 집계 조회
+    _news_sentiment = None
+    if redis:
+        try:
+            import orjson as _orjson
+            raw = await redis.get(f"news:sentiment:{code}")
+            if raw:
+                _news_sentiment = _orjson.loads(raw)
+        except Exception:
+            pass
+
+    feats = _compute_features(bars, sd, [dict(r) for r in disc_rows],
+                              kospi_rows=[dict(r) for r in kospi_rows],
+                              news_sentiment=_news_sentiment)
     _atr_ratio = feats.get("atr_ratio", 0.0)
 
     # ── ML 서비스 HTTP 추론 (우선) ──

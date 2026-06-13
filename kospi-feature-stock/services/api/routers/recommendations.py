@@ -1,80 +1,48 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
 import asyncpg
-import json
-from deps import get_db
-from schemas.responses import RecommendationResponse, PerformanceStatsResponse
-
-
-def _parse_json_fields(d: dict) -> dict:
-    for key in ("rationale", "similar_cases"):
-        if isinstance(d.get(key), str):
-            try:
-                d[key] = json.loads(d[key])
-            except Exception:
-                d[key] = {} if key == "rationale" else []
-    return d
+import redis.asyncio as redis_lib
+from deps import get_db, get_redis
+from schemas.responses import RecommendationResponse, PerformanceStatsResponse, CodeSignalsResponse
+from services.recommendation_service import RecommendationService
 
 router = APIRouter()
 
 
+def _svc(db: asyncpg.Pool = Depends(get_db), redis: redis_lib.Redis = Depends(get_redis)) -> RecommendationService:
+    return RecommendationService(db, redis)
+
+
 @router.get("", response_model=list[RecommendationResponse])
 async def list_recommendations(
-    action: str | None = None,
-    market: str | None = None,
-    min_prob: float = Query(default=0.35, ge=0.0, le=1.0),
-    hours: int = Query(default=24, le=168),
-    limit: int = Query(default=30, le=100),
-    db: asyncpg.Pool = Depends(get_db),
+    action:   str | None = None,
+    market:   str | None = None,
+    code:     str | None = None,
+    min_prob: float = Query(default=0.20, ge=0.0, le=1.0),
+    hours:    int   = Query(default=72, le=168),
+    limit:    int   = Query(default=30, le=100),
+    dedupe:   bool  = Query(default=True, description="종목당 최고확률 1건만 반환"),
+    svc: RecommendationService = Depends(_svc),
 ):
-    where = ["r.created_at >= NOW()-($1 * INTERVAL '1 hour')", "r.success_prob >= $2"]
-    params: list = [hours, min_prob]
-
-    if action:
-        params.append(action.upper())
-        where.append(f"r.action = ${len(params)}")
-
-    if market:
-        params.append(market.upper())
-        where.append(f"s.market = ${len(params)}")
-
-    params.append(limit)
-    rows = await db.fetch(
-        f"""
-        SELECT
-            r.id, r.created_at::TEXT, r.code,
-            COALESCE(s.name, r.code)   AS name,
-            COALESCE(s.market, '-')    AS market,
-            r.action, r.entry_price, r.target_price, r.stop_loss_price,
-            r.expected_hold_days, r.success_prob, r.expected_return,
-            r.risk_score, r.risk_reward_ratio,
-            r.rationale, r.similar_cases
-        FROM recommendations r
-        LEFT JOIN stocks s ON s.code = r.code
-        WHERE {' AND '.join(where)}
-        ORDER BY r.success_prob DESC, r.created_at DESC
-        LIMIT ${len(params)}
-        """,
-        *params,
-    )
-    return [_parse_json_fields(dict(r)) for r in rows]
+    return await svc.list_recommendations(action, market, code, min_prob, hours, limit, dedupe)
 
 
 @router.get("/buy", response_model=list[RecommendationResponse])
 async def get_buy_signals(
-    min_prob: float = Query(default=0.35, ge=0.0, le=1.0),
+    min_prob: float = Query(default=0.20, ge=0.0, le=1.0),
     db: asyncpg.Pool = Depends(get_db),
 ):
+    from services.recommendation_service import _parse_json_fields
     rows = await db.fetch(
         """
         SELECT
-            r.id, r.code,
+            r.id, (r.created_at AT TIME ZONE 'Asia/Seoul')::TEXT AS created_at, r.code,
             COALESCE(s.name, r.code)   AS name,
-            COALESCE(s.market, '-')    AS market,
-            COALESCE(s.sector, '-')    AS sector,
+            COALESCE(NULLIF(s.market, 'UNKNOWN'), '-')    AS market,
+            r.action,
             r.entry_price, r.target_price, r.stop_loss_price,
             r.success_prob, r.expected_return, r.risk_score,
             r.risk_reward_ratio, r.expected_hold_days,
-            r.created_at::TEXT
+            r.rationale, r.similar_cases
         FROM recommendations r
         LEFT JOIN stocks s ON s.code = r.code
         WHERE r.action = 'BUY'
@@ -88,37 +56,37 @@ async def get_buy_signals(
     return [RecommendationResponse(**_parse_json_fields(dict(r))) for r in rows]
 
 
-# /stats/performance 는 /{code}/latest 보다 반드시 먼저 선언해야 함
 @router.get("/stats/performance", response_model=PerformanceStatsResponse)
 async def performance_stats(
     days: int = Query(default=30, le=90),
-    db: asyncpg.Pool = Depends(get_db),
+    svc: RecommendationService = Depends(_svc),
 ):
-    row = await db.fetchrow(
-        """
-        SELECT
-            COUNT(*)                                        AS total_count,
-            COUNT(*) FILTER (WHERE action='BUY')            AS buy_count,
-            COUNT(*) FILTER (WHERE is_success=TRUE)         AS success_count,
-            ROUND(AVG(actual_return)::NUMERIC, 4)           AS avg_return,
-            ROUND(AVG(success_prob)::NUMERIC, 3)            AS avg_pred_prob
-        FROM recommendations
-        WHERE created_at >= NOW() - ($1 * INTERVAL '1 day')
-          AND actual_return IS NOT NULL
-        """,
-        days,
-    )
-    result = dict(row)
-    buy = result.get("buy_count") or 1
-    result["success_rate"] = round((result.get("success_count") or 0) / buy, 3)
-    return PerformanceStatsResponse(**result)
+    return await svc.performance_stats(days)
+
+
+@router.get("/{code}/signals", response_model=CodeSignalsResponse)
+async def code_signals(
+    code:  str,
+    hours: int = Query(default=168, le=720),
+    svc: RecommendationService = Depends(_svc),
+):
+    return await svc.code_signals(code, hours)
 
 
 @router.get("/{code}/latest", response_model=RecommendationResponse)
 async def get_latest(code: str, db: asyncpg.Pool = Depends(get_db)):
+    from services.recommendation_service import _parse_json_fields
     row = await db.fetchrow(
         """
-        SELECT r.*, COALESCE(s.name, r.code) AS name
+        SELECT
+            r.id, (r.created_at AT TIME ZONE 'Asia/Seoul')::TEXT AS created_at, r.code,
+            COALESCE(s.name, r.code)   AS name,
+            COALESCE(NULLIF(s.market, 'UNKNOWN'), '-')    AS market,
+            r.action,
+            r.entry_price, r.target_price, r.stop_loss_price,
+            r.success_prob, r.expected_return, r.risk_score,
+            r.risk_reward_ratio, r.expected_hold_days,
+            r.rationale, r.similar_cases
         FROM recommendations r
         LEFT JOIN stocks s ON s.code = r.code
         WHERE r.code = $1

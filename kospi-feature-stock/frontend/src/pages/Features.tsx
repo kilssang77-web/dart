@@ -1,10 +1,11 @@
-import { useState, useMemo } from 'react'
+﻿import { useState, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { clsx } from 'clsx'
 import { ChevronUp, ChevronDown, Filter } from 'lucide-react'
 import { featuresApi } from '@/api/features'
-import { Badge, MarketBadge } from '@/components/ui/Badge'
+import { Badge, MarketBadge, EVENT_LABELS } from '@/components/ui/Badge'
+import { EventDetailModal } from '@/components/modals/EventDetailModal'
 import { fmt, pctColor } from '@/lib/utils'
 import type { FeatureEvent } from '@/types'
 
@@ -17,27 +18,33 @@ const EVENT_TYPE_OPTIONS = [
   'HAMMER_CANDLE', 'MORNING_STAR', 'SUPPLY_ANOMALY', 'POST_DISCLOSURE_SURGE',
 ]
 
+
+
+// ── 메인 페이지 ─────────────────────────────────────────────────────────────
 export function Features() {
   const nav = useNavigate()
   const [searchParams] = useSearchParams()
 
-  const [eventType, setEventType] = useState(searchParams.get('event_type') ?? '')
-  const [market,    setMarket]    = useState('')
-  const [minScore,  setMinScore]  = useState('')
-  const [hours,     setHours]     = useState('24')
-  const [query,     setQuery]     = useState('')
-  const [sortKey,   setSortKey]   = useState<SortKey>('detected_at')
-  const [sortDir,   setSortDir]   = useState<SortDir>('desc')
+  const [eventType,      setEventType]      = useState(searchParams.get('event_type') ?? '')
+  const [market,         setMarket]         = useState('')
+  const [minScore,       setMinScore]       = useState('')
+  const [hours,          setHours]          = useState('72')
+  const [query,          setQuery]          = useState('')
+  const [dedupe,         setDedupe]         = useState(true)
+  const [sortKey,        setSortKey]        = useState<SortKey>('detected_at')
+  const [sortDir,        setSortDir]        = useState<SortDir>('desc')
+  const [selectedEvent,  setSelectedEvent]  = useState<FeatureEvent | null>(null)
 
   const { data, isLoading } = useQuery({
-    queryKey:       ['features', { eventType, market, minScore, hours }],
-    queryFn:        () =>
+    queryKey:        ['features', { eventType, market, minScore, hours, dedupe }],
+    queryFn:         () =>
       featuresApi.list({
         event_type: eventType || undefined,
         market:     market    || undefined,
         min_score:  minScore  ? Number(minScore) : undefined,
         hours:      Number(hours),
         limit:      300,
+        dedupe,
       }),
     refetchInterval: 30_000,
   })
@@ -76,34 +83,34 @@ export function Features() {
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="p-5 space-y-4 max-w-[1600px]">
 
       {/* 필터 바 */}
-      <div className="flex flex-wrap items-center gap-2 p-3 bg-[var(--card)] border border-[var(--border)] rounded-xl">
+      <div className="flex flex-wrap items-center gap-3 p-4 bg-[var(--card)] border border-[var(--border)] rounded-xl">
         <Filter size={13} className="text-[var(--muted)] flex-shrink-0" />
 
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="종목명 / 코드 검색"
-          className="bg-[var(--bg)] border border-[var(--border)] rounded-md px-2.5 py-1.5 text-xs text-[var(--fg)] placeholder:text-[var(--muted)] focus:outline-none focus:border-cyan-500 w-36"
+          className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--fg)] placeholder:text-[var(--muted)] focus:outline-none focus:border-cyan-500 w-40"
         />
 
         <select
           value={eventType}
           onChange={(e) => setEventType(e.target.value)}
-          className="bg-[var(--bg)] border border-[var(--border)] rounded-md px-2.5 py-1.5 text-xs text-[var(--fg)] focus:outline-none focus:border-cyan-500"
+          className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--fg)] focus:outline-none focus:border-cyan-500"
         >
           <option value="">모든 이벤트</option>
           {EVENT_TYPE_OPTIONS.map((t) => (
-            <option key={t} value={t}>{t}</option>
+            <option key={t} value={t}>{EVENT_LABELS[t] ?? t}</option>
           ))}
         </select>
 
         <select
           value={market}
           onChange={(e) => setMarket(e.target.value)}
-          className="bg-[var(--bg)] border border-[var(--border)] rounded-md px-2.5 py-1.5 text-xs text-[var(--fg)] focus:outline-none focus:border-cyan-500"
+          className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--fg)] focus:outline-none focus:border-cyan-500"
         >
           <option value="">전체 시장</option>
           <option value="KOSPI">KOSPI</option>
@@ -113,7 +120,7 @@ export function Features() {
         <select
           value={hours}
           onChange={(e) => setHours(e.target.value)}
-          className="bg-[var(--bg)] border border-[var(--border)] rounded-md px-2.5 py-1.5 text-xs text-[var(--fg)] focus:outline-none focus:border-cyan-500"
+          className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--fg)] focus:outline-none focus:border-cyan-500"
         >
           <option value="4">4시간</option>
           <option value="8">8시간</option>
@@ -126,14 +133,23 @@ export function Features() {
           value={minScore}
           onChange={(e) => setMinScore(e.target.value)}
           placeholder="최소 스코어"
-          type="number"
-          min="0"
-          max="1"
-          step="0.05"
-          className="bg-[var(--bg)] border border-[var(--border)] rounded-md px-2.5 py-1.5 text-xs text-[var(--fg)] placeholder:text-[var(--muted)] focus:outline-none focus:border-cyan-500 w-24"
+          type="number" min="0" max="1" step="0.05"
+          className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--fg)] placeholder:text-[var(--muted)] focus:outline-none focus:border-cyan-500 w-28"
         />
 
-        <div className="ml-auto text-xs text-[var(--muted)] tabular">
+        <button
+          onClick={() => setDedupe((v) => !v)}
+          className={clsx(
+            'ml-auto flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors',
+            dedupe
+              ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
+              : 'text-[var(--muted)] border-[var(--border)] hover:text-[var(--fg)]',
+          )}
+          title={dedupe ? '종목 통합 ON' : '전체 이벤트 표시 중'}
+        >
+          {dedupe ? '종목 통합' : '전체 이벤트'}
+        </button>
+        <div className="text-sm text-[var(--muted)] tabular font-medium">
           {isLoading ? '로딩 중…' : `${rows.length}건`}
         </div>
       </div>
@@ -141,72 +157,90 @@ export function Features() {
       {/* 테이블 */}
       <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--border)] text-[var(--muted)] bg-[var(--bg)]/40">
-                <th className="text-left py-2.5 pl-5 pr-3 font-medium">종목</th>
-                <th className="text-left py-2.5 pr-3 font-medium">이벤트</th>
-                <th
-                  className="text-right py-2.5 pr-3 font-medium cursor-pointer hover:text-[var(--fg)]"
-                  onClick={() => handleSort('detected_at')}
-                >
+                <th className="text-left py-2.5 pl-5 pr-3 text-xs font-semibold uppercase tracking-wider">종목</th>
+                <th className="text-left py-2.5 pr-3 text-xs font-semibold uppercase tracking-wider">
+                  이벤트 <span className="normal-case font-normal text-[var(--muted)]/70">(클릭 시 상세)</span>
+                </th>
+                <th className="text-right py-2.5 pr-3 text-xs font-semibold uppercase tracking-wider cursor-pointer hover:text-[var(--fg)]" onClick={() => handleSort('detected_at')}>
                   시각 <SortIcon k="detected_at" />
                 </th>
-                <th className="text-right py-2.5 pr-3 font-medium">현재가</th>
-                <th
-                  className="text-right py-2.5 pr-3 font-medium cursor-pointer hover:text-[var(--fg)]"
-                  onClick={() => handleSort('change_rate')}
-                >
+                <th className="text-right py-2.5 pr-3 text-xs font-semibold uppercase tracking-wider">
+                  탐지가 <span className="normal-case font-normal text-[var(--muted)]/70 text-[10px]">탐지 당시</span>
+                </th>
+                <th className="text-right py-2.5 pr-3 text-xs font-semibold uppercase tracking-wider cursor-pointer hover:text-[var(--fg)]" onClick={() => handleSort('change_rate')}>
                   등락률 <SortIcon k="change_rate" />
                 </th>
-                <th
-                  className="text-right py-2.5 pr-3 font-medium cursor-pointer hover:text-[var(--fg)]"
-                  onClick={() => handleSort('volume_ratio')}
-                >
+                <th className="text-right py-2.5 pr-3 text-xs font-semibold uppercase tracking-wider cursor-pointer hover:text-[var(--fg)]" onClick={() => handleSort('volume_ratio')}>
                   거래량비 <SortIcon k="volume_ratio" />
                 </th>
-                <th className="text-right py-2.5 pr-3 font-medium">거래대금</th>
-                <th
-                  className="text-right py-2.5 pr-5 font-medium cursor-pointer hover:text-[var(--fg)]"
-                  onClick={() => handleSort('signal_score')}
-                >
+                <th className="text-right py-2.5 pr-3 text-xs font-semibold uppercase tracking-wider">거래대금</th>
+                <th className="text-right py-2.5 pr-5 text-xs font-semibold uppercase tracking-wider cursor-pointer hover:text-[var(--fg)]" onClick={() => handleSort('signal_score')}>
                   스코어 <SortIcon k="signal_score" />
                 </th>
               </tr>
             </thead>
             <tbody>
+              {isLoading && Array.from({ length: 8 }).map((_, i) => (
+                <tr key={i} className="border-b border-[var(--border)]/50">
+                  <td className="py-3 pl-5 pr-3">
+                    <div className="h-4 skeleton rounded w-24 mb-1.5" />
+                    <div className="h-3 skeleton rounded w-14" />
+                  </td>
+                  <td className="py-3 pr-3"><div className="h-5 skeleton rounded w-28" /></td>
+                  <td className="py-3 pr-3 text-right"><div className="h-4 skeleton rounded w-14 ml-auto" /></td>
+                  <td className="py-3 pr-3 text-right"><div className="h-4 skeleton rounded w-16 ml-auto" /></td>
+                  <td className="py-3 pr-3 text-right"><div className="h-4 skeleton rounded w-12 ml-auto" /></td>
+                  <td className="py-3 pr-3 text-right"><div className="h-4 skeleton rounded w-10 ml-auto" /></td>
+                  <td className="py-3 pr-3 text-right"><div className="h-4 skeleton rounded w-14 ml-auto" /></td>
+                  <td className="py-3 pr-5 text-right"><div className="h-5 skeleton rounded w-20 ml-auto" /></td>
+                </tr>
+              ))}
               {rows.map((f) => (
                 <tr
                   key={f.id}
                   className="border-b border-[var(--border)]/50 hover:bg-[var(--border)]/25 cursor-pointer transition-colors"
                   onClick={() => nav(`/search?code=${f.code}`)}
                 >
-                  <td className="py-2.5 pl-5 pr-3">
-                    <div className="font-semibold text-[var(--fg)]">{f.name}</div>
+                  <td className="py-3 pl-5 pr-3">
+                    <div className="text-sm font-semibold text-[var(--fg)]">{f.name}</div>
                     <div className="flex items-center gap-1 mt-0.5">
                       <span className="text-[var(--muted)]">{f.code}</span>
                       <MarketBadge market={f.market} />
                     </div>
                   </td>
-                  <td className="py-2.5 pr-3">
-                    <div className="flex flex-wrap gap-1">
-                      <Badge eventType={f.event_type} size="sm" />
+                  {/* 이벤트 셀: 클릭 시 팝업 (행 이동 막음) */}
+                  <td
+                    className="py-3 pr-3"
+                    onClick={(e) => { e.stopPropagation(); setSelectedEvent(f) }}
+                  >
+                    <div className="flex flex-wrap items-center gap-1 group">
+                      <span className="group-hover:ring-1 group-hover:ring-cyan-500/50 rounded transition-all">
+                        <Badge eventType={f.event_type} size="sm" />
+                      </span>
                       {f.all_event_types
                         ?.filter((t) => t !== f.event_type)
                         .slice(0, 2)
                         .map((t) => <Badge key={t} eventType={t} size="sm" />)}
+                      {(f.all_event_types?.length ?? 0) > 3 && (
+                        <span className="text-xs px-1 py-0.5 rounded bg-[var(--border)] text-[var(--muted)] font-semibold">
+                          +{f.all_event_types!.length - 3}
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="py-2.5 pr-3 text-right tabular text-[var(--muted)]">
-                    {fmt.time(f.detected_at)}
+                    {fmt.smartTime(f.detected_at)}
                   </td>
                   <td className="py-2.5 pr-3 text-right tabular text-[var(--fg)] font-medium">
                     {fmt.price(f.price)}
                   </td>
-                  <td className={clsx('py-2.5 pr-3 text-right tabular font-semibold', pctColor(f.change_rate))}>
+                  <td className={clsx('py-3 pr-3 text-right tabular font-semibold', pctColor(f.change_rate))}>
                     {fmt.pct(f.change_rate)}
                   </td>
-                  <td className={clsx('py-2.5 pr-3 text-right tabular font-semibold',
+                  <td className={clsx('py-3 pr-3 text-right tabular font-semibold',
                     (f.volume_ratio ?? 0) >= 5 ? 'text-yellow-400' :
                     (f.volume_ratio ?? 0) >= 2 ? 'text-cyan-400' : 'text-[var(--muted)]'
                   )}>
@@ -215,7 +249,7 @@ export function Features() {
                   <td className="py-2.5 pr-3 text-right tabular text-[var(--muted)]">
                     {fmt.amount(f.amount)}
                   </td>
-                  <td className="py-2.5 pr-5 text-right tabular">
+                  <td className="py-3 pr-5 text-right tabular">
                     <ScoreBar score={f.signal_score} />
                   </td>
                 </tr>
@@ -231,6 +265,15 @@ export function Features() {
           </table>
         </div>
       </div>
+
+      {/* 이벤트 상세 팝업 */}
+      {selectedEvent && (
+        <EventDetailModal
+          event={selectedEvent}
+          onClose={() => setSelectedEvent(null)}
+          onGoDetail={() => { setSelectedEvent(null); nav(`/search?code=${selectedEvent.code}`) }}
+        />
+      )}
     </div>
   )
 }

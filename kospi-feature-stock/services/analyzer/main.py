@@ -3,11 +3,14 @@ import logging
 import os
 import asyncpg
 import orjson
+import redis.asyncio as redis_lib
 from datetime import datetime
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from disclosure.classifier import DisclosureClassifier
 from embedding.embedder import LocalEmbedder
 from news.sentiment import analyze as news_sentiment
+
+_NEWS_SENTIMENT_TTL = int(os.environ.get("NEWS_SENTIMENT_TTL", "604800"))  # 7일
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,6 +42,7 @@ class AnalyzerService:
 
     def __init__(self):
         self._db: asyncpg.Pool | None = None
+        self._redis: redis_lib.Redis | None = None
         self._producer: AIOKafkaProducer | None = None
         self.classifier = DisclosureClassifier()
         self.embedder   = LocalEmbedder(
@@ -56,6 +60,8 @@ class AnalyzerService:
             dsn=os.environ["POSTGRES_DSN"].replace("+asyncpg", ""),
             min_size=3, max_size=10,
         )
+        if os.environ.get("REDIS_URL"):
+            self._redis = redis_lib.from_url(os.environ["REDIS_URL"])
         self._producer = AIOKafkaProducer(
             bootstrap_servers=os.environ["KAFKA_BOOTSTRAP_SERVERS"],
             value_serializer=lambda v: orjson.dumps(v),
@@ -107,10 +113,13 @@ class AnalyzerService:
         await asyncio.sleep(300)  # 서비스 기동 5분 후 첫 실행
         while True:
             try:
-                from news.theme_clusterer import ThemeClusterer
-                tc = ThemeClusterer()
-                await tc.run(self._db)
-                logger.info("Theme clustering completed")
+                if self._redis:
+                    from news.theme_clusterer import ThemeClusterer
+                    tc = ThemeClusterer(db_pool=self._db, redis_client=self._redis)
+                    themes = await tc.run()
+                    logger.info(f"Theme clustering completed: {len(themes)} themes")
+                else:
+                    logger.warning("Theme clustering skipped: Redis not connected")
             except Exception as e:
                 logger.error(f"Theme clustering error: {e}")
             await asyncio.sleep(3600)  # 1시간
@@ -255,6 +264,29 @@ class AnalyzerService:
                     news_id, data["code"], relevance,
                 )
         logger.debug(f"News saved: {title[:40]} sentiment={sentiment['sentiment_score']}")
+
+        # 종목별 뉴스 감성 집계를 Redis에 저장 (ML 피처용)
+        code = data.get("code")
+        if code and self._redis:
+            await self._update_news_sentiment_redis(code, sentiment["sentiment_score"])
+
+    async def _update_news_sentiment_redis(self, code: str, score: float):
+        key = f"news:sentiment:{code}"
+        try:
+            raw = await self._redis.get(key)
+            if raw:
+                prev = orjson.loads(raw)
+                n = prev.get("count", 0) + 1
+                avg = (prev.get("avg_sentiment", 0.0) * (n - 1) + score) / n
+            else:
+                n, avg = 1, score
+            await self._redis.set(
+                key,
+                orjson.dumps({"avg_sentiment": round(avg, 4), "count": n}),
+                ex=_NEWS_SENTIMENT_TTL,
+            )
+        except Exception as e:
+            logger.debug(f"news sentiment redis update failed {code}: {e}")
 
 
 if __name__ == "__main__":
