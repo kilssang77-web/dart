@@ -4,7 +4,7 @@ import os
 import asyncpg
 import orjson
 import redis.asyncio as redis_lib
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from disclosure.classifier import DisclosureClassifier
 from embedding.embedder import LocalEmbedder
@@ -76,6 +76,7 @@ class AnalyzerService:
                 self._consume_topic("disclosure", self._process_disclosure),
                 self._consume_topic("news",       self._process_news),
                 self._theme_cluster_loop(),
+                self._theme_snapshot_loop(),
             )
         finally:
             if self._producer:
@@ -107,6 +108,63 @@ class AnalyzerService:
                     await consumer.stop()
                 except Exception:
                     pass
+
+    async def _theme_snapshot_loop(self):
+        """매일 18:00 KST 테마 스냅샷 자동 저장."""
+        KST = timezone(timedelta(hours=9))
+        while True:
+            now = datetime.now(KST)
+            target = now.replace(hour=18, minute=0, second=0, microsecond=0)
+            if now >= target:
+                target += timedelta(days=1)
+            wait = (target - now).total_seconds()
+            logger.info(f"[ThemeSnapshot] 다음 실행까지 {wait:.0f}초 대기 (18:00 KST)")
+            await asyncio.sleep(wait)
+
+            try:
+                today = datetime.now(KST).date()
+                rows = await self._db.fetch(
+                    """
+                    SELECT
+                        theme_name,
+                        COUNT(DISTINCT fe.code) AS stock_count,
+                        ROUND(AVG(fe.result_1d)::NUMERIC, 4) AS avg_return,
+                        STRING_AGG(DISTINCT fe.code, ',' ORDER BY fe.code) AS top_codes
+                    FROM (
+                        SELECT fe.code, fe.result_1d,
+                               jsonb_array_elements_text(n.themes::jsonb) AS theme_name
+                        FROM feature_events fe
+                        JOIN news_stock_links nsl ON nsl.code = fe.code
+                        JOIN news n ON n.id = nsl.news_id
+                        WHERE fe.detected_at::date = $1
+                          AND n.themes IS NOT NULL AND n.themes != '[]'
+                    ) sub
+                    GROUP BY theme_name
+                    HAVING COUNT(DISTINCT code) >= 2
+                    """,
+                    today,
+                )
+                saved = 0
+                for row in rows:
+                    try:
+                        await self._db.execute(
+                            """
+                            INSERT INTO theme_snapshots (theme_name, snap_date, stock_count, avg_return, top_codes)
+                            VALUES ($1, $2, $3, $4, $5)
+                            ON CONFLICT (theme_name, snap_date) DO UPDATE
+                              SET stock_count = EXCLUDED.stock_count,
+                                  avg_return  = EXCLUDED.avg_return,
+                                  top_codes   = EXCLUDED.top_codes
+                            """,
+                            row["theme_name"], today,
+                            int(row["stock_count"]), row["avg_return"], row["top_codes"],
+                        )
+                        saved += 1
+                    except Exception as e:
+                        logger.warning(f"[ThemeSnapshot] save error {row['theme_name']}: {e}")
+                logger.info(f"[ThemeSnapshot] {today} 저장 완료: {saved}건")
+            except Exception as e:
+                logger.error(f"[ThemeSnapshot] 실행 오류: {e}")
 
     async def _theme_cluster_loop(self):
         """1시간마다 뉴스 테마 클러스터링 실행."""

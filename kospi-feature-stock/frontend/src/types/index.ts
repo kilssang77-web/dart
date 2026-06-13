@@ -1,4 +1,4 @@
-// ── 특징주 이벤트 ──────────────────────────────────────────────────────────────
+﻿// ── 특징주 이벤트 ──────────────────────────────────────────────────────────────
 export interface FeatureEvent {
   id:              number
   detected_at:     string
@@ -32,6 +32,7 @@ export interface TodaySummary {
 export interface Recommendation {
   id:                  number
   created_at:          string
+  fe_detected_at?:     string
   code:                string
   name:                string
   market:              string
@@ -49,6 +50,9 @@ export interface Recommendation {
   risk_reward_ratio:   number
   rationale:           RationaleDetail
   similar_cases:       SimilarCase[]
+  rec_count?:          number
+  current_price?:      number
+  current_change_rate?: number
   actual_return?:      number
   is_success?:         boolean
 }
@@ -100,6 +104,7 @@ export interface Disclosure {
   disclosure_type?: string
   post_1h_change?:  number
   post_1d_change?:  number
+  post_3d_change?:  number
 }
 
 // ── 종목 ───────────────────────────────────────────────────────────────────────
@@ -155,13 +160,33 @@ export interface MarketIndex {
 }
 
 // ── 백테스트 ──────────────────────────────────────────────────────────────────
+export interface BacktestTradeItem {
+  code:         string
+  entry_date:   string
+  exit_date:    string
+  entry_price:  number
+  exit_price:   number
+  pnl_pct:      number
+  status:       string   // win|loss|timeout
+  signal_score: number
+}
+
+export interface BacktestEquityPoint {
+  date:     string
+  equity:   number
+  drawdown: number
+  pnl:      number
+}
+
 export interface BacktestResult {
   error?: string
   params?: {
-    event_type: string
-    start:      string
-    end:        string
-    min_score:  number
+    event_type:    string
+    start:         string
+    end:           string
+    min_score:     number
+    stop_loss_pct: number
+    target_pct:    number
   }
   result?: {
     total:          number
@@ -174,7 +199,13 @@ export interface BacktestResult {
     profit_factor:  number
     max_drawdown:   string
     sharpe:         number
+    sortino:        number
+    calmar:         number
+    win_streak:     number
+    lose_streak:    number
   }
+  trade_log?:    BacktestTradeItem[]
+  equity_curve?: BacktestEquityPoint[]
   sample_trades?: Array<{
     code:   string
     entry:  string
@@ -190,10 +221,177 @@ export interface BacktestEventStats {
   avg_return: number
 }
 
+// ── 수급 ───────────────────────────────────────────────────────────────────────
+export interface SupplyDemand {
+  date:               string
+  foreign_net?:       number
+  inst_net?:          number
+  indiv_net?:         number
+  prog_arbitrage_net?: number
+  foreign_hold_rate?: number
+}
+
+// ── 종목 분석 ──────────────────────────────────────────────────────────────────
+export interface StockAnalysisTechnical {
+  trend:       string
+  trend_dir:   string
+  trend_score: number
+  ma5?:        number
+  ma20?:       number
+  ma60?:       number
+  rsi?:        number
+  rsi_signal:  string
+  bb_upper?:   number
+  bb_lower?:   number
+  bb_pct?:     number
+  atr:         number
+  vol_ratio:   number
+  w52_high:    number
+  w52_low:     number
+  w52_pct:     number
+  reasons:     string[]
+}
+
+export interface StockAnalysisPrediction {
+  label:      string
+  direction:  string
+  low:        number
+  mid:        number
+  high:       number
+  confidence: number
+  reasons:    string[]
+}
+
+export interface StockAnalysisTarget {
+  label:  string
+  buy:    number
+  target: number
+  stop:   number
+  rr:     number
+  desc:   string
+}
+
+export interface StockAnalysisSellTarget {
+  price:       number
+  return_pct:  number
+  desc:        string
+  achieved?:   boolean
+  breached?:   boolean
+}
+
+export interface StockAnalysisNewsItem {
+  title:            string
+  published_at:     string
+  sentiment_score?: number
+}
+
+export interface StockAnalysisDisclosureItem {
+  rcept_no?:        string
+  title:            string
+  disclosed_at:     string
+  category?:        string
+  sentiment_score?: number
+}
+
+export interface StockAnalysis {
+  code:         string
+  name:         string
+  market?:      string
+  sector?:      string
+  industry?:    string
+  current_price: number
+  error?:       string
+  technical:    StockAnalysisTechnical
+  predictions:  {
+    short: StockAnalysisPrediction
+    mid:   StockAnalysisPrediction
+    long:  StockAnalysisPrediction
+  }
+  targets: {
+    aggressive:   StockAnalysisTarget
+    conservative: StockAnalysisTarget
+    safe:         StockAnalysisTarget
+  }
+  ml_signal?: {
+    action:      string
+    prob?:       number
+    entry?:      number
+    target?:     number
+    stop?:       number
+    created_at?: string
+  }
+  supply: {
+    foreign_5d: number
+    inst_5d:    number
+    signal?:    string
+    reasons:    string[]
+  }
+  purchase_analysis?: {
+    purchase_price:  number
+    current_price:   number
+    current_return:  number
+    pnl:             number
+    sell_score:      number
+    action:          'STOP_LOSS' | 'HOLD_TRAIL' | 'PARTIAL_EXIT' | 'PARTIAL_EXIT_LARGE' | 'FULL_EXIT'
+    trailing_stop:   number
+    atr_mult_ts:     number
+    forward_targets: Array<{ label: string; price: number; ret_pct: number }>
+  }
+  news_recent?:        StockAnalysisNewsItem[]
+  disclosures_recent?: StockAnalysisDisclosureItem[]
+  opinion?:            string
+}
+
+
+// ── 호가·실시간 ──────────────────────────────────────────────────────────────
+export interface Quote {
+  code:         string
+  price:        number
+  prev_close:   number
+  change:       number
+  change_rate:  number
+  open:         number
+  high:         number
+  low:          number
+  volume:       number
+  amount:       number
+  source:       'realtime' | 'daily' | 'none'
+}
+
 // ── 유틸 타입 ─────────────────────────────────────────────────────────────────
 export type Theme_Mode = 'dark' | 'light'
 
 export interface ApiError {
   detail: string
   status: number
+}
+
+// ── 텔레그램 발송 이력 ──────────────────────────────────────────────────────────
+export interface TelegramLog {
+  id:        number
+  msg_type:  'signal' | 'disclosure' | string
+  code?:     string
+  name?:     string
+  title:     string
+  message:   string
+  success:   boolean
+  error_msg?: string
+  sent_at:   string
+}
+
+export interface TelegramLogList {
+  total:  number
+  offset: number
+  limit:  number
+  items:  TelegramLog[]
+}
+
+export interface TelegramLogStats {
+  total:             number
+  success_count:     number
+  fail_count:        number
+  signal_count:      number
+  disclosure_count:  number
+  today_count:       number
+  last_sent_at?:     string
 }

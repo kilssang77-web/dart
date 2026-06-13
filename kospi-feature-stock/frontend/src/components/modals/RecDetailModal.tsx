@@ -1,0 +1,283 @@
+﻿// v2
+import { X, Target, Shield, Zap, TrendingUp, BrainCircuit, BarChart2, Clock } from 'lucide-react'
+import { clsx } from 'clsx'
+import { fmt, probColor } from '@/lib/utils'
+import type { Recommendation } from '@/types'
+import { ActionBadge, Badge } from '@/components/ui/Badge'
+
+const EVT_NAMES: Record<string, string> = {
+  VOLUME_SURGE:          '거래량 급증',
+  AMOUNT_SURGE:          '거래대금 급증',
+  PRICE_SURGE:           '가격 급등',
+  BREAKOUT:              '박스권 돌파',
+  BREAKOUT_52W:          '52주(1년) 최고가 돌파',
+  BREAKOUT_26W:          '26주(6개월) 최고가 돌파',
+  BREAKOUT_13W:          '13주(분기) 최고가 돌파',
+  BREAKOUT_20D:          '20일(1개월) 최고가 돌파',
+  VI_TRIGGERED:          '변동성 완화장치(VI) 발동',
+  LONG_WHITE_CANDLE:     '장대 양봉 발생',
+  HAMMER_CANDLE:         '망치형 반전 신호',
+  MORNING_STAR:          '아침별 반전 패턴',
+  SUPPLY_ANOMALY:        '수급 이상 포착',
+  POST_DISCLOSURE_SURGE: '공시 이후 주가 급등',
+  DISCLOSURE_POSITIVE:   '호재성 공시 발표',
+  NEWS_POSITIVE:         '긍정적 뉴스 유입',
+  FOREIGN_BUY:           '외국인 순매수',
+  INST_BUY:              '기관 순매수',
+  OVERSOLD_REVERSAL:     '과매도 구간 반전',
+  GOLDEN_CROSS:          '골든크로스(단기 상향 돌파)',
+  LOW_PBR:               '저평가 가치주(PBR 기준)',
+  SECTOR_ROTATION:       '섹터 자금 이동',
+}
+
+function buildRecNarrative(rec: Recommendation): string {
+  const parts: string[] = []
+  const evtType   = rec.rationale?.event_type
+  const mlProb    = rec.rationale?.ml_prob
+  const simCount  = rec.rationale?.sim_count ?? 0
+  const simReturn = rec.rationale?.avg_sim_return
+  const atrBased  = rec.rationale?.atr_based ?? false
+  const risks     = rec.rationale?.risk_factors ?? []
+  const evtName   = evtType ? (EVT_NAMES[evtType] || evtType) : null
+
+  if (rec.action === 'BUY') {
+    parts.push(`ML 모델이 이 종목을 <b>매수(BUY)</b> 추천합니다. 성공 확률 <b>${fmt.prob(rec.success_prob)}</b>로 모델이 단기 상승 가능성이 높다고 판단했습니다.`)
+  } else if (rec.action === 'WAIT') {
+    parts.push(`현재 조건이 완전히 충족되지 않아 <b>대기(WAIT)</b> 신호입니다. 성공 확률 <b>${fmt.prob(rec.success_prob)}</b>로, 조건이 개선되면 BUY 신호로 전환될 수 있습니다.`)
+  } else {
+    parts.push(`현재 리스크가 높아 <b>보류(SKIP)</b> 판단입니다. 신호 확률 <b>${fmt.prob(rec.success_prob)}</b>.`)
+  }
+  if (evtName) {
+    parts.push(`신호 발생의 핵심 트리거는 <b>${evtName}</b> 이벤트입니다.`)
+  }
+  if (mlProb != null) {
+    const pStr = (mlProb * 100).toFixed(1)
+    if (mlProb >= 0.35) {
+      parts.push(`ML 모델의 원시 예측 확률은 <b>${pStr}%</b>로, 학습 패턴 기반으로 상당히 높은 상승 신뢰도를 의미합니다.`)
+    } else {
+      parts.push(`ML 모델의 원시 예측 확률은 <b>${pStr}%</b>입니다.`)
+    }
+  }
+  if (simCount > 0 && simReturn != null) {
+    const retSign = simReturn >= 0 ? '+' : ''
+    parts.push(`과거 유사 패턴 <b>${simCount}건</b>에서 평균 <b>${retSign}${(simReturn * 100).toFixed(1)}%</b>의 수익이 관측됐습니다.`)
+  }
+  if (atrBased) {
+    parts.push(`진입가 <b>${fmt.price(rec.entry_price)}</b>을 기준으로, 목표가 <b>${fmt.price(rec.target_price)}</b> · 손절가 <b>${fmt.price(rec.stop_loss_price)}</b>는 ATR(변동폭) 기반으로 동적 산정됩니다. R:R ${rec.risk_reward_ratio?.toFixed(1) ?? '—'}.`)
+  } else {
+    parts.push(`진입가 <b>${fmt.price(rec.entry_price)}</b> 기준, 목표가 <b>${fmt.price(rec.target_price)}</b> · 손절가 <b>${fmt.price(rec.stop_loss_price)}</b>. R:R ${rec.risk_reward_ratio?.toFixed(1) ?? '—'}.`)
+  }
+  if (risks.length > 0) {
+    parts.push(`주의 위험 요소: ${risks.map((r) => `<b>${r}</b>`).join(', ')}. 손절 원칙을 반드시 지키세요.`)
+  }
+  return parts.join(' ')
+}
+
+interface RecDetailModalProps {
+  rec: Recommendation
+  onClose: () => void
+  onGoDetail: () => void
+  compact?: boolean
+}
+
+export function RecDetailModal({ rec, onClose, onGoDetail, compact = false }: RecDetailModalProps) {
+  const narrative = buildRecNarrative(rec)
+  const crDelta   = rec.current_price != null
+    ? ((rec.current_price - rec.entry_price) / rec.entry_price * 100)
+    : null
+
+  const barColor =
+    rec.success_prob >= 0.7  ? 'bg-green-400' :
+    rec.success_prob >= 0.55 ? 'bg-orange-400' : 'bg-zinc-500'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4" data-v="2" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/85 backdrop-blur-md" />
+      <div
+        className={`relative bg-[var(--card)] border border-[var(--border)] rounded-2xl shadow-[0_32px_80px_rgba(0,0,0,0.7)] flex flex-col ${compact ? 'w-[88vw] max-w-[460px]' : 'w-[92vw] max-w-[900px]'}`}
+        style={{ maxHeight: compact ? '72vh' : '95vh' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* ── 헤더 ── */}
+        <div className={`flex items-start justify-between border-b-2 border-[var(--border)] shrink-0 ${compact ? 'px-4 py-3' : 'px-10 py-7'}`}>
+          <div className="flex flex-col gap-1.5 min-w-0 pr-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={compact ? 'text-base font-bold text-[var(--fg)] tracking-tight' : 'text-3xl font-extrabold text-[var(--fg)] tracking-tight'}>{rec.name}</span>
+              <ActionBadge action={rec.action} />
+              {rec.rationale?.event_type && <Badge eventType={rec.rationale.event_type} size="sm" />}
+            </div>
+            <div className={`flex items-center gap-2 font-medium text-[var(--muted)] ${compact ? 'text-xs' : 'text-lg'}`}>
+              <span className="font-mono">{rec.code}</span>
+              <span className="opacity-40">·</span>
+              <span>{rec.market}</span>
+              <span className="opacity-40">·</span>
+              <span className="flex items-center gap-1"><Clock size={compact ? 11 : 15} />{fmt.dateTime(rec.created_at)}</span>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className={`shrink-0 flex items-center justify-center rounded-xl bg-[var(--bg)] text-[var(--muted)] hover:text-[var(--fg)] hover:bg-[var(--border)] transition-colors ${compact ? 'w-7 h-7' : 'w-11 h-11'}`}
+          >
+            <X size={compact ? 15 : 24} />
+          </button>
+        </div>
+
+        {/* ── 스크롤 본문 ── */}
+        <div className={`overflow-y-auto ${compact ? 'space-y-3 px-4 py-3' : 'space-y-6 px-10 py-8'}`} style={{ flex: 1 }}>
+
+          {/* 성공확률 */}
+          <div>
+            <div className={`flex justify-between items-end ${compact ? 'mb-2' : 'mb-4'}`}>
+              <span className={compact ? 'text-sm font-semibold text-[var(--fg)]' : 'text-xl font-bold text-[var(--fg)]'}>성공 확률</span>
+              <span className={clsx(compact ? 'text-2xl' : 'text-5xl', 'font-extrabold tabular tracking-tight', probColor(rec.success_prob))}>
+                {fmt.prob(rec.success_prob)}
+              </span>
+            </div>
+            <div className={`${compact ? 'h-4' : 'h-7'} bg-[var(--border)] rounded-full overflow-hidden`}>
+              <div
+                className={clsx('h-full rounded-full transition-all duration-700', barColor)}
+                style={{ width: `${rec.success_prob * 100}%` }}
+              />
+            </div>
+            <div className={`flex justify-between text-[var(--muted)] ${compact ? 'mt-1.5 text-xs' : 'mt-2 text-sm'}`}>
+              <span>0%</span>
+              <span className="text-orange-400 font-semibold">55%</span>
+              <span className="text-green-400 font-semibold">70%</span>
+              <span>100%</span>
+            </div>
+          </div>
+
+          {/* 현재가 vs 진입가 */}
+          {rec.current_price != null && (
+            <div className={`flex items-center justify-between bg-[var(--bg)] border border-[var(--border)] ${compact ? 'rounded-xl px-4 py-2.5' : 'rounded-2xl px-8 py-6'}`}>
+              <div className={`flex items-center ${compact ? 'gap-2' : 'gap-5'}`}>
+                <span className={compact ? 'text-xs font-semibold text-[var(--muted)]' : 'text-lg font-bold text-[var(--muted)]'}>현재가</span>
+                <span className={clsx(compact ? 'text-lg font-bold' : 'text-3xl font-extrabold', 'tabular',
+                  (rec.current_change_rate ?? 0) > 0 ? 'text-red-400' :
+                  (rec.current_change_rate ?? 0) < 0 ? 'text-blue-400' : 'text-[var(--fg)]'
+                )}>
+                  {fmt.price(rec.current_price)}
+                </span>
+                {rec.current_change_rate != null && rec.current_change_rate !== 0 && (
+                  <span className={clsx(
+                    compact ? 'text-xs font-semibold px-2 py-0.5 rounded-lg' : 'text-xl font-bold px-4 py-1.5 rounded-xl',
+                    rec.current_change_rate > 0
+                      ? 'text-red-300 bg-red-500/15 border border-red-500/30'
+                      : 'text-blue-300 bg-blue-500/15 border border-blue-500/30'
+                  )}>
+                    {rec.current_change_rate > 0 ? '+' : ''}{rec.current_change_rate.toFixed(2)}%
+                  </span>
+                )}
+              </div>
+              {crDelta != null && (
+                <div className="text-right">
+                  <div className={`font-medium text-[var(--muted)] ${compact ? 'text-[10px] mb-0.5' : 'text-sm mb-1'}`}>진입 대비</div>
+                  <span className={clsx(compact ? 'text-base font-bold' : 'text-2xl font-extrabold', 'tabular',
+                    crDelta >= 0 ? 'text-red-400' : 'text-blue-400'
+                  )}>
+                    {crDelta >= 0 ? '+' : ''}{crDelta.toFixed(1)}%
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 가격 3박스 */}
+          <div className={`grid grid-cols-3 ${compact ? 'gap-2' : 'gap-5'}`}>
+            <div className={`bg-[var(--bg)] rounded-xl text-center border border-[var(--border)] ${compact ? 'p-3' : 'rounded-2xl p-7'}`}>
+              <div className={`flex items-center justify-center font-bold text-[var(--muted)] ${compact ? 'gap-1 text-[11px] mb-1.5' : 'gap-2 text-lg mb-3'}`}>
+                <Zap size={compact ? 11 : 20} /> 진입가
+              </div>
+              {!compact && <div className="text-sm font-medium text-[var(--muted)] mb-3">매수 기준</div>}
+              <div className={`font-extrabold tabular text-[var(--fg)] ${compact ? 'text-[13px]' : 'text-2xl'}`}>{fmt.price(rec.entry_price)}</div>
+            </div>
+            <div className={`bg-red-500/10 rounded-xl text-center border border-red-500/40 ${compact ? 'p-3' : 'rounded-2xl p-7'}`}>
+              <div className={`flex items-center justify-center font-bold text-red-400 ${compact ? 'gap-1 text-[11px] mb-1.5' : 'gap-2 text-lg mb-3'}`}>
+                <Target size={compact ? 11 : 20} /> 목표가
+              </div>
+              {!compact && <div className="text-sm font-medium text-red-400/70 mb-3">익절 기준</div>}
+              <div className={`font-extrabold tabular text-red-400 ${compact ? 'text-[13px]' : 'text-2xl'}`}>{fmt.price(rec.target_price)}</div>
+              {rec.rationale?.target_dist_pct != null && (
+                <div className={`font-bold text-red-400 tabular ${compact ? 'text-[11px] mt-1' : 'text-base mt-2.5'}`}>
+                  +{rec.rationale.target_dist_pct.toFixed(1)}%
+                </div>
+              )}
+            </div>
+            <div className={`bg-blue-500/10 rounded-xl text-center border border-blue-500/40 ${compact ? 'p-3' : 'rounded-2xl p-7'}`}>
+              <div className={`flex items-center justify-center font-bold text-blue-400 ${compact ? 'gap-1 text-[11px] mb-1.5' : 'gap-2 text-lg mb-3'}`}>
+                <Shield size={compact ? 11 : 20} /> 손절가
+              </div>
+              {!compact && <div className="text-sm font-medium text-blue-400/70 mb-3">손절 기준</div>}
+              <div className={`font-extrabold tabular text-blue-400 ${compact ? 'text-[13px]' : 'text-2xl'}`}>{fmt.price(rec.stop_loss_price)}</div>
+              {rec.rationale?.stop_dist_pct != null && (
+                <div className={`font-bold text-blue-400 tabular ${compact ? 'text-[11px] mt-1' : 'text-base mt-2.5'}`}>
+                  -{rec.rationale.stop_dist_pct.toFixed(1)}%
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* R:R / 보유기간 / 리스크 */}
+          <div className={`grid grid-cols-3 ${compact ? 'gap-2' : 'gap-5'}`}>
+            <div className={`bg-[var(--bg)] rounded-xl text-center border border-[var(--border)] ${compact ? 'px-2 py-2.5' : 'rounded-2xl px-6 py-5'}`}>
+              <div className={`flex items-center justify-center font-semibold text-[var(--muted)] ${compact ? 'gap-1 text-[10px] mb-1' : 'gap-2 text-base mb-2.5'}`}>
+                <TrendingUp size={compact ? 11 : 17} /> 리스크/리워드
+              </div>
+              <div className={`font-extrabold tabular text-[var(--fg)] ${compact ? 'text-base' : 'text-3xl'}`}>
+                {rec.risk_reward_ratio?.toFixed(1) ?? '—'}
+              </div>
+              <div className={`text-[var(--muted)] ${compact ? 'text-[10px] mt-0.5' : 'text-sm mt-1'}`}>R:R 비율</div>
+            </div>
+            <div className={`bg-[var(--bg)] rounded-xl text-center border border-[var(--border)] ${compact ? 'px-2 py-2.5' : 'rounded-2xl px-6 py-5'}`}>
+              <div className={`flex items-center justify-center font-semibold text-[var(--muted)] ${compact ? 'gap-1 text-[10px] mb-1' : 'gap-2 text-base mb-2.5'}`}>
+                <BarChart2 size={compact ? 11 : 17} /> 예상 보유
+              </div>
+              <div className={`font-extrabold tabular text-[var(--fg)] ${compact ? 'text-base' : 'text-3xl'}`}>{rec.expected_hold_days}일</div>
+              <div className={`text-[var(--muted)] ${compact ? 'text-[10px] mt-0.5' : 'text-sm mt-1'}`}>권장 보유기간</div>
+            </div>
+            <div className={`bg-[var(--bg)] rounded-xl text-center border border-[var(--border)] ${compact ? 'px-2 py-2.5' : 'rounded-2xl px-6 py-5'}`}>
+              <div className={`font-semibold text-[var(--muted)] ${compact ? 'text-[10px] mb-1' : 'text-base mb-2.5'}`}>리스크 점수</div>
+              <div className={clsx(compact ? 'text-base' : 'text-3xl', 'font-extrabold tabular',
+                (rec.risk_score ?? 0) >= 0.5 ? 'text-red-400' : 'text-green-400'
+              )}>
+                {rec.risk_score?.toFixed(2) ?? '—'}
+              </div>
+              <div className={`text-[var(--muted)] ${compact ? 'text-[10px] mt-0.5' : 'text-sm mt-1'}`}>
+                {(rec.risk_score ?? 0) >= 0.5 ? '고위험' : '저위험'}
+              </div>
+            </div>
+          </div>
+
+          {/* AI 분석 해설 */}
+          <div className="rounded-xl border border-cyan-500/30 overflow-hidden bg-[var(--card2)]">
+            <div className={`flex items-center gap-2 border-b border-cyan-500/20 bg-cyan-500/8 ${compact ? 'px-4 py-2.5' : 'px-8 py-6'}`}>
+              <BrainCircuit size={compact ? 16 : 26} className="text-cyan-400 shrink-0" />
+              <span className={compact ? 'text-sm font-bold text-[var(--fg)]' : 'text-xl font-extrabold text-[var(--fg)]'}>AI 분석 해설</span>
+              {rec.rationale?.atr_based && (
+                <span className={`ml-auto font-bold text-cyan-300 bg-cyan-500/15 border border-cyan-500/30 rounded-full ${compact ? 'text-[10px] px-2 py-0.5' : 'text-sm px-3 py-1'}`}>
+                  ATR 기반
+                </span>
+              )}
+            </div>
+            <div className={compact ? 'px-4 py-3' : 'px-8 py-7'}>
+              <p
+                className={`modal-narrative text-[var(--fg)] ${compact ? 'text-sm font-medium leading-relaxed' : 'text-[18px] leading-[2.1]'}`}
+                dangerouslySetInnerHTML={{ __html: narrative }}
+              />
+            </div>
+          </div>
+
+          {/* 하단 */}
+          <div className="flex items-center justify-end pb-1">
+            <button
+              onClick={onGoDetail}
+              className={`font-bold text-cyan-400 hover:text-cyan-200 transition-colors flex items-center gap-2 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 ${compact ? 'text-sm px-3 py-2' : 'text-lg px-5 py-2.5'}`}
+            >
+              종목 상세 보기 →
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

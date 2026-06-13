@@ -1,5 +1,5 @@
 ﻿import { http } from './client'
-import type { Stock, DailyBar } from '@/types'
+import type { Stock, DailyBar, SupplyDemand, StockAnalysis } from '@/types'
 
 export const stocksApi = {
   search: (q: string, market?: string) =>
@@ -16,4 +16,15 @@ export const stocksApi = {
 
   getQuote: (code: string) =>
     http.get(`/stocks/${code}/quote`).then((r) => r.data),
+
+  getSupply: (code: string, days = 30) =>
+    http.get<SupplyDemand[]>(`/stocks/${code}/supply`, { params: { days } }).then((r) => r.data),
+
+  getAnalysis: (code: string, purchasePrice?: number) =>
+    http.get<StockAnalysis>(`/stocks/${code}/analysis`, {
+      params: purchasePrice ? { purchase_price: purchasePrice } : undefined,
+    }).then((r) => r.data),
+
+  watchStock: (code: string) =>
+    http.post(`/stocks/${code}/watch`).then((r) => r.data),
 }

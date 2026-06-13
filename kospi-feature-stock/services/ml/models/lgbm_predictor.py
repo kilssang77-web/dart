@@ -47,6 +47,9 @@ FEATURE_COLUMNS = [
     "vol_up_down_ratio",
     "ma5_ma20_cross", "ma20_ma60_cross",
     "foreign_net_ratio", "inst_net_ratio",
+    "dow_sin", "dow_cos",
+    "month_sin", "month_cos",
+    "news_sentiment_7d", "news_count_7d",
 ]
 
 
@@ -70,6 +73,7 @@ class LGBMPredictor:
         self._risk:  Optional[lgb.Booster] = None
         self._entry_cal = None
         self._risk_cal  = None
+        self.optimal_threshold: float = 0.5  # updated from model_metrics.json after load()
 
     def load(self) -> bool:
         global FEATURE_COLUMNS
@@ -85,6 +89,20 @@ class LGBMPredictor:
                     logger.info(f"feature_columns.json loaded: {len(FEATURE_COLUMNS)} features")
             except Exception as e:
                 logger.warning(f"Failed to load feature_columns.json: {e}")
+
+        # ── model_metrics.json — optimal_threshold 로드 ──────
+        metrics_path = self.model_dir / "model_metrics.json"
+        if metrics_path.exists():
+            try:
+                with open(metrics_path) as f:
+                    m = json.load(f)
+                t = float(m.get("optimal_threshold", 0.5))
+                self.optimal_threshold = max(0.10, min(0.90, t))
+                logger.info(f"optimal_threshold loaded: {self.optimal_threshold:.3f} "
+                            f"(opt_recall={m.get('opt_recall', '?')}  "
+                            f"opt_precision={m.get('opt_precision', '?')})")
+            except Exception as e:
+                logger.warning(f"Failed to load model_metrics.json: {e}")
 
         loaded = False
         for name, attr in [("entry_model.lgb", "_entry"), ("risk_model.lgb", "_risk")]:

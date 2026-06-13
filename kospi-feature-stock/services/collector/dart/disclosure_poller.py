@@ -74,10 +74,12 @@ class DARTPoller:
                     """
                     INSERT INTO disclosures
                         (rcept_no, code, corp_name, disclosed_at,
-                         report_type, title, category, sentiment_score, is_flagged)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                         report_type, title, category, sentiment_score,
+                         is_flagged, contract_amount)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                     ON CONFLICT (rcept_no) DO UPDATE SET
-                        is_flagged = EXCLUDED.is_flagged OR disclosures.is_flagged
+                        is_flagged       = EXCLUDED.is_flagged OR disclosures.is_flagged,
+                        contract_amount  = COALESCE(EXCLUDED.contract_amount, disclosures.contract_amount)
                     """,
                     parsed.get("rcept_no"),
                     parsed.get("code"),
@@ -88,6 +90,7 @@ class DARTPoller:
                     parsed.get("category"),
                     parsed.get("sentiment_score"),
                     parsed.get("is_flagged", False),
+                    parsed.get("contract_amount"),
                 )
         except Exception as e:
             logger.debug(f"Disclosure DB write error [{parsed.get('rcept_no')}]: {e}")
@@ -121,15 +124,18 @@ class DARTPoller:
             parsed["is_flagged"] = is_flagged
 
             # 호재·플래그 공시: 본문 fetch로 키워드/금액 재분석
-            if parsed.get("category") == "favorable" or is_flagged:
+            if parsed.get("category") == "favorable" or parsed.get("category") == "unfavorable" or is_flagged:
                 try:
                     body = await self.client.get_disclosure_body(rcept_no)
                     if body:
-                        full_text = parsed["title"] + " " + body
-                        category, score = self.client.classify(full_text)
+                        category, score = self.client.classify(parsed["title"], body)
                         parsed["category"]        = category
                         parsed["sentiment_score"] = score
                         parsed["body_preview"]    = body[:500]
+                        # 계약 규모 추출 (수주·계약 공시)
+                        amount = self.client.extract_contract_amount(parsed["title"], body)
+                        if amount:
+                            parsed["contract_amount"] = amount
                 except Exception as e:
                     logger.debug(f"Body fetch failed {rcept_no}: {e}")
 

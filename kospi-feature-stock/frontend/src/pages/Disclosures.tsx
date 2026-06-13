@@ -65,6 +65,12 @@ export function Disclosures() {
           <option value="168">1주</option>
         </select>
 
+        <button
+          onClick={() => { setCorp(''); setCategory(''); setHours('72') }}
+          className="text-xs text-[var(--muted)] hover:text-[var(--fg)] transition-colors px-2 py-1 rounded hover:bg-[var(--border)]"
+        >
+          초기화
+        </button>
         <div className="ml-auto text-sm text-[var(--muted)] font-medium">
           {isLoading ? '로딩 중…' : `${data?.length ?? 0}건`}
         </div>

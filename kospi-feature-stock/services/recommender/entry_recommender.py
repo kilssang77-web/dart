@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 import os
 from dataclasses import dataclass, field
 
@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 _MIN_RR        = float(os.environ.get("REC_MIN_RISK_REWARD", "2.0"))
 _MAX_RISK      = float(os.environ.get("REC_MAX_RISK", "0.60"))
-_MIN_PROB      = float(os.environ.get("REC_MIN_PROB", "0.55"))
+_MIN_PROB      = float(os.environ.get("REC_MIN_PROB", "0.20"))
 _ENTRY_BAND    = float(os.environ.get("REC_ENTRY_BAND", "0.015"))
 _VOL_HEAT_H    = float(os.environ.get("REC_VOL_HEAT_HIGH", "20.0"))
 _VOL_HEAT_M    = float(os.environ.get("REC_VOL_HEAT_MED", "10.0"))
@@ -51,13 +51,15 @@ class EntryRecommender:
         sim_stats: dict,
         similar_cases: list,
         atr14: float | None = None,
+        anchor_price: int | None = None,
     ) -> EntryRecommendation:
         """
-        atr14: 14일 ATR 절댓값 (daily_bars.atr14 또는 feature 딕셔너리에서 전달).
-               없으면 변동률 기반 추정값 사용.
+        atr14:         14일 ATR 절댓값 (daily_bars.atr14 또는 feature 딕셔너리에서 전달).
+        anchor_price:  당일 세션 첫 신호 진입가 — 지정 시 entry/stop/target 계산 기준으로 사용.
         """
         code  = event.get("code", "")
-        price = int(event.get("price", 0))
+        # 앵커 가격 우선 사용: 당일 세션 내 진입가 일관성 보장
+        price = anchor_price if anchor_price else int(event.get("price", 0))
         if not price:
             return self._skip(code, price, "price unavailable")
 
@@ -86,11 +88,15 @@ class EntryRecommender:
         target = int(price * (1 + target_dist))
         rr     = target_dist / stop_dist if stop_dist > 0 else 0
 
-        ml_prob  = ml_result.success_prob if ml_result else 0.5
-        sim_prob = sim_stats.get("success_rate", ml_prob)
+        ml_prob  = min(0.95, ml_result.success_prob if ml_result else 0.5)
+        # 유사 사례 1~2건의 success_rate는 신뢰도 낮음 → 최대 93% cap
+        sim_prob = min(0.93, sim_stats.get("success_rate", ml_prob))
         n_cases  = sim_stats.get("count", 0)
-        sim_w    = min(_SIM_MAX_W, n_cases / _SIM_SCALE_N * _SIM_MAX_W)
+        # 최소 2건 이상 유사 사례가 있어야 sim_weight 적용
+        sim_w    = 0.0 if n_cases < 2 else min(_SIM_MAX_W, n_cases / _SIM_SCALE_N * _SIM_MAX_W)
         prob     = (1.0 - sim_w) * ml_prob + sim_w * sim_prob
+        # 어떤 추천도 100% 확률을 가질 수 없음 — 상한 강제
+        prob     = min(0.95, prob)
 
         risk   = self._risk(event, ml_result)
         action = self._decide(prob, risk, rr)

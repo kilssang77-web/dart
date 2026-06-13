@@ -5,8 +5,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 _USD_KRW = float(os.environ.get("USD_KRW_RATE", "1400"))
-_POS_THR = float(os.environ.get("DISCLOSURE_POS_THR", "0.20"))
-_NEG_THR = float(os.environ.get("DISCLOSURE_NEG_THR", "-0.20"))
+_POS_THR = float(os.environ.get("DISCLOSURE_POS_THR", "0.10"))
+_NEG_THR = float(os.environ.get("DISCLOSURE_NEG_THR", "-0.10"))
 
 # ── 호재 키워드 (3단계 가중치) ───────────────────────────────────────────────
 FAVORABLE_T1 = {  # 0.35 — 강한 호재
@@ -55,6 +55,31 @@ TYPE_BASE = {
     "횡령":       -0.45,
     "관리종목":   -0.40,
     "상장폐지":   -0.50,
+    # 추가 공시 유형
+    "주주명부폐쇄":            0.08,   # 배당 기준일 설정 → 배당 지급 예정
+    "기준일설정":              0.06,
+    "배당":                    0.12,   # 배당 발표
+    "증권발행실적보고서":     -0.10,   # 증자 완료 → 희석화 실현
+    "대량보유상황보고서":      0.10,   # 5%+ 지분 취득 → 관심 증가
+    "주식대량취득":            0.12,
+    "자기주식취득결과":        0.10,   # 자사주 매입 완료 → 우호적
+    "자기주식처분결과":       -0.10,   # 자사주 처분 → 희석
+    "유상감자":               -0.20,
+    "무상감자":               -0.25,
+    "주식병합":               -0.12,
+    "전환청구권행사":         -0.10,   # CB 전환 → 주식 희석
+    "신주인수권행사":         -0.10,
+    "파생결합사채":           -0.08,   # ELS/DLS 발행 관련
+    "단일판매·공급계약체결":   0.15,
+    "계약체결":                0.10,
+    "합병":                    0.05,   # 합병은 중립 → 내용 분석 필요
+    "분할":                   -0.05,
+    "기업설명회":              0.06,   # IR = 주주친화
+    "영업(잠정)실적":          0.05,   # 실적 발표 (내용에 따라 변동)
+    "감사보고서(적정)":        0.05,
+    "한정의견":               -0.35,
+    "부적정":                 -0.45,
+    "의견거절":               -0.50,
 }
 
 # ── 부정 맥락 패턴 (해당 시 점수 차감) ──────────────────────────────────────
@@ -90,6 +115,15 @@ class DisclosureClassifier:
                 score += base
                 break
 
+        # 임원·대주주 특정증권 소유상황보고서 — 취득 vs 처분 구분
+        if "임원" in title or "주요주주" in title or "소유상황" in title:
+            has_acquire = any(kw in text for kw in ("취득", "매수", "장내매수", "증가"))
+            has_dispose = any(kw in text for kw in ("처분", "매도", "장내매도", "감소"))
+            if has_acquire and not has_dispose:
+                score += 0.10; matched_kw.append("임원취득")
+            elif has_dispose and not has_acquire:
+                score -= 0.08; matched_kw.append("임원처분")
+
         # 호재 키워드
         for kw in FAVORABLE_T1:
             if kw in text:
@@ -123,12 +157,12 @@ class DisclosureClassifier:
             if re.search(pattern, text):
                 score += penalty
 
-        # 금액 규모 보정: 1000억 이상이면 긍정 방향으로 소폭 보정
+        # 금액 규모 보정: 규모가 클수록 긍정 방향으로 보정 (큰 조건 먼저 검사)
         amount, _ = self.extract_amount(text)
-        if amount >= 100_000_000_000 and score > 0:   # 1000억 이상
-            score += 0.05
-        elif amount >= 1_000_000_000_000 and score > 0:  # 1조 이상
+        if amount >= 1_000_000_000_000 and score > 0:    # 1조 이상
             score += 0.10
+        elif amount >= 100_000_000_000 and score > 0:    # 1000억 이상
+            score += 0.05
 
         score = round(max(-1.0, min(1.0, score)), 3)
 

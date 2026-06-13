@@ -31,23 +31,36 @@ class TelegramSender:
         code: str = "",
         name: str = "",
         title: str = "",
+        _retries: int = 3,
     ) -> bool:
+        import asyncio
         ok, err = True, None
         if not self._enabled:
             logger.debug(f"[DISABLED] {text[:60]}")
         else:
             url     = f"{TELEGRAM_API}/bot{self._token}/sendMessage"
             payload = {"chat_id": self._chat_id, "text": text, "parse_mode": "HTML"}
-            try:
-                resp = await self._client.post(
-                    url,
-                    content=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-                    headers={"Content-Type": "application/json; charset=utf-8"},
-                )
-                resp.raise_for_status()
-            except Exception as e:
-                logger.error(f"Telegram send error: {e}")
-                ok, err = False, str(e)
+            for attempt in range(_retries):
+                try:
+                    resp = await self._client.post(
+                        url,
+                        content=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                        headers={"Content-Type": "application/json; charset=utf-8"},
+                    )
+                    if resp.status_code == 429:
+                        body = resp.json()
+                        wait = body.get("parameters", {}).get("retry_after", 30)
+                        logger.warning(f"Telegram 429 rate limit, retry after {wait}s (attempt {attempt+1})")
+                        await asyncio.sleep(wait)
+                        continue
+                    resp.raise_for_status()
+                    break
+                except Exception as e:
+                    if attempt == _retries - 1:
+                        logger.error(f"Telegram send error: {e}")
+                        ok, err = False, str(e)
+                    else:
+                        await asyncio.sleep(2 ** attempt)
 
         if self._db:
             await self._log(msg_type, code or None, name or None, title, text, ok, err)

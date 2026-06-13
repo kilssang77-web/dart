@@ -1,4 +1,4 @@
-"""
+﻿"""
 stocks 테이블의 market='UNKNOWN' 종목을 DART company API로 일괄 보정.
 corp_cls 매핑: Y→KOSPI  K→KOSDAQ  N→KONEX  E→ETC
 
@@ -22,8 +22,8 @@ logger = logging.getLogger("update_markets")
 
 DART_API    = "https://opendart.fss.or.kr/api"
 CLS_MAP     = {"Y": "KOSPI", "K": "KOSDAQ", "N": "KONEX", "E": "ETC"}
-CONCURRENCY = 2
-DELAY_SEC   = 1.0
+CONCURRENCY = 8
+DELAY_SEC   = 0.3
 
 
 async def download_corp_code_map(api_key: str) -> dict[str, str]:

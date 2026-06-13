@@ -60,7 +60,46 @@ class FeatureStockDetector:
             self._process_minute_bars(),
             self._process_supply_demand(),
             self._process_disclosures(),
+            self._kafka_lag_monitor(),
         )
+
+    async def _kafka_lag_monitor(self):
+        """30초마다 Kafka 컨슈머 오프셋 lag를 Redis에 기록."""
+        from aiokafka import AIOKafkaConsumer
+        topics = ["tick-data", "minute-bar", "feature-detected", "disclosure", "news"]
+        while True:
+            await asyncio.sleep(30)
+            try:
+                admin_consumer = AIOKafkaConsumer(
+                    bootstrap_servers=os.environ["KAFKA_BOOTSTRAP_SERVERS"],
+                    group_id="detector-lag-probe",
+                )
+                await admin_consumer.start()
+                total_lag = 0
+                lags: dict[str, int] = {}
+                for topic in topics:
+                    try:
+                        partitions = admin_consumer.partitions_for_topic(topic)
+                        if partitions:
+                            for p in partitions:
+                                from aiokafka import TopicPartition
+                                tp = TopicPartition(topic, p)
+                                await admin_consumer.seek_to_end(tp)
+                                hw = admin_consumer.highwater(tp)
+                                pos = await admin_consumer.position(tp)
+                                lag = max(0, (hw or 0) - (pos or 0))
+                                total_lag += lag
+                            lags[topic] = lag
+                    except Exception:
+                        pass
+                await admin_consumer.stop()
+                if self.redis:
+                    await self.redis.set("kafka:lag:total", total_lag)
+                    for topic, lag in lags.items():
+                        await self.redis.set(f"kafka:lag:{topic}", lag)
+                logger.debug(f"[Kafka Lag] total={total_lag} {lags}")
+            except Exception as e:
+                logger.debug(f"[Kafka Lag] monitor error: {e}")
 
     async def _process_ticks(self):
         async for batch in self.consumer.consume(["tick-data"], batch_size=200):

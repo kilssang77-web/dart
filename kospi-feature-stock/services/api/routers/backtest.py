@@ -12,11 +12,12 @@ router = APIRouter()
 async def run_backtest(
     start: str = Body(...),
     end: str = Body(...),
-    event_type: str = Body(default="VOLUME_SURGE"),
+    event_type: str = Body(default="BREAKOUT_52W"),
     min_score: float = Body(default=0.6),
     ml_min_prob: float = Body(default=0.0),
     stop_loss_pct: float = Body(default=0.05),
     target_pct: float = Body(default=0.10),
+    slippage: float = Body(default=0.001),
     db: asyncpg.Pool = Depends(get_db),
 ):
     start_d = date.fromisoformat(start)
@@ -57,7 +58,8 @@ async def run_backtest(
             SELECT DISTINCT ON (fe.code, DATE(fe.detected_at))
                 fe.code,
                 DATE(fe.detected_at)::TEXT AS date,
-                db.close
+                db.close,
+                fe.signal_score
             FROM feature_events fe
             JOIN daily_bars db ON db.code = fe.code AND db.date = DATE(fe.detected_at)
             WHERE fe.event_type = $1
@@ -72,6 +74,8 @@ async def run_backtest(
         return {"error": "No signals found for the given period"}
 
     signals = pd.DataFrame([dict(r) for r in sig_rows])
+    if "signal_score" not in signals.columns:
+        signals["signal_score"] = 0.0
 
     codes = signals["code"].unique().tolist()
     bar_rows = await db.fetch(
@@ -88,17 +92,24 @@ async def run_backtest(
     engine = BacktestEngine(
         stop_loss_pct=-stop_loss_pct,
         target_pct=target_pct,
+        slippage=max(0.0, min(slippage, 0.02)),
     )
     result = engine.run(signals, bars)
     return {
         "params": {
-            "event_type":   event_type,
-            "start":        start,
-            "end":          end,
-            "min_score":    min_score,
-            "ml_min_prob":  ml_min_prob,
+            "event_type":    event_type,
+            "start":         start,
+            "end":           end,
+            "min_score":     min_score,
+            "ml_min_prob":   ml_min_prob,
+            "stop_loss_pct": stop_loss_pct,
+            "target_pct":    target_pct,
+            "slippage":      slippage,
+            "cost_note":     "round-trip ~0.46% (commission+slippage+sell_tax)",
         },
-        "result": result.summary(),
+        "result":       result.summary(),
+        "trade_log":    [t.to_dict() for t in result.trades],
+        "equity_curve": result.equity_curve,
         "sample_trades": [
             {
                 "code":   t.code,

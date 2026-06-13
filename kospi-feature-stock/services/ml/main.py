@@ -10,6 +10,8 @@ from typing import Any
 
 from fastapi import FastAPI
 from pydantic import BaseModel
+from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import Counter, Gauge, Histogram
 from models.lgbm_predictor import LGBMPredictor
 
 logging.basicConfig(
@@ -21,9 +23,19 @@ logger = logging.getLogger("ml-service")
 KST = timezone(timedelta(hours=9))
 _MODEL_DIR = os.environ.get("LGBM_MODEL_DIR", "/models/lgbm")
 
+# Prometheus 비즈니스 메트릭
+ML_PREDICTIONS_TOTAL = Counter("fstock_ml_predictions_total", "ML 추론 누적 수")
+ML_RETRAIN_TOTAL     = Counter("fstock_ml_retrain_total",     "모델 재학습 누적 수")
+ML_ENTRY_AUC         = Gauge("fstock_ml_entry_auc",           "Entry 모델 최근 AUC")
+ML_RISK_AUC          = Gauge("fstock_ml_risk_auc",            "Risk 모델 최근 AUC")
+ML_PREDICT_LATENCY   = Histogram("fstock_ml_predict_latency_seconds", "추론 레이턴시")
+ML_RETRAIN_PENDING   = Gauge("fstock_ml_retrain_pending",     "ml:retrain_needed Redis 플래그 (1=대기중)")
+ML_MODEL_READY       = Gauge("fstock_ml_model_ready",         "모델 로드 상태 (1=정상)")
+
 # 전역 predictor (HTTP API + 내부 루프 공유)
 _predictor: LGBMPredictor | None = None
 _db_pool: asyncpg.Pool | None = None
+_redis: redis_lib.Redis | None = None
 
 
 # ── Pydantic 스키마 ────────────────────────────────────────────
@@ -42,11 +54,12 @@ class PredictResponse(BaseModel):
 # ── FastAPI 앱 ─────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _predictor, _db_pool
+    global _predictor, _db_pool, _redis
     _db_pool = await asyncpg.create_pool(
         dsn=os.environ["POSTGRES_DSN"].replace("+asyncpg", ""),
         min_size=3, max_size=10,
     )
+    _redis = redis_lib.from_url(os.environ["REDIS_URL"])
     _predictor = LGBMPredictor()
     _predictor.load()
     logger.info("ML service ready")
@@ -54,19 +67,33 @@ async def lifespan(app: FastAPI):
     # 백그라운드 루프 시작
     asyncio.create_task(_result_update_loop(_db_pool))
     asyncio.create_task(_weekly_retrain_loop(_db_pool, _predictor))
+    asyncio.create_task(_redis_retrain_loop(_db_pool, _predictor, _redis))
     yield
     if _db_pool:
         await _db_pool.close()
+    if _redis:
+        await _redis.aclose()
 
 
 app = FastAPI(lifespan=lifespan)
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 
 @app.get("/health")
 async def health():
+    retrain_pending = False
+    if _redis:
+        try:
+            retrain_pending = bool(await _redis.get("ml:retrain_needed"))
+        except Exception:
+            pass
+    model_ready = _predictor.is_ready() if _predictor else False
+    ML_RETRAIN_PENDING.set(1 if retrain_pending else 0)
+    ML_MODEL_READY.set(1 if model_ready else 0)
     return {
         "status": "ok",
-        "model_loaded": _predictor.is_ready() if _predictor else False,
+        "model_loaded":    model_ready,
+        "retrain_pending": retrain_pending,
     }
 
 
@@ -79,7 +106,10 @@ async def predict(req: PredictRequest):
             expected_return=0.0, hold_days=5,
             confidence=0.0, model_used=False,
         )
-    result = _predictor.predict_one(req.features)
+    import time
+    with ML_PREDICT_LATENCY.time():
+        result = _predictor.predict_one(req.features)
+    ML_PREDICTIONS_TOTAL.inc()
     return PredictResponse(
         success_prob=result.success_prob,
         risk_score=result.risk_score,
@@ -132,6 +162,29 @@ async def _result_update_loop(pool: asyncpg.Pool):
         except Exception as e:
             logger.error(f"Result update error: {e}")
         await asyncio.sleep(3600)
+
+
+async def _redis_retrain_loop(
+    pool: asyncpg.Pool,
+    predictor: LGBMPredictor,
+    redis: redis_lib.Redis,
+):
+    """10분마다 ml:retrain_needed 플래그를 폴링하여 직접 재학습 트리거."""
+    while True:
+        await asyncio.sleep(600)  # 10분
+        try:
+            flag = await redis.get("ml:retrain_needed")
+            if not flag:
+                continue
+            logger.info("[Redis] ml:retrain_needed 플래그 감지 — 재학습 시작")
+            await redis.delete("ml:retrain_needed")  # 중복 트리거 방지
+            try:
+                await _run_retrain(pool, predictor)
+                logger.info("[Redis] Redis 트리거 재학습 완료")
+            except Exception as e:
+                logger.error(f"[Redis] 재학습 실패: {e}")
+        except Exception as e:
+            logger.error(f"[Redis] 폴링 오류: {e}")
 
 
 async def _weekly_retrain_loop(pool: asyncpg.Pool, predictor: LGBMPredictor):
@@ -266,6 +319,9 @@ async def _run_retrain(pool: asyncpg.Pool, predictor: LGBMPredictor):
     # atomic 교체 완료 후 전역 predictor 핫스왑
     if _predictor is not None:
         _predictor.load()
+    ML_RETRAIN_TOTAL.inc()
+    ML_ENTRY_AUC.set(auc_e)
+    ML_RISK_AUC.set(auc_r)
     logger.info(f"Weekly retrain done, Entry AUC={auc_e:.4f} Brier={brier_e:.4f}, Risk AUC={auc_r:.4f} Brier={brier_r:.4f}")
 
 
@@ -278,7 +334,7 @@ async def _update_event_results(pool: asyncpg.Pool):
             """
             SELECT id, code, detected_at::TEXT AS dt
             FROM feature_events
-            WHERE result_1d IS NULL
+            WHERE result_5d IS NULL
               AND detected_at < $1
             LIMIT 200
             """,

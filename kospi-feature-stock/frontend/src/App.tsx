@@ -22,6 +22,7 @@ const StockAnalysis  = lazy(() => import('./pages/StockAnalysis').then((m) => ({
 const Watchlist      = lazy(() => import('./pages/Watchlist').then((m) => ({ default: m.Watchlist })))
 const NotifHistory   = lazy(() => import('./pages/NotificationHistory').then((m) => ({ default: m.NotificationHistory })))
 const Tracking       = lazy(() => import('./pages/Tracking').then((m) => ({ default: m.Tracking })))
+const Themes         = lazy(() => import('./pages/Themes').then((m) => ({ default: m.Themes })))
 
 const META: Record<string, { title: string; subtitle?: string }> = {
   '/':               { title: '대시보드',    subtitle: '실시간 특징주 현황 요약' },
@@ -38,6 +39,7 @@ const META: Record<string, { title: string; subtitle?: string }> = {
   '/settings':       { title: '설정',        subtitle: '시스템 파라미터 · API 연결 관리' },
   '/notifications':   { title: '텔레그램 이력', subtitle: '알림 발송 이력 조회' },
   '/tracking':         { title: '성과 추적', subtitle: '추천 종목 사후 수익률 · 이벤트별 성공률 분석' },
+  '/themes':           { title: '테마 추적', subtitle: '뉴스 기반 K-Means 동적 테마 · 섹터 확산 분석' },
 }
 
 function Spinner() {
@@ -114,6 +116,7 @@ export default function App() {
               <Route path="/settings"        element={<Settings />} />
               <Route path="/notifications"   element={<NotifHistory />} />
               <Route path="/tracking"         element={<Tracking />} />
+              <Route path="/themes"           element={<Themes />} />
             </Routes>
           </Suspense>
         </main>

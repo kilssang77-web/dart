@@ -42,8 +42,10 @@ def _normalize(arr: np.ndarray) -> np.ndarray:
     return (arr - arr.mean()) / std
 
 
-def build_vector(bars: list[dict]) -> np.ndarray | None:
-    """일봉 데이터 리스트 → 256D 패턴 벡터"""
+def build_vector(bars: list[dict], disclosure_score: float = 0.0) -> np.ndarray | None:
+    """일봉 데이터 리스트 → 256D 패턴 벡터.
+    disclosure_score: 최근 공시 감성 (-1.0~1.0, 공시없으면 0.0)
+    """
     if len(bars) < 20:
         return None
 
@@ -97,10 +99,12 @@ def build_vector(bars: list[dict]) -> np.ndarray | None:
     returns = np.diff(closes[-21:]) / (closes[-21:-1] + 1)
     indicators.extend(_normalize(returns).tolist())
 
-    # 최대 196개로 맞추기
-    sec4 = np.array(indicators[:196], dtype=float)
-    if len(sec4) < 196:
-        sec4 = np.concatenate([sec4, np.zeros(196 - len(sec4))])
+    # 최대 195개 + 공시 감성 1개 = 196
+    sec4 = np.array(indicators[:195], dtype=float)
+    if len(sec4) < 195:
+        sec4 = np.concatenate([sec4, np.zeros(195 - len(sec4))])
+    # 마지막 원소: 공시 감성 (favorable=+1, unfavorable=-1, none=0)
+    sec4 = np.concatenate([sec4, [float(max(-1.0, min(1.0, disclosure_score)))]])
 
     vec = np.concatenate([sec1, sec2, sec3, sec4]).astype(np.float32)
     assert len(vec) == PATTERN_DIM, f"dim mismatch: {len(vec)}"
@@ -124,8 +128,21 @@ async def update_pattern_vector(pool: asyncpg.Pool, event_id: int, code: str) ->
             if len(rows) < 20:
                 return False
 
+            # 최근 공시 감성 점수 조회 (7일 이내)
+            disc_row = await conn.fetchrow(
+                """
+                SELECT sentiment_score FROM disclosures
+                WHERE code = $1
+                  AND disclosed_at >= NOW() - INTERVAL '7 days'
+                ORDER BY disclosed_at DESC
+                LIMIT 1
+                """,
+                code,
+            )
+            disclosure_score = float(disc_row["sentiment_score"]) if disc_row and disc_row["sentiment_score"] is not None else 0.0
+
             bars = [dict(r) for r in reversed(rows)]  # 오래된 것부터
-            vec  = build_vector(bars)
+            vec  = build_vector(bars, disclosure_score)
             if vec is None:
                 return False
 

@@ -126,6 +126,7 @@ export function Features() {
           <option value="8">8시간</option>
           <option value="24">24시간</option>
           <option value="48">48시간</option>
+          <option value="72">72시간</option>
           <option value="168">1주</option>
         </select>
 
@@ -140,7 +141,7 @@ export function Features() {
         <button
           onClick={() => setDedupe((v) => !v)}
           className={clsx(
-            'ml-auto flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors',
+            'flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors',
             dedupe
               ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
               : 'text-[var(--muted)] border-[var(--border)] hover:text-[var(--fg)]',
@@ -148,6 +149,13 @@ export function Features() {
           title={dedupe ? '종목 통합 ON' : '전체 이벤트 표시 중'}
         >
           {dedupe ? '종목 통합' : '전체 이벤트'}
+        </button>
+
+        <button
+          onClick={() => { setQuery(''); setEventType(''); setMarket(''); setHours('72'); setMinScore('') }}
+          className="ml-auto text-xs text-[var(--muted)] hover:text-[var(--fg)] transition-colors px-2 py-1 rounded hover:bg-[var(--border)]"
+        >
+          초기화
         </button>
         <div className="text-sm text-[var(--muted)] tabular font-medium">
           {isLoading ? '로딩 중…' : `${rows.length}건`}

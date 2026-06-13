@@ -1,11 +1,12 @@
-import { http } from './client'
+﻿import { http } from './client'
 
 export interface NewsItem {
   id:               number
-  code?:            string
+  codes?:           string[]
   corp_name?:       string
   title:            string
   content?:         string
+  url?:             string
   source?:          string
   published_at:     string
   category?:        'favorable' | 'unfavorable' | 'neutral'

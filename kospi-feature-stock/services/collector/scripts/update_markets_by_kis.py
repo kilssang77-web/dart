@@ -1,4 +1,4 @@
-"""
+﻿"""
 KIS API inquire-price(FHKST01010100)로 stocks.market='UNKNOWN' 종목 일괄 보정.
 응답의 rprs_mrkt_kor_name 필드 → 'KOSPI'/'코스닥'/'KONEX' 매핑.
 
@@ -56,26 +56,28 @@ async def fetch_market(client: httpx.AsyncClient, token: str,
                        code: str, sem: asyncio.Semaphore) -> tuple[str, str | None]:
     async with sem:
         await asyncio.sleep(DELAY_SEC)
-        try:
-            r = await client.get(
-                f"{KRX_URL}/uapi/domestic-stock/v1/quotations/inquire-price",
-                headers={
-                    "authorization": f"Bearer {token}",
-                    "appkey": app_key,
-                    "appsecret": app_secret,
-                    "tr_id": "FHKST01010100",
-                },
-                params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code},
-                timeout=10,
-            )
-            if r.status_code == 200:
-                data = r.json()
-                if data.get("rt_cd") == "0":
-                    kor_name = data.get("output", {}).get("rprs_mrkt_kor_name", "")
-                    market   = _parse_market(kor_name)
-                    return code, market
-        except Exception as e:
-            logger.debug(f"{code} error: {e}")
+        for mkt_code in ("J", "Q", "N"):
+            try:
+                r = await client.get(
+                    f"{KRX_URL}/uapi/domestic-stock/v1/quotations/inquire-price",
+                    headers={
+                        "authorization": f"Bearer {token}",
+                        "appkey": app_key,
+                        "appsecret": app_secret,
+                        "tr_id": "FHKST01010100",
+                    },
+                    params={"FID_COND_MRKT_DIV_CODE": mkt_code, "FID_INPUT_ISCD": code},
+                    timeout=10,
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    if data.get("rt_cd") == "0":
+                        kor_name = data.get("output", {}).get("rprs_mrkt_kor_name", "")
+                        market   = _parse_market(kor_name)
+                        if market:
+                            return code, market
+            except Exception as e:
+                logger.debug(f"{code}/{mkt_code} error: {e}")
     return code, None
 
 

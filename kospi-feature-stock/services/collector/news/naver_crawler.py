@@ -5,7 +5,7 @@ per-stock URL(/item/news_news.naver)을 사용해 HTML 구조 변경에 덜 취�
 import asyncio
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 import httpx
 from bs4 import BeautifulSoup
@@ -52,18 +52,40 @@ THEME_KEYWORDS = {
 # KST 날짜 파싱 포맷 후보
 _DATE_FMTS    = ["%Y.%m.%d %H:%M", "%Y.%m.%d"]
 _BASE_URL     = "https://finance.naver.com"
-_CONTENT_LIMIT = 500  # 본문 최대 저장 글자 수
-_CONTENT_SEM  = asyncio.Semaphore(2)  # 본문 크롤링 동시 요청 제한
+_CONTENT_LIMIT = 800  # 본문 최대 저장 글자 수
+_CONTENT_SEM  = asyncio.Semaphore(3)  # 본문 크롤링 동시 요청 제한
 
+# 도메인별 본문 CSS 셀렉터 (우선순위 순)
+_DOMAIN_SELECTORS: dict[str, list[str]] = {
+    "n.news.naver.com":   ["#dic_area", "#newsct_article"],
+    "news.naver.com":     ["#dic_area", "#articleBodyContents"],
+    "www.yna.co.kr":      [".article-txt", "#articleWrap", ".content"],
+    "www.hankyung.com":   ["#articleBody", ".article-body", "#article-content"],
+    "www.edaily.co.kr":   ["#articleText", ".news_body", ".article_txt"],
+    "www.mk.co.kr":       ["#article_body", ".art_body", "#art_body"],
+    "biz.chosun.com":     [".article-body", "#news_body_id"],
+    "www.chosun.com":     [".article-body", "#news_body_id"],
+    "www.sedaily.com":    ["#v-article", ".article_view"],
+    "www.etnews.com":     ["#articleBody", ".article_txt", "#article_body"],
+    "www.dt.co.kr":       ["#articleBody", ".article-body"],
+    "www.newsis.com":     [".view_text", "#textBody"],
+    "news.mt.co.kr":      [".article_view", "#textBody"],
+    "www.businesspost.co.kr": [".article-view-content-div", ".article_content"],
+    "www.inews24.com":    ["#articleBody", ".view-article"],
+    "finance.yahoo.com":  [".caas-body", "article"],
+}
+
+
+KST = timezone(timedelta(hours=9))
 
 def _parse_date(text: str) -> str:
     text = text.strip()
     for fmt in _DATE_FMTS:
         try:
-            return datetime.strptime(text, fmt).isoformat()
+            return datetime.strptime(text, fmt).replace(tzinfo=KST).isoformat()
         except ValueError:
             pass
-    return datetime.now().isoformat()
+    return datetime.now(KST).isoformat()
 
 
 def _detect_themes(text: str) -> list[str]:
@@ -184,22 +206,47 @@ class NaverNewsCrawler:
             logger.debug(f"Fallback search error {code}: {e}")
             return []
 
+    @staticmethod
+    def _resolve_news_url(url: str) -> str:
+        """finance.naver.com/item/news_read.naver → n.news.naver.com/mnews/article/{oid}/{aid}"""
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(url)
+        if "finance.naver.com" in parsed.netloc and "news_read" in parsed.path:
+            qs  = parse_qs(parsed.query)
+            aid = qs.get("article_id", [""])[0]
+            oid = qs.get("office_id",  [""])[0]
+            if aid and oid:
+                return f"https://n.news.naver.com/mnews/article/{oid}/{aid}"
+        return url
+
     async def _fetch_article_content(self, url: str) -> str:
         """뉴스 기사 URL에서 본문 텍스트 추출 (최대 _CONTENT_LIMIT자)."""
         if not url or not url.startswith("http"):
             return ""
         try:
+            fetch_url = self._resolve_news_url(url)
             async with _CONTENT_SEM:
-                resp = await self._client.get(url, timeout=10)
+                resp = await self._client.get(fetch_url, timeout=10)
                 resp.raise_for_status()
+            final_url = str(resp.url)
             soup = BeautifulSoup(resp.text, "lxml")
-            # 네이버 뉴스 본문 셀렉터 우선순위
-            for selector in ["#dic_area", "#newsct_article", ".article_body", "article", "#articeBody"]:
+
+            from urllib.parse import urlparse
+            domain = urlparse(final_url).netloc.lower()
+            selectors = _DOMAIN_SELECTORS.get(domain, [])
+            selectors = selectors + [
+                "#dic_area", "#newsct_article", "#articleBody",
+                ".article_body", ".article-body", ".article_view",
+                "article", "#articeBody",
+            ]
+
+            for selector in selectors:
                 el = soup.select_one(selector)
                 if el:
                     text = re.sub(r"\s+", " ", el.get_text(separator=" ", strip=True))
-                    return text[:_CONTENT_LIMIT]
-            # fallback: <p> 태그 텍스트 수집
+                    if len(text) > 30:
+                        return text[:_CONTENT_LIMIT]
+
             paras = [
                 p.get_text(strip=True)
                 for p in soup.find_all("p")
@@ -211,9 +258,9 @@ class NaverNewsCrawler:
             return ""
 
     async def _enrich_contents(self, items: list[dict]) -> list[dict]:
-        """상위 5개 기사 본문을 병렬 크롤링하여 content 필드 채움."""
-        targets = items[:5]
-        rest    = items[5:]
+        """상위 8개 기사 본문을 병렬 크롤링하여 content 필드 채움."""
+        targets = items[:8]
+        rest    = items[8:]
         contents = await asyncio.gather(
             *[self._fetch_article_content(it["url"]) for it in targets],
             return_exceptions=True,

@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import httpx
-from datetime import date
+from datetime import date, datetime
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from .auth import KISAuthManager, KISConfig
 
@@ -20,9 +20,9 @@ class KISRestClient:
         self._client = httpx.AsyncClient(
             base_url=config.base_url,
             timeout=30,
-            limits=httpx.Limits(max_connections=15, max_keepalive_connections=10),
+            limits=httpx.Limits(max_connections=30, max_keepalive_connections=20),
         )
-        self._sem = asyncio.Semaphore(5)
+        self._sem = asyncio.Semaphore(15)
 
     @retry(
         stop=stop_after_attempt(3),
@@ -191,3 +191,40 @@ class KISRestClient:
             }
             for r in data.get("output", [])
         ]
+
+    async def get_current_price(self, code: str, exchange: str = "KRX") -> dict:
+        """주식현재가 시세 (FHKST01010100) — 단건, 당일 OHLCV 누적 포함.
+        minute-bar 폴링보다 경량. 전 종목 인트라데이 스캔용.
+        exchange: "KRX" → FID_COND_MRKT_DIV_CODE=J, "NXT" → NX
+        """
+        mrkt_code = "NX" if exchange == "NXT" else "J"
+        try:
+            data = await self._get(
+                "/uapi/domestic-stock/v1/quotations/inquire-price",
+                "FHKST01010100",
+                {"FID_COND_MRKT_DIV_CODE": mrkt_code, "FID_INPUT_ISCD": code},
+            )
+            o = data.get("output", {})
+            if not o:
+                return {}
+            price = int(o.get("stck_prpr", 0) or 0)
+            if price == 0:
+                return {}
+            return {
+                "code":        code,
+                "time":        datetime.now().strftime("%H%M%S"),
+                "price":       price,
+                "close":       price,
+                "prev_close":  int(o.get("stck_sdpr", 0) or 0),
+                "change":      int(o.get("prdy_vrss", 0) or 0),
+                "change_rate": float(o.get("prdy_ctrt", 0) or 0),
+                "open":        int(o.get("stck_oprc", 0) or 0),
+                "high":        int(o.get("stck_hgpr", 0) or 0),
+                "low":         int(o.get("stck_lwpr", 0) or 0),
+                "volume":      int(o.get("acml_vol", 0) or 0),
+                "amount":      int(o.get("acml_tr_pbmn", 0) or 0),
+            }
+        except KISAPIError:
+            return {}
+        except Exception:
+            return {}

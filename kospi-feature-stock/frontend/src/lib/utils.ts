@@ -1,3 +1,24 @@
+function _parseKST(iso: string) {
+  // naive ISO (no tz): treat as KST, extract components directly
+  // tz-aware (Z or +hh:mm): let the browser convert (all users are KST)
+  const hasTz = iso.endsWith('Z') || iso.indexOf('+', 10) >= 0
+  if (!hasTz) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(iso)
+    if (!m) return null
+    return { year: +m[1], month: +m[2], day: +m[3], hours: +m[4], minutes: +m[5] }
+  }
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return null
+  return { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate(), hours: d.getHours(), minutes: d.getMinutes() }
+}
+
+function _todayKST() {
+  const now = new Date()
+  // KST = UTC+9
+  const kst = new Date(now.getTime() + 9 * 3600 * 1000)
+  return { year: kst.getUTCFullYear(), month: kst.getUTCMonth() + 1, day: kst.getUTCDate() }
+}
+
 export const fmt = {
   price: (v?: number | null) =>
     v == null ? '—' : v.toLocaleString('ko-KR'),
@@ -25,20 +46,43 @@ export const fmt = {
 
   time: (iso?: string | null) => {
     if (!iso) return '—'
-    const d = new Date(iso)
-    return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+    const p = _parseKST(iso)
+    if (!p) return '—'
+    return `${p.hours.toString().padStart(2, '0')}:${p.minutes.toString().padStart(2, '0')}`
   },
 
   date: (iso?: string | null) => {
     if (!iso) return '—'
-    const d = new Date(iso)
-    return `${d.getMonth() + 1}/${d.getDate()}`
+    const p = _parseKST(iso)
+    if (!p) return '—'
+    return `${p.month}/${p.day}`
   },
 
   dateTime: (iso?: string | null) => {
     if (!iso) return '—'
-    const d = new Date(iso)
-    return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+    const p = _parseKST(iso)
+    if (!p) return '—'
+    return `${p.month}/${p.day} ${p.hours.toString().padStart(2, '0')}:${p.minutes.toString().padStart(2, '0')}`
+  },
+
+  // 스마트 시각: 오늘=HH:mm, 어제=어제 HH:mm, 그 이전=MM/DD HH:mm
+  smartTime: (iso?: string | null) => {
+    if (!iso) return '—'
+    const p = _parseKST(iso)
+    if (!p) return '—'
+    const today = _todayKST()
+    const hm = `${p.hours.toString().padStart(2, '0')}:${p.minutes.toString().padStart(2, '0')}`
+    if (p.year === today.year && p.month === today.month && p.day === today.day) {
+      return hm
+    }
+    // 어제 판정
+    const yesterday = new Date()
+    yesterday.setDate(yesterday.getDate() - 1)
+    const yKST = new Date(yesterday.getTime() + 9 * 3600 * 1000)
+    if (p.year === yKST.getUTCFullYear() && p.month === yKST.getUTCMonth() + 1 && p.day === yKST.getUTCDate()) {
+      return `어제 ${hm}`
+    }
+    return `${p.month}/${p.day} ${hm}`
   },
 }
 
@@ -50,6 +94,6 @@ export function pctColor(v?: number | null) {
 export function probColor(v?: number | null) {
   if (v == null) return 'text-[var(--muted)]'
   if (v >= 0.7)  return 'text-green-400'
-  if (v >= 0.55) return 'text-yellow-400'
+  if (v >= 0.55) return 'text-orange-400'
   return 'text-[var(--muted)]'
 }

@@ -1,4 +1,4 @@
-import { http } from './client'
+﻿import { http } from './client'
 import type { DailyBar, BacktestResult } from '@/types'
 
 export interface MarketSummary {
@@ -8,6 +8,10 @@ export interface MarketSummary {
   advancers:          number
   decliners:          number
   unchanged?:         number
+  kospi_up?:          number
+  kospi_down?:        number
+  kosdaq_up?:         number
+  kosdaq_down?:       number
   total_volume?:      number
   total_amount?:      number
 }
@@ -53,9 +57,38 @@ export interface ModelMetrics {
   brier_score?:        number
   feature_importance?: Record<string, number>
 }
+
+export interface KafkaLag {
+  total_lag: number
+  by_topic:  Record<string, number>
+  error?:    string
+}
+export interface IndexQuote {
+  code?:        string
+  name:         string
+  price?:       number
+  change?:      number
+  change_rate:  number
+  open?:        number
+  high?:        number
+  low?:         number
+  volume?:      number
+}
+
+export interface IndexLive {
+  kospi:       IndexQuote
+  kosdaq:      IndexQuote
+  source:      'realtime' | 'daily'
+  data_date?:  string
+  fetched_at?: string
+}
+
 export const marketApi = {
   getSummary: () =>
     http.get<MarketSummary>('/market/summary').then((r) => r.data),
+
+  getIndexLive: () =>
+    http.get<IndexLive>('/market/index-live').then((r) => r.data),
 
   getMovers: () =>
     http.get<MarketMovers>('/market/movers').then((r) => r.data),
@@ -74,6 +107,9 @@ export const marketApi = {
 
   getModelMetrics: () =>
     http.get<ModelMetrics | null>('/ml/metrics').then((r) => r.data),
+
+  getKafkaLag: () =>
+    http.get<KafkaLag>('/ml/kafka-lag').then((r) => r.data),
 
   runBacktest: (params: { start: string; end: string; event_type?: string; min_score?: number; stop_loss_pct?: number; target_pct?: number }) =>
     http.post<BacktestResult>('/backtest/run', params).then((r) => r.data),

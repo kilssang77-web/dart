@@ -2,55 +2,299 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── CSS 변수: 다크 기본 ─────────────────────────────────────────────── */
+/* ── CSS 변수: 다크 기본 ──────────────────────────────────────────────── */
 :root {
-  --bg:     #09090b;
-  --card:   #18181b;
-  --border: #27272a;
-  --muted:  #71717a;
-  --fg:     #fafafa;
+  --bg:       #08080e;
+  --card:     #111118;
+  --card2:    #18181f;
+  --border:   #2d2d3a;
+  --muted:    #a1a1b5;
+  --muted-fg: #6b7280;
+  --fg:       #f4f4f8;
+  --accent:   #22d3ee;
 }
 
-/* ── 라이트 모드 ──────────────────────────────────────────────────────── */
+/* ── 라이트 모드 변수 — 흰 배경 고대비 ───────────────────────────────── */
 :root:not(.dark) {
-  --bg:     #f4f4f5;
-  --card:   #ffffff;
-  --border: #e4e4e7;
-  --muted:  #71717a;
-  --fg:     #09090b;
+  --bg:       #f8fafc;   /* slate-50: 사실상 흰 배경, 카드 구분용 */
+  --card:     #ffffff;   /* 순백 카드 */
+  --card2:    #f1f5f9;   /* slate-100: 중첩 영역 */
+  --border:   #e2e8f0;   /* slate-200: 선명한 테두리 */
+  --muted:    #475569;   /* slate-600: 가독성 높은 보조 텍스트 */
+  --muted-fg: #94a3b8;   /* slate-400 */
+  --fg:       #0f172a;   /* slate-900: 짙은 기본 텍스트 */
+  --accent:   #0284c7;   /* sky-600 */
 }
+
+/* ── 색맹 안전 모드 (적록 색맹 대응: 파랑/주황 치환) ──────────────────── */
+.colorblind-mode .text-red-400 { color: #0072B2 !important; }
+.colorblind-mode .text-blue-400 { color: #E69F00 !important; }
+.colorblind-mode .bg-red-500\/15 { background-color: rgb(0 114 178 / 0.15) !important; }
+.colorblind-mode .bg-blue-500\/15 { background-color: rgb(230 159 0 / 0.15) !important; }
 
 /* ── 기본 리셋 ────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-html { font-size: 14px; }
+html { font-size: 15px; }
 
 body {
   background: var(--bg);
   color: var(--fg);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans KR', sans-serif;
-  line-height: 1.5;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif;
+  line-height: 1.65;
   -webkit-font-smoothing: antialiased;
   transition: background 0.15s, color 0.15s;
 }
 
 /* ── 스크롤바 ─────────────────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #52525b; }
 
+/* ── 포커스 링 ────────────────────────────────────────────────────────── */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
 /* ── HTS 플래시 애니메이션 ────────────────────────────────────────────── */
-@keyframes flashUp { 0% { background: rgba(240,64,64,.28); } 100% { background: transparent; } }
-@keyframes flashDn { 0% { background: rgba(68,136,255,.28); } 100% { background: transparent; } }
-.flash-up { animation: flashUp 0.4s ease-out both; }
-.flash-dn { animation: flashDn 0.4s ease-out both; }
+@keyframes flashUp { 0% { background: rgba(248,113,113,.35); } 100% { background: transparent; } }
+@keyframes flashDn { 0% { background: rgba(96,165,250,.35); }  100% { background: transparent; } }
+.flash-up { animation: flashUp 0.6s ease-out both; }
+.flash-dn { animation: flashDn 0.6s ease-out both; }
+
+/* ── 스켈레톤 로더 ───────────────────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--border) 25%,
+    color-mix(in srgb, var(--border) 60%, var(--card)) 37%,
+    var(--border) 63%
+  );
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+  border-radius: 4px;
+}
 
 /* ── 모노 숫자 ────────────────────────────────────────────────────────── */
 .tabular { font-variant-numeric: tabular-nums; }
 
+/* ── 테이블 공통 ─────────────────────────────────────────────────────── */
+table { border-collapse: collapse; width: 100%; }
+table thead th {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--bg) 70%, var(--card));
+  padding: 10px 12px;
+  white-space: nowrap;
+}
+table tbody tr {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  transition: background 0.1s;
+}
+table tbody tr:last-child { border-bottom: none; }
+table tbody tr:hover { background: color-mix(in srgb, var(--border) 25%, transparent); }
+table tbody td {
+  font-size: 0.8125rem;
+  padding: 10px 12px;
+  vertical-align: middle;
+  color: var(--fg);
+}
+
+/* ── 카드 헤더 타이틀 ─────────────────────────────────────────────────── */
+.card-title { font-size: 0.9375rem; font-weight: 600; color: var(--fg); }
+
+/* ── 팝업 공통 ────────────────────────────────────────────────────────── */
+.modal-body b, .modal-body strong { color: var(--fg); font-weight: 700; }
+.modal-narrative b, .modal-narrative strong {
+  color: #ffffff; font-weight: 800; font-size: 1.06em;
+  background: rgba(255,255,255,0.09); border-radius: 3px; padding: 0 3px;
+}
+:root:not(.dark) .modal-narrative b,
+:root:not(.dark) .modal-narrative strong {
+  color: #09090b; font-weight: 800; font-size: 1.06em;
+  background: rgba(0,0,0,0.07); border-radius: 3px; padding: 0 3px;
+}
+
+/* ── 배지 공통 ────────────────────────────────────────────────────────── */
+.badge { font-weight: 600; }
+.card-hover:hover { border-color: rgba(34,211,238,0.35); }
+
+/* ── 입력 필드 기본 ───────────────────────────────────────────────────── */
+input, select, textarea {
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
 /* ── 반응형 레이아웃 ─────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .sidebar-full { display: none; }
-  .main-content  { margin-left: 0 !important; }
+  .main-content { margin-left: 0 !important; }
+  html { font-size: 14px; }
 }
+
+/* ── 페이지 / 필터바 공통 ────────────────────────────────────────────── */
+.page-root { padding: 20px 24px; max-width: 1600px; }
+.filter-bar {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 18px;
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   라이트 모드 전용 재설계 — 배경·텍스트·배지·카드 전부 고대비
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* 1. 카드 입체감 (overflow:hidden 유무 관계없이) */
+:root:not(.dark) .rounded-xl.border,
+:root:not(.dark) .rounded-2xl.border {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.09), 0 1px 2px rgba(0,0,0,0.06);
+}
+
+/* 2. 테이블 라이트 모드 전용 */
+:root:not(.dark) table thead th {
+  background: #f1f5f9;
+  color: #334155;
+  border-bottom: 2px solid #e2e8f0;
+}
+:root:not(.dark) table tbody tr { border-bottom-color: #f1f5f9; }
+:root:not(.dark) table tbody tr:hover { background: #f8fafc; }
+:root:not(.dark) table tbody td { color: #0f172a; }
+
+/* 3. 입력 필드 */
+:root:not(.dark) input,
+:root:not(.dark) select,
+:root:not(.dark) textarea {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+:root:not(.dark) input::placeholder,
+:root:not(.dark) textarea::placeholder { color: #94a3b8; }
+
+/* ── 4. 텍스트 컬러 고대비 (400 계열 → 600/700 계열) ─────────────────── */
+/* 한국 주식: 상승=빨강, 하락=파랑 — 라이트모드에서 더 진하게 */
+:root:not(.dark) .text-red-400    { color: #dc2626; }   /* red-600 */
+:root:not(.dark) .text-red-300    { color: #b91c1c; }
+:root:not(.dark) .text-blue-400   { color: #1d4ed8; }   /* blue-700 */
+:root:not(.dark) .text-blue-300   { color: #1e40af; }
+:root:not(.dark) .text-green-400  { color: #16a34a; }   /* green-600 */
+:root:not(.dark) .text-green-300  { color: #15803d; }
+:root:not(.dark) .text-cyan-400   { color: #0284c7; }   /* sky-600 */
+:root:not(.dark) .text-cyan-300   { color: #0369a1; }
+:root:not(.dark) .text-sky-400    { color: #0284c7; }
+:root:not(.dark) .text-yellow-400 { color: #b45309; }   /* amber-700 */
+:root:not(.dark) .text-yellow-300 { color: #92400e; }
+:root:not(.dark) .text-amber-400  { color: #b45309; }
+:root:not(.dark) .text-amber-300  { color: #92400e; }
+:root:not(.dark) .text-orange-400 { color: #ea580c; }   /* orange-600 */
+:root:not(.dark) .text-orange-300 { color: #c2410c; }
+:root:not(.dark) .text-purple-400 { color: #9333ea; }   /* purple-600 */
+:root:not(.dark) .text-purple-300 { color: #7e22ce; }
+:root:not(.dark) .text-violet-400 { color: #7c3aed; }
+:root:not(.dark) .text-pink-400   { color: #db2777; }
+:root:not(.dark) .text-rose-400   { color: #e11d48; }
+:root:not(.dark) .text-zinc-400   { color: #52525b; }   /* zinc-600 */
+:root:not(.dark) .text-zinc-300   { color: #3f3f46; }
+:root:not(.dark) .text-slate-400  { color: #475569; }
+
+/* ── 5. 배지·칩 배경 — 선명한 파스텔 솔리드 ──────────────────────────── */
+/* green */
+:root:not(.dark) [class*="bg-green-500"] { background-color: #dcfce7 !important; }
+:root:not(.dark) [class*="border-green-500"] { border-color: #86efac !important; }
+/* red */
+:root:not(.dark) [class*="bg-red-500"] { background-color: #fee2e2 !important; }
+:root:not(.dark) [class*="border-red-500"] { border-color: #fca5a5 !important; }
+/* blue */
+:root:not(.dark) [class*="bg-blue-500"] { background-color: #dbeafe !important; }
+:root:not(.dark) [class*="border-blue-500"] { border-color: #93c5fd !important; }
+/* cyan / sky */
+:root:not(.dark) [class*="bg-cyan-500"] { background-color: #e0f2fe !important; }
+:root:not(.dark) [class*="border-cyan-500"] { border-color: #7dd3fc !important; }
+/* yellow / amber */
+:root:not(.dark) [class*="bg-yellow-500"] { background-color: #fef9c3 !important; }
+:root:not(.dark) [class*="border-yellow-500"] { border-color: #fde047 !important; }
+:root:not(.dark) [class*="bg-amber-500"] { background-color: #fef3c7 !important; }
+:root:not(.dark) [class*="border-amber-500"] { border-color: #fcd34d !important; }
+/* purple / violet */
+:root:not(.dark) [class*="bg-purple-500"] { background-color: #f3e8ff !important; }
+:root:not(.dark) [class*="border-purple-500"] { border-color: #d8b4fe !important; }
+:root:not(.dark) [class*="bg-violet-500"] { background-color: #ede9fe !important; }
+:root:not(.dark) [class*="border-violet-500"] { border-color: #c4b5fd !important; }
+/* orange */
+:root:not(.dark) [class*="bg-orange-500"] { background-color: #ffedd5 !important; }
+:root:not(.dark) [class*="border-orange-500"] { border-color: #fdba74 !important; }
+/* zinc / gray */
+:root:not(.dark) [class*="bg-zinc-500"] { background-color: #f4f4f5 !important; }
+:root:not(.dark) [class*="border-zinc-500"] { border-color: #d4d4d8 !important; }
+
+/* ── 6. 버튼/인터랙티브 요소 특수 처리 ───────────────────────────────── */
+/* 활성 탭 버튼 (bg-cyan-500/20) */
+:root:not(.dark) button[class*="bg-cyan-500"] {
+  background-color: #e0f2fe !important;
+  color: #0284c7 !important;
+}
+/* 호버 상태 버튼 복원 - !important로 override된 hover 상태 재정의 */
+:root:not(.dark) button[class*="hover:bg-cyan-500"]:hover {
+  background-color: #bae6fd !important;
+}
+:root:not(.dark) button[class*="hover:bg-red-500"]:hover {
+  background-color: #fee2e2 !important;
+}
+
+/* ── 7. 사이드바 라이트 모드 ──────────────────────────────────────────── */
+:root:not(.dark) nav a[class*="bg-cyan-500"],
+:root:not(.dark) nav button[class*="bg-cyan-500"] {
+  background-color: #e0f2fe !important;
+  color: #0284c7 !important;
+}
+
+/* ── 8. 특수 배경 영역 (var(--bg) 참조하는 중첩 섹션) ─────────────────── */
+:root:not(.dark) .bg-\[var\(--bg\)\] {
+  background-color: #f8fafc;
+}
+
+/* ── 9. 수익률 셀 배경 (HTS/가격 변동 표시) ──────────────────────────── */
+:root:not(.dark) .bg-red-500\/10  { background-color: #fee2e2 !important; }
+:root:not(.dark) .bg-red-500\/15  { background-color: #fecaca !important; }
+:root:not(.dark) .bg-red-500\/20  { background-color: #fca5a5 !important; }
+:root:not(.dark) .bg-blue-500\/10 { background-color: #dbeafe !important; }
+:root:not(.dark) .bg-blue-500\/15 { background-color: #bfdbfe !important; }
+:root:not(.dark) .bg-blue-500\/20 { background-color: #93c5fd !important; }
+
+/* ── 10. animate-pulse 실시간 배지 ───────────────────────────────────── */
+:root:not(.dark) .animate-pulse[class*="bg-green-500"] {
+  background-color: #dcfce7 !important;
+}
+/* ── 11. 호버 상태 복원 (!important 충돌 방지) ────────────────────────── */
+/* 버튼/링크 호버 — 위의 bg-*-500 general rule보다 높은 명시도+!important */
+:root:not(.dark) [class*="hover:bg-cyan-500"]:hover  { background-color: #bae6fd !important; }
+:root:not(.dark) [class*="hover:bg-red-500"]:hover   { background-color: #fca5a5 !important; }
+:root:not(.dark) [class*="hover:bg-green-500"]:hover { background-color: #86efac !important; }
+:root:not(.dark) [class*="hover:bg-blue-500"]:hover  { background-color: #93c5fd !important; }
+:root:not(.dark) [class*="hover:bg-purple-500"]:hover{ background-color: #d8b4fe !important; }
+
+/* ── 12. 그룹-호버 복원 (hover:opacity-100 등) ───────────────────────── */
+/* border/bg 오버라이드로 인해 가려지는 hover:border-cyan-500 등 복원 */
+:root:not(.dark) [class*="hover:border-cyan-500"]:hover  { border-color: #0284c7 !important; }
+:root:not(.dark) [class*="hover:border-red-500"]:hover   { border-color: #dc2626 !important; }
+
+/* ── 13. StatCard / 수치 카드 숫자 크기 통일 ─────────────────────────── */
+:root:not(.dark) .text-\[1\.875rem\] { font-size: 1.75rem; }

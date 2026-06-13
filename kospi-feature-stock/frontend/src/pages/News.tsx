@@ -56,7 +56,15 @@ export function News() {
           <option value="8">8시간</option>
           <option value="24">24시간</option>
           <option value="48">48시간</option>
+          <option value="72">72시간</option>
+          <option value="168">1주</option>
         </select>
+        <button
+          onClick={() => { setCategory(''); setHours('72') }}
+          className="text-xs text-[var(--muted)] hover:text-[var(--fg)] transition-colors px-2 py-1 rounded hover:bg-[var(--border)]"
+        >
+          초기화
+        </button>
         <div className="ml-auto text-xs text-[var(--muted)]">
           {newsLoading ? '로딩 중…' : `${newsList?.length ?? 0}건`}
         </div>

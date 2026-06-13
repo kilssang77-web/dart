@@ -1,5 +1,5 @@
-.PHONY: up down restart logs ps build pull stats train backtest load-stocks migrate health \
-        bootstrap test test-resilience migrate-v5 audit-features
+﻿.PHONY: up down restart logs ps build pull stats train backtest load-stocks migrate health \
+        bootstrap test test-resilience migrate-v5 migrate-v6 audit-features
 
 # ── 환경 설정 ──────────────────────────────────────────────────
 CP_ENV := cp .env.example .env
@@ -106,6 +106,12 @@ migrate-v5:
 	docker compose exec postgres psql \
 		-U $${POSTGRES_USER} -d $${POSTGRES_DB} \
 		-f /docker-entrypoint-initdb.d/V5__hnsw_disclosure_embedding.sql
+
+# ── DB 마이그레이션 V6: 관심종목 테이블 ───────────────────────
+migrate-v6:
+	docker compose exec postgres psql \
+		-U ${POSTGRES_USER} -d ${POSTGRES_DB} \
+		-f /docker-entrypoint-initdb.d/V6__watchlist.sql
 
 # ── 단위 테스트 ─────────────────────────────────────────────────
 test:

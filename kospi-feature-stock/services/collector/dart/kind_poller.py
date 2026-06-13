@@ -24,12 +24,16 @@ _KRX_ONLY_TYPES = {
 }
 
 
+_RETRY_DELAYS = (0, 5, 15)  # 초 단위 재시도 간격 (3회)
+
+
 class KINDPoller:
 
     def __init__(self, kafka_producer, poll_interval: int = 300):
-        self._kafka         = kafka_producer
-        self._poll_interval = poll_interval
-        self._seen: set[str] = set()
+        self._kafka              = kafka_producer
+        self._poll_interval      = poll_interval
+        self._seen: set[str]     = set()
+        self._consecutive_empty  = 0   # 연속 빈 결과 카운터 (구조 변경 감지용)
         self._client = httpx.AsyncClient(
             timeout=20,
             follow_redirects=True,
@@ -57,7 +61,7 @@ class KINDPoller:
         new_count = 0
 
         for item in items:
-            uid = item.get("uid", "")
+            uid = item.get("rcept_no", "")
             if not uid or uid in self._seen:
                 continue
             self._seen.add(uid)
@@ -66,38 +70,59 @@ class KINDPoller:
 
         if new_count:
             logger.info(f"KIND: {new_count} new disclosures")
+            self._consecutive_empty = 0
+        else:
+            self._consecutive_empty += 1
+            if self._consecutive_empty >= 6:  # 30분 연속 무신호
+                logger.warning(
+                    f"KIND: {self._consecutive_empty}회 연속 결과 없음 — "
+                    "HTML 구조 변경 또는 연결 문제 가능성"
+                )
 
         if len(self._seen) > 2000:
             self._seen = set(list(self._seen)[-1000:])
 
     async def _fetch_today(self, date_str: str) -> list[dict]:
-        try:
-            resp = await self._client.post(
-                _KIND_URL,
-                data={
-                    "method":      "searchTodayDisclosureSub",
-                    "currentPageSize": "100",
-                    "pageIndex":   "1",
-                    "orderMode":   "0",
-                    "orderStat":   "D",
-                    "forward":     "todaydisclosure_sub",
-                    "chose":       "S",
-                    "todayFlag":   "Y",
-                    "repIsuSrtCd": "",
-                },
-            )
-            resp.raise_for_status()
-        except Exception as e:
-            logger.debug(f"KIND fetch error: {e}")
-            return []
+        last_exc: Exception | None = None
+        for attempt, delay in enumerate(_RETRY_DELAYS):
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                resp = await self._client.post(
+                    _KIND_URL,
+                    data={
+                        "method":          "searchTodayDisclosureSub",
+                        "currentPageSize": "100",
+                        "pageIndex":       "1",
+                        "orderMode":       "0",
+                        "orderStat":       "D",
+                        "forward":         "todaydisclosure_sub",
+                        "chose":           "S",
+                        "todayFlag":       "Y",
+                        "repIsuSrtCd":     "",
+                    },
+                )
+                resp.raise_for_status()
+                return self._parse(resp.text)
+            except Exception as e:
+                last_exc = e
+                logger.warning(f"KIND fetch attempt {attempt + 1} failed: {e}")
 
-        return self._parse(resp.text)
+        logger.error(f"KIND fetch failed after {len(_RETRY_DELAYS)} attempts: {last_exc}")
+        return []
 
     def _parse(self, html: str) -> list[dict]:
         soup  = BeautifulSoup(html, "lxml")
         items = []
 
-        for row in soup.select("table.list tbody tr"):
+        rows = soup.select("table.list tbody tr")
+        if not rows:
+            # 연시장 외 시간대에는 정상 응답 직엁, 안내 문단만 존재하면 WARN
+            if "table" not in html.lower() or len(html) < 500:
+                logger.warning("KIND: table.list 대 셀렉터 미일치 — HTML 구조 변경 가능")
+            return items
+
+        for row in rows:
             cols = row.find_all("td")
             if len(cols) < 5:
                 continue

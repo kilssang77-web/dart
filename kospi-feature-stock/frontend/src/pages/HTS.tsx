@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+﻿import { useEffect, useRef, useState, useCallback } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { Wifi, WifiOff, RefreshCw } from 'lucide-react'
+import { Wifi, WifiOff, RefreshCw, Clock, X, Search } from 'lucide-react'
 import { fmt } from '@/lib/utils'
+import { stocksApi } from '@/api/stocks'
 
 interface TickData {
   code:        string
@@ -16,6 +18,8 @@ interface TickData {
   low?:        number
   ask1?:       number
   bid1?:       number
+  snapshot?:   boolean
+  snap_date?:  string
 }
 
 type WsStatus = 'connecting' | 'connected' | 'disconnected'
@@ -30,16 +34,49 @@ const SORT_OPTIONS = [
 export function HTS() {
   const wsRef       = useRef<WebSocket | null>(null)
   const timerRef    = useRef<ReturnType<typeof setTimeout>>()
-  const [ticks,     setTicks]     = useState<Map<string, TickData>>(new Map())
-  const [flash,     setFlash]     = useState<Map<string, 'up' | 'dn'>>(new Map())
-  const [status,    setStatus]    = useState<WsStatus>('connecting')
-  const [sortBy,    setSortBy]    = useState('change_rate_abs')
-  const [filterQ,   setFilterQ]   = useState('')
+  const [ticks,         setTicks]         = useState<Map<string, TickData>>(new Map())
+  const [flash,         setFlash]         = useState<Map<string, 'up' | 'dn'>>(new Map())
+  const [status,        setStatus]        = useState<WsStatus>('connecting')
+  const [sortBy,        setSortBy]        = useState('change_rate_abs')
+  const [filterQ,       setFilterQ]       = useState('')
+  const [isMarketOpen,  setIsMarketOpen]  = useState<boolean | null>(null)
+  const [watchInput,    setWatchInput]    = useState('')
+  const [watchQuery,    setWatchQuery]    = useState('')
+  const [watchedCodes,  setWatchedCodes]  = useState<Map<string, string>>(new Map())
+  const [showWatchSearch, setShowWatchSearch] = useState(false)
+
+  const { data: watchResults } = useQuery({
+    queryKey:  ['hts-watch-search', watchQuery],
+    queryFn:   () => stocksApi.search(watchQuery),
+    enabled:   watchQuery.length >= 1,
+    staleTime: 60_000,
+  })
+
+  async function addWatch(code: string, name: string) {
+    try { await stocksApi.watchStock(code) } catch { /* ignore */ }
+    setWatchedCodes((prev) => new Map([...prev, [code, name]]))
+    setWatchInput('')
+    setWatchQuery('')
+    setShowWatchSearch(false)
+  }
+
+  function removeWatch(code: string) {
+    setWatchedCodes((prev) => { const m = new Map(prev); m.delete(code); return m })
+  }
+
+  useEffect(() => {
+    if (watchedCodes.size === 0) return
+    const id = setInterval(() => {
+      watchedCodes.forEach((_, code) => { stocksApi.watchStock(code).catch(() => {}) })
+    }, 60_000)
+    return () => clearInterval(id)
+  }, [watchedCodes])
 
   const connect = useCallback(() => {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const url   = `${proto}//${location.host}/ws/ticks`
     const ws    = new WebSocket(url)
+    ws.binaryType = 'arraybuffer'
     wsRef.current = ws
     setStatus('connecting')
 
@@ -52,12 +89,18 @@ export function HTS() {
 
     ws.onmessage = (ev) => {
       try {
-        const tick: TickData = JSON.parse(ev.data)
+        const data = typeof ev.data === 'string' ? JSON.parse(ev.data)
+          : JSON.parse(new TextDecoder().decode(ev.data as ArrayBuffer))
+        if (data.type === 'market_status') {
+          setIsMarketOpen(data.is_open)
+          return
+        }
+        const tick = data as TickData
         setTicks((prev) => {
           const next = new Map(prev)
           const old  = prev.get(tick.code)
           next.set(tick.code, tick)
-          if (old && old.price !== tick.price) {
+          if (old && old.price !== tick.price && !tick.snapshot) {
             const dir: 'up' | 'dn' = tick.price > old.price ? 'up' : 'dn'
             setFlash((f) => {
               const nf = new Map(f)
@@ -103,7 +146,7 @@ export function HTS() {
 
       {/* 상태 바 */}
       <div className="flex items-center gap-3 p-3 bg-[var(--card)] border border-[var(--border)] rounded-xl">
-        <div className={clsx('flex items-center gap-1.5 text-xs font-medium',
+        <div className={clsx('flex items-center gap-1.5 text-sm font-medium',
           status === 'connected'    ? 'text-green-400' :
           status === 'connecting'   ? 'text-yellow-400' : 'text-red-400'
         )}>
@@ -118,36 +161,100 @@ export function HTS() {
           value={filterQ}
           onChange={(e) => setFilterQ(e.target.value)}
           placeholder="종목명 / 코드"
-          className="bg-[var(--bg)] border border-[var(--border)] rounded-md px-2.5 py-1.5 text-xs text-[var(--fg)] placeholder:text-[var(--muted)] focus:outline-none focus:border-cyan-500 w-32"
+          className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--fg)] placeholder:text-[var(--muted)] focus:outline-none focus:border-cyan-500 w-36"
         />
 
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value)}
-          className="bg-[var(--bg)] border border-[var(--border)] rounded-md px-2.5 py-1.5 text-xs text-[var(--fg)] focus:outline-none focus:border-cyan-500"
+          className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--fg)] focus:outline-none focus:border-cyan-500"
         >
           {SORT_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
 
-        <div className="ml-auto text-xs text-[var(--muted)] tabular">
+        <div className="ml-auto text-sm text-[var(--muted)] tabular font-medium">
           {rows.length}종목
         </div>
       </div>
+
+      {/* 종목 추가/제거 패널 */}
+      <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-semibold text-[var(--muted)]">모니터링</span>
+
+          {[...watchedCodes.entries()].map(([code, name]) => (
+            <div key={code} className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-xs text-cyan-400">
+              <span className="font-semibold">{name}</span>
+              <span className="text-cyan-400/60">{code}</span>
+              <button onClick={() => removeWatch(code)} className="ml-0.5 hover:text-white transition-colors">
+                <X size={10} />
+              </button>
+            </div>
+          ))}
+
+          <div className="relative">
+            <div className="flex items-center gap-1 px-2 py-1 bg-[var(--bg)] border border-[var(--border)] rounded-lg focus-within:border-cyan-500">
+              <Search size={11} className="text-[var(--muted)] shrink-0" />
+              <input
+                value={watchInput}
+                onChange={(e) => { setWatchInput(e.target.value); setWatchQuery(e.target.value); setShowWatchSearch(true) }}
+                onFocus={() => setShowWatchSearch(true)}
+                onBlur={() => setTimeout(() => setShowWatchSearch(false), 200)}
+                placeholder="종목 추가…"
+                className="bg-transparent text-xs text-[var(--fg)] placeholder:text-[var(--muted)] focus:outline-none w-28"
+              />
+            </div>
+            {showWatchSearch && watchResults && watchResults.length > 0 && (
+              <div className="absolute top-full left-0 z-50 mt-1 w-56 bg-[var(--card)] border border-[var(--border)] rounded-xl shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+                {watchResults.slice(0, 8).map((s) => (
+                  <button
+                    key={s.code}
+                    onMouseDown={() => addWatch(s.code, s.name)}
+                    className="w-full flex items-center justify-between px-3 py-2 hover:bg-[var(--border)]/30 text-xs border-b border-[var(--border)]/40 last:border-0"
+                  >
+                    <span className="font-semibold text-[var(--fg)]">{s.name}</span>
+                    <span className="text-[var(--muted)]">{s.code}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {watchedCodes.size === 0 && (
+            <span className="text-xs text-[var(--muted)]/60">종목을 추가하면 실시간 구독됩니다</span>
+          )}
+        </div>
+      </div>
+
+      {/* 장 마감 배너 */}
+      {isMarketOpen === false && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-gray-500/10 border border-[var(--border)] rounded-lg text-xs text-[var(--muted)]">
+          <Clock size={12} className="shrink-0" />
+          <span>장 마감 — 거래대금 상위 30종목 최근 종가 기준 표시</span>
+          <span className="ml-auto opacity-60">장 운영: 09:00 – 15:35 (KST)</span>
+        </div>
+      )}
 
       {/* 시세 그리드 */}
       {rows.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 gap-3 text-[var(--muted)]">
           {status === 'connecting' ? (
             <RefreshCw size={24} className="animate-spin" />
+          ) : isMarketOpen === false ? (
+            <Clock size={24} />
           ) : (
             <WifiOff size={24} />
           )}
           <p className="text-sm">
-            {status === 'connecting' ? 'WebSocket 연결 중…' : 'WebSocket 수신 대기 중'}
+            {status === 'connecting'   ? 'WebSocket 연결 중…' :
+             isMarketOpen === false    ? '장 마감 — 시세 데이터 없음' :
+                                         'WebSocket 수신 대기 중'}
           </p>
-          <p className="text-xs">KIS API에서 실시간 데이터가 수신되면 자동으로 표시됩니다</p>
+          {isMarketOpen !== false && (
+            <p className="text-xs">KIS API에서 실시간 데이터가 수신되면 자동으로 표시됩니다</p>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
@@ -165,24 +272,32 @@ export function HTS() {
                   dir === 'dn' && 'flash-dn'
                 )}
               >
-                {/* 등락 표시바 */}
                 <div className={clsx(
                   'absolute top-0 left-0 right-0 h-0.5 rounded-t-xl',
                   up ? 'bg-red-400' : dn ? 'bg-blue-400' : 'bg-transparent'
                 )} />
 
-                <div className="text-[10px] text-[var(--muted)] truncate">{tick.name}</div>
-                <div className="text-[10px] text-[var(--muted)]/60 mb-1">{tick.code}</div>
+                <div className="flex items-start justify-between gap-1">
+                  <div>
+                    <div className="text-sm font-semibold text-[var(--fg)] truncate">{tick.name}</div>
+                    <div className="text-xs text-[var(--muted)]/70">{tick.code}</div>
+                  </div>
+                  {tick.snapshot && (
+                    <span className="text-xs text-[var(--muted)]/50 shrink-0 mt-0.5">
+                      {tick.snap_date?.slice(5) ?? '종가'}
+                    </span>
+                  )}
+                </div>
 
                 <div className={clsx(
-                  'text-lg font-bold tabular leading-tight',
+                  'text-xl font-bold tabular leading-tight mt-1.5',
                   up ? 'text-red-400' : dn ? 'text-blue-400' : 'text-[var(--fg)]'
                 )}>
                   {tick.price.toLocaleString()}
                 </div>
 
                 <div className={clsx(
-                  'text-xs font-semibold tabular mt-0.5',
+                  'text-sm font-semibold tabular mt-0.5',
                   up ? 'text-red-400' : dn ? 'text-blue-400' : 'text-[var(--muted)]'
                 )}>
                   {up ? '▲' : dn ? '▼' : '—'}{' '}
@@ -190,14 +305,14 @@ export function HTS() {
                 </div>
 
                 <div className="flex items-center justify-between mt-2 pt-2 border-t border-[var(--border)]">
-                  <span className="text-[9px] text-[var(--muted)]">거래량</span>
-                  <span className="text-[9px] tabular text-[var(--muted)]">
+                  <span className="text-xs text-[var(--muted)]">거래량</span>
+                  <span className="text-sm tabular text-[var(--muted)]">
                     {fmt.vol(tick.volume)}
                   </span>
                 </div>
 
                 {(tick.ask1 || tick.bid1) && (
-                  <div className="flex justify-between mt-1 text-[9px] tabular">
+                  <div className="flex justify-between mt-1 text-xs tabular">
                     <span className="text-blue-400">{fmt.price(tick.bid1)}</span>
                     <span className="text-[var(--muted)]">/</span>
                     <span className="text-red-400">{fmt.price(tick.ask1)}</span>

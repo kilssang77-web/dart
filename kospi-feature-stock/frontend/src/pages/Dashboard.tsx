@@ -1,12 +1,13 @@
 ﻿import { useState, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { TrendingUp, TrendingDown, Minus, ArrowUpRight, ArrowDownRight, Zap, AlertTriangle } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, ArrowUpRight, ArrowDownRight, Zap } from 'lucide-react'
 import { clsx } from 'clsx'
 import { featuresApi } from '@/api/features'
 import { recommendationsApi } from '@/api/recommendations'
 import { marketApi } from '@/api/market'
 import { StatCard, Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card'
+import { ErrorState } from '@/components/ui/ErrorState'
 import { Badge, ActionBadge, MarketBadge, EVENT_LABELS } from '@/components/ui/Badge'
 import { fmt, pctColor } from '@/lib/utils'
 import { useRealtimeStream, StreamFeature, StreamRecommendation } from '@/hooks/useRealtimeStream'
@@ -61,7 +62,7 @@ export function Dashboard() {
     refetchInterval: 30_000,
   })
 
-  const { data: recentFeatures, isError: featuresError } = useQuery({
+  const { data: recentFeatures, isError: featuresError, refetch: refetchFeatures } = useQuery({
     queryKey:        ['features-recent'],
     queryFn:         () => featuresApi.list({ limit: 12, hours: 8, dedupe: true }),
     refetchInterval: 30_000,
@@ -135,12 +136,6 @@ export function Dashboard() {
       </div>
 
       {/* ── 시장 지수 바 ─────────────────────────────────────────────────── */}
-      {(summaryError || featuresError) && (
-        <div className="flex items-center gap-2 px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-xs text-yellow-400">
-          <AlertTriangle size={12} className="shrink-0" />
-          데이터 로드 오류 — 잠시 후 자동 재시도됩니다
-        </div>
-      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
@@ -278,7 +273,10 @@ export function Dashboard() {
                       <td className="py-3 text-right tabular text-sm text-yellow-400 font-semibold pr-5">{f.signal_score?.toFixed(2) ?? '—'}</td>
                     </tr>
                   ))}
-                  {!recentFeatures?.length && (
+                  {featuresError && (
+                    <tr><td colSpan={5}><ErrorState message="특징주 데이터 로드 실패" retry={refetchFeatures} /></td></tr>
+                  )}
+                  {!featuresError && !recentFeatures?.length && (
                     <tr>
                       <td colSpan={5} className="py-14 text-center">
                         <div className="text-sm text-[var(--muted)]">탐지된 특징주가 없습니다</div>

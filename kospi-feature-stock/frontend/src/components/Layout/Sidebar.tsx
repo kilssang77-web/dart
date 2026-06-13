@@ -2,7 +2,8 @@ import { NavLink } from 'react-router-dom'
 import { clsx } from 'clsx'
 import {
   LayoutDashboard, Zap, DollarSign, FileText, Newspaper,
-  Search, Monitor, BarChart2, Activity, Settings, ChevronLeft, ChevronRight,
+  Monitor, BarChart2, Settings, ChevronLeft, ChevronRight, LineChart,
+  Activity, Star, Bell, Layers, Search, TrendingUp,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { featuresApi } from '@/api/features'
@@ -15,6 +16,11 @@ interface NavItem {
   badge?: string
 }
 
+interface NavGroup {
+  title: string
+  items: NavItem[]
+}
+
 export function Sidebar() {
   const { collapsed, toggle } = useSidebarStore()
 
@@ -24,30 +30,40 @@ export function Sidebar() {
     refetchInterval: 30_000,
   })
 
-  const navGroups: { title: string; items: NavItem[] }[] = [
+  const navGroups: NavGroup[] = [
+    {
+      title: '실시간',
+      items: [
+        { to: '/',         icon: <LayoutDashboard size={15} />, label: '대시보드' },
+        { to: '/features', icon: <Zap size={15} />,            label: '특징주 탐지', badge: summary ? String(summary.total) : undefined },
+        { to: '/hts',      icon: <Monitor size={15} />,        label: 'HTS 시세판' },
+      ],
+    },
     {
       title: '분석',
       items: [
-        { to: '/',               icon: <LayoutDashboard size={15} />, label: '대시보드' },
-        { to: '/features',       icon: <Zap size={15} />,            label: '특징주 탐지', badge: summary ? String(summary.total) : undefined },
-        { to: '/recommendations',icon: <DollarSign size={15} />,     label: '추천 매매' },
+        { to: '/recommendations', icon: <DollarSign size={15} />, label: '추천 매매' },
+        { to: '/search',          icon: <Search size={15} />,     label: '종목 검색' },
+        { to: '/analysis',        icon: <LineChart size={15} />,  label: '종목 분석' },
+        { to: '/disclosures',     icon: <FileText size={15} />,   label: '공시 분석' },
+        { to: '/news',            icon: <Newspaper size={15} />,  label: '뉴스/테마' },
+        { to: '/themes',          icon: <Layers size={15} />,     label: '테마 추적' },
       ],
     },
     {
-      title: '정보',
+      title: '전략',
       items: [
-        { to: '/disclosures',    icon: <FileText size={15} />,       label: '공시 분석' },
-        { to: '/news',           icon: <Newspaper size={15} />,      label: '뉴스/테마' },
-        { to: '/search',         icon: <Search size={15} />,         label: '종목 검색' },
+        { to: '/backtest',    icon: <BarChart2 size={15} />,  label: '백테스트' },
+        { to: '/performance', icon: <Activity size={15} />,   label: '모델 성능' },
+        { to: '/tracking',    icon: <TrendingUp size={15} />, label: '성과 추적' },
       ],
     },
     {
-      title: '시스템',
+      title: '관리',
       items: [
-        { to: '/hts',            icon: <Monitor size={15} />,        label: 'HTS 시세판' },
-        { to: '/backtest',       icon: <BarChart2 size={15} />,      label: '백테스트' },
-        { to: '/performance',    icon: <Activity size={15} />,       label: '모델 성능' },
-        { to: '/settings',       icon: <Settings size={15} />,       label: '설정' },
+        { to: '/watchlist',      icon: <Star size={15} />,     label: '관심종목' },
+        { to: '/notifications',  icon: <Bell size={15} />,     label: '알림 이력' },
+        { to: '/settings',       icon: <Settings size={15} />, label: '설정' },
       ],
     },
   ]
@@ -64,15 +80,19 @@ export function Sidebar() {
         'flex items-center gap-2.5 p-4 border-b border-[var(--border)] flex-shrink-0',
         collapsed && 'justify-center'
       )}>
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-400 to-green-400 flex items-center justify-center flex-shrink-0">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
-            <path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>
+        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center flex-shrink-0 shadow-lg shadow-cyan-500/20">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2">
+            <circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="9" strokeDasharray="3 2"/>
+            <line x1="12" y1="3" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="21"/>
+            <line x1="3" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="21" y2="12"/>
           </svg>
         </div>
         {!collapsed && (
           <div>
-            <div className="text-sm font-bold text-[var(--fg)]">특징주 시스템</div>
-            <div className="text-[10px] text-[var(--muted)]">KOSPI / KOSDAQ</div>
+            <div className="text-sm font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent tracking-wide">
+              Quant Eye
+            </div>
+            <div className="text-[10px] text-[var(--muted)] leading-tight">AI의 눈으로 시장을 분석</div>
           </div>
         )}
       </div>
@@ -82,12 +102,13 @@ export function Sidebar() {
         {navGroups.map((group) => (
           <div key={group.title} className="mb-1">
             {!collapsed && (
-              <div className="px-3 py-2 text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">
+              <div className="px-3 pt-3 pb-1 text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">
                 {group.title}
               </div>
             )}
+            {collapsed && <div className="mx-2 my-1 border-t border-[var(--border)]/50" />}
             {group.items.map((item) => (
-              <NavItem key={item.to} item={item} collapsed={collapsed} />
+              <SidebarNavItem key={item.to} item={item} collapsed={collapsed} />
             ))}
           </div>
         ))}
@@ -113,7 +134,7 @@ export function Sidebar() {
   )
 }
 
-function NavItem({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
+function SidebarNavItem({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
   return (
     <NavLink
       to={item.to}
@@ -130,8 +151,8 @@ function NavItem({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
       {!collapsed && <span className="truncate">{item.label}</span>}
       {!collapsed && item.badge && item.badge !== '0' && (
         <span className={clsx(
-          'ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded-full',
-          'bg-[var(--border)] text-[var(--muted)]'
+          'ml-auto text-xs font-semibold px-1.5 py-0.5 rounded-full',
+          'bg-cyan-500/15 text-cyan-400'
         )}>
           {item.badge}
         </span>
