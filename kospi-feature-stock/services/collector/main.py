@@ -312,9 +312,12 @@ class StockCollector:
                     f"({'NXT after-market' if in_nxt else 'regular session'})"
                 )
                 await self.ws.subscribe_tick(codes, self._on_tick, include_nxt=in_nxt)
-            except Exception as e:
-                logger.error(f"Tick loop error: {e}")
+            except (ConnectionError, OSError, asyncio.TimeoutError) as e:
+                logger.warning(f"[WS] 일시적 연결 오류, 10초 후 재시도: {e}")
                 await asyncio.sleep(10)
+            except Exception as e:
+                logger.error(f"[WS] 예상치 못한 오류 (설정 확인 필요): {e}", exc_info=True)
+                await asyncio.sleep(60)
 
     async def _dynamic_tick_loop(self):
         """사용자가 상세 열람 중인 종목 동적 구독 (Redis watching:{code} TTL 기반)."""
@@ -351,8 +354,10 @@ class StockCollector:
                     watched_tasks[code] = task
                     logger.info(f"[Watch] Subscribed {code}")
 
+            except (ConnectionError, OSError, asyncio.TimeoutError) as e:
+                logger.warning(f"[Watch] 일시적 연결 오류: {e}")
             except Exception as e:
-                logger.error(f"[Watch] loop error: {e}")
+                logger.error(f"[Watch] 예상치 못한 오류: {e}", exc_info=True)
 
     async def _tick_db_writer(self):
         """큐에서 tick을 일괄 DB 저장"""
