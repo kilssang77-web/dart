@@ -39,4 +39,6 @@ def simulate_bid(
     result = svc.simulate_bid(db, bid_id, req)
     if not result:
         raise HTTPException(status_code=404, detail="bid not found")
+    if result.get("error") == "base_amount_missing":
+        raise HTTPException(status_code=400, detail="기초금액 정보가 없어 시뮬레이션을 실행할 수 없습니다.")
     return result

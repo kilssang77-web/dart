@@ -229,6 +229,7 @@ export default function TenderDecisionPage() {
       })
     },
     onSuccess: (data) => setResult(data),
+    onError: () => { /* 에러는 simulateMut.error로 표시 */ },
   })
 
   const handleBidSelect = (id: number, title: string) => {
@@ -393,6 +394,15 @@ export default function TenderDecisionPage() {
                     </>
                   )}
                 </button>
+
+                {simulateMut.isError && (
+                  <div className="mt-2 text-xs text-red-600 flex items-center gap-1 bg-red-50 rounded p-2">
+                    <AlertCircle className="w-3 h-3 shrink-0" />
+                    {ctx.base_amount === 0
+                      ? '기초금액 정보가 없어 시뮬레이션을 실행할 수 없습니다.'
+                      : '시뮬레이션 실행 중 오류가 발생했습니다. 다시 시도해주세요.'}
+                  </div>
+                )}
               </div>
 
               {/* ── 2단 오른쪽: 기본 정보 + 참고 ── */}

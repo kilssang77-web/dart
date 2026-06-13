@@ -6146,6 +6146,9 @@ class DecisionService:
         agency_id = b.agency_id or 0
         industry_id = b.industry_id or 0
         base_amount = b.base_amount
+        # base_amount=0인 공고는 시뮬레이션 불가 (수집 미완료)
+        if not base_amount or base_amount <= 0:
+            return {"error": "base_amount_missing", "bid_id": bid_id}
         floor_rate = calc_floor_rate(industry_name)
 
         features = load_srate_stats(db, agency_id, industry_id, 0, base_amount)
@@ -6163,7 +6166,8 @@ class DecisionService:
         n_sim = min(max(req.n_sim, 5_000), 50_000)
         yega_values = req.yega_values
 
-        if yega_values and len(yega_values) == 15:
+        # 실측 모드: 15개 모두 양수여야 함
+        if yega_values and len(yega_values) == 15 and all(v > 0 for v in yega_values):
             mode = "real"
             srate_dist = simulate_yejung_from_real(yega_values, base_amount)
             candidates = [
