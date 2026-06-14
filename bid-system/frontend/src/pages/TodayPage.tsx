@@ -9,9 +9,10 @@ import {
   Sparkles, AlertCircle, Clock, Trophy, Target,
   TrendingUp, TrendingDown, ChevronRight, CheckCircle2,
   Building2, Calendar, Zap, BarChart2, Search, ListChecks, Plus,
+  BookOpen, ClipboardCheck,
 } from 'lucide-react'
-import { bidsApi, statsApi, selectionApi, kpiApi, executionsApi } from '@/api'
-import type { BidRecommendItem, OverviewStatsWithChange, ExecutionSummary } from '@/types'
+import { bidsApi, statsApi, selectionApi, kpiApi, executionsApi, journalApi } from '@/api'
+import type { BidRecommendItem, OverviewStatsWithChange, ExecutionSummary, JournalStats } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -122,6 +123,20 @@ export default function TodayPage() {
     staleTime: 300_000,
   })
 
+  // 피드백 루프 — 결과 입력 대기 목록
+  const { data: pendingJournals } = useQuery({
+    queryKey: ['journal-pending'],
+    queryFn: () => journalApi.pending(),
+    staleTime: 60_000,
+  })
+
+  // 피드백 통계
+  const { data: journalStats } = useQuery<JournalStats>({
+    queryKey: ['journal-stats'],
+    queryFn: () => journalApi.stats(),
+    staleTime: 300_000,
+  })
+
   // 투찰 실행 파이프라인
   const queryClient = useQueryClient()
   const { data: execSummary } = useQuery<ExecutionSummary>({
@@ -136,6 +151,9 @@ export default function TodayPage() {
       navigate('/executions')
     },
   })
+
+  type PendingJournalItem = { journal_id: number; title: string; agency_name: string; bid_open_date: string | null; submitted_rate: number | null; recommended_rate: number | null }
+  const pendingList: PendingJournalItem[] = ((pendingJournals as unknown as { items?: PendingJournalItem[] } | null)?.items ?? [])
 
   const activeExecCount =
     (execSummary?.status_counts?.['참여결정'] ?? 0) +
@@ -481,6 +499,78 @@ export default function TodayPage() {
               </Card>
             )}
 
+            {/* 개찰 결과 입력 대기 */}
+            {pendingList.length > 0 && (
+              <Card className="bg-white border-amber-200 shadow-sm ring-1 ring-amber-100">
+                <CardHeader className="pb-2 pt-4 px-4">
+                  <CardTitle className="text-sm font-semibold text-amber-700 flex items-center gap-1.5">
+                    <ClipboardCheck className="h-4 w-4 text-amber-500" />
+                    개찰 결과 입력 대기
+                    <span className="ml-auto bg-amber-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">
+                      {pendingList.length}건
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-4 pb-4 space-y-1.5">
+                  {pendingList.slice(0, 4).map((j) => (
+                    <div
+                      key={j.journal_id}
+                      className="flex items-center gap-2 cursor-pointer hover:bg-amber-50 rounded-lg p-2 -mx-1 transition-colors group"
+                      onClick={() => navigate('/journal-history')}
+                    >
+                      <div className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-slate-700 truncate group-hover:text-amber-700">
+                          {j.title}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {j.agency_name ?? '-'} · 개찰 {j.bid_open_date ? new Date(j.bid_open_date).toLocaleDateString('ko-KR') : '-'}
+                        </p>
+                      </div>
+                      <ChevronRight className="h-3 w-3 text-slate-300 group-hover:text-amber-400 shrink-0" />
+                    </div>
+                  ))}
+                  {pendingList.length > 4 && (
+                    <p className="text-xs text-slate-500 text-center pt-1">
+                      +{pendingList.length - 4}건 더보기 →
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* AI 피드백 현황 */}
+            {journalStats && journalStats.total > 0 && (
+              <Card className="bg-white border-slate-200 shadow-sm">
+                <CardHeader className="pb-2 pt-4 px-4">
+                  <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                    <BookOpen className="h-4 w-4 text-blue-500" />
+                    AI 피드백 현황
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-4 pb-4 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-slate-50 rounded-lg p-2.5 text-center">
+                      <p className="text-xs text-slate-400">피드백 완결률</p>
+                      <p className="text-base font-bold text-slate-800 mt-0.5">
+                        {(journalStats.feedback_completeness * 100).toFixed(0)}%
+                      </p>
+                    </div>
+                    <div className="bg-slate-50 rounded-lg p-2.5 text-center">
+                      <p className="text-xs text-slate-400">사정율 MAE</p>
+                      <p className="text-base font-bold text-blue-700 mt-0.5 font-mono">
+                        {journalStats.avg_srate_mae != null ? (journalStats.avg_srate_mae * 100).toFixed(2) + '%' : '-'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex justify-between text-xs text-slate-500 border-t pt-2 mt-1">
+                    <span>총 {journalStats.total}건 기록</span>
+                    <span>결과 대기 {journalStats.pending_result}건</span>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* 이달 수주 현황 */}
             <Card className="bg-white border-slate-200 shadow-sm">
               <CardHeader className="pb-2 pt-4 px-4">
@@ -570,12 +660,12 @@ export default function TodayPage() {
               </CardHeader>
               <CardContent className="px-3 pb-3 space-y-0.5">
                 {[
-                  { label: '투찰 관리',       path: '/executions',    icon: ListChecks, color: 'text-violet-500', bg: 'bg-violet-50' },
-                  { label: 'AI 투찰률 추천',  path: '/recommend',     icon: Zap,        color: 'text-blue-500',   bg: 'bg-blue-50'   },
-                  { label: '적격심사 계산',   path: '/qualification', icon: Trophy,     color: 'text-emerald-500', bg: 'bg-emerald-50' },
-                  { label: 'GO 판정 공고',    path: '/bid-selection', icon: Target,     color: 'text-emerald-600', bg: 'bg-emerald-50' },
-                  { label: '경쟁사 분석',     path: '/competitors',   icon: Building2,  color: 'text-purple-500', bg: 'bg-purple-50' },
-                  { label: '개찰 결과 입력',  path: '/my-bids',       icon: Sparkles,   color: 'text-slate-500',  bg: 'bg-slate-50'  },
+                  { label: '오늘의 투찰 결정', path: '/decision',       icon: Target,     color: 'text-blue-600',   bg: 'bg-blue-50'    },
+                  { label: '투찰 이력 분석',   path: '/journal-history',icon: BookOpen,   color: 'text-amber-600',  bg: 'bg-amber-50'   },
+                  { label: '투찰 관리',        path: '/executions',     icon: ListChecks, color: 'text-violet-500', bg: 'bg-violet-50'  },
+                  { label: '경쟁사 분석',      path: '/competitors',    icon: Building2,  color: 'text-purple-500', bg: 'bg-purple-50'  },
+                  { label: 'GO 판정 공고',     path: '/bid-selection',  icon: Zap,        color: 'text-emerald-600',bg: 'bg-emerald-50' },
+                  { label: '성과 대시보드',    path: '/performance',    icon: BarChart2,  color: 'text-slate-500',  bg: 'bg-slate-50'   },
                 ].map((item) => (
                   <button
                     key={item.path}

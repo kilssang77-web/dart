@@ -6,8 +6,9 @@
       "branch": "feat/mvp-enhance2-2026-06-05_21-00-28",
       "stage": "mvp",
       "author": "kil0410@a2m.co.kr",
-      "status": "pending",
-      "created_at": "2026-06-05T21:00:28+09:00"
+      "status": "completed",
+      "created_at": "2026-06-05T21:00:28+09:00",
+      "completed_at": "2026-06-05T22:23:55+09:00"
     },
     {
       "task": "mvp-collector",

@@ -34,6 +34,7 @@ import BacktestPage         from '@/pages/BacktestPage'
 import PortfolioPage        from '@/pages/PortfolioPage'
 import ManualPage           from '@/pages/ManualPage'
 import TenderDecisionPage   from '@/pages/TenderDecisionPage'
+import JournalHistoryPage  from '@/pages/JournalHistoryPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -55,7 +56,7 @@ export default function App() {
             </PrivateRoute>
           }
         >
-          <Route index element={<Navigate to="/today" replace />} />
+          <Route index element={<Navigate to="/decision" replace />} />
           <Route path="dashboard"    element={<DashboardPage />} />
           <Route path="today"        element={<TodayPage />} />
           <Route path="performance"  element={<PerformancePage />} />
@@ -86,6 +87,7 @@ export default function App() {
           <Route path="backtest"         element={<BacktestPage />} />
           <Route path="portfolio"        element={<PortfolioPage />} />
           <Route path="decision"         element={<TenderDecisionPage />} />
+          <Route path="journal-history"  element={<JournalHistoryPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -779,6 +779,64 @@ class RateFrequencyTable(Base):
     agency = relationship("Agency")
 
 
+class BidJournal(Base):
+    """
+    투찰 피드백 루프 핵심 테이블.
+    선택 → AI추천 → 실제투찰 → 개찰결과 를 단일 레코드로 추적.
+    prediction_logs_v2와 연결해 모델 성능을 실측으로 검증한다.
+    """
+    __tablename__ = "bid_journal"
+
+    id                  = Column(BigInteger, primary_key=True, autoincrement=True)
+    bid_id              = Column(BigInteger, ForeignKey("bids.id"), nullable=False, index=True)
+    user_id             = Column(Integer, ForeignKey("users.id"), nullable=False)
+    announcement_no     = Column(String(50))
+
+    # ── 1단계: 선택 ──────────────────────────────────
+    selected_at         = Column(DateTime(timezone=True))
+    selection_score     = Column(Numeric(6, 4))
+    selection_reason    = Column(Text)
+
+    # ── 2단계: AI 추천 ────────────────────────────────
+    predicted_at        = Column(DateTime(timezone=True))
+    pred_log_id         = Column(BigInteger, ForeignKey("prediction_logs_v2.id"))
+    recommended_rate    = Column(Numeric(8, 6))
+    recommended_amount  = Column(BigInteger)
+    pred_win_prob       = Column(Numeric(5, 4))
+    pred_srate_center   = Column(Numeric(8, 6))
+    strategy_chosen     = Column(String(20))  # aggressive/balanced/conservative
+
+    # ── 3단계: 실제 투찰 ──────────────────────────────
+    submitted_at        = Column(DateTime(timezone=True))
+    submitted_rate      = Column(Numeric(8, 6))
+    submitted_amount    = Column(BigInteger)
+    floor_rate          = Column(Numeric(8, 6))
+    # rate_delta = submitted_rate - recommended_rate (계산 컬럼 대신 저장)
+    rate_delta          = Column(Numeric(8, 6))
+
+    # ── 4단계: 개찰 결과 ──────────────────────────────
+    opened_at           = Column(DateTime(timezone=True))
+    result              = Column(String(10))   # 낙찰/패찰/무효/취소
+    our_rank            = Column(SmallInteger)
+    total_bidders       = Column(SmallInteger)
+    actual_srate        = Column(Numeric(8, 6))
+    winner_rate         = Column(Numeric(8, 6))
+    winner_amount       = Column(BigInteger)
+    winner_biz_no       = Column(String(20))
+    winner_name         = Column(String(200))
+    # rate_gap = winner_rate - submitted_rate
+    rate_gap            = Column(Numeric(8, 6))
+    # srate_error = actual_srate - pred_srate_center
+    srate_error         = Column(Numeric(8, 6))
+
+    note                = Column(Text)
+    created_at          = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at          = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    bid  = relationship("Bid")
+    user = relationship("User")
+
+
 class OurCompetitor(Base):
     """자사 전용 경쟁사 추적 — 우리 회사가 자주 만나는 상위 경쟁사"""
     __tablename__ = "our_competitors"
