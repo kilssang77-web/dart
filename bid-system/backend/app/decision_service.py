@@ -220,9 +220,6 @@ class DecisionService:
                 pass
 
         eff_floor = floor_rate * float(_np.median(srate_dist))
-        rate_agg  = round(eff_floor + 0.0003, 4)
-        rate_bal  = round(max(eff_floor + 0.0015, rate_agg + 0.0005), 4)
-        rate_con  = round(max(eff_floor + 0.003,  rate_bal + 0.0005), 4)
         rng2 = _np.random.default_rng(42)
 
         # GMM 파라미터 — DB 데이터로 피팅 시도 (scan_zones_from_dist 호출 전에 준비)
@@ -238,6 +235,31 @@ class DecisionService:
             inpo_rates, expected_n, n_sim=min(n_sim, 20_000),
             gmm_params=_gmm_params,
         )
+
+        # 전략 투찰율: top_zones 승률 기반 → 없으면 floor 오프셋 fallback
+        if top_zones:
+            _by_wp   = sorted(top_zones, key=lambda z: z["win_prob"], reverse=True)
+            _by_rate = sorted(top_zones, key=lambda z: z["rate"],     reverse=True)
+            rate_agg = _by_wp[0]["rate"]    # 최고 승률 구간
+            rate_con = _by_rate[0]["rate"]  # 최고 투찰율 구간 (높을수록 안전 마진)
+            if rate_con <= rate_agg:
+                rate_con = round(rate_agg + 0.0005, 4)
+            if len(_by_wp) >= 2:
+                rate_bal = _by_wp[1]["rate"]
+                _lo, _hi = min(rate_agg, rate_con), max(rate_agg, rate_con)
+                if not (_lo < rate_bal < _hi):
+                    rate_bal = round((_lo + _hi) / 2, 4)
+            else:
+                rate_bal = round((rate_agg + rate_con) / 2, 4)
+            rate_agg, rate_bal, rate_con = sorted([rate_agg, rate_bal, rate_con])
+        else:
+            rate_agg = round(eff_floor + 0.0003, 4)
+            rate_bal = round(max(eff_floor + 0.0015, rate_agg + 0.0005), 4)
+            rate_con = round(max(eff_floor + 0.003,  rate_bal + 0.0005), 4)
+        # 낙찰하한 안전 보정
+        rate_agg = max(rate_agg, round(eff_floor + 0.0001, 4))
+        rate_bal = max(rate_bal, round(rate_agg + 0.0003, 4))
+        rate_con = max(rate_con, round(rate_bal + 0.0003, 4))
 
         def _wp(r):
             # 우선순위: GMM > empirical inpo > pure Monte Carlo
@@ -299,6 +321,15 @@ class DecisionService:
             }
             for i in range(len(hist_counts))
         ]
+        # 전략 설명 (왜 이 투찰율인지)
+        _source_label = "Monte Carlo top_zones" if top_zones else "floor+offset fallback"
+        for k, _r in [("aggressive", rate_agg), ("balanced", rate_bal), ("conservative", rate_con)]:
+            if k in strategies:
+                strategies[k]["reason"] = (
+                    f"inpo21c 실증 {_source_label} 기반 — "
+                    f"floor {round(eff_floor*100,3)}% × "
+                    f"{'최고 승률' if k=='aggressive' else '2위 승률' if k=='balanced' else '최고 마진'} 구간"
+                )
 
         pred_log_id = None
         try:
@@ -336,4 +367,84 @@ class DecisionService:
             "strategies":       strategies,
             "optimal":          optimal,
             "histogram":        histogram,
+        }
+
+    def get_agency_win_histogram(self, db: Session, bid_id: int) -> dict:
+        """
+        inpo21c 실증 데이터 기반 기관별 낙찰 분포.
+        base_ratio(투찰/기초) 0.001 버킷 단위로 집계.
+        """
+        from sqlalchemy import text as _text
+        from .models import Bid
+
+        b = db.query(Bid).filter(Bid.id == bid_id).first()
+        if not b or not b.agency_id:
+            return {"bins": [], "data_source": "none", "total_wins": 0, "total_bids": 0, "inpo21c_n": 0}
+
+        agency_id = b.agency_id
+
+        # 기관별 집계
+        rows = db.execute(_text("""
+            SELECT
+                ROUND(ip.base_ratio::numeric, 3)                     AS rate_bucket,
+                COUNT(*)                                              AS total_cnt,
+                SUM(CASE WHEN ip.is_winner THEN 1 ELSE 0 END)        AS win_cnt
+            FROM inpo21c_participants ip
+            JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = ip.inpo21c_bid_id
+            JOIN agencies a ON (
+                TRIM(a.name) = TRIM(ib.agency_name)
+                OR TRIM(ib.agency_name) LIKE '%%' || TRIM(a.name) || '%%'
+                OR TRIM(a.name) LIKE '%%' || TRIM(ib.agency_name) || '%%'
+            )
+            WHERE a.id = :aid
+              AND ip.base_ratio BETWEEN 0.855 AND 0.945
+            GROUP BY rate_bucket
+            ORDER BY rate_bucket
+        """), {"aid": agency_id}).fetchall()
+
+        data_source = "agency"
+        if len(rows) < 5:
+            # 기관 데이터 부족 → 전국 집계 fallback
+            data_source = "national"
+            rows = db.execute(_text("""
+                SELECT
+                    ROUND(base_ratio::numeric, 3) AS rate_bucket,
+                    COUNT(*)                       AS total_cnt,
+                    SUM(CASE WHEN is_winner THEN 1 ELSE 0 END) AS win_cnt
+                FROM inpo21c_participants
+                WHERE base_ratio BETWEEN 0.855 AND 0.945
+                GROUP BY rate_bucket
+                ORDER BY rate_bucket
+            """)).fetchall()
+
+        bins = []
+        total_wins = 0
+        total_bids = 0
+        for r in rows:
+            bucket, total_cnt, win_cnt = float(r[0]), int(r[1]), int(r[2])
+            win_rate = round(win_cnt / total_cnt, 4) if total_cnt > 0 else 0.0
+            bins.append({
+                "rate":        bucket,
+                "total_count": total_cnt,
+                "win_count":   win_cnt,
+                "win_rate":    win_rate,
+            })
+            total_wins += win_cnt
+            total_bids += total_cnt
+
+        # 승률 기준 TOP 3 구간
+        eligible = [b for b in bins if b["total_count"] >= 3]
+        top_zones = sorted(eligible, key=lambda x: x["win_rate"], reverse=True)[:3]
+        for i, z in enumerate(top_zones, 1):
+            z["rank"] = i
+
+        return {
+            "bins":        bins,
+            "top_zones":   top_zones,
+            "total_wins":  total_wins,
+            "total_bids":  total_bids,
+            "data_source": data_source,
+            "agency_id":   agency_id,
+            "agency_name": b.agency.name if b.agency else "",
+            "inpo21c_n":   total_bids,
         }

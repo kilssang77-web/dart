@@ -1,11 +1,11 @@
 import { useState, useCallback } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { decisionApi, journalApi } from '@/api'
-import type { BidContext, SimulateBidResponse, ZoneItem, JournalOut } from '@/types'
+import type { BidContext, SimulateBidResponse, ZoneItem, JournalOut, AgencyWinHistogram } from '@/types'
 import {
   Search, Target, Zap, TrendingUp, Shield, AlertCircle, CheckCircle2,
   Info, Users, X, BookOpen, ClipboardCheck, Trophy, ChevronRight, ChevronLeft,
-  BarChart3,
+  BarChart3, Award,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -226,6 +226,89 @@ function YegaGrid({
 }
 
 /* ─────────────────────────────────────────────────────────────
+   기관별 실증 낙찰 분포 차트
+───────────────────────────────────────────────────────────── */
+function AgencyWinHistogramChart({ data }: { data: AgencyWinHistogram }) {
+  if (!data.bins.length) return null
+
+  const topRates = new Set(data.top_zones.map(z => z.rate))
+  const maxTotal = Math.max(...data.bins.map(b => b.total_count), 1)
+
+  return (
+    <div className="space-y-3">
+      {/* TOP 구간 배지 */}
+      {data.top_zones.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {data.top_zones.map((z, i) => (
+            <div
+              key={i}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border',
+                i === 0
+                  ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                  : 'bg-blue-50 text-blue-700 border-blue-200',
+              )}
+            >
+              <Award className="w-3 h-3" />
+              {i + 1}위 {(z.rate * 100).toFixed(3)}%
+              <span className="opacity-70">({z.win_count}/{z.total_count}건 낙찰)</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 바 차트 */}
+      <div className="flex items-end gap-px h-20 bg-gray-50 rounded-lg p-2">
+        {data.bins.map((b, i) => {
+          const h = (b.total_count / maxTotal) * 100
+          const isTop = topRates.has(b.rate)
+          return (
+            <div
+              key={i}
+              className="relative flex-1 group cursor-default"
+              title={`${(b.rate * 100).toFixed(3)}% | 전체 ${b.total_count}건 | 낙찰 ${b.win_count}건 (${(b.win_rate * 100).toFixed(1)}%)`}
+            >
+              {/* 전체 투찰 바 */}
+              <div
+                className={cn(
+                  'w-full rounded-t transition-all',
+                  isTop ? 'bg-emerald-400' : 'bg-gray-300 group-hover:bg-gray-400',
+                )}
+                style={{ height: `${h}%`, minHeight: b.total_count > 0 ? '2px' : '0' }}
+              />
+              {/* 낙찰 오버레이 */}
+              {b.win_count > 0 && (
+                <div
+                  className={cn('absolute bottom-0 w-full rounded-t', isTop ? 'bg-emerald-600' : 'bg-blue-400')}
+                  style={{ height: `${(b.win_count / maxTotal) * 100}%`, minHeight: '2px' }}
+                />
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* x축 레이블 */}
+      <div className="flex justify-between text-xs text-gray-400">
+        <span className="font-mono">{data.bins.length > 0 ? (data.bins[0].rate * 100).toFixed(2) + '%' : ''}</span>
+        <span className="text-gray-500">
+          {data.data_source === 'agency' ? `기관 실증 ${data.inpo21c_n.toLocaleString()}건` : '전국 평균 집계'}
+          &nbsp;|&nbsp;낙찰 {data.total_wins}건
+        </span>
+        <span className="font-mono">{data.bins.length > 0 ? (data.bins[data.bins.length - 1].rate * 100).toFixed(2) + '%' : ''}</span>
+      </div>
+
+      {/* 범례 */}
+      <div className="flex items-center gap-4 text-xs text-gray-500">
+        <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm bg-gray-300" /> 전체 투찰</span>
+        <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm bg-blue-400" /> 낙찰</span>
+        <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm bg-emerald-400" /> TOP 구간</span>
+      </div>
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────
    히스토그램
 ───────────────────────────────────────────────────────────── */
 function HistogramChart({ data, optimalRate }: { data: { bin_center: number; prob: number }[]; optimalRate?: number }) {
@@ -338,6 +421,13 @@ export default function TenderDecisionPage() {
     queryKey: ['bid-context', bidId],
     queryFn: () => decisionApi.context(bidId!),
     enabled: bidId !== null,
+  })
+
+  const { data: agencyHistogram } = useQuery<AgencyWinHistogram>({
+    queryKey: ['agency-win-histogram', bidId],
+    queryFn: () => decisionApi.agencyWinHistogram(bidId!),
+    enabled: bidId !== null,
+    staleTime: 5 * 60 * 1000,
   })
 
   const parsedCompetitorRates = (): number[] | null => {
@@ -632,6 +722,49 @@ export default function TenderDecisionPage() {
                       </div>
                     </div>
                   </div>
+
+                  {/* 실증 낙찰 분포 */}
+                  {agencyHistogram && agencyHistogram.data_source !== 'none' && (
+                    <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+                      <div className="px-5 py-3 border-b bg-emerald-50 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Award className="w-4 h-4 text-emerald-600" />
+                          <span className="font-semibold text-sm text-emerald-800">
+                            실증 낙찰 분포
+                          </span>
+                          <span className="text-xs text-emerald-600">
+                            {agencyHistogram.data_source === 'agency'
+                              ? `${agencyHistogram.agency_name} 기관 실적 (inpo21c ${agencyHistogram.inpo21c_n.toLocaleString()}건)`
+                              : '전국 평균 (기관 데이터 부족)'}
+                          </span>
+                        </div>
+                        {agencyHistogram.data_source === 'national' && (
+                          <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                            전국 평균
+                          </span>
+                        )}
+                      </div>
+                      <div className="p-5">
+                        <AgencyWinHistogramChart data={agencyHistogram} />
+                        {agencyHistogram.top_zones.length > 0 && (
+                          <div className="mt-3 pt-3 border-t border-dashed text-xs text-gray-500">
+                            <span className="font-semibold text-gray-700">분석:</span>{' '}
+                            {agencyHistogram.data_source === 'agency'
+                              ? `이 기관에서 낙찰 확률이 가장 높은 투찰율은 `
+                              : `전국 평균 기준 낙찰 확률이 높은 투찰율은 `}
+                            <strong className="text-emerald-700 font-mono">
+                              {(agencyHistogram.top_zones[0].rate * 100).toFixed(3)}%
+                            </strong>
+                            {` 구간으로, ${agencyHistogram.top_zones[0].total_count}건 중 ${agencyHistogram.top_zones[0].win_count}건 낙찰 `}
+                            <strong className="text-emerald-700">
+                              ({(agencyHistogram.top_zones[0].win_rate * 100).toFixed(1)}%)
+                            </strong>
+                            {` 실적이 있습니다.`}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* 하단 네비게이션 */}
                   <div className="flex justify-between">

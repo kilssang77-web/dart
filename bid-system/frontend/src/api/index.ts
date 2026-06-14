@@ -435,6 +435,9 @@ export const decisionApi = {
   simulate: (bidId: number, req: import('../types').SimulateBidRequest): Promise<import('../types').SimulateBidResponse> =>
     api.post(`/bids/${bidId}/simulate-bid`, req).then((r) => r.data),
 
+  agencyWinHistogram: (bidId: number): Promise<import('../types').AgencyWinHistogram> =>
+    api.get(`/bids/${bidId}/agency-win-histogram`).then((r) => r.data),
+
   searchBids: (keyword: string, limit = 10) =>
     api.get('/bids', { params: { keyword, page: 1, size: limit, sort_by: 'notice_date' } }).then((r) => r.data?.items ?? r.data),
 }

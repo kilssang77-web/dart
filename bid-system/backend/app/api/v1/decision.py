@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from ...database import get_db
 from ...models import User
-from ...schemas import BidContextResponse, SimulateBidRequest, SimulateBidResponse
+from ...schemas import BidContextResponse, SimulateBidRequest, SimulateBidResponse, AgencyWinHistogramResponse
 from ...services import DecisionService
 from ...common.security import get_current_user
 
@@ -22,6 +22,16 @@ def get_bid_context(
     if not ctx:
         raise HTTPException(status_code=404, detail="bid not found")
     return ctx
+
+
+@router.get("/{bid_id}/agency-win-histogram", response_model=AgencyWinHistogramResponse)
+def get_agency_win_histogram(
+    bid_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """inpo21c 실증 기관별 낙찰 분포 — base_ratio 0.001 버킷."""
+    return svc.get_agency_win_histogram(db, bid_id)
 
 
 @router.post("/{bid_id}/simulate-bid", response_model=SimulateBidResponse)

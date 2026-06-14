@@ -1371,6 +1371,25 @@ class SimulateBidResponse(BaseModel):
     histogram:        List[dict]
 
 
+class AgencyWinHistogramBin(BaseModel):
+    rate:        float
+    total_count: int
+    win_count:   int
+    win_rate:    float
+    rank:        Optional[int] = None
+
+
+class AgencyWinHistogramResponse(BaseModel):
+    bins:        List[AgencyWinHistogramBin]
+    top_zones:   List[AgencyWinHistogramBin]
+    total_wins:  int
+    total_bids:  int
+    data_source: str   # "agency" | "national" | "none"
+    agency_id:   Optional[int] = None
+    agency_name: str = ""
+    inpo21c_n:   int = 0
+
+
 # ── 투찰 저널 (피드백 루프) ──────────────────────────────────
 
 class JournalCreateRequest(BaseModel):

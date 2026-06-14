@@ -1309,6 +1309,25 @@ export interface SimulateBidResponse {
   histogram:        { bin_center: number; count: number; prob: number }[]
 }
 
+export interface AgencyWinHistogramBin {
+  rate:        number
+  total_count: number
+  win_count:   number
+  win_rate:    number
+  rank?:       number
+}
+
+export interface AgencyWinHistogram {
+  bins:        AgencyWinHistogramBin[]
+  top_zones:   AgencyWinHistogramBin[]
+  total_wins:  number
+  total_bids:  number
+  data_source: 'agency' | 'national' | 'none'
+  agency_id:   number | null
+  agency_name: string
+  inpo21c_n:   number
+}
+
 // ── 투찰 저널 ────────────────────────────────────────────────
 
 export interface JournalCreateRequest {
