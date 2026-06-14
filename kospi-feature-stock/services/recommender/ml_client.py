@@ -40,7 +40,7 @@ FEATURE_COLUMNS: list[str] = [
     "short_ratio", "short_increasing",
     "disclosure_sentiment", "has_favorable_disclosure",
     "kospi_return_1d", "kospi_return_5d",
-    "rel_strength_5d",
+    "rel_strength_1d", "rel_strength_5d",
     "market_vol_ratio",
     "price_accel",
     "gap_pct",
@@ -307,6 +307,7 @@ def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: li
     else:
         kospi_return_1d = 0.0
         kospi_return_5d = 0.0
+    rel_strength_1d  = return_1d - kospi_return_1d
     rel_strength_5d  = return_5d - kospi_return_5d
     market_vol_ratio = vol_ratio_20d
 
@@ -542,7 +543,7 @@ async def get_similar_cases(event: dict, db: asyncpg.Pool) -> tuple[list, dict]:
                       AND pattern_vector IS NOT NULL
                       AND result_5d IS NOT NULL
                     ORDER BY pattern_vector <=> $2::vector
-                    LIMIT 20
+                    LIMIT 50
                     """,
                     code,
                     anchor["pattern_vector"],
@@ -559,7 +560,7 @@ async def get_similar_cases(event: dict, db: asyncpg.Pool) -> tuple[list, dict]:
                       AND event_type = $2
                       AND result_5d IS NOT NULL
                     ORDER BY detected_at DESC
-                    LIMIT 20
+                    LIMIT 50
                     """,
                     code,
                     event.get("event_type", ""),

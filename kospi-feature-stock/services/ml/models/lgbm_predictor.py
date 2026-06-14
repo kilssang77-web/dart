@@ -43,7 +43,7 @@ except ImportError:
         "short_ratio", "short_increasing",
         "disclosure_sentiment", "has_favorable_disclosure",
         "kospi_return_1d", "kospi_return_5d",
-        "rel_strength_5d",
+        "rel_strength_1d", "rel_strength_5d",
         "market_vol_ratio",
         "return_10d", "return_20d",
         "price_accel",

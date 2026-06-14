@@ -234,16 +234,15 @@ class EntryRecommender:
             score += 10
             warnings.append("ML 모델 미학습 — 규칙 기반 추천")
 
-        if sim_count >= 10:
+        if sim_count >= 20:
             score += 40
-        elif sim_count >= 5:
+        elif sim_count >= 10:
             score += 25
-        elif sim_count >= 1:
+        elif sim_count >= 5:
             score += 10
-            if sim_count < 3:
-                warnings.append(f"유사 사례 부족 ({sim_count}건) — 낮은 신뢰도")
+            warnings.append(f"유사 사례 부족 ({sim_count}건) — 통계적 신뢰도 낮음")
         else:
-            warnings.append("유사 사례 없음 — 성공확률 참고용")
+            warnings.append(f"유사 사례 없음 ({sim_count}건) — 성공확률 참고용")
 
         score += 20  # 기본 데이터 점수
 

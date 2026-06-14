@@ -32,7 +32,7 @@ class SimilarCaseSearcher:
         self,
         vector: np.ndarray,
         event_type: Optional[str] = None,
-        top_k: int = 10,
+        top_k: int = 30,
         min_sim: float = 0.65,
     ) -> list[SimilarCase]:
         vec_str = "[" + ",".join(f"{v:.6f}" for v in vector.tolist()) + "]"

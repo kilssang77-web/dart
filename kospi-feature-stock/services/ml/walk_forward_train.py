@@ -378,7 +378,7 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
                 "short_ratio":short_r, "short_increasing":short_inc,
                 "disclosure_sentiment":disc_s, "has_favorable_disclosure":has_fav,
                 "kospi_return_1d":kr1d, "kospi_return_5d":kr5d,
-                "rel_strength_5d":rel5, "market_vol_ratio":vr20,
+                "rel_strength_1d":r1d - kr1d, "rel_strength_5d":rel5, "market_vol_ratio":vr20,
                 "return_10d": r10d, "return_20d": r20d,
                 "price_accel": price_accel,
                 "gap_pct": gap_pct,
