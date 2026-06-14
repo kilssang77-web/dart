@@ -297,17 +297,58 @@ async def _run_make_target(redis: redis_lib.Redis, target: str, label: str) -> N
 
 
 async def _run_refresh_stats(db: asyncpg.Pool, redis: redis_lib.Redis) -> None:
-    """daily_bars에서 탐지 통계 계산 → Redis 적재."""
-    from collector.redis_stats import refresh_all_stats  # type: ignore
+    """daily_bars에서 탐지 통계 계산 → Redis 적재 (인라인 구현)."""
+    from statistics import mean
+    from datetime import datetime as _dt
+    _TTL = 60 * 60 * 72
+
+    async def _refresh_one(code: str) -> bool:
+        rows = await db.fetch(
+            "SELECT close, volume, amount, high, low FROM daily_bars "
+            "WHERE code=$1 ORDER BY date DESC LIMIT 260", code
+        )
+        if len(rows) < 5:
+            return False
+        closes = [r["close"] for r in rows]
+        vols   = [r["volume"] for r in rows]
+        amts   = [r["amount"] for r in rows]
+        highs  = [r["high"]   for r in rows]
+        lows   = [r["low"]    for r in rows]
+        avg_vol_20 = mean(vols[:20]) if len(vols) >= 20 else mean(vols)
+        avg_amt_20 = mean(amts[:20]) if len(amts) >= 20 else mean(amts)
+        high_20d = max(highs[:20])  if len(highs) >= 20  else max(highs)
+        high_13w = max(highs[:65])  if len(highs) >= 65  else max(highs)
+        high_26w = max(highs[:130]) if len(highs) >= 130 else max(highs)
+        high_52w = max(highs[:260]) if len(highs) >= 260 else max(highs)
+        tr_list  = [max(highs[j]-lows[j], abs(highs[j]-closes[j+1]), abs(lows[j]-closes[j+1]))
+                    for j in range(min(14, len(rows)-1))]
+        atr14 = mean(tr_list) if tr_list else (highs[0]-lows[0])
+        pipe = redis.pipeline()
+        pipe.set(f"stats:{code}:avg_vol_20d", int(avg_vol_20), ex=_TTL)
+        pipe.set(f"stats:{code}:avg_amt_20d", int(avg_amt_20), ex=_TTL)
+        pipe.set(f"stats:{code}:high_20d",    int(high_20d),   ex=_TTL)
+        pipe.set(f"stats:{code}:high_13w",    int(high_13w),   ex=_TTL)
+        pipe.set(f"stats:{code}:high_26w",    int(high_26w),   ex=_TTL)
+        pipe.set(f"stats:{code}:high_52w",    int(high_52w),   ex=_TTL)
+        pipe.set(f"stats:{code}:atr14",       round(atr14, 2), ex=_TTL)
+        await pipe.execute()
+        return True
+
     await _log(redis, "Redis 탐지 통계 초기화 시작...")
     try:
-        codes_raw = await db.fetch(
-            "SELECT code FROM stocks WHERE is_active ORDER BY code"
-        )
+        codes_raw = await db.fetch("SELECT code FROM stocks WHERE is_active ORDER BY code")
         codes = [r["code"] for r in codes_raw]
         await _log(redis, f"{len(codes):,}개 종목 통계 계산 시작")
-        await refresh_all_stats(db, redis, codes)
-        await _log(redis, f"완료: Redis 통계 {len(codes):,}개 종목 × 7개 키 적재")
+        total = 0
+        for code in codes:
+            try:
+                ok = await _refresh_one(code)
+                if ok:
+                    total += 1
+            except Exception:
+                pass
+        await redis.set("stats:last_refresh", _dt.utcnow().isoformat(), ex=_TTL)
+        await _log(redis, f"완료: Redis 통계 {total}/{len(codes):,}개 종목 × 7개 키 적재")
     except Exception as e:
         await _log(redis, f"오류: Redis 통계 초기화 — {str(e)[:300]}")
 
