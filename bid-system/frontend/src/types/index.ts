@@ -1228,6 +1228,43 @@ export interface PrismHistogramResponse {
   top_zones:    PrismZone[]
 }
 
+// ── Hot Zone + Best Rate ──────────────────────────────────
+export interface HotZonePeak {
+  srate:     number
+  win_rate:  number
+  win_count: number
+  total:     number
+  score:     number
+  rank:      number
+}
+
+export interface HotZoneResponse {
+  bid_id:      number
+  agency_id:   number | null
+  peaks:       HotZonePeak[]
+  best_rate:   number | null
+  kde_x:       number[]
+  kde_y:       number[]
+  data_source: 'agency' | 'national'
+  period_type: string
+  total_wins:  number
+  total_bids:  number
+}
+
+export interface BestRateResponse {
+  bid_id:              number
+  base_amount:         number | null
+  recommended_srate:   number | null
+  recommended_price:   number | null
+  confidence:          number
+  source:              'hotzone+prism' | 'hotzone' | 'prism' | 'fallback'
+  a_ratio:             number
+  hotzone_peaks:       HotZonePeak[]
+  prism_top:           PrismZone[]
+  data_source:         'agency' | 'national'
+  period_type:         string
+}
+
 // ── 투찰 결정 전용 (TenderDecisionPage) ──────────────────
 export interface AgencySrateProfile {
   blended_center: number | null

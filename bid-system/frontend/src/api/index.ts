@@ -61,6 +61,10 @@ export const bidsApi = {
     api.get(`/bids/${bidId}/actual-win-zones`).then((r) => r.data),
   prismHistogram: (bidId: number, period: '12M' | '24M' | '48M' = '24M'): Promise<import('../types').PrismHistogramResponse> =>
     api.get(`/bids/${bidId}/prism-histogram`, { params: { period } }).then((r) => r.data),
+  bestRate: (bidId: number, period: '12M' | '24M' | '48M' = '24M'): Promise<import('../types').BestRateResponse> =>
+    api.get(`/bids/${bidId}/best-rate`, { params: { period } }).then((r) => r.data),
+  hotZones: (bidId: number, period: '12M' | '24M' | '48M' = '24M'): Promise<import('../types').HotZoneResponse> =>
+    api.get(`/bids/${bidId}/hot-zones`, { params: { period } }).then((r) => r.data),
 }
 
 // -- 시장 인텔리전스 --------------------------------------------------

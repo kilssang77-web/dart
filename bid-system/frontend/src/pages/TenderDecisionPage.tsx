@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { decisionApi, journalApi } from '@/api'
 import type { BidContext, SimulateBidResponse, ZoneItem, JournalOut, AgencyWinHistogram } from '@/types'
+import BestRateCard from '@/components/BestRateCard'
 import {
   Search, Target, Zap, TrendingUp, Shield, AlertCircle, CheckCircle2,
   Info, Users, X, BookOpen, ClipboardCheck, Trophy, ChevronRight, ChevronLeft,
@@ -683,6 +684,9 @@ export default function TenderDecisionPage() {
                 </div>
               ) : ctx ? (
                 <>
+                  {/* AI 원클릭 최적 투찰율 (상단 노출) */}
+                  <BestRateCard bidId={ctx.bid_id} baseAmount={ctx.base_amount} />
+
                   {/* 공고 기본 정보 */}
                   <div className="bg-white rounded-xl border p-5 shadow-sm">
                     <h2 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
@@ -1307,6 +1311,9 @@ export default function TenderDecisionPage() {
           {/* ══════════════ STEP 4: 투찰 확정 ══════════════ */}
           {step === 4 && ctx && (
             <div className="space-y-5">
+              {/* AI 원클릭 최적 투찰율 */}
+              <BestRateCard bidId={ctx.bid_id} baseAmount={ctx.base_amount} />
+
               {/* 결과 요약 */}
               {result && result.optimal && (
                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center gap-4 flex-wrap">

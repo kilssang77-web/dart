@@ -698,7 +698,7 @@ def compute_srate_frequency_v2(db: Session) -> int:
     for period_label, cutoff_dt in cutoffs.items():
         rows = db.execute(text("""
             SELECT a.id                                             AS agency_id,
-                   ROUND(ip.assessment_rate::numeric, 3)           AS srate_bucket,
+                   ROUND(ip.bid_rate::numeric, 3)                  AS srate_bucket,
                    COUNT(*)                                        AS total_cnt,
                    SUM(CASE WHEN ip.is_winner THEN 1 ELSE 0 END)  AS win_cnt
             FROM inpo21c_participants ip
@@ -708,7 +708,7 @@ def compute_srate_frequency_v2(db: Session) -> int:
                 OR TRIM(ib.agency_name) LIKE '%%' || TRIM(a.name) || '%%'
                 OR TRIM(a.name) LIKE '%%' || TRIM(ib.agency_name) || '%%'
             )
-            WHERE ip.assessment_rate BETWEEN 0.750 AND 1.100
+            WHERE ip.bid_rate BETWEEN 0.750 AND 1.050
               AND ib.open_datetime >= :cutoff
             GROUP BY a.id, srate_bucket
             ORDER BY a.id, srate_bucket
@@ -806,6 +806,7 @@ def get_prism_zones(
     """
     # 발주처 전용 데이터
     source = "national"
+    hist_rows = []
     if agency_id:
         hist_rows = db.execute(text("""
             SELECT bucket_from, count, win_count, win_rate
@@ -814,10 +815,13 @@ def get_prism_zones(
             ORDER BY bucket_from
         """), {"ag": agency_id, "pt": period_type}).fetchall()
 
-        if hist_rows:
+        # 데이터가 있고 통계 유효성 충분 (win_count >= 5인 행 3개 이상)
+        if hist_rows and sum(1 for r in hist_rows if int(r[2]) >= 5) >= 3:
             source = "agency"
+        else:
+            hist_rows = []
 
-    # 발주처 데이터 없으면 전국 집계
+    # 발주처 데이터 없거나 부족하면 전국 집계
     if source == "national":
         hist_rows = db.execute(text("""
             SELECT bucket_from,

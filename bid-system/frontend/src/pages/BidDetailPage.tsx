@@ -25,6 +25,8 @@ import {
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import PrismHistogram from '@/components/PrismHistogram'
+import BestRateCard from '@/components/BestRateCard'
+import HotZonePanel from '@/components/HotZonePanel'
 
 const fmt = (n: number) => new Intl.NumberFormat('ko-KR').format(Math.round(n))
 const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`
@@ -1038,11 +1040,15 @@ export default function BidDetailPage() {
               <TabYega bid={bid} />
             </TabsContent>
             <TabsContent value="prism" className="mt-0">
-              <PrismHistogram
-                bidId={bidId}
-                baseAmount={bid.base_amount ?? 0}
-                agencyName={bid.agency_name}
-              />
+              <div className="space-y-4">
+                <BestRateCard bidId={bidId} baseAmount={bid.base_amount} />
+                <HotZonePanel bidId={bidId} baseAmount={bid.base_amount} />
+                <PrismHistogram
+                  bidId={bidId}
+                  baseAmount={bid.base_amount ?? 0}
+                  agencyName={bid.agency_name}
+                />
+              </div>
             </TabsContent>
           </div>
         </Tabs>

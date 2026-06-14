@@ -1438,7 +1438,7 @@ class HybridRecommendService:
         # ── Step 9: 복수예가 Monte Carlo 시뮬레이션 기반 4전략
         industry_name = self._get_industry_name(db, req.industry_id)
         srate_std_val = features_a.get("agency_srate_std") or 0.012
-        expected_n = max(3, min(features_c.get("expected_competitor_count", 8), 15))
+        expected_n = max(3, min(features_c.get("expected_competitor_count", 8), 150))
         if comp_profiles:
             comp_means = [p["avg_rate"] for p in comp_profiles]
             comp_stds  = [max(p["std_rate"], 0.003) for p in comp_profiles]

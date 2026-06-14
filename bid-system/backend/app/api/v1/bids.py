@@ -223,6 +223,57 @@ def actual_win_zones(
     return ActualWinZoneService().get(db, bid_id)
 
 
+@router.get("/{bid_id}/hot-zones")
+def hot_zones(
+    bid_id: int,
+    period: str = Query("24M", regex="^(12M|24M|48M)$"),
+    db: Session  = Depends(get_db),
+    _: User      = Depends(get_current_user),
+):
+    """
+    Hot Zone 분포 — inpo21c_participants.bid_rate 기반 KDE 피크 탐지.
+    기관별 데이터 → 전국 집계 fallback.
+    """
+    from ...ml.hotzone import get_hot_zones as _get_hot_zones
+
+    bid = db.query(Bid).filter(Bid.id == bid_id).first()
+    if not bid:
+        raise HTTPException(404, "공고를 찾을 수 없습니다")
+
+    result = _get_hot_zones(db, agency_id=bid.agency_id, period_type=period)
+    result["bid_id"]    = bid_id
+    result["agency_id"] = bid.agency_id
+    return result
+
+
+@router.get("/{bid_id}/best-rate")
+def best_rate(
+    bid_id: int,
+    period: str = Query("24M", regex="^(12M|24M|48M)$"),
+    db: Session  = Depends(get_db),
+    _: User      = Depends(get_current_user),
+):
+    """
+    원클릭 최적 투찰 사정율 추천.
+    Hot Zone(KDE 피크) + Prism(rate_frequency_tables) 결합 → 단일 srate 반환.
+    """
+    from ...ml.hotzone import get_best_rate as _get_best_rate
+
+    bid = db.query(Bid).filter(Bid.id == bid_id).first()
+    if not bid:
+        raise HTTPException(404, "공고를 찾을 수 없습니다")
+
+    result = _get_best_rate(
+        db,
+        agency_id=bid.agency_id,
+        base_amount=int(bid.base_amount or 0),
+        period_type=period,
+    )
+    result["bid_id"]      = bid_id
+    result["base_amount"] = bid.base_amount
+    return result
+
+
 @router.get("/{bid_id}/prism-histogram")
 def prism_histogram(
     bid_id: int,
