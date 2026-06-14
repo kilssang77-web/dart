@@ -328,3 +328,98 @@ async def _run_backfill_vectors(redis: redis_lib.Redis) -> None:
             await _log(redis, f"실패: 벡터 백필 — {stdout.decode()[:200]}")
     except Exception as e:
         await _log(redis, f"오류: 벡터 백필 — {str(e)[:200]}")
+
+
+@router.get("/pipeline-status")
+async def pipeline_status(
+    db: asyncpg.Pool = Depends(get_db),
+    redis: redis_lib.Redis = Depends(get_redis),
+):
+    """데이터 파이프라인 전체 상태 (탐지, 공시, 뉴스, 추천)."""
+    async with db.acquire() as conn:
+        counts = await conn.fetchrow("""
+            SELECT
+                (SELECT COUNT(*) FROM feature_events
+                 WHERE detected_at >= NOW() - INTERVAL '24 hours')          AS events_24h,
+                (SELECT COUNT(*) FROM recommendations
+                 WHERE created_at >= NOW() - INTERVAL '24 hours')           AS recs_24h,
+                (SELECT COUNT(*) FROM disclosures
+                 WHERE disclosed_at >= NOW() - INTERVAL '24 hours')         AS disclosures_24h,
+                (SELECT COUNT(*) FROM news
+                 WHERE published_at >= NOW() - INTERVAL '24 hours')         AS news_24h,
+                (SELECT COUNT(*) FROM feature_events
+                 WHERE result_5d IS NOT NULL)                                AS events_with_result,
+                (SELECT COUNT(*) FROM feature_events
+                 WHERE pattern_vector IS NOT NULL)                           AS events_with_vector,
+                (SELECT COUNT(*) FROM feature_events)                        AS total_events,
+                (SELECT COUNT(*) FROM news
+                 WHERE sentiment_score IS NOT NULL)                          AS news_with_sentiment
+        """)
+
+    # Redis 통계 키 수
+    redis_stats_count = 0
+    try:
+        cursor = 0
+        while True:
+            cursor, keys = await redis.scan(cursor, match="stats:*:avg_vol_20d", count=500)
+            redis_stats_count += len(keys)
+            if cursor == 0:
+                break
+    except Exception:
+        pass
+
+    # 뉴스 감성 Redis 키 수
+    news_sentiment_keys = 0
+    try:
+        cursor = 0
+        while True:
+            cursor, keys = await redis.scan(cursor, match="news:sentiment:*", count=500)
+            news_sentiment_keys += len(keys)
+            if cursor == 0:
+                break
+    except Exception:
+        pass
+
+    last_refresh = await redis.get("stats:last_refresh")
+
+    total = int(counts["total_events"] or 0)
+    with_result = int(counts["events_with_result"] or 0)
+    with_vector = int(counts["events_with_vector"] or 0)
+
+    return {
+        "realtime": {
+            "events_24h":       int(counts["events_24h"] or 0),
+            "recs_24h":         int(counts["recs_24h"] or 0),
+            "redis_stats_keys": redis_stats_count,
+            "last_stats_refresh": (last_refresh.decode() if isinstance(last_refresh, bytes) else last_refresh),
+            "status": "ok" if redis_stats_count > 1000 else "degraded",
+        },
+        "disclosures": {
+            "count_24h": int(counts["disclosures_24h"] or 0),
+            "status": "ok" if int(counts["disclosures_24h"] or 0) > 0 else "warning",
+        },
+        "news": {
+            "count_24h":            int(counts["news_24h"] or 0),
+            "with_sentiment":       int(counts["news_with_sentiment"] or 0),
+            "sentiment_redis_keys": news_sentiment_keys,
+            "status": "ok" if int(counts["news_24h"] or 0) > 0 else "warning",
+        },
+        "ml": {
+            "events_with_result": with_result,
+            "events_with_vector": with_vector,
+            "total_events":       total,
+            "result_coverage_pct": round(with_result / total * 100, 1) if total > 0 else 0.0,
+            "vector_coverage_pct": round(with_vector / total * 100, 1) if total > 0 else 0.0,
+        },
+    }
+
+
+@router.post("/force-refresh-stats")
+async def force_refresh_stats(
+    background_tasks: BackgroundTasks,
+    db: asyncpg.Pool = Depends(get_db),
+    redis: redis_lib.Redis = Depends(get_redis),
+):
+    """Redis 탐지 통계 즉시 강제 갱신 (관리자용)."""
+    background_tasks.add_task(_run_refresh_stats, db, redis)
+    return {"status": "started", "message": "Redis 탐지 통계 갱신이 백그라운드에서 시작되었습니다"}

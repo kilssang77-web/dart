@@ -2,7 +2,7 @@
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { ChevronUp, ChevronDown, Filter, Zap } from 'lucide-react'
+import { ChevronUp, ChevronDown, Filter, Zap, TrendingUp, ArrowUpRight, Users, FileText, CandlestickChart } from 'lucide-react'
 import { featuresApi } from '@/api/features'
 import { Badge, MarketBadge, EVENT_LABELS } from '@/components/ui/Badge'
 import { EventDetailModal } from '@/components/modals/EventDetailModal'
@@ -10,6 +10,25 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { DataFreshness } from '@/components/ui/DataFreshness'
 import { fmt, pctColor } from '@/lib/utils'
 import type { FeatureEvent } from '@/types'
+
+// ── 이벤트 타입 아이콘 ──────────────────────────────────────────────────────
+const EVENT_ICONS: Record<string, React.ReactNode> = {
+  VOLUME_SURGE:          <TrendingUp size={14} className="text-blue-400" />,
+  AMOUNT_SURGE:          <TrendingUp size={14} className="text-purple-400" />,
+  BREAKOUT_52W:          <ArrowUpRight size={14} className="text-green-400" />,
+  BREAKOUT_26W:          <ArrowUpRight size={14} className="text-green-400" />,
+  BREAKOUT_13W:          <ArrowUpRight size={14} className="text-green-400" />,
+  BREAKOUT_20D:          <ArrowUpRight size={14} className="text-green-400" />,
+  VI_TRIGGERED:          <Zap size={14} className="text-yellow-400" />,
+  LONG_WHITE_CANDLE:     <CandlestickChart size={14} className="text-orange-400" />,
+  SUPPLY_ANOMALY:        <Users size={14} className="text-cyan-400" />,
+  POST_DISCLOSURE_SURGE: <FileText size={14} className="text-pink-400" />,
+}
+
+function isRecent(isoDate?: string | null): boolean {
+  if (!isoDate) return false
+  return new Date().getTime() - new Date(isoDate).getTime() < 5 * 60 * 1000
+}
 
 type SortKey = 'detected_at' | 'change_rate' | 'signal_score' | 'volume_ratio'
 type SortDir = 'asc' | 'desc'
@@ -210,17 +229,27 @@ export function Features() {
                   <td className="py-3 pr-5 text-right"><div className="h-5 skeleton rounded w-20 ml-auto" /></td>
                 </tr>
               ))}
-              {rows.map((f) => (
+              {rows.map((f) => {
+                const recent = isRecent(f.detected_at)
+                return (
                 <tr
                   key={f.id}
-                  className="border-b border-[var(--border)]/50 hover:bg-[var(--border)]/25 cursor-pointer transition-colors"
+                  className={clsx(
+                    'border-b border-[var(--border)]/50 hover:bg-[var(--border)]/25 cursor-pointer transition-colors',
+                    recent && 'bg-green-500/5 border-l-2 border-l-green-500/60',
+                  )}
                   onClick={() => nav(`/search?code=${f.code}`)}
                 >
                   <td className="py-3 pl-5 pr-3">
-                    <div className="text-sm font-semibold text-[var(--fg)]">{f.name}</div>
-                    <div className="flex items-center gap-1 mt-0.5">
-                      <span className="text-[var(--muted)]">{f.code}</span>
-                      <MarketBadge market={f.market} />
+                    <div className="flex items-center gap-1.5">
+                      {EVENT_ICONS[f.event_type] ?? <Zap size={14} className="text-[var(--muted)]" />}
+                      <div>
+                        <div className="text-sm font-semibold text-[var(--fg)]">{f.name}</div>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className="text-[var(--muted)]">{f.code}</span>
+                          <MarketBadge market={f.market} />
+                        </div>
+                      </div>
                     </div>
                   </td>
                   {/* 이벤트 셀: 클릭 시 팝업 (행 이동 막음) */}
@@ -243,8 +272,8 @@ export function Features() {
                       )}
                     </div>
                   </td>
-                  <td className="py-2.5 pr-3 text-right tabular text-[var(--muted)]">
-                    {fmt.smartTime(f.detected_at)}
+                  <td className={clsx('py-2.5 pr-3 text-right tabular', recent ? 'text-green-400 font-semibold' : 'text-[var(--muted)]')}>
+                    {recent ? '방금' : fmt.smartTime(f.detected_at)}
                   </td>
                   <td className="py-2.5 pr-3 text-right tabular text-[var(--fg)] font-medium">
                     {fmt.price(f.price)}
@@ -265,7 +294,8 @@ export function Features() {
                     <ScoreBar score={f.signal_score} />
                   </td>
                 </tr>
-              ))}
+                )
+              })}
               {!isLoading && rows.length === 0 && (
                 <tr>
                   <td colSpan={8}>

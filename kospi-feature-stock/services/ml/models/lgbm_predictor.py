@@ -18,39 +18,44 @@ _HOLD_VOL_HIGH  = float(os.environ.get("LGBM_VOL_HIGH_THRESH", "15.0"))
 _HOLD_DEFAULT   = int(os.environ.get("LGBM_HOLD_DEFAULT_DAYS", "5"))
 _RET_SCALE      = float(os.environ.get("LGBM_RET_SCALE", "20.0"))
 
-# 기본값 — feature_columns.json 로드 성공 시 동적으로 교체됨
-FEATURE_COLUMNS = [
-    "return_1d", "return_3d", "return_5d",
-    "ma5_ratio", "ma20_ratio", "ma60_ratio",
-    "ma5_slope", "ma20_slope",
-    "vol_ratio_5d", "vol_ratio_20d", "vol_surge",
-    "amount_ratio",
-    "atr_ratio",
-    "rsi14", "rsi_oversold", "rsi_overbought",
-    "macd_hist", "macd_golden_cross",
-    "bb_pct", "bb_width", "bb_squeeze",
-    "body_size", "is_bullish", "upper_wick", "lower_wick",
-    "is_new_high_20d", "is_new_high_52d", "is_new_high_260d",
-    "pos_52w",
-    "foreign_cumnet_5d", "foreign_cumnet_20d",
-    "inst_cumnet_5d", "inst_cumnet_20d",
-    "dual_buy", "dual_buy_3d",
-    "short_ratio", "short_increasing",
-    "disclosure_sentiment", "has_favorable_disclosure",
-    "kospi_return_1d", "kospi_return_5d",
-    "rel_strength_5d",
-    "market_vol_ratio",
-    "return_10d", "return_20d",
-    "price_accel",
-    "gap_pct",
-    "consec_up", "consec_down",
-    "vol_up_down_ratio",
-    "ma5_ma20_cross", "ma20_ma60_cross",
-    "foreign_net_ratio", "inst_net_ratio",
-    "dow_sin", "dow_cos",
-    "month_sin", "month_cos",
-    "news_sentiment_7d", "news_count_7d",
-]
+# 피처 컬럼 단일 소스에서 로드 (shared.feature_schema)
+# fallback: 직접 하드코딩 값 유지
+try:
+    from shared.feature_schema import FEATURE_COLUMNS, DEFAULT_FEATURE_COLUMNS
+except ImportError:
+    # fallback: 기존 하드코딩 값 유지
+    FEATURE_COLUMNS = [
+        "return_1d", "return_3d", "return_5d",
+        "ma5_ratio", "ma20_ratio", "ma60_ratio",
+        "ma5_slope", "ma20_slope",
+        "vol_ratio_5d", "vol_ratio_20d", "vol_surge",
+        "amount_ratio",
+        "atr_ratio",
+        "rsi14", "rsi_oversold", "rsi_overbought",
+        "macd_hist", "macd_golden_cross",
+        "bb_pct", "bb_width", "bb_squeeze",
+        "body_size", "is_bullish", "upper_wick", "lower_wick",
+        "is_new_high_20d", "is_new_high_52d", "is_new_high_260d",
+        "pos_52w",
+        "foreign_cumnet_5d", "foreign_cumnet_20d",
+        "inst_cumnet_5d", "inst_cumnet_20d",
+        "dual_buy", "dual_buy_3d",
+        "short_ratio", "short_increasing",
+        "disclosure_sentiment", "has_favorable_disclosure",
+        "kospi_return_1d", "kospi_return_5d",
+        "rel_strength_5d",
+        "market_vol_ratio",
+        "return_10d", "return_20d",
+        "price_accel",
+        "gap_pct",
+        "consec_up", "consec_down",
+        "vol_up_down_ratio",
+        "ma5_ma20_cross", "ma20_ma60_cross",
+        "foreign_net_ratio", "inst_net_ratio",
+        "dow_sin", "dow_cos",
+        "month_sin", "month_cos",
+        "news_sentiment_7d", "news_count_7d",
+    ]
 
 
 @dataclass

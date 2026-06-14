@@ -1,9 +1,9 @@
 import { useState, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import {
   TrendingUp, TrendingDown, Minus, ArrowUpRight, ArrowDownRight,
-  Zap, Target, ShieldAlert, BarChart3, Clock,
+  Zap, BarChart3, Target, FileText, Users, Clock,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { featuresApi } from '@/api/features'
@@ -11,128 +11,51 @@ import { recommendationsApi } from '@/api/recommendations'
 import { marketApi } from '@/api/market'
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card'
 import { ErrorState } from '@/components/ui/ErrorState'
-import { Badge, ActionBadge, MarketBadge, EVENT_LABELS } from '@/components/ui/Badge'
+import { Badge, MarketBadge, EVENT_LABELS } from '@/components/ui/Badge'
 import { fmt, pctColor } from '@/lib/utils'
 import { useRealtimeStream, StreamFeature, StreamRecommendation } from '@/hooks/useRealtimeStream'
 import { EventDetailModal } from '@/components/modals/EventDetailModal'
-import { RecDetailModal } from '@/components/modals/RecDetailModal'
 import type { FeatureEvent, Recommendation } from '@/types'
 
-// ── 실시간 피드 아이템 타입 ──────────────────────────────────────────────────
-interface LiveSignal {
-  key:   string
-  code:  string
-  label: string
-  sub:   string
-  type:  'feature' | 'rec'
-  ts:    number
+// ── 이벤트 타입 아이콘 매핑 ─────────────────────────────────────────────────
+const EVENT_ICONS: Record<string, React.ReactNode> = {
+  VOLUME_SURGE:          <TrendingUp size={14} className="text-blue-400" />,
+  AMOUNT_SURGE:          <TrendingUp size={14} className="text-purple-400" />,
+  BREAKOUT_52W:          <ArrowUpRight size={14} className="text-green-400" />,
+  BREAKOUT_26W:          <ArrowUpRight size={14} className="text-green-400" />,
+  BREAKOUT_13W:          <ArrowUpRight size={14} className="text-green-400" />,
+  BREAKOUT_20D:          <ArrowUpRight size={14} className="text-green-400" />,
+  VI_TRIGGERED:          <Zap size={14} className="text-yellow-400" />,
+  LONG_WHITE_CANDLE:     <TrendingUp size={14} className="text-orange-400" />,
+  SUPPLY_ANOMALY:        <Users size={14} className="text-cyan-400" />,
+  POST_DISCLOSURE_SURGE: <FileText size={14} className="text-pink-400" />,
 }
 
-// ── TOP 3 BUY 카드 ───────────────────────────────────────────────────────────
-function Top3BuyCard({
-  rec,
-  rank,
-  onClick,
-}: {
-  rec: Recommendation
-  rank: number
-  onClick: () => void
-}) {
-  const score = rec.success_prob * (rec.risk_reward_ratio ?? 1)
-  const rankColors = ['text-yellow-400', 'text-slate-300', 'text-amber-600']
-  const rankBg     = ['bg-yellow-500/10 border-yellow-500/30', 'bg-slate-500/10 border-slate-500/30', 'bg-amber-700/10 border-amber-700/30']
-
-  return (
-    <button
-      onClick={onClick}
-      className={clsx(
-        'flex flex-col p-5 rounded-2xl border transition-all text-left w-full',
-        'bg-[var(--card)] hover:bg-[var(--border)]/40 hover:scale-[1.01] active:scale-[0.99]',
-        rank === 0
-          ? 'border-yellow-500/40 ring-1 ring-yellow-500/20'
-          : 'border-[var(--border)]',
-      )}
-    >
-      {/* 순위 + 이벤트 배지 */}
-      <div className="flex items-center justify-between mb-3">
-        <span className={clsx('text-xs font-bold px-2 py-0.5 rounded-full border', rankColors[rank], rankBg[rank])}>
-          #{rank + 1}
-        </span>
-        <div className="flex items-center gap-1.5">
-          {rec.rationale?.event_type && (
-            <Badge eventType={rec.rationale.event_type as string} size="sm" />
-          )}
-          <ActionBadge action={rec.action} />
-        </div>
-      </div>
-
-      {/* 종목명 */}
-      <div className="mb-3">
-        <div className="text-base font-bold text-[var(--fg)] truncate">{rec.name}</div>
-        <div className="flex items-center gap-1.5 mt-0.5">
-          <span className="text-xs text-[var(--muted)]">{rec.code}</span>
-          <MarketBadge market={rec.market} />
-        </div>
-      </div>
-
-      {/* 성공확률 바 */}
-      <div className="mb-3">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-[10px] text-[var(--muted)]">성공확률</span>
-          <span className="text-sm font-bold text-green-400 tabular">{(rec.success_prob * 100).toFixed(1)}%</span>
-        </div>
-        <div className="h-1.5 rounded-full bg-[var(--border)] overflow-hidden">
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-green-500 to-emerald-400 transition-all"
-            style={{ width: `${Math.min(rec.success_prob * 100, 100)}%` }}
-          />
-        </div>
-      </div>
-
-      {/* 진입 / 목표 / 손절 */}
-      <div className="grid grid-cols-3 gap-2 mb-3">
-        <div className="text-center p-2 rounded-lg bg-[var(--bg)]">
-          <div className="text-[9px] text-[var(--muted)] mb-0.5">진입가</div>
-          <div className="text-xs font-semibold text-[var(--fg)] tabular">{rec.entry_price.toLocaleString()}</div>
-        </div>
-        <div className="text-center p-2 rounded-lg bg-green-500/5 border border-green-500/15">
-          <div className="text-[9px] text-green-400/70 mb-0.5">목표가</div>
-          <div className="text-xs font-semibold text-green-400 tabular">{rec.target_price.toLocaleString()}</div>
-        </div>
-        <div className="text-center p-2 rounded-lg bg-red-500/5 border border-red-500/15">
-          <div className="text-[9px] text-red-400/70 mb-0.5">손절가</div>
-          <div className="text-xs font-semibold text-red-400 tabular">{rec.stop_loss_price.toLocaleString()}</div>
-        </div>
-      </div>
-
-      {/* R:R + 복합 점수 */}
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-[var(--muted)]">
-          R:R <span className="text-[var(--fg)] font-semibold">{rec.risk_reward_ratio?.toFixed(1) ?? '—'}</span>
-        </span>
-        <span className="text-xs text-[var(--muted)]">
-          점수 <span className="text-cyan-400 font-semibold">{score.toFixed(2)}</span>
-        </span>
-      </div>
-    </button>
-  )
+function getEventIcon(eventType: string): React.ReactNode {
+  return EVENT_ICONS[eventType] ?? <Zap size={14} className="text-[var(--muted)]" />
 }
 
-// ── 시장 현황 한 줄 바 ───────────────────────────────────────────────────────
-function MarketStatusBar({
+function isRecent(isoDate?: string | null): boolean {
+  if (!isoDate) return false
+  return new Date().getTime() - new Date(isoDate).getTime() < 5 * 60 * 1000
+}
+
+// ── ActionBar ────────────────────────────────────────────────────────────────
+function ActionBar({
+  buyCount,
   indexLive,
   mkSummary,
-  totalDetected,
+  mlMode,
   isRt,
 }: {
-  indexLive:    ReturnType<typeof useQuery>['data'] | undefined
-  mkSummary:    ReturnType<typeof useQuery>['data'] | undefined
-  totalDetected: number | undefined
-  isRt:         boolean
+  buyCount:   number | undefined
+  indexLive:  any
+  mkSummary:  any
+  mlMode:     string | undefined
+  isRt:       boolean
 }) {
-  const kospi  = (indexLive as any)?.kospi
-  const kosdaq = (indexLive as any)?.kosdaq
-  const mk     = mkSummary as any
+  const kospi  = indexLive?.kospi
+  const kosdaq = indexLive?.kosdaq
 
   function IndexPill({ label, data }: { label: string; data: any }) {
     const chg = data?.change_rate ?? 0
@@ -159,35 +82,144 @@ function MarketStatusBar({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 py-3 rounded-xl border border-[var(--border)] bg-[var(--card)] text-sm">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 py-3 rounded-xl border border-[var(--border)] bg-[var(--card)]">
+      {/* BUY 신호 수 */}
+      <Link
+        to="/recommendations"
+        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-green-500/15 border border-green-500/30 text-green-400 hover:bg-green-500/25 transition-colors"
+      >
+        <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+        <span className="text-sm font-bold tabular">BUY {buyCount ?? '—'}개</span>
+      </Link>
+
+      {/* LIVE 배지 */}
       {isRt && (
         <span className="text-[10px] px-1.5 rounded bg-green-500/15 text-green-400 border border-green-500/20 animate-pulse font-medium">LIVE</span>
       )}
+
+      {/* 지수 */}
       <IndexPill label="KOSPI"  data={kospi} />
       <div className="w-px h-4 bg-[var(--border)]" />
       <IndexPill label="KOSDAQ" data={kosdaq} />
-      <div className="w-px h-4 bg-[var(--border)]" />
-      {mk?.advancers != null ? (
-        <div className="flex items-center gap-2 text-xs">
-          <span className="text-red-400 flex items-center gap-0.5"><ArrowUpRight size={12} />{mk.advancers} 상승</span>
-          <span className="text-[var(--muted)]">|</span>
-          <span className="text-blue-400 flex items-center gap-0.5"><ArrowDownRight size={12} />{mk.decliners} 하락</span>
-          {mk.unchanged != null && <span className="text-[var(--muted)]">보합 {mk.unchanged}</span>}
-        </div>
-      ) : (
-        <span className="w-32 h-4 skeleton rounded" />
+
+      {/* 상승/하락 */}
+      {mkSummary?.advancers != null && (
+        <>
+          <div className="w-px h-4 bg-[var(--border)]" />
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-red-400 flex items-center gap-0.5"><ArrowUpRight size={12} />{mkSummary.advancers} 상승</span>
+            <span className="text-[var(--muted)]">|</span>
+            <span className="text-blue-400 flex items-center gap-0.5"><ArrowDownRight size={12} />{mkSummary.decliners} 하락</span>
+          </div>
+        </>
       )}
-      <div className="w-px h-4 bg-[var(--border)]" />
-      <div className="flex items-center gap-1.5 text-xs">
-        <Zap size={12} className="text-yellow-400" />
-        <span className="text-[var(--muted)]">오늘 탐지</span>
-        <span className="font-bold text-yellow-400 tabular">{totalDetected ?? '—'}건</span>
+
+      {/* ML 모드 */}
+      {mlMode && (
+        <>
+          <div className="w-px h-4 bg-[var(--border)]" />
+          <span className={clsx(
+            'text-xs px-1.5 py-0.5 rounded border font-medium',
+            mlMode === 'ml'
+              ? 'border-purple-500/30 text-purple-400 bg-purple-500/10'
+              : 'border-amber-500/30 text-amber-400 bg-amber-500/10'
+          )}>
+            {mlMode === 'ml' ? 'ML 활성' : '규칙 기반'}
+          </span>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── 실시간 피드 카드 ─────────────────────────────────────────────────────────
+function FeedCard({
+  event,
+  onEventClick,
+}: {
+  event: FeatureEvent
+  onEventClick: (ev: FeatureEvent) => void
+}) {
+  const nav = useNavigate()
+  const recent = isRecent(event.detected_at)
+  const score = event.signal_score
+
+  return (
+    <div className={clsx(
+      'flex items-start gap-3 p-3 rounded-xl border transition-colors hover:bg-[var(--border)]/20 cursor-pointer',
+      recent
+        ? 'border-green-500/40 bg-green-500/5'
+        : 'border-[var(--border)] bg-[var(--card)]',
+    )}
+      onClick={() => nav(`/search?code=${event.code}`)}
+    >
+      {/* 이벤트 아이콘 */}
+      <div className={clsx(
+        'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5',
+        recent ? 'bg-green-500/15' : 'bg-[var(--bg)]'
+      )}>
+        {getEventIcon(event.event_type)}
+      </div>
+
+      {/* 메인 콘텐츠 */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="font-semibold text-sm text-[var(--fg)] truncate">{event.name}</span>
+          <MarketBadge market={event.market} />
+          <button
+            onClick={(e) => { e.stopPropagation(); onEventClick(event) }}
+            className="hover:scale-105 transition-transform"
+            title="이벤트 상세"
+          >
+            <Badge eventType={event.event_type} size="sm" />
+          </button>
+          {recent && (
+            <span className="text-[10px] px-1 rounded bg-green-500/20 text-green-400 border border-green-500/30 animate-pulse font-medium">실시간</span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 mt-1">
+          <span className="text-xs text-[var(--muted)]">{event.code}</span>
+          <span className="text-xs text-[var(--fg)] font-medium tabular">{fmt.price(event.price)}</span>
+          <span className={clsx('text-xs font-semibold tabular', pctColor(event.change_rate))}>
+            {fmt.pct(event.change_rate)}
+          </span>
+        </div>
+
+        {/* 신호 점수 진행 바 */}
+        {score != null && (
+          <div className="flex items-center gap-2 mt-1.5">
+            <div className="flex-1 h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
+              <div
+                className={clsx('h-full rounded-full', score >= 0.75 ? 'bg-green-400' : score >= 0.55 ? 'bg-amber-400' : 'bg-red-400')}
+                style={{ width: `${Math.round(score * 100)}%` }}
+              />
+            </div>
+            <span className="text-xs tabular text-[var(--fg)] font-semibold">{score.toFixed(2)}</span>
+          </div>
+        )}
+      </div>
+
+      {/* 우측: 시간 + 빠른 분석 */}
+      <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+        <span className={clsx(
+          'text-xs tabular',
+          recent ? 'text-green-400 font-semibold' : 'text-[var(--muted)]'
+        )}>
+          {fmt.smartTime(event.detected_at)}
+        </span>
+        <button
+          onClick={(e) => { e.stopPropagation(); nav(`/search?code=${event.code}`) }}
+          className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-colors whitespace-nowrap"
+        >
+          빠른 분석
+        </button>
       </div>
     </div>
   )
 }
 
-// ── 실시간 이벤트 피드 ───────────────────────────────────────────────────────
+// ── 실시간 이벤트 피드 섹션 ──────────────────────────────────────────────────
 function RealtimeFeed({
   liveSignals,
   recentFeatures,
@@ -196,7 +228,7 @@ function RealtimeFeed({
   onEventClick,
   isConnected,
 }: {
-  liveSignals:     LiveSignal[]
+  liveSignals:     Array<{ key: string; code: string; label: string; sub: string; type: 'feature' | 'rec'; ts: number }>
   recentFeatures:  FeatureEvent[] | undefined
   featuresError:   boolean
   refetchFeatures: () => void
@@ -219,7 +251,7 @@ function RealtimeFeed({
               {isConnected ? '실시간' : '연결 중'}
             </span>
           </div>
-          <div className="text-xs text-[var(--muted)] mt-0.5">최근 8시간 · 스코어 높은 순</div>
+          <div className="text-xs text-[var(--muted)] mt-0.5">최근 8시간 · 스코어 높은 순 · 최대 50건</div>
         </div>
         <button
           onClick={() => nav('/features')}
@@ -251,172 +283,151 @@ function RealtimeFeed({
         </div>
       )}
 
-      <CardBody className="pt-0 px-0 pb-0 flex-1 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-[var(--border)] text-[var(--muted)] bg-[var(--bg)]/30">
-                <th className="text-left pb-2.5 pl-5 pr-3 text-xs font-semibold uppercase tracking-wider">종목</th>
-                <th className="text-left pb-2.5 pr-3 text-xs font-semibold uppercase tracking-wider">이벤트</th>
-                <th className="text-right pb-2.5 pr-3 text-xs font-semibold uppercase tracking-wider">현재가</th>
-                <th className="text-right pb-2.5 pr-3 text-xs font-semibold uppercase tracking-wider">등락률</th>
-                <th className="text-right pb-2.5 pr-5 text-xs font-semibold uppercase tracking-wider">스코어</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentFeatures?.slice(0, 8).map((f) => (
-                <tr
-                  key={f.id}
-                  className="border-b border-[var(--border)]/50 hover:bg-[var(--border)]/25 cursor-pointer transition-colors"
-                  onClick={() => nav(`/search?code=${f.code}`)}
-                >
-                  <td className="py-2.5 pl-5 pr-3">
-                    <div className="font-semibold text-sm text-[var(--fg)]">{f.name}</div>
-                    <div className="flex items-center gap-1 mt-0.5">
-                      <span className="text-xs text-[var(--muted)]">{f.code}</span>
-                      <MarketBadge market={f.market} />
-                    </div>
-                  </td>
-                  <td className="py-2.5 pr-3">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onEventClick(f) }}
-                      className="hover:scale-105 transition-transform"
-                      title="이벤트 상세"
-                    >
-                      <Badge eventType={f.event_type} size="sm" />
-                    </button>
-                  </td>
-                  <td className="py-2.5 text-right tabular text-sm text-[var(--fg)] font-medium pr-3">
-                    {fmt.price(f.price)}
-                  </td>
-                  <td className={clsx('py-2.5 text-right tabular text-sm font-semibold pr-3', pctColor(f.change_rate))}>
-                    {fmt.pct(f.change_rate)}
-                  </td>
-                  <td className="py-2.5 text-right tabular text-sm text-yellow-400 font-semibold pr-5">
-                    {f.signal_score?.toFixed(2) ?? '—'}
-                  </td>
-                </tr>
-              ))}
-              {featuresError && (
-                <tr>
-                  <td colSpan={5}>
-                    <ErrorState message="특징주 데이터 로드 실패" retry={refetchFeatures} />
-                  </td>
-                </tr>
-              )}
-              {!featuresError && !recentFeatures?.length && (
-                <tr>
-                  <td colSpan={5} className="py-10 text-center">
-                    <div className="text-sm text-[var(--muted)]">탐지된 특징주가 없습니다</div>
-                    <div className="text-xs text-[var(--muted)]/60 mt-1">장 중 실시간으로 업데이트됩니다</div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+      <CardBody className="pt-0 flex-1 overflow-hidden">
+        {featuresError && (
+          <ErrorState message="특징주 데이터 로드 실패" retry={refetchFeatures} />
+        )}
+        {!featuresError && !recentFeatures?.length && !recentFeatures && (
+          <div className="py-8 text-center">
+            <div className="text-sm text-[var(--muted)]">탐지된 특징주가 없습니다</div>
+            <div className="text-xs text-[var(--muted)]/60 mt-1">장 중 실시간으로 업데이트됩니다</div>
+          </div>
+        )}
+        <div className="space-y-2">
+          {recentFeatures?.slice(0, 50).map((f) => (
+            <FeedCard key={f.id} event={f} onEventClick={onEventClick} />
+          ))}
         </div>
       </CardBody>
     </Card>
   )
 }
 
-// ── 30일 성과 통계 패널 ──────────────────────────────────────────────────────
-function PerfPanel({
-  perf,
+// ── 오늘 요약 패널 ────────────────────────────────────────────────────────────
+function TodaySummaryPanel({
   summary,
+  perf,
+  buyCount,
+  disclosureCount,
 }: {
-  perf:    ReturnType<typeof useQuery>['data']
-  summary: ReturnType<typeof useQuery>['data']
+  summary:         any
+  perf:            any
+  buyCount:        number | undefined
+  disclosureCount: number | undefined
 }) {
   const p = perf as any
   const s = summary as any
 
   return (
     <div className="space-y-4">
-      {/* 30일 성과 통계 */}
+      {/* 오늘 요약 수치 */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
-            <BarChart3 size={14} className="text-cyan-400" />
-            <CardTitle>30일 성과 통계</CardTitle>
+            <Target size={14} className="text-cyan-400" />
+            <CardTitle>오늘 요약</CardTitle>
           </div>
         </CardHeader>
-        <CardBody className="pt-3 space-y-3">
-          {p ? (
-            <>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="p-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] text-center">
-                  <div className="text-[10px] text-[var(--muted)] mb-1">성공률</div>
-                  <div className={clsx(
-                    'text-xl font-bold tabular',
-                    p.success_rate >= 0.55 ? 'text-green-400' : 'text-red-400'
-                  )}>
-                    {(p.success_rate * 100).toFixed(1)}%
-                  </div>
-                </div>
-                <div className="p-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] text-center">
-                  <div className="text-[10px] text-[var(--muted)] mb-1">평균 수익률</div>
-                  <div className={clsx(
-                    'text-xl font-bold tabular',
-                    (p.avg_return ?? 0) >= 0 ? 'text-red-400' : 'text-blue-400'
-                  )}>
-                    {p.avg_return != null ? `${p.avg_return >= 0 ? '+' : ''}${p.avg_return.toFixed(1)}%` : '—'}
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center justify-between px-1 text-xs text-[var(--muted)]">
-                <span>매수 신호</span>
-                <span className="tabular font-medium text-[var(--fg)]">{p.buy_count ?? '—'}건</span>
-              </div>
-              <div className="flex items-center justify-between px-1 text-xs text-[var(--muted)]">
-                <span>성공 / 전체</span>
-                <span className="tabular font-medium text-[var(--fg)]">
-                  {p.success_count ?? '—'} / {p.total_count ?? '—'}
-                </span>
-              </div>
-              {p.avg_pred_prob != null && (
-                <div className="flex items-center justify-between px-1 text-xs text-[var(--muted)]">
-                  <span>평균 예측 확률</span>
-                  <span className="tabular font-medium text-cyan-400">
-                    {(p.avg_pred_prob * 100).toFixed(1)}%
-                  </span>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="space-y-2">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="h-8 skeleton rounded-lg" />
-              ))}
-            </div>
-          )}
+        <CardBody className="pt-3 space-y-2">
+          <div className="flex items-center justify-between py-2 border-b border-[var(--border)]/50">
+            <span className="text-xs text-[var(--muted)]">탐지 이벤트</span>
+            <span className="text-sm font-bold text-yellow-400 tabular">{s?.total ?? '—'}건</span>
+          </div>
+          <div className="flex items-center justify-between py-2 border-b border-[var(--border)]/50">
+            <span className="text-xs text-[var(--muted)]">BUY 신호</span>
+            <Link to="/recommendations" className="text-sm font-bold text-green-400 tabular hover:text-green-300 transition-colors">
+              {buyCount ?? '—'}건
+            </Link>
+          </div>
+          <div className="flex items-center justify-between py-2 border-b border-[var(--border)]/50">
+            <span className="text-xs text-[var(--muted)]">공시</span>
+            <Link to="/intel" className="text-sm font-bold text-blue-400 tabular hover:text-blue-300 transition-colors">
+              {disclosureCount ?? '—'}건
+            </Link>
+          </div>
+          <div className="flex items-center justify-between py-2">
+            <span className="text-xs text-[var(--muted)]">30일 성공률</span>
+            <span className={clsx(
+              'text-sm font-bold tabular',
+              p?.success_rate != null ? (p.success_rate >= 0.55 ? 'text-green-400' : 'text-red-400') : 'text-[var(--muted)]'
+            )}>
+              {p?.success_rate != null ? `${(p.success_rate * 100).toFixed(1)}%` : '—'}
+            </span>
+          </div>
         </CardBody>
       </Card>
 
-      {/* 오늘 이벤트 분포 */}
+      {/* 이벤트 타입별 바 차트 */}
       {s?.by_type && Object.keys(s.by_type).length > 0 && (
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
-              <Target size={14} className="text-purple-400" />
-              <CardTitle>오늘 이벤트 분포</CardTitle>
+              <BarChart3 size={14} className="text-purple-400" />
+              <CardTitle>이벤트 분포</CardTitle>
             </div>
           </CardHeader>
-          <CardBody className="pt-3">
-            <div className="flex flex-wrap gap-2">
-              {Object.entries(s.by_type as Record<string, number>)
-                .sort(([, a], [, b]) => b - a)
-                .map(([type, count]) => (
-                  <div
-                    key={type}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--border)] cursor-pointer hover:bg-[var(--border)]/30 transition-colors"
-                    onClick={() => window.location.assign(`/features?event_type=${type}`)}
-                  >
-                    <Badge eventType={type} size="sm" />
-                    <span className="text-sm font-bold text-[var(--fg)] tabular">{count}</span>
+          <CardBody className="pt-3 space-y-2">
+            {(() => {
+              const entries = Object.entries(s.by_type as Record<string, number>).sort(([, a], [, b]) => b - a)
+              const maxVal = Math.max(1, ...entries.map(([, v]) => v))
+              return entries.map(([type, count]) => (
+                <div key={type} className="space-y-0.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-[var(--muted)] truncate flex-1">{EVENT_LABELS[type] ?? type}</span>
+                    <span className="text-[var(--fg)] font-semibold tabular ml-2">{count}</span>
                   </div>
-                ))
-              }
+                  <div className="h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-cyan-500/60"
+                      style={{ width: `${(count / maxVal) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ))
+            })()}
+          </CardBody>
+        </Card>
+      )}
+
+      {/* 30일 성과 통계 */}
+      {p && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <BarChart3 size={14} className="text-cyan-400" />
+              <CardTitle>30일 성과 통계</CardTitle>
+            </div>
+          </CardHeader>
+          <CardBody className="pt-3 space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="p-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] text-center">
+                <div className="text-[10px] text-[var(--muted)] mb-1">성공률</div>
+                <div className={clsx(
+                  'text-xl font-bold tabular',
+                  p.success_rate >= 0.55 ? 'text-green-400' : 'text-red-400'
+                )}>
+                  {(p.success_rate * 100).toFixed(1)}%
+                </div>
+              </div>
+              <div className="p-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] text-center">
+                <div className="text-[10px] text-[var(--muted)] mb-1">평균 수익률</div>
+                <div className={clsx(
+                  'text-xl font-bold tabular',
+                  (p.avg_return ?? 0) >= 0 ? 'text-red-400' : 'text-blue-400'
+                )}>
+                  {p.avg_return != null ? `${p.avg_return >= 0 ? '+' : ''}${p.avg_return.toFixed(1)}%` : '—'}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-between px-1 text-xs text-[var(--muted)]">
+              <span>매수 신호</span>
+              <span className="tabular font-medium text-[var(--fg)]">{p.buy_count ?? '—'}건</span>
+            </div>
+            <div className="flex items-center justify-between px-1 text-xs text-[var(--muted)]">
+              <span>성공 / 전체</span>
+              <span className="tabular font-medium text-[var(--fg)]">
+                {p.success_count ?? '—'} / {p.total_count ?? '—'}
+              </span>
             </div>
           </CardBody>
         </Card>
@@ -426,7 +437,7 @@ function PerfPanel({
 }
 
 // ── 상승/하락 Movers ─────────────────────────────────────────────────────────
-function MoversRow({ movers }: { movers: ReturnType<typeof useQuery>['data'] }) {
+function MoversRow({ movers }: { movers: any }) {
   const nav = useNavigate()
   const mv = movers as any
 
@@ -485,10 +496,11 @@ function MoversRow({ movers }: { movers: ReturnType<typeof useQuery>['data'] }) 
 
 // ── 메인 Dashboard ────────────────────────────────────────────────────────────
 export function Dashboard() {
-  const nav = useNavigate()
-  const [liveSignals,  setLiveSignals]  = useState<LiveSignal[]>([])
+  const [liveSignals, setLiveSignals] = useState<Array<{
+    key: string; code: string; label: string; sub: string; type: 'feature' | 'rec'; ts: number
+  }>>([])
   const [selectedEvent, setSelectedEvent] = useState<FeatureEvent | null>(null)
-  const [selectedRec,   setSelectedRec]   = useState<Recommendation | null>(null)
+  const nav = useNavigate()
 
   // 실시간 스트림 핸들러
   const handleFeature = useCallback((ev: StreamFeature) => {
@@ -520,7 +532,7 @@ export function Dashboard() {
     invalidateQueries: false,
   })
 
-  // 데이터 쿼리 (기존과 동일)
+  // 데이터 쿼리
   const { data: summary } = useQuery({
     queryKey:        ['today-summary'],
     queryFn:         featuresApi.todaySummary,
@@ -529,7 +541,7 @@ export function Dashboard() {
 
   const { data: recentFeatures, isError: featuresError, refetch: refetchFeatures } = useQuery({
     queryKey:        ['features-recent'],
-    queryFn:         () => featuresApi.list({ limit: 12, hours: 8, dedupe: true }),
+    queryFn:         () => featuresApi.list({ limit: 50, hours: 8, dedupe: true }),
     refetchInterval: 30_000,
   })
 
@@ -564,103 +576,70 @@ export function Dashboard() {
   })
 
   const isRt = (indexLive as any)?.source === 'realtime'
+  const buyCount = topRecs?.filter((r) => r.action === 'BUY').length
 
-  // TOP 3 BUY 계산: success_prob × risk_reward_ratio 점수 기준 정렬
-  const top3Buy = (topRecs ?? [])
-    .filter((r) => r.action === 'BUY')
-    .sort((a, b) => (b.success_prob * (b.risk_reward_ratio ?? 1)) - (a.success_prob * (a.risk_reward_ratio ?? 1)))
-    .slice(0, 3)
+  // ML 모드 추론 (최근 추천 중 첫 번째 신호 기준)
+  const mlMode = topRecs?.find((r) => r.rationale?.model_mode)?.rationale?.model_mode
 
   return (
     <div className="p-6 space-y-5">
 
-      {/* ── Hero: TOP 3 BUY 신호 ────────────────────────────────────────── */}
-      <section>
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h2 className="text-base font-bold text-[var(--fg)] flex items-center gap-2">
-              <ShieldAlert size={16} className="text-green-400" />
-              오늘의 TOP BUY 신호
-            </h2>
-            <p className="text-xs text-[var(--muted)] mt-0.5">성공확률 × R:R 점수 기준 상위 3건</p>
-          </div>
-          <button
-            onClick={() => nav('/recommendations')}
-            className="text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
-          >
-            전체보기 →
-          </button>
-        </div>
-
-        {top3Buy.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {top3Buy.map((rec, i) => (
-              <Top3BuyCard
-                key={rec.id}
-                rec={rec}
-                rank={i}
-                onClick={() => setSelectedRec(rec)}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="flex items-center justify-center p-10 rounded-2xl border border-[var(--border)] border-dashed bg-[var(--card)]/50">
-            <div className="text-center">
-              <Clock size={28} className="text-[var(--muted)]/40 mx-auto mb-2" />
-              <div className="text-sm text-[var(--muted)]">조건을 충족하는 BUY 신호가 없습니다</div>
-              <div className="text-xs text-[var(--muted)]/60 mt-1">최근 24시간 탐지 결과를 기다리는 중</div>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* ── 시장 현황 바 ─────────────────────────────────────────────────── */}
-      <MarketStatusBar
+      {/* ── 액션 바 ─────────────────────────────────────────────────────── */}
+      <ActionBar
+        buyCount={buyCount}
         indexLive={indexLive}
         mkSummary={mkSummary}
-        totalDetected={summary?.total}
+        mlMode={mlMode}
         isRt={isRt}
       />
 
-      {/* ── 2열 레이아웃: 피드 + 성과 패널 ─────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      {/* ── 2열 레이아웃: 피드(75%) + 요약(25%) ─────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
 
         {/* 왼쪽: 실시간 탐지 이벤트 피드 */}
-        <div className="lg:col-span-2">
-          <RealtimeFeed
-            liveSignals={liveSignals}
-            recentFeatures={recentFeatures}
-            featuresError={featuresError}
-            refetchFeatures={refetchFeatures}
-            onEventClick={setSelectedEvent}
-            isConnected={isConnected}
-          />
+        <div className="lg:col-span-3">
+          {recentFeatures?.length === 0 && !featuresError ? (
+            <Card>
+              <CardBody>
+                <div className="py-16 text-center">
+                  <Clock size={28} className="text-[var(--muted)]/40 mx-auto mb-2" />
+                  <div className="text-sm text-[var(--muted)]">탐지된 특징주가 없습니다</div>
+                  <div className="text-xs text-[var(--muted)]/60 mt-1">장 중 실시간으로 업데이트됩니다</div>
+                </div>
+              </CardBody>
+            </Card>
+          ) : (
+            <RealtimeFeed
+              liveSignals={liveSignals}
+              recentFeatures={recentFeatures}
+              featuresError={featuresError}
+              refetchFeatures={refetchFeatures}
+              onEventClick={setSelectedEvent}
+              isConnected={isConnected}
+            />
+          )}
         </div>
 
-        {/* 오른쪽: 성과 통계 + 이벤트 분포 */}
+        {/* 오른쪽: 오늘 요약 */}
         <div className="lg:col-span-1">
-          <PerfPanel perf={perf} summary={summary} />
+          <TodaySummaryPanel
+            summary={summary}
+            perf={perf}
+            buyCount={buyCount}
+            disclosureCount={undefined}
+          />
         </div>
       </div>
 
-      {/* ── 하단: 상승/하락 Movers ────────────────────────────────────── */}
+      {/* ── 하단: 상승/하락 Movers ──────────────────────────────────── */}
       <MoversRow movers={movers} />
 
-      {/* ── 이벤트 상세 모달 ─────────────────────────────────────────── */}
+      {/* ── 이벤트 상세 모달 ─────────────────────────────────────── */}
       {selectedEvent && (
         <EventDetailModal
           event={selectedEvent}
           onClose={() => setSelectedEvent(null)}
           onGoDetail={() => { setSelectedEvent(null); nav(`/search?code=${selectedEvent.code}`) }}
-        />
-      )}
-
-      {/* ── TOP 3 추천 상세 모달 ─────────────────────────────────────── */}
-      {selectedRec && (
-        <RecDetailModal
-          rec={selectedRec}
-          onClose={() => setSelectedRec(null)}
-          onGoDetail={() => { setSelectedRec(null); nav(`/search?code=${selectedRec.code}`) }}
         />
       )}
     </div>

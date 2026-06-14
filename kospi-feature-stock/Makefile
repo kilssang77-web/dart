@@ -1,6 +1,6 @@
 ﻿.PHONY: up down restart logs ps build pull stats train backtest load-stocks migrate health \
         bootstrap test test-resilience migrate-v5 migrate-v6 migrate-v7 migrate-v8 migrate-v9 \
-        migrate-all audit-features
+        migrate-all audit-features validate-data train-full backfill-results pipeline-status
 
 # ── 환경 설정 ──────────────────────────────────────────────────
 CP_ENV := cp .env.example .env
@@ -56,6 +56,32 @@ train:
 		--train-start 2022-01-01 --val-start 2024-01-01 \
 		--val-end 2024-12-31 --smote
 	@echo "Training complete."
+
+# ── 학습 데이터 검증 → 학습 → 평가 ──────────────────────────────
+validate-data:
+	docker compose exec ml python -c "\
+import asyncio, asyncpg, os; \
+async def check(): \
+    conn = await asyncpg.connect(os.environ['POSTGRES_DSN'].replace('+asyncpg','')); \
+    total = await conn.fetchval(\"SELECT COUNT(*) FROM feature_events fe JOIN daily_bars db ON db.code=fe.code AND db.date=fe.detected_at::date WHERE fe.detected_at BETWEEN '2022-01-01' AND '2024-12-31' AND fe.result_5d IS NOT NULL\"); \
+    print(f'학습 가능 이벤트: {total:,}개'); \
+    print('OK 학습 가능' if total >= 5000 else 'WARNING 데이터 부족 (최소 5000개 필요)'); \
+asyncio.run(check())"
+
+train-full: validate-data
+	@echo "=== ML Walk-Forward 학습 시작 ==="
+	docker compose exec ml python walk_forward_train.py \
+		--train-start 2022-01-01 --val-start 2024-01-01 \
+		--val-end 2024-12-31 --smote
+	@echo "=== 학습 완료 ==="
+
+backfill-results:
+	@echo "=== 과거 이벤트 결과값 백필 ==="
+	docker compose exec ml python backfill_feature_events.py
+	@echo "=== 백필 완료 ==="
+
+pipeline-status:
+	curl -s http://localhost:8000/api/v1/admin/pipeline-status | python3 -m json.tool
 
 # ── 백테스트 ───────────────────────────────────────────────────
 backtest:

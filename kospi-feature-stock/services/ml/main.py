@@ -378,49 +378,52 @@ async def _run_retrain(pool: asyncpg.Pool, predictor: LGBMPredictor):
 
 
 async def _update_event_results(pool: asyncpg.Pool):
-    """1시간마다 feature_events의 result_1d/3d/5d 사후 업데이트."""
-    cutoff = datetime.now() - timedelta(hours=1)
+    """feature_events의 result_1d/3d/5d를 daily_bars 기준으로 계산."""
+    intervals = [
+        (1,  "result_1d"),
+        (3,  "result_3d"),
+        (5,  "result_5d"),
+    ]
 
+    total_updated = 0
     async with pool.acquire() as conn:
-        events = await conn.fetch(
-            """
-            SELECT id, code, detected_at::TEXT AS dt
-            FROM feature_events
-            WHERE result_5d IS NULL
-              AND detected_at < $1
-            LIMIT 200
-            """,
-            cutoff,
-        )
-        for ev in events:
-            code   = ev["code"]
-            dt_obj = date.fromisoformat(ev["dt"][:10])
-            rows = await conn.fetch(
-                """
-                SELECT date::TEXT, close
-                FROM daily_bars
-                WHERE code = $1 AND date >= $2
-                ORDER BY date
-                LIMIT 6
-                """,
-                code, dt_obj,
-            )
-            if len(rows) >= 2:
-                entry = float(rows[0]["close"])
-                def ret(n):
-                    if len(rows) > n:
-                        return round((float(rows[n]["close"]) - entry) / entry * 100, 2)
-                    return None
-                await conn.execute(
-                    """
-                    UPDATE feature_events
-                    SET result_1d=$2, result_3d=$3, result_5d=$4
-                    WHERE id=$1
-                    """,
-                    ev["id"], ret(1), ret(3), ret(5),
-                )
+        for days, col in intervals:
+            # 해당 일수 이상 경과했고 result가 NULL인 이벤트 (최대 1000개)
+            rows = await conn.fetch(f"""
+                SELECT fe.id, fe.code, fe.price AS entry_price, fe.detected_at
+                FROM feature_events fe
+                WHERE fe.detected_at <= NOW() - INTERVAL '{days} days'
+                  AND fe.{col} IS NULL
+                ORDER BY fe.detected_at DESC
+                LIMIT 1000
+            """)
 
-    logger.info(f"Updated results for {len(events)} events")
+            if not rows:
+                continue
+
+            updated = 0
+            for row in rows:
+                target_date = row['detected_at'] + timedelta(days=days)
+                bar = await conn.fetchrow("""
+                    SELECT close FROM daily_bars
+                    WHERE code = $1 AND date <= $2
+                    ORDER BY date DESC LIMIT 1
+                """, row['code'], target_date.date())
+
+                if bar and row['entry_price'] and row['entry_price'] > 0:
+                    result_pct = (bar['close'] - row['entry_price']) / row['entry_price'] * 100
+                    await conn.execute(
+                        f"UPDATE feature_events SET {col} = $1 WHERE id = $2",
+                        round(result_pct, 4), row['id']
+                    )
+                    updated += 1
+
+            total_updated += updated
+            if updated > 0:
+                logger.info(f"result 업데이트: {col} {updated}개 완료")
+
+    if total_updated > 0:
+        logger.info(f"전체 result 업데이트 완료: {total_updated}개")
 
 
 if __name__ == "__main__":

@@ -2,18 +2,42 @@
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { Search, X, Clock, Trash2, ChevronRight, TrendingUp, TrendingDown, Minus, Star, StarOff, BarChart2, ShoppingCart, BookOpen } from 'lucide-react'
+import { Search, X, Clock, Trash2, ChevronRight, TrendingUp, TrendingDown, Minus, Star, StarOff, BarChart2, ShoppingCart, BookOpen, History } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { stocksApi, type FinancialItem } from '@/api/stocks'
 import { featuresApi } from '@/api/features'
 import { recommendationsApi } from '@/api/recommendations'
 import { watchlistApi } from '@/api/watchlist'
+import { http } from '@/api/client'
 import { CandleChart } from '@/components/charts/CandleChart'
 import { Badge, ActionBadge, MarketBadge } from '@/components/ui/Badge'
 import { EventDetailModal } from '@/components/modals/EventDetailModal'
 import { RecDetailModal } from '@/components/modals/RecDetailModal'
 import { fmt, pctColor } from '@/lib/utils'
 import type { SupplyDemand, FeatureEvent, Recommendation } from '@/types'
+
+interface SimilarCaseWithBars {
+  event_id:      number
+  code:          string
+  name?:         string
+  date:          string
+  event_type?:   string
+  similarity:    number
+  return_1d?:    number
+  return_3d?:    number
+  return_5d?:    number
+}
+
+async function fetchSimilarCases(eventId: number): Promise<SimilarCaseWithBars[]> {
+  try {
+    const r = await http.get<{ similar_cases: SimilarCaseWithBars[] }>(
+      `/features/${eventId}/similar-with-bars`
+    )
+    return r.data.similar_cases ?? []
+  } catch {
+    return []
+  }
+}
 
 const RECENT_KEY = 'recent_stocks'
 const FAVORITE_KEY = 'fav_stocks'
@@ -25,7 +49,7 @@ function loadLS<T>(key: string, def: T): T {
   try { return JSON.parse(localStorage.getItem(key) || 'null') ?? def } catch { return def }
 }
 
-type ActiveTab = 'chart' | 'supply' | 'analysis' | 'financials'
+type ActiveTab = 'chart' | 'supply' | 'analysis' | 'financials' | 'similar'
 type Period = 'D' | 'W' | 'M'
 
 function aggregateBars(bars: import('@/types').DailyBar[], period: Period): import('@/types').DailyBar[] {
@@ -318,9 +342,9 @@ export function StockSearch() {
               {year52 && price != null && <div className="mt-3 pt-3 border-t border-[var(--border)]"><RangeBar low={year52.low} high={year52.high} current={price} label="52주" /></div>}
             </div>
             <div className="flex gap-1 bg-[var(--card)] border border-[var(--border)] rounded-xl p-1">
-              {(['chart', 'supply', 'analysis', 'financials'] as ActiveTab[]).map((t) => (
+              {(['chart', 'supply', 'analysis', 'financials', 'similar'] as ActiveTab[]).map((t) => (
                 <button key={t} onClick={() => setTab(t)} className={clsx('flex-1 py-1.5 text-xs font-medium rounded-lg transition-colors', tab === t ? 'bg-cyan-500/20 text-cyan-400' : 'text-[var(--muted)] hover:text-[var(--fg)]')}>
-                  {t === 'chart' ? '📈 차트' : t === 'supply' ? '🏦 수급' : t === 'analysis' ? '🔍 분석' : '📊 재무'}
+                  {t === 'chart' ? '차트' : t === 'supply' ? '수급' : t === 'analysis' ? '분석' : t === 'financials' ? '재무' : '유사사례'}
                 </button>
               ))}
             </div>
@@ -461,11 +485,112 @@ export function StockSearch() {
             {tab === 'financials' && (
               <FinancialsTab data={financials} loading={financialsLoading} />
             )}
+            {tab === 'similar' && (
+              <SimilarTab code={selCode} events={events} />
+            )}
           </div>
         )}
       </div>
       {selectedEvent && <EventDetailModal event={selectedEvent} onClose={() => setSelectedEvent(null)} onGoDetail={() => setSelectedEvent(null)} />}
       {selectedRec && <RecDetailModal rec={selectedRec} onClose={() => setSelectedRec(null)} onGoDetail={() => setSelectedRec(null)} />}
+    </div>
+  )
+}
+
+// ── 유사사례 탭 ─────────────────────────────────────────────────────────────
+function SimilarTab({ code, events }: { code: string; events?: FeatureEvent[] }) {
+  // 최근 이벤트 중 첫 번째를 유사사례 조회에 사용
+  const latestEvent = events?.[0]
+
+  const { data: similar, isLoading } = useQuery({
+    queryKey:  ['similar-cases', latestEvent?.id],
+    queryFn:   () => fetchSimilarCases(latestEvent!.id),
+    enabled:   !!latestEvent,
+    staleTime: 300_000,
+  })
+
+  if (!latestEvent) {
+    return (
+      <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-8 text-center">
+        <History size={28} className="text-[var(--muted)]/40 mx-auto mb-2" />
+        <div className="text-sm text-[var(--muted)]">최근 탐지 이벤트가 없습니다</div>
+        <div className="text-xs text-[var(--muted)]/60 mt-1">특징주 탐지 이후 유사사례를 확인할 수 있습니다</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* 기준 이벤트 */}
+      <div className="bg-[var(--card)] border border-cyan-500/20 rounded-xl p-4">
+        <div className="flex items-center gap-2 mb-1">
+          <History size={14} className="text-cyan-400" />
+          <span className="text-sm font-semibold text-[var(--fg)]">유사사례 기준 이벤트</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
+          <Badge eventType={latestEvent.event_type} size="sm" />
+          <span>탐지: {fmt.dateTime(latestEvent.detected_at)}</span>
+          {latestEvent.signal_score != null && <span>점수 {latestEvent.signal_score.toFixed(2)}</span>}
+        </div>
+      </div>
+
+      {/* 유사사례 리스트 */}
+      <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-[var(--border)] text-sm font-semibold text-[var(--fg)]">
+          과거 유사 패턴 {isLoading ? '…' : `${similar?.length ?? 0}건`}
+        </div>
+        {isLoading && (
+          <div className="space-y-2 p-4">
+            {Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-8 skeleton rounded" />)}
+          </div>
+        )}
+        {!isLoading && (!similar || similar.length === 0) && (
+          <div className="py-12 text-center text-sm text-[var(--muted)]">유사사례 데이터 없음</div>
+        )}
+        {similar && similar.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[var(--border)] text-[var(--muted)] bg-[var(--bg)]/40">
+                  <th className="text-left py-2.5 pl-5 pr-3 text-xs font-semibold uppercase tracking-wider">종목</th>
+                  <th className="text-left py-2.5 pr-3 text-xs font-semibold uppercase tracking-wider">날짜</th>
+                  <th className="text-left py-2.5 pr-3 text-xs font-semibold uppercase tracking-wider">이벤트</th>
+                  <th className="text-right py-2.5 pr-3 text-xs font-semibold uppercase tracking-wider">유사도</th>
+                  <th className="text-right py-2.5 pr-3 text-xs font-semibold uppercase tracking-wider">1D</th>
+                  <th className="text-right py-2.5 pr-3 text-xs font-semibold uppercase tracking-wider">3D</th>
+                  <th className="text-right py-2.5 pr-5 text-xs font-semibold uppercase tracking-wider">5D</th>
+                </tr>
+              </thead>
+              <tbody>
+                {similar.map((s, i) => (
+                  <tr key={i} className="border-b border-[var(--border)]/50 hover:bg-[var(--border)]/25">
+                    <td className="py-2.5 pl-5 pr-3">
+                      <div className="text-sm font-semibold text-[var(--fg)]">{s.name ?? s.code}</div>
+                      <div className="text-xs text-[var(--muted)]">{s.code}</div>
+                    </td>
+                    <td className="py-2.5 pr-3 text-xs text-[var(--muted)] whitespace-nowrap">{s.date}</td>
+                    <td className="py-2.5 pr-3">
+                      {s.event_type ? <Badge eventType={s.event_type} size="sm" /> : <span className="text-[var(--muted)]">—</span>}
+                    </td>
+                    <td className="py-2.5 pr-3 text-right tabular text-cyan-400 font-semibold">
+                      {(s.similarity * 100).toFixed(0)}%
+                    </td>
+                    <td className={clsx('py-2.5 pr-3 text-right tabular font-semibold', pctColor(s.return_1d))}>
+                      {s.return_1d != null ? fmt.pct(s.return_1d) : '—'}
+                    </td>
+                    <td className={clsx('py-2.5 pr-3 text-right tabular font-semibold', pctColor(s.return_3d))}>
+                      {s.return_3d != null ? fmt.pct(s.return_3d) : '—'}
+                    </td>
+                    <td className={clsx('py-2.5 pr-5 text-right tabular font-semibold', pctColor(s.return_5d))}>
+                      {s.return_5d != null ? fmt.pct(s.return_5d) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

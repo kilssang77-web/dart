@@ -58,18 +58,21 @@ export interface Recommendation {
 }
 
 export interface RationaleDetail {
-  event_type?:       string
-  model_mode?:       'ml' | 'fallback'
-  ml_prob?:          number
-  sim_prob?:         number
-  sim_count?:        number
-  sim_weight?:       number
-  avg_sim_return?:   number
-  stop_dist_pct?:    number
-  target_dist_pct?:  number
-  atr_based?:        boolean
-  atr14?:            number
-  risk_factors?:     string[]
+  event_type?:          string
+  model_mode?:          'ml' | 'fallback'
+  ml_prob?:             number
+  sim_prob?:            number
+  sim_count?:           number
+  sim_weight?:          number
+  avg_sim_return?:      number
+  stop_dist_pct?:       number
+  target_dist_pct?:     number
+  atr_based?:           boolean
+  atr14?:               number
+  risk_factors?:        string[]
+  confidence_grade?:    'A' | 'B' | 'C' | 'D'
+  confidence_score?:    number
+  confidence_warnings?: string[]
 }
 
 export interface SimilarCase {

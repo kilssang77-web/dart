@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import orjson
+import asyncpg
 from collections import deque
 from datetime import datetime, timedelta, timezone
 import redis.asyncio as redis_lib
@@ -63,13 +64,32 @@ class FeatureStockDetector:
         self._bar_count:  dict[str, int]   = {}  # 실시간 캔들 탐지용 분봉 누적 카운터
 
     async def run(self):
-        await asyncio.gather(
-            self._process_ticks(),
-            self._process_minute_bars(),
-            self._process_supply_demand(),
-            self._process_disclosures(),
-            self._kafka_lag_monitor(),
+        # DB 연결 (startup_check용)
+        db_pool = await asyncpg.create_pool(
+            dsn=os.environ["POSTGRES_DSN"].replace("+asyncpg", ""),
+            min_size=2, max_size=5,
         )
+        try:
+            # Redis 통계 유효성 확인 및 복구
+            try:
+                import sys, os as _os
+                sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), '../../collector'))
+                from startup_check import ensure_redis_stats
+                ok = await ensure_redis_stats(db_pool, self.redis)
+                if not ok:
+                    logger.warning("Redis 통계 복구 실패 — 탐지 정확도 저하 가능")
+            except ImportError:
+                logger.warning("startup_check 모듈 없음 — Redis 통계 미검증")
+
+            await asyncio.gather(
+                self._process_ticks(),
+                self._process_minute_bars(),
+                self._process_supply_demand(),
+                self._process_disclosures(),
+                self._kafka_lag_monitor(),
+            )
+        finally:
+            await db_pool.close()
 
     async def _kafka_lag_monitor(self):
         """30초마다 Kafka 컨슈머 오프셋 lag를 Redis에 기록."""

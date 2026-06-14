@@ -2,7 +2,7 @@
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { TrendingUp, Shield, Zap, Target, X, ChevronRight, AlertTriangle, BrainCircuit, ExternalLink, Info } from 'lucide-react'
+import { TrendingUp, Shield, Zap, Target, X, ChevronRight, AlertTriangle, BrainCircuit, ExternalLink, Info, AlertCircle, ChevronDown } from 'lucide-react'
 import { recommendationsApi } from '@/api/recommendations'
 import type { SignalItem } from '@/api/recommendations'
 import { Badge, ActionBadge, MarketBadge } from '@/components/ui/Badge'
@@ -338,6 +338,208 @@ function SignalRow({ sig, index }: { sig: SignalItem; index: number }) {
   )
 }
 
+// ── 추천 카드 컴포넌트 ────────────────────────────────────────────────────────
+function RecCard({
+  rec,
+  crDelta,
+  onOpen,
+  onSignalModal,
+  onNav,
+}: {
+  rec:          Recommendation
+  crDelta:      number | null
+  onOpen:       () => void
+  onSignalModal: () => void
+  onNav:        (code: string) => void
+}) {
+  const [showDetail, setShowDetail] = useState(false)
+
+  return (
+    <Card
+      className="hover:border-cyan-500/40 transition-colors cursor-pointer"
+      onClick={onOpen}
+    >
+      <CardBody>
+        {/* 헤더 */}
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-bold text-[0.9375rem] text-[var(--fg)]">{rec.name}</span>
+              <MarketBadge market={rec.market} />
+              {/* 신뢰도 등급 배지 */}
+              {rec.rationale?.confidence_grade && (
+                <span className={clsx(
+                  'text-xs px-1.5 py-0.5 rounded border font-semibold',
+                  rec.rationale.confidence_grade === 'A' ? 'border-green-500/40 text-green-400 bg-green-500/10' :
+                  rec.rationale.confidence_grade === 'B' ? 'border-blue-500/40 text-blue-400 bg-blue-500/10' :
+                  rec.rationale.confidence_grade === 'C' ? 'border-yellow-500/40 text-yellow-400 bg-yellow-500/10' :
+                  'border-red-500/40 text-red-400 bg-red-500/10'
+                )}>
+                  {rec.rationale.confidence_grade}등급
+                </span>
+              )}
+              {(rec.rec_count ?? 1) > 1 && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onSignalModal() }}
+                  className="text-xs px-1.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 border border-cyan-500/25 font-semibold hover:bg-cyan-500/25 transition-colors flex items-center gap-0.5"
+                >
+                  {rec.rec_count}개 신호 <ChevronRight size={8} />
+                </button>
+              )}
+            </div>
+            <div className="text-sm text-[var(--muted)] mt-0.5">{rec.code} · 감지 {fmt.dateTime(rec.fe_detected_at ?? rec.created_at)}</div>
+          </div>
+          <ActionBadge action={rec.action} />
+        </div>
+
+        {/* 확률 바 */}
+        <div className="mb-3">
+          <div className="flex justify-between text-sm mb-1.5">
+            <span className="flex items-center gap-1 text-[var(--muted)] font-medium">
+              성공 확률
+              <span title="LightGBM ML 모델 추정값 · 최대 95%로 제한" className="cursor-help">
+                <Info size={10} className="text-[var(--muted)]/60" />
+              </span>
+            </span>
+            <span className={clsx('font-bold text-base tabular', probColor(rec.success_prob))}>
+              {fmt.prob(rec.success_prob)}
+            </span>
+          </div>
+          <div className="h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
+            <div
+              className={clsx('h-full rounded-full transition-all',
+                rec.success_prob >= 0.7 ? 'bg-green-400' : rec.success_prob >= 0.55 ? 'bg-yellow-400' : 'bg-[var(--muted)]'
+              )}
+              style={{ width: `${rec.success_prob * 100}%` }}
+            />
+          </div>
+        </div>
+
+        {/* 경고 메시지 */}
+        {(rec.rationale?.confidence_warnings?.length ?? 0) > 0 && (
+          <div className="mb-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+            {rec.rationale!.confidence_warnings!.map((w, i) => (
+              <p key={i} className="text-xs text-amber-400 flex items-center gap-1">
+                <AlertCircle size={11} /> {w}
+              </p>
+            ))}
+          </div>
+        )}
+
+        {/* 현재가 vs 진입가 */}
+        {rec.current_price != null && (
+          <div className="mb-3 flex items-center justify-between bg-[var(--bg)] rounded-lg px-3 py-1.5">
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="text-[var(--muted)] text-xs">현재가</span>
+              <span className={clsx('font-bold tabular',
+                (rec.current_change_rate ?? 0) > 0 ? 'text-red-400' : (rec.current_change_rate ?? 0) < 0 ? 'text-blue-400' : 'text-[var(--fg)]'
+              )}>{fmt.price(rec.current_price)}</span>
+              {rec.current_change_rate != null && rec.current_change_rate !== 0 && (
+                <span className={clsx('text-xs tabular', rec.current_change_rate > 0 ? 'text-red-400' : 'text-blue-400')}>
+                  {rec.current_change_rate > 0 ? '+' : ''}{rec.current_change_rate.toFixed(2)}%
+                </span>
+              )}
+            </div>
+            {crDelta != null && (
+              <span className={clsx('text-xs tabular font-semibold', crDelta >= 0 ? 'text-red-400' : 'text-blue-400')}>
+                진입대비 {crDelta >= 0 ? '+' : ''}{crDelta.toFixed(1)}%
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* 가격 정보 */}
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="bg-[var(--bg)] rounded-lg p-2">
+            <div className="text-xs text-[var(--muted)] font-medium flex items-center justify-center gap-0.5 mb-1"><Zap size={9} /> 진입가</div>
+            <div className="text-sm font-bold text-[var(--fg)] tabular">{fmt.price(rec.entry_price)}</div>
+          </div>
+          <div className="bg-red-500/10 rounded-lg p-2 border border-red-500/20">
+            <div className="text-xs text-red-400 font-medium flex items-center justify-center gap-0.5 mb-1"><Target size={9} /> 목표가</div>
+            <div className="text-sm font-bold text-red-400 tabular">{fmt.price(rec.target_price)}</div>
+          </div>
+          <div className="bg-blue-500/10 rounded-lg p-2 border border-blue-500/20">
+            <div className="text-xs text-blue-400 font-medium flex items-center justify-center gap-0.5 mb-1"><Shield size={9} /> 손절가</div>
+            <div className="text-sm font-bold text-blue-400 tabular">{fmt.price(rec.stop_loss_price)}</div>
+          </div>
+        </div>
+
+        {/* 하단 메타 */}
+        <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--border)]">
+          <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
+            <span className="flex items-center gap-0.5"><TrendingUp size={9} />R:R {rec.risk_reward_ratio?.toFixed(1) ?? '—'}</span>
+            <span>예상 {rec.expected_hold_days}일</span>
+            {rec.risk_score != null && (
+              <span className={clsx(
+                'px-1.5 py-0.5 rounded-full text-xs font-semibold border',
+                rec.risk_score >= 0.6
+                  ? 'bg-red-500/15 text-red-400 border-red-500/30'
+                  : rec.risk_score >= 0.3
+                  ? 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30'
+                  : 'bg-green-500/15 text-green-400 border-green-500/30'
+              )}>
+                위험 {rec.risk_score >= 0.6 ? '높음' : rec.risk_score >= 0.3 ? '중간' : '낮음'}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            {rec.rationale?.model_mode === 'ml' ? (
+              <span className="text-xs px-1.5 py-0.5 rounded border border-purple-500/30 text-purple-400">ML</span>
+            ) : rec.rationale?.model_mode === 'fallback' ? (
+              <span className="text-xs px-1.5 py-0.5 rounded border border-amber-500/30 text-amber-400">규칙기반</span>
+            ) : null}
+            {rec.rationale?.atr_based && (
+              <span className="text-xs px-1.5 py-0.5 rounded border border-cyan-500/30 text-cyan-400">ATR</span>
+            )}
+            {rec.rationale?.event_type && <Badge eventType={rec.rationale.event_type} size="sm" />}
+            <button
+              onClick={(e) => { e.stopPropagation(); onNav(rec.code) }}
+              className="text-[var(--muted)] hover:text-cyan-400 transition-colors p-0.5"
+              title="종목 상세"
+            >
+              <ExternalLink size={11} />
+            </button>
+          </div>
+        </div>
+
+        {/* 상세 정보 접이식 */}
+        {rec.rationale && (rec.rationale.risk_factors?.length || rec.rationale.sim_count) && (
+          <div className="mt-2 pt-2 border-t border-[var(--border)]/50">
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowDetail((v) => !v) }}
+              className="flex items-center gap-1 text-xs text-[var(--muted)] hover:text-cyan-400 transition-colors"
+            >
+              {showDetail ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+              {showDetail ? '▲ 접기' : '▼ 상세'}
+            </button>
+            {showDetail && (
+              <div className="mt-2 space-y-1.5">
+                {rec.rationale.sim_count != null && rec.rationale.sim_count > 0 && (
+                  <div className="text-xs text-[var(--muted)]">
+                    유사 사례 <span className="text-[var(--fg)] font-semibold">{rec.rationale.sim_count}건</span>
+                    {rec.rationale.avg_sim_return != null && (
+                      <span className={clsx('ml-1 font-semibold', rec.rationale.avg_sim_return >= 0 ? 'text-red-400' : 'text-blue-400')}>
+                        · 평균 {rec.rationale.avg_sim_return >= 0 ? '+' : ''}{(rec.rationale.avg_sim_return * 100).toFixed(1)}%
+                      </span>
+                    )}
+                  </div>
+                )}
+                {rec.rationale.risk_factors && rec.rationale.risk_factors.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {rec.rationale.risk_factors.map((r, i) => (
+                      <span key={i} className="text-xs px-1.5 py-0.5 rounded bg-red-500/10 text-red-400">{r}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </CardBody>
+    </Card>
+  )
+}
+
 // ── 메인 페이지 ─────────────────────────────────────────────────────────────
 export function Recommendations() {
   const nav = useNavigate()
@@ -485,132 +687,14 @@ export function Recommendations() {
             ? ((rec.current_price - rec.entry_price) / rec.entry_price * 100)
             : null
           return (
-            <Card
+            <RecCard
               key={rec.id}
-              className="hover:border-cyan-500/40 transition-colors cursor-pointer"
-              onClick={() => setSelectedRec(rec)}
-            >
-              <CardBody>
-                {/* 헤더 */}
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-bold text-[0.9375rem] text-[var(--fg)]">{rec.name}</span>
-                      <MarketBadge market={rec.market} />
-                      {(rec.rec_count ?? 1) > 1 && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setSignalModal({ code: rec.code, name: rec.name }) }}
-                          className="text-xs px-1.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 border border-cyan-500/25 font-semibold hover:bg-cyan-500/25 transition-colors flex items-center gap-0.5"
-                        >
-                          {rec.rec_count}개 신호 <ChevronRight size={8} />
-                        </button>
-                      )}
-                    </div>
-                    <div className="text-sm text-[var(--muted)] mt-0.5">{rec.code} · 감지 {fmt.dateTime(rec.fe_detected_at ?? rec.created_at)}</div>
-                  </div>
-                  <ActionBadge action={rec.action} />
-                </div>
-
-                {/* 확률 바 */}
-                <div className="mb-3">
-                  <div className="flex justify-between text-sm mb-1.5">
-                    <span className="flex items-center gap-1 text-[var(--muted)] font-medium">
-                      성공 확률
-                      <span title="LightGBM ML 모델 추정값 · 최대 95%로 제한" className="cursor-help">
-                        <Info size={10} className="text-[var(--muted)]/60" />
-                      </span>
-                    </span>
-                    <span className={clsx('font-bold text-base tabular', probColor(rec.success_prob))}>
-                      {fmt.prob(rec.success_prob)}
-                    </span>
-                  </div>
-                  <div className="h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
-                    <div
-                      className={clsx('h-full rounded-full transition-all',
-                        rec.success_prob >= 0.7 ? 'bg-green-400' : rec.success_prob >= 0.55 ? 'bg-yellow-400' : 'bg-[var(--muted)]'
-                      )}
-                      style={{ width: `${rec.success_prob * 100}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* 현재가 vs 진입가 */}
-                {rec.current_price != null && (
-                  <div className="mb-3 flex items-center justify-between bg-[var(--bg)] rounded-lg px-3 py-1.5">
-                    <div className="flex items-center gap-1.5 text-xs">
-                      <span className="text-[var(--muted)] text-xs">현재가</span>
-                      <span className={clsx('font-bold tabular',
-                        (rec.current_change_rate ?? 0) > 0 ? 'text-red-400' : (rec.current_change_rate ?? 0) < 0 ? 'text-blue-400' : 'text-[var(--fg)]'
-                      )}>{fmt.price(rec.current_price)}</span>
-                      {rec.current_change_rate != null && rec.current_change_rate !== 0 && (
-                        <span className={clsx('text-xs tabular', rec.current_change_rate > 0 ? 'text-red-400' : 'text-blue-400')}>
-                          {rec.current_change_rate > 0 ? '+' : ''}{rec.current_change_rate.toFixed(2)}%
-                        </span>
-                      )}
-                    </div>
-                    {crDelta != null && (
-                      <span className={clsx('text-xs tabular font-semibold', crDelta >= 0 ? 'text-red-400' : 'text-blue-400')}>
-                        진입대비 {crDelta >= 0 ? '+' : ''}{crDelta.toFixed(1)}%
-                      </span>
-                    )}
-                  </div>
-                )}
-
-                {/* 가격 정보 */}
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <div className="bg-[var(--bg)] rounded-lg p-2">
-                    <div className="text-xs text-[var(--muted)] font-medium flex items-center justify-center gap-0.5 mb-1"><Zap size={9} /> 진입가</div>
-                    <div className="text-sm font-bold text-[var(--fg)] tabular">{fmt.price(rec.entry_price)}</div>
-                  </div>
-                  <div className="bg-red-500/10 rounded-lg p-2 border border-red-500/20">
-                    <div className="text-xs text-red-400 font-medium flex items-center justify-center gap-0.5 mb-1"><Target size={9} /> 목표가</div>
-                    <div className="text-sm font-bold text-red-400 tabular">{fmt.price(rec.target_price)}</div>
-                  </div>
-                  <div className="bg-blue-500/10 rounded-lg p-2 border border-blue-500/20">
-                    <div className="text-xs text-blue-400 font-medium flex items-center justify-center gap-0.5 mb-1"><Shield size={9} /> 손절가</div>
-                    <div className="text-sm font-bold text-blue-400 tabular">{fmt.price(rec.stop_loss_price)}</div>
-                  </div>
-                </div>
-
-                {/* 하단 메타 */}
-                <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--border)]">
-                  <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
-                    <span className="flex items-center gap-0.5"><TrendingUp size={9} />R:R {rec.risk_reward_ratio?.toFixed(1) ?? '—'}</span>
-                    <span>예상 {rec.expected_hold_days}일</span>
-                    {rec.risk_score != null && (
-                      <span className={clsx(
-                        'px-1.5 py-0.5 rounded-full text-xs font-semibold border',
-                        rec.risk_score >= 0.6
-                          ? 'bg-red-500/15 text-red-400 border-red-500/30'
-                          : rec.risk_score >= 0.3
-                          ? 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30'
-                          : 'bg-green-500/15 text-green-400 border-green-500/30'
-                      )}>
-                        위험 {rec.risk_score >= 0.6 ? '높음' : rec.risk_score >= 0.3 ? '중간' : '낮음'}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {rec.rationale?.model_mode === 'ml' ? (
-                      <span className="text-xs px-1.5 py-0.5 rounded border border-purple-500/30 text-purple-400">ML</span>
-                    ) : rec.rationale?.model_mode === 'fallback' ? (
-                      <span className="text-xs px-1.5 py-0.5 rounded border border-amber-500/30 text-amber-400">규칙기반</span>
-                    ) : null}
-                    {rec.rationale?.atr_based && (
-                      <span className="text-xs px-1.5 py-0.5 rounded border border-cyan-500/30 text-cyan-400">ATR</span>
-                    )}
-                    {rec.rationale?.event_type && <Badge eventType={rec.rationale.event_type} size="sm" />}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); nav(`/search?code=${rec.code}`) }}
-                      className="text-[var(--muted)] hover:text-cyan-400 transition-colors p-0.5"
-                      title="종목 상세"
-                    >
-                      <ExternalLink size={11} />
-                    </button>
-                  </div>
-                </div>
-              </CardBody>
-            </Card>
+              rec={rec}
+              crDelta={crDelta}
+              onOpen={() => setSelectedRec(rec)}
+              onSignalModal={() => setSignalModal({ code: rec.code, name: rec.name })}
+              onNav={(code) => nav(`/search?code=${code}`)}
+            />
           )
         })}
         {!isLoading && (!recs || recs.length === 0) && (

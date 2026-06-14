@@ -2,9 +2,9 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { clsx } from 'clsx'
 import {
-  LayoutDashboard, Zap, DollarSign, FileText, Newspaper,
-  Monitor, BarChart2, Settings, ChevronLeft, ChevronRight, ChevronDown,
-  Activity, Star, Search, History, Cpu, X,
+  LayoutDashboard, Zap, TrendingUp, Search, Newspaper, Star,
+  FlaskConical, BarChart3, Settings2,
+  ChevronLeft, ChevronRight, ChevronDown, X,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { featuresApi } from '@/api/features'
@@ -24,41 +24,32 @@ interface NavGroup {
   collapsible?: boolean
 }
 
-// ── 메뉴 정의 (4그룹 11항목) ────────────────────────────────────────────────
+// ── 메뉴 정의 (3그룹 9항목) ─────────────────────────────────────────────────
 function buildNavGroups(badge?: string): NavGroup[] {
   return [
     {
-      title: '핵심',
+      title: '실시간',
       items: [
         { to: '/',                icon: <LayoutDashboard size={15} />, label: '대시보드' },
         { to: '/features',        icon: <Zap size={15} />,            label: '특징주 탐지', badge },
-        { to: '/recommendations', icon: <DollarSign size={15} />,     label: '추천 매매' },
+        { to: '/recommendations', icon: <TrendingUp size={15} />,     label: '매매 추천' },
       ],
     },
     {
       title: '분석',
       items: [
-        { to: '/search',        icon: <Search size={15} />,   label: '종목 검색·분석' },
-        { to: '/disclosures',   icon: <FileText size={15} />, label: '공시 분석' },
-        { to: '/news',          icon: <Newspaper size={15} />,label: '뉴스·테마' },
-        { to: '/similar-cases', icon: <History size={15} />,  label: '유사사례' },
-      ],
-    },
-    {
-      title: '모니터링',
-      items: [
-        { to: '/hts',       icon: <Monitor size={15} />, label: 'HTS 시세판' },
-        { to: '/watchlist', icon: <Star size={15} />,    label: '관심종목' },
+        { to: '/search',    icon: <Search size={15} />,    label: '종목 분석' },
+        { to: '/intel',     icon: <Newspaper size={15} />, label: '정보 센터' },
+        { to: '/watchlist', icon: <Star size={15} />,      label: '관심종목' },
       ],
     },
     {
       title: '시스템',
       collapsible: true,
       items: [
-        { to: '/backtest',    icon: <BarChart2 size={15} />, label: '백테스트' },
-        { to: '/performance', icon: <Activity size={15} />,  label: '모델 성능' },
-        { to: '/settings',    icon: <Settings size={15} />,  label: '설정' },
-        { to: '/bootstrap',   icon: <Cpu size={15} />,       label: '초기화 (Admin)' },
+        { to: '/backtest',    icon: <FlaskConical size={15} />, label: '백테스트' },
+        { to: '/performance', icon: <BarChart3 size={15} />,    label: '모델 성능' },
+        { to: '/settings',    icon: <Settings2 size={15} />,    label: '설정' },
       ],
     },
   ]

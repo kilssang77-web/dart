@@ -1,5 +1,5 @@
 ﻿import { Suspense, lazy } from 'react'
-import { Routes, Route, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle } from 'lucide-react'
 import { Sidebar } from './components/Layout/Sidebar'
@@ -13,43 +13,27 @@ import { marketApi } from './api/market'
 const Dashboard      = lazy(() => import('./pages/Dashboard').then((m) => ({ default: m.Dashboard })))
 const Features       = lazy(() => import('./pages/Features').then((m) => ({ default: m.Features })))
 const Recommendations= lazy(() => import('./pages/Recommendations').then((m) => ({ default: m.Recommendations })))
-const Disclosures    = lazy(() => import('./pages/Disclosures').then((m) => ({ default: m.Disclosures })))
-const News           = lazy(() => import('./pages/News').then((m) => ({ default: m.News })))
+const Intel          = lazy(() => import('./pages/Intel').then((m) => ({ default: m.Intel })))
 const StockSearch    = lazy(() => import('./pages/StockSearch').then((m) => ({ default: m.StockSearch })))
-const HTS            = lazy(() => import('./pages/HTS').then((m) => ({ default: m.HTS })))
 const Backtest       = lazy(() => import('./pages/Backtest').then((m) => ({ default: m.Backtest })))
 const ModelPerf      = lazy(() => import('./pages/ModelPerformance').then((m) => ({ default: m.ModelPerformance })))
 const Settings       = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })))
 const StockAnalysis  = lazy(() => import('./pages/StockAnalysis').then((m) => ({ default: m.StockAnalysis })))
 const Watchlist      = lazy(() => import('./pages/Watchlist').then((m) => ({ default: m.Watchlist })))
-const NotifHistory   = lazy(() => import('./pages/NotificationHistory').then((m) => ({ default: m.NotificationHistory })))
-const Tracking       = lazy(() => import('./pages/Tracking').then((m) => ({ default: m.Tracking })))
-const Themes         = lazy(() => import('./pages/Themes').then((m) => ({ default: m.Themes })))
-const SimilarCases   = lazy(() => import('./pages/SimilarCases').then((m) => ({ default: m.SimilarCases })))
-const Bootstrap      = lazy(() => import('./pages/Bootstrap').then((m) => ({ default: m.Bootstrap })))
-const PerfTracking   = lazy(() => import('./pages/PerformanceTracking').then((m) => ({ default: m.PerformanceTracking })))
 const SystemHealth   = lazy(() => import('./pages/SystemHealth').then((m) => ({ default: m.SystemHealth })))
 
 const META: Record<string, { title: string; subtitle?: string }> = {
   '/':               { title: '대시보드',    subtitle: '실시간 특징주 현황 요약' },
   '/features':       { title: '특징주 탐지', subtitle: '이벤트 기반 특징주 목록' },
-  '/recommendations':{ title: '추천 매매',   subtitle: 'ML 기반 매수 신호 및 목표가' },
-  '/disclosures':    { title: '공시 분석',   subtitle: 'DART 공시 감성 분석' },
-  '/news':           { title: '뉴스/테마',   subtitle: '뉴스 흐름 & K-Means 테마 클러스터' },
-  '/search':         { title: '종목 검색',   subtitle: '종목 상세 정보 · 차트 · 추천' },
-  '/analysis':       { title: '종목 분석',   subtitle: '주가 예측 · 매수/매도 전략 추천' },
-  '/hts':            { title: 'HTS 시세판',  subtitle: '실시간 호가 · 체결 현황' },
+  '/recommendations':{ title: '매매 추천',   subtitle: 'ML 기반 매수 신호 및 목표가' },
+  '/intel':          { title: '정보 센터',   subtitle: '공시 · 뉴스 · 테마 통합 분석' },
+  '/search':         { title: '종목 분석',   subtitle: '종목 상세 정보 · 차트 · 추천 · 유사사례' },
+  '/watchlist':      { title: '관심종목',    subtitle: '즐겨찾기 종목 모니터링' },
   '/backtest':       { title: '백테스트',    subtitle: '이벤트 전략 기간별 성과 검증' },
   '/performance':    { title: '모델 성능',   subtitle: 'LightGBM AUC · F1 · 피처 중요도' },
-  '/watchlist':      { title: '관심종목',  subtitle: '즐겨찾기 종목 모니터링' },
   '/settings':       { title: '설정',        subtitle: '시스템 파라미터 · API 연결 관리' },
-  '/notifications':   { title: '텔레그램 이력', subtitle: '알림 발송 이력 조회' },
-  '/tracking':         { title: '성과 추적', subtitle: '추천 종목 사후 수익률 · 이벤트별 성공률 분석' },
-  '/themes':           { title: '테마 추적', subtitle: '뉴스 기반 K-Means 동적 테마 · 섹터 확산 분석' },
-  '/similar-cases':    { title: '유사사례 검색', subtitle: '과거 유사 패턴 · 차트 비교 · 수익률 분석' },
-  '/bootstrap':        { title: '시스템 초기화', subtitle: '데이터 수집 · 모델 학습 · 벡터화 단계별 실행' },
-  '/perf-tracking':    { title: '추천 성과 추적', subtitle: '활성 추천 모니터링 · 수익률 분포 · 완료 이력' },
-  '/system-health':    { title: '시스템 헬스',  subtitle: 'ML 모델 · DB · Kafka · 데이터 신선도 전체 현황' },
+  '/analysis':       { title: '종목 분석',   subtitle: '주가 예측 · 매수/매도 전략 추천' },
+  '/system-health':  { title: '시스템 헬스', subtitle: 'ML 모델 · DB · Kafka · 데이터 신선도 전체 현황' },
 }
 
 function Spinner() {
@@ -117,23 +101,25 @@ export default function App() {
               <Route path="/"                element={<Dashboard />} />
               <Route path="/features"        element={<Features />} />
               <Route path="/recommendations" element={<Recommendations />} />
-              <Route path="/disclosures"     element={<Disclosures />} />
-              <Route path="/news"            element={<News />} />
+              <Route path="/intel"           element={<Intel />} />
               <Route path="/search"          element={<StockSearch />} />
-              <Route path="/hts"             element={<HTS />} />
+              <Route path="/watchlist"       element={<Watchlist />} />
               <Route path="/backtest"        element={<Backtest />} />
               <Route path="/performance"     element={<ModelPerf />} />
-              <Route path="/analysis"        element={<StockAnalysis />} />
-              <Route path="/watchlist"       element={<Watchlist />} />
               <Route path="/settings"        element={<Settings />} />
-              <Route path="/notifications"   element={<NotifHistory />} />
-              <Route path="/tracking"         element={<Tracking />} />
-              <Route path="/themes"                 element={<Themes />} />
-              <Route path="/similar-cases"         element={<SimilarCases />} />
-              <Route path="/similar-cases/:eventId" element={<SimilarCases />} />
-              <Route path="/bootstrap"             element={<Bootstrap />} />
-              <Route path="/perf-tracking"         element={<PerfTracking />} />
-              <Route path="/system-health"         element={<SystemHealth />} />
+              <Route path="/analysis"        element={<StockAnalysis />} />
+              <Route path="/system-health"   element={<SystemHealth />} />
+              {/* 제거된 라우트 → /intel 리다이렉트 */}
+              <Route path="/disclosures"     element={<Navigate to="/intel" replace />} />
+              <Route path="/news"            element={<Navigate to="/intel" replace />} />
+              <Route path="/themes"          element={<Navigate to="/intel" replace />} />
+              <Route path="/similar-cases"         element={<Navigate to="/search" replace />} />
+              <Route path="/similar-cases/:eventId" element={<Navigate to="/search" replace />} />
+              <Route path="/hts"             element={<Navigate to="/" replace />} />
+              <Route path="/notifications"   element={<Navigate to="/" replace />} />
+              <Route path="/bootstrap"       element={<Navigate to="/" replace />} />
+              <Route path="/tracking"        element={<Navigate to="/" replace />} />
+              <Route path="/perf-tracking"   element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
         </main>

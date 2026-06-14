@@ -103,6 +103,9 @@ class EntryRecommender:
 
         hold = self._estimate_hold_days(similar_cases, ml_result, target_dist)
 
+        model_mode = "ml" if ml_result.model_used else "fallback"
+        confidence = self._compute_confidence_grade(model_mode, n_cases, ml_prob)
+
         return EntryRecommendation(
             code=code,
             action=action,
@@ -117,18 +120,21 @@ class EntryRecommender:
             risk_score=round(float(risk), 4),
             risk_reward_ratio=round(rr, 2),
             rationale={
-                "event_type":      event.get("event_type"),
-                "model_mode":      "ml" if ml_result.model_used else "fallback",
-                "ml_prob":         round(float(ml_prob), 4),
-                "sim_prob":        round(float(sim_prob), 4),
-                "sim_count":       n_cases,
-                "sim_weight":      round(sim_w, 3),
-                "avg_sim_return":  sim_stats.get("avg_return_5d", 0),
-                "stop_dist_pct":   round(stop_dist * 100, 2),
-                "target_dist_pct": round(target_dist * 100, 2),
-                "atr_based":       atr_val is not None and atr_val > 0,
-                "atr14":           round(float(atr_val), 2) if atr_val else None,
-                "risk_factors":    self._risk_factors(event, ml_result),
+                "event_type":          event.get("event_type"),
+                "model_mode":          model_mode,
+                "ml_prob":             round(float(ml_prob), 4),
+                "sim_prob":            round(float(sim_prob), 4),
+                "sim_count":           n_cases,
+                "sim_weight":          round(sim_w, 3),
+                "avg_sim_return":      sim_stats.get("avg_return_5d", 0),
+                "stop_dist_pct":       round(stop_dist * 100, 2),
+                "target_dist_pct":     round(target_dist * 100, 2),
+                "atr_based":           atr_val is not None and atr_val > 0,
+                "atr14":               round(float(atr_val), 2) if atr_val else None,
+                "risk_factors":        self._risk_factors(event, ml_result),
+                "confidence_grade":    confidence["grade"],
+                "confidence_score":    confidence["score"],
+                "confidence_warnings": confidence["warnings"],
             },
             similar_cases=similar_cases[:5],
         )
@@ -212,6 +218,43 @@ class EntryRecommender:
         if ml_result and ml_result.risk_score > 0.5:
             factors.append("ML 고위험 판정")
         return factors
+
+    def _compute_confidence_grade(
+        self,
+        model_mode: str,
+        sim_count: int,
+        ml_prob: float,
+    ) -> dict:
+        score = 0
+        warnings = []
+
+        if model_mode == "ml":
+            score += 40
+        else:
+            score += 10
+            warnings.append("ML 모델 미학습 — 규칙 기반 추천")
+
+        if sim_count >= 10:
+            score += 40
+        elif sim_count >= 5:
+            score += 25
+        elif sim_count >= 1:
+            score += 10
+            if sim_count < 3:
+                warnings.append(f"유사 사례 부족 ({sim_count}건) — 낮은 신뢰도")
+        else:
+            warnings.append("유사 사례 없음 — 성공확률 참고용")
+
+        score += 20  # 기본 데이터 점수
+
+        grade = "A" if score >= 80 else "B" if score >= 60 else "C" if score >= 40 else "D"
+
+        return {
+            "grade":    grade,
+            "score":    score,
+            "label":    {"A": "높음", "B": "보통", "C": "낮음", "D": "매우낮음"}[grade],
+            "warnings": warnings,
+        }
 
     def _skip(self, code: str, price: int, reason: str) -> EntryRecommendation:
         return EntryRecommendation(
