@@ -66,19 +66,19 @@ async def main(batch: int, dry_run: bool):
         await pool.close()
         return
 
-    offset = 0
     updated = 0
+    last_id = 0
 
-    while offset < total:
+    while True:
         rows = await pool.fetch(
             """
             SELECT id, signal_score, risk_score, result_1d, result_3d, result_5d
             FROM feature_events
-            WHERE pattern_vector IS NULL
+            WHERE pattern_vector IS NULL AND id > $2
             ORDER BY id
-            LIMIT $1 OFFSET $2
+            LIMIT $1
             """,
-            batch, offset,
+            batch, last_id,
         )
         if not rows:
             break
@@ -89,6 +89,8 @@ async def main(batch: int, dry_run: bool):
             if vec is not None:
                 updates.append((row["id"], vec))
 
+        last_id = rows[-1]["id"]
+
         if not dry_run and updates:
             async with pool.acquire() as conn:
                 await conn.executemany(
@@ -96,11 +98,9 @@ async def main(batch: int, dry_run: bool):
                     [(uid, str(v)) for uid, v in updates],
                 )
             updated += len(updates)
-            logger.info(f"업데이트 {updated}/{total} ({offset+len(rows)}건 처리)")
+            logger.info(f"업데이트 {updated}/{total} ({updated}건 처리)")
         else:
-            logger.info(f"[dry-run] {offset}~{offset+len(rows)} 처리 예정")
-
-        offset += len(rows)
+            logger.info(f"[dry-run] id>{last_id} 처리 예정")
 
     logger.info(f"완료 — 총 {updated}건 업데이트")
     await pool.close()
