@@ -3,7 +3,7 @@
 
 나라장터 메커니즘:
   기초금액 → 복수예가 15개(±2%) 생성 → 4개 무작위 추첨 → 평균 = 예정가격(사정률)
-  → 낙찰하한가(예정가격 × 낙찰하한율) → 유효입찰 중 최저가 낙찰
+  → 낙찰하한가(예정가격 × 낙찰하한율) → 유효입찰 중 최고가 낙찰 (예정가격에 가장 근접한 아래 입찰)
 
 공종별 낙찰하한율:
   전기공사업, 정보통신공사업, 소방시설공사업: 86.745%
@@ -130,7 +130,7 @@ def monte_carlo_win_prob(
     낙찰 성공 조건:
       1. our_bid_rate >= floor_rate_pct           (낙찰하한율 이상 — 기초금액 대비)
       2. our_bid_rate <= srate_dist[i]             (예정가격 이하)
-      3. our_bid_rate <= min(경쟁사 투찰률)        (최저가 낙찰)
+      3. our_bid_rate >= max(경쟁사 유효 투찰률)    (최고가 낙찰 — 예정가격에 가장 근접)
 
     Parameters:
         our_bid_rate    : 우리 투찰률 (기초금액 대비, 예: 0.8800)
@@ -172,18 +172,19 @@ def monte_carlo_win_prob(
         for m, s in zip(competitor_means, competitor_stds)
     ])
 
-    # 경쟁사 무효 입찰(낙찰하한 미만 또는 예정가격 초과) 제거
+    # 복수예가: 유효 범위 내 최고가 낙찰 (예정가격에 가장 근접한 아래 입찰)
+    # 무효 입찰(하한 미만·예정가 초과)은 -inf로 마스킹 → max 연산에서 자동 제외
     comp_valid    = (comp_bids >= floor_rate_pct * srates[:, None]) & (comp_bids <= srates[:, None])
-    comp_bids_eff = np.where(comp_valid, comp_bids, np.inf)
-    comp_min = comp_bids_eff.min(axis=1)
+    comp_bids_eff = np.where(comp_valid, comp_bids, -np.inf)
+    comp_max      = comp_bids_eff.max(axis=1)  # 경쟁자 중 최고 유효 입찰
 
-    win_mask = valid & (our_bid_rate <= comp_min)
+    win_mask = valid & (our_bid_rate >= comp_max)   # 내가 유효하고 경쟁자보다 높으면 낙찰
     win_prob = float(win_mask.mean())
 
     if valid.any():
-        comp_lower = (comp_bids[valid] < our_bid_rate) & comp_valid[valid]
-        ranks    = comp_lower.sum(axis=1) + 1
-        avg_rank = float(ranks.mean())
+        # 순위: 나보다 높은 유효 경쟁자 수 + 1 (1위=낙찰)
+        comp_above = (comp_bids[valid] > our_bid_rate) & comp_valid[valid]
+        avg_rank   = float((comp_above.sum(axis=1) + 1).mean())
     else:
         avg_rank = float(n_comp + 1)
 
@@ -227,19 +228,20 @@ def monte_carlo_win_prob_empirical(
         return {"win_prob": round(valid_ratio, 4), "avg_rank": 1.0,
                 "valid_ratio": round(valid_ratio, 4)}
 
-    n_comp_eff = min(n_comp, 20)
+    n_comp_eff = min(n_comp, 150)
     comp_bids  = rng.choice(empirical_comp_rates, size=(n_sim, n_comp_eff), replace=True)
 
+    # 복수예가: 유효 범위 내 최고가 낙찰
     comp_valid    = (comp_bids >= floor_rate_pct * srates[:, None]) & (comp_bids <= srates[:, None])
-    comp_bids_eff = np.where(comp_valid, comp_bids, np.inf)
-    comp_min      = comp_bids_eff.min(axis=1)
+    comp_bids_eff = np.where(comp_valid, comp_bids, -np.inf)
+    comp_max      = comp_bids_eff.max(axis=1)
 
-    win_mask = valid & (our_bid_rate <= comp_min)
+    win_mask = valid & (our_bid_rate >= comp_max)
     win_prob = float(win_mask.mean())
 
     if valid.any():
-        comp_lower = (comp_bids[valid] < our_bid_rate) & comp_valid[valid]
-        avg_rank   = float((comp_lower.sum(axis=1) + 1).mean())
+        comp_above = (comp_bids[valid] > our_bid_rate) & comp_valid[valid]
+        avg_rank   = float((comp_above.sum(axis=1) + 1).mean())
     else:
         avg_rank = float(n_comp_eff + 1)
 
@@ -282,21 +284,21 @@ def monte_carlo_win_prob_gmm(
     valid       = (our_bid_rate >= effective_floor) & (our_bid_rate <= srates)
     valid_ratio = float(valid.mean())
 
-    n_comp_eff = max(1, min(n_competitors, 20))
-    # GMM 샘플은 예정가격 대비 투찰률 → 기초금액 대비로 변환 (× srate)
-    comp_bids_rate  = sample_competitor_rates(n_comp_eff, n_sim, rng, params, agency_bias)
-    comp_bids       = comp_bids_rate * srates[:, None]
+    n_comp_eff = max(1, min(n_competitors, 150))
+    # GMM은 ip.bid_rate(= base_ratio = 투찰/기초) 기준으로 피팅됨 → 변환 불필요
+    comp_bids = sample_competitor_rates(n_comp_eff, n_sim, rng, params, agency_bias)
 
+    # 복수예가: 유효 범위 내 최고가 낙찰 (예정가격에 가장 근접한 아래 입찰)
     comp_valid    = (comp_bids >= floor_rate_pct * srates[:, None]) & (comp_bids <= srates[:, None])
-    comp_bids_eff = np.where(comp_valid, comp_bids, np.inf)
-    comp_min      = comp_bids_eff.min(axis=1)
+    comp_bids_eff = np.where(comp_valid, comp_bids, -np.inf)
+    comp_max      = comp_bids_eff.max(axis=1)
 
-    win_mask = valid & (our_bid_rate <= comp_min)
+    win_mask = valid & (our_bid_rate >= comp_max)
     win_prob = float(win_mask.mean())
 
     if valid.any():
-        comp_lower = (comp_bids[valid] < our_bid_rate) & comp_valid[valid]
-        avg_rank   = float((comp_lower.sum(axis=1) + 1).mean())
+        comp_above = (comp_bids[valid] > our_bid_rate) & comp_valid[valid]
+        avg_rank   = float((comp_above.sum(axis=1) + 1).mean())
     else:
         avg_rank = float(n_comp_eff + 1)
 
@@ -502,10 +504,10 @@ def scan_zones_from_dist(
     if n_steps > 200:
         scan_step = round((scan_end - scan_start) / 150, 4)
 
-    # inpo_rates: estimated_price 대비 → base_amount 대비 변환 (× srate_med)
+    # inpo_rates: get_inpo_raw_rates() 반환값 — 이미 base_ratio(투찰/기초) 단위
     inpo_base: Optional[np.ndarray] = None
     if inpo_rates is not None and len(inpo_rates) >= 5:
-        inpo_base = np.asarray(inpo_rates, dtype=np.float64) * srate_med
+        inpo_base = np.asarray(inpo_rates, dtype=np.float64)
 
     zones: list[dict] = []
     rate = scan_start

@@ -110,22 +110,50 @@ def sample_competitor_rates(
 
 def fit_from_db(db) -> dict:
     """
-    DB의 실제 inpo21c_participants 데이터로 GMM 피팅.
-    새 데이터 수집 후 호출.
+    inpo21c_participants 실증 bid_rate 기반 GMM 피팅.
+    - 복수예가 건만 사용 (yega_ratio 필터)
+    - 결과를 파일에 캐시 → simulate 호출마다 DB 쿼리 방지
     """
+    import os, json
+    from pathlib import Path
+
+    cache_path = Path(os.getenv("ML_MODELS_PATH", "/app/ml_models")) / "gmm_params.json"
+
     try:
         from sqlalchemy import text
         rows = db.execute(text("""
-            SELECT bid_rate::float FROM inpo21c_participants
-            WHERE bid_rate IS NOT NULL
-              AND bid_rate BETWEEN 0.83 AND 0.98
+            SELECT ip.bid_rate::float
+            FROM inpo21c_participants ip
+            JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = ip.inpo21c_bid_id
+            WHERE ip.bid_rate BETWEEN 0.83 AND 0.98
+              AND ib.yega_ratio BETWEEN 87 AND 105
+              AND ABS(ib.yega_ratio - 90.91) > 1.0
             ORDER BY random()
-            LIMIT 50000
+            LIMIT 30000
         """)).fetchall()
-        if not rows:
+
+        if len(rows) < 30:
+            # 캐시 있으면 반환
+            if cache_path.exists():
+                with open(cache_path) as f:
+                    return json.load(f)
             return dict(_DEFAULT_PARAMS)
-        rates = np.array([r[0] for r in rows], dtype=float)
-        return fit_competitor_clusters(rates)
+
+        rates  = np.array([r[0] for r in rows], dtype=float)
+        params = fit_competitor_clusters(rates)
+
+        # 결과 캐시
+        with open(cache_path, "w") as f:
+            json.dump(params, f)
+
+        return params
     except Exception as e:
         logger.warning(f"DB GMM 피팅 실패: {e}")
+        # 캐시 fallback
+        if cache_path.exists():
+            try:
+                with open(cache_path) as f:
+                    return json.load(f)
+            except Exception:
+                pass
         return dict(_DEFAULT_PARAMS)

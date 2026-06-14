@@ -273,6 +273,22 @@ def retrain_ml(
             except Exception as e:
                 results["engine_b_error"] = traceback.format_exc()
 
+            # win_prob_model: inpo21c 실증 낙찰확률 모델
+            try:
+                from ...ml.win_prob_model import train as _wp_train
+                wp_result = _wp_train(db)
+                results["win_prob_model"] = wp_result
+            except Exception as e:
+                results["win_prob_model_error"] = str(e)
+
+            # GMM 재피팅 (복수예가 필터 적용)
+            try:
+                from ...ml.competitor_cluster import fit_from_db as _gmm_fit
+                _gmm_fit(db)
+                results["gmm"] = "fitted"
+            except Exception as e:
+                results["gmm_error"] = str(e)
+
             logger.info("ML 재학습 완료: %s", results)
         finally:
             db.close()
@@ -280,6 +296,48 @@ def retrain_ml(
     t = threading.Thread(target=_run, daemon=True)
     t.start()
     return {"status": "started", "message": "ML 재학습 시작됨 (별도 스레드) — 완료까지 1~3분 소요"}
+
+
+@router.post("/ml/train-win-prob")
+def train_win_prob(
+    _: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """
+    inpo21c 실증 낙찰확률 모델(win_prob_model) 즉시 학습.
+    31,579건 복수예가 참가자 데이터 → LightGBM 이진 분류.
+    """
+    import threading
+
+    def _run():
+        from ...database import SessionLocal
+        from ...ml.win_prob_model import train as _wp_train
+        _db = SessionLocal()
+        try:
+            result = _wp_train(_db)
+            logger.info("win_prob_model 학습 결과: %s", result)
+        finally:
+            _db.close()
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return {
+        "status": "started",
+        "message": "win_prob_model 학습 시작 (약 30~60초 소요). /admin/ml/status에서 결과 확인.",
+    }
+
+
+@router.get("/ml/win-prob-status")
+def win_prob_status(
+    _: User = Depends(require_role("admin")),
+):
+    """win_prob_model 학습 현황 조회."""
+    from ...ml.win_prob_model import model_info
+    import datetime
+    info = model_info()
+    if info.get("trained_at"):
+        info["trained_at_str"] = datetime.datetime.fromtimestamp(info["trained_at"]).strftime("%Y-%m-%d %H:%M:%S")
+    return info
 
 
 @router.get("/collector-status")

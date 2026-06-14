@@ -261,10 +261,25 @@ class DecisionService:
         rate_bal = max(rate_bal, round(rate_agg + 0.0003, 4))
         rate_con = max(rate_con, round(rate_bal + 0.0003, 4))
 
+        # 실증 낙찰확률 모델 로드 (base_ratio → bid_rate 변환 필요)
+        _srate_med = float(_np.median(srate_dist))
+
         def _wp(r):
-            # 우선순위: GMM > empirical inpo > pure Monte Carlo
+            # 0순위: 실증 win_prob_model (inpo21c 실제 낙찰 이력 기반)
+            # win_prob_model은 ip.bid_rate(= base_ratio) 단위로 학습됨 → r을 그대로 전달
+            try:
+                from .ml.win_prob_model import predict as _wpm_predict
+                _emp = _wpm_predict(
+                    r, _srate_med, expected_n, floor_rate
+                )
+                if _emp >= 0:
+                    return {"win_prob": _emp, "avg_rank": None, "valid_ratio": 1.0}
+            except Exception:
+                pass
+            # 1순위: GMM
             if _gmm_params is not None and expected_n > 0:
                 return monte_carlo_win_prob_gmm(r, floor_rate, srate_dist, expected_n, n_sim, rng2, _gmm_params)
+            # 2순위: empirical inpo
             if inpo_rates is not None and len(inpo_rates) >= 5 and expected_n > 0:
                 return monte_carlo_win_prob_empirical(r, floor_rate, srate_dist, inpo_rates, expected_n, n_sim, rng2)
             return monte_carlo_win_prob(r, floor_rate, srate_dist, [], [], n_sim, rng2)
@@ -367,6 +382,40 @@ class DecisionService:
             "strategies":       strategies,
             "optimal":          optimal,
             "histogram":        histogram,
+        }
+
+    def get_win_prob_curve(self, db: Session, bid_id: int) -> dict:
+        """
+        bid_rate 구간별 모델 낙찰확률 곡선 — TenderDecisionPage 시각화용.
+        bid_id로 해당 공고의 srate_center, expected_competitors 추출 후 predict_curve 호출.
+        """
+        from .ml.win_prob_model import predict_curve as _wpc
+        from .ml.a_value import calc_floor_rate
+        from .ml.assessment import load_srate_stats
+        import numpy as _np
+
+        b = db.query(Bid).filter(Bid.id == bid_id).first()
+        if not b:
+            return {"curve": [], "srate": 0.90, "n_competitors": 8}
+
+        industry_name = b.industry.name if b.industry else ""
+        floor_rate    = calc_floor_rate(industry_name)
+        features      = load_srate_stats(db, b.agency_id or 0, b.industry_id or 0, 0, b.base_amount)
+        from .ml.assessment import predict_srate as _ps
+        ep            = _ps(features, b.base_amount)
+        srate         = float(ep["srate_range"]["center"])
+        expected_n    = int(
+            features.get("expected_competitor_count")
+            or features.get("global_comp_count")
+            or 8
+        )
+
+        curve = _wpc(srate, expected_n, floor_rate)
+        return {
+            "curve":        curve,
+            "srate":        round(srate, 4),
+            "floor_rate":   round(floor_rate, 4),
+            "n_competitors": expected_n,
         }
 
     def get_agency_win_histogram(self, db: Session, bid_id: int) -> dict:

@@ -1390,6 +1390,18 @@ class AgencyWinHistogramResponse(BaseModel):
     inpo21c_n:   int = 0
 
 
+class WinProbPoint(BaseModel):
+    bid_rate: float
+    win_prob: float
+
+
+class WinProbCurveResponse(BaseModel):
+    curve:         List[WinProbPoint]
+    srate:         float
+    floor_rate:    float
+    n_competitors: int
+
+
 # ── 투찰 저널 (피드백 루프) ──────────────────────────────────
 
 class JournalCreateRequest(BaseModel):

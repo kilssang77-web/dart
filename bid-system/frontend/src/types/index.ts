@@ -1328,6 +1328,18 @@ export interface AgencyWinHistogram {
   inpo21c_n:   number
 }
 
+export interface WinProbPoint {
+  bid_rate: number
+  win_prob: number
+}
+
+export interface WinProbCurve {
+  curve:         WinProbPoint[]
+  srate:         number
+  floor_rate:    number
+  n_competitors: number
+}
+
 // ── 투찰 저널 ────────────────────────────────────────────────
 
 export interface JournalCreateRequest {

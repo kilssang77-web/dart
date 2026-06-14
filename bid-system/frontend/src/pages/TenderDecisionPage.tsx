@@ -309,6 +309,93 @@ function AgencyWinHistogramChart({ data }: { data: AgencyWinHistogram }) {
 }
 
 /* ─────────────────────────────────────────────────────────────
+   승률 곡선 (LightGBM win_prob_model)
+───────────────────────────────────────────────────────────── */
+function WinProbCurveChart({
+  data,
+  strategies,
+}: {
+  data: import('@/types').WinProbCurve
+  strategies?: { rate: number; label: string; color: string }[]
+}) {
+  if (!data.curve.length) {
+    return (
+      <div className="flex items-center justify-center h-16 text-xs text-gray-400">
+        모델 미학습 — 관리자 페이지에서 학습 후 사용 가능
+      </div>
+    )
+  }
+
+  const maxProb = Math.max(...data.curve.map(p => p.win_prob), 0.001)
+  // bid_rate 단위 (투찰/예정가) 기준 낙찰하한: floor_rate 그대로 사용
+  const floorBid = data.floor_rate
+
+  return (
+    <div className="space-y-2">
+      {/* 곡선 차트 */}
+      <div className="relative h-24 bg-gray-50 rounded-lg p-2 overflow-hidden">
+        <div className="flex items-end gap-0 h-full">
+          {data.curve.map((p, i) => {
+            const h = (p.win_prob / maxProb) * 100
+            const isFloor = p.bid_rate < floorBid
+            const isStrategy = strategies?.some(s => Math.abs(s.rate - p.bid_rate) < 0.0008)
+            const strategyMatch = strategies?.find(s => Math.abs(s.rate - p.bid_rate) < 0.0008)
+            return (
+              <div
+                key={i}
+                className="relative flex-1 group"
+                title={`투찰율 ${(p.bid_rate * 100).toFixed(3)}% → 낙찰확률 ${(p.win_prob * 100).toFixed(2)}%`}
+              >
+                <div
+                  className={cn(
+                    'w-full rounded-t transition-all',
+                    isFloor
+                      ? 'bg-red-200'
+                      : isStrategy
+                        ? strategyMatch?.color ?? 'bg-emerald-500'
+                        : 'bg-blue-200 group-hover:bg-blue-300',
+                  )}
+                  style={{ height: `${Math.max(h, 1)}%` }}
+                />
+              </div>
+            )
+          })}
+        </div>
+        {/* 낙찰하한선 표시 */}
+        <div
+          className="absolute top-0 bottom-0 w-px bg-red-400 opacity-60"
+          style={{
+            left: `${((floorBid - data.curve[0]?.bid_rate) / (data.curve[data.curve.length - 1]?.bid_rate - data.curve[0]?.bid_rate)) * 100}%`,
+          }}
+          title={`낙찰하한 ${(floorBid * 100).toFixed(3)}%`}
+        />
+      </div>
+
+      {/* x축 레이블 */}
+      <div className="flex justify-between text-xs text-gray-400">
+        <span className="font-mono">{(data.curve[0]?.bid_rate * 100).toFixed(2)}%</span>
+        <span className="text-gray-500">
+          사정율 {(data.srate * 100).toFixed(2)}% · 경쟁 {data.n_competitors}사 기준
+        </span>
+        <span className="font-mono">{(data.curve[data.curve.length - 1]?.bid_rate * 100).toFixed(2)}%</span>
+      </div>
+
+      {/* 범례 */}
+      <div className="flex items-center gap-4 text-xs text-gray-500 flex-wrap">
+        <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm bg-blue-200" /> 모델 예측 승률</span>
+        <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm bg-red-200" /> 낙찰하한 이하</span>
+        {strategies?.map(s => (
+          <span key={s.label} className="flex items-center gap-1">
+            <span className={cn('inline-block w-3 h-2 rounded-sm', s.color)} />
+            {s.label} 전략
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────
    히스토그램
 ───────────────────────────────────────────────────────────── */
 function HistogramChart({ data, optimalRate }: { data: { bin_center: number; prob: number }[]; optimalRate?: number }) {
@@ -426,6 +513,13 @@ export default function TenderDecisionPage() {
   const { data: agencyHistogram } = useQuery<AgencyWinHistogram>({
     queryKey: ['agency-win-histogram', bidId],
     queryFn: () => decisionApi.agencyWinHistogram(bidId!),
+    enabled: bidId !== null,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const { data: winProbCurveData } = useQuery<import('@/types').WinProbCurve>({
+    queryKey: ['win-prob-curve', bidId],
+    queryFn: () => decisionApi.winProbCurve(bidId!),
     enabled: bidId !== null,
     staleTime: 5 * 60 * 1000,
   })
@@ -762,6 +856,41 @@ export default function TenderDecisionPage() {
                             {` 실적이 있습니다.`}
                           </div>
                         )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* AI 낙찰확률 곡선 */}
+                  {winProbCurveData && (
+                    <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+                      <div className="px-5 py-3 border-b bg-blue-50 flex items-center gap-2">
+                        <TrendingUp className="w-4 h-4 text-blue-600" />
+                        <span className="font-semibold text-sm text-blue-800">AI 낙찰확률 곡선</span>
+                        <span className="text-xs text-blue-600">
+                          LightGBM · inpo21c 실증 학습
+                        </span>
+                      </div>
+                      <div className="p-5">
+                        <WinProbCurveChart data={winProbCurveData} />
+                        {winProbCurveData.curve.length > 0 && (() => {
+                          const best = winProbCurveData.curve.reduce((a, b) => a.win_prob > b.win_prob ? a : b)
+                          const floorBid = winProbCurveData.floor_rate * winProbCurveData.srate
+                          const validCurve = winProbCurveData.curve.filter(p => p.bid_rate >= floorBid)
+                          const bestValid = validCurve.length
+                            ? validCurve.reduce((a, b) => a.win_prob > b.win_prob ? a : b)
+                            : best
+                          return (
+                            <div className="mt-3 pt-3 border-t border-dashed text-xs text-gray-500">
+                              <span className="font-semibold text-gray-700">분석:</span>{' '}
+                              모델 예측 기준 낙찰 확률 최고 투찰율은{' '}
+                              <strong className="text-blue-700 font-mono">
+                                {(bestValid.bid_rate * 100).toFixed(3)}%
+                              </strong>
+                              {` (P=${(bestValid.win_prob * 100).toFixed(2)}%). `}
+                              경쟁사 {winProbCurveData.n_competitors}사, 사정율 {(winProbCurveData.srate * 100).toFixed(2)}% 기준.
+                            </div>
+                          )
+                        })()}
                       </div>
                     </div>
                   )}

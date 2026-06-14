@@ -205,6 +205,23 @@ export const adminApi = {
     api.get('/admin/ml/collusion-scan', { params: { days, limit } }).then((r) => r.data),
   collusionScanOne: (announcementNo: string): Promise<import('@/types').CollusionResult> =>
     api.get(`/admin/ml/collusion-scan/${announcementNo}`).then((r) => r.data),
+  trainWinProb: (): Promise<{ status: string; message: string }> =>
+    api.post('/admin/ml/train-win-prob').then((r) => r.data),
+  winProbStatus: (): Promise<{
+    trained: boolean
+    best_iteration?: number
+    n_train?: number
+    n_pos?: number
+    auc?: number
+    feature_importance?: Record<string, number>
+    feature_cols?: string[]
+    trained_at?: number
+    trained_at_str?: string
+    model_path?: string
+  }> =>
+    api.get('/admin/ml/win-prob-status').then((r) => r.data),
+  retrainAll: (): Promise<{ status: string; message: string }> =>
+    api.post('/admin/ml/retrain').then((r) => r.data),
 }
 
 // -- 투찰 이력 --------------------------------------------------
@@ -437,6 +454,9 @@ export const decisionApi = {
 
   agencyWinHistogram: (bidId: number): Promise<import('../types').AgencyWinHistogram> =>
     api.get(`/bids/${bidId}/agency-win-histogram`).then((r) => r.data),
+
+  winProbCurve: (bidId: number): Promise<import('../types').WinProbCurve> =>
+    api.get(`/bids/${bidId}/win-prob-curve`).then((r) => r.data),
 
   searchBids: (keyword: string, limit = 10) =>
     api.get('/bids', { params: { keyword, page: 1, size: limit, sort_by: 'notice_date' } }).then((r) => r.data?.items ?? r.data),

@@ -3,7 +3,10 @@ from sqlalchemy.orm import Session
 
 from ...database import get_db
 from ...models import User
-from ...schemas import BidContextResponse, SimulateBidRequest, SimulateBidResponse, AgencyWinHistogramResponse
+from ...schemas import (
+    BidContextResponse, SimulateBidRequest, SimulateBidResponse,
+    AgencyWinHistogramResponse, WinProbCurveResponse,
+)
 from ...services import DecisionService
 from ...common.security import get_current_user
 
@@ -32,6 +35,16 @@ def get_agency_win_histogram(
 ):
     """inpo21c 실증 기관별 낙찰 분포 — base_ratio 0.001 버킷."""
     return svc.get_agency_win_histogram(db, bid_id)
+
+
+@router.get("/{bid_id}/win-prob-curve", response_model=WinProbCurveResponse)
+def get_win_prob_curve(
+    bid_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """bid_rate 구간별 낙찰확률 곡선 — LightGBM 모델 기반."""
+    return svc.get_win_prob_curve(db, bid_id)
 
 
 @router.post("/{bid_id}/simulate-bid", response_model=SimulateBidResponse)
