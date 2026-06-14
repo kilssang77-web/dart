@@ -357,8 +357,8 @@ async def _run_backfill_vectors(redis: redis_lib.Redis) -> None:
     await _log(redis, "패턴 벡터 백필 시작...")
     try:
         proc = await asyncio.create_subprocess_exec(
-            "python", "-m", "ml.scripts.backfill_vectors",
-            cwd="/app",
+            "python", "scripts/backfill_vectors.py",
+            cwd="/ml",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
