@@ -955,6 +955,17 @@ def sync_my_bids(
     return result
 
 
+@router.post("/sync-inpo21c-to-bids")
+def sync_inpo21c_to_bids_endpoint(
+    _: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """inpo21c_bids → bids 즉시 동기화 (base_amount, bid_open_date, participant_count)."""
+    from ...collector.service import sync_inpo21c_to_bids
+    result = sync_inpo21c_to_bids(db)
+    return result
+
+
 # ------------------------------------------------------------------ #
 # G2B 백필                                                            #
 # ------------------------------------------------------------------ #

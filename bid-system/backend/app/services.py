@@ -349,7 +349,10 @@ class RecommendationService:
             SELECT b.id, b.agency_id, b.industry_id, b.region_id,
                    b.base_amount, b.bid_open_date,
                    r.bid_rate as winner_rate,
-                   (SELECT COUNT(*) FROM bid_results r2 WHERE r2.bid_id = b.id) as competitor_count
+                   GREATEST(
+                       COALESCE(b.participant_count, 0),
+                       (SELECT COUNT(*) FROM bid_results r2 WHERE r2.bid_id = b.id)
+                   ) as competitor_count
             FROM bids b
             LEFT JOIN bid_results r ON r.bid_id = b.id AND r.is_winner = true
             WHERE b.bid_open_date >= :cutoff AND b.status = 'closed'
@@ -1545,7 +1548,10 @@ class HybridRecommendService:
             SELECT b.id, b.agency_id, b.industry_id, b.region_id,
                    b.base_amount, b.bid_open_date,
                    r.bid_rate AS winner_rate,
-                   (SELECT COUNT(*) FROM bid_results r2 WHERE r2.bid_id = b.id) AS competitor_count
+                   GREATEST(
+                       COALESCE(b.participant_count, 0),
+                       (SELECT COUNT(*) FROM bid_results r2 WHERE r2.bid_id = b.id)
+                   ) AS competitor_count
             FROM bids b
             LEFT JOIN bid_results r ON r.bid_id = b.id AND r.is_winner = true
             WHERE b.bid_open_date >= :cutoff AND b.status = 'closed'

@@ -63,7 +63,9 @@ def _upsert_bid(db: Session, notice: BidNotice, agency_id: int) -> tuple[Bid, bo
     bid = db.query(Bid).filter(Bid.announcement_no == notice.announcement_no).first()
     if bid:
         bid.title = notice.title
-        bid.base_amount = notice.base_amount or 0
+        # API에서 값이 있을 때만 업데이트 (기존 값 zero-out 방지)
+        if notice.base_amount:
+            bid.base_amount = notice.base_amount
         if notice.bid_open_date:
             bid.bid_open_date = _parse_datetime(notice.bid_open_date)
         if bid.industry_id is None and industry_id:
@@ -389,6 +391,72 @@ def run_full_collection(db: Session) -> list[CollectionLog]:
     )
 
     return logs
+
+def sync_inpo21c_to_bids(db: Session) -> dict:
+    """
+    inpo21c_bids 데이터를 bids 테이블로 역방향 동기화.
+
+    G2B API 한계 보완:
+      - base_amount: asignBdgtAmt null → inpo21c_bids.base_amount 사용
+      - bid_open_date: opengDt null → inpo21c_bids.open_datetime 사용
+      - participant_count: inpo21c_participants COUNT 집계
+    """
+    from sqlalchemy import text
+    updated_base = updated_open = updated_participants = 0
+
+    try:
+        # 1. base_amount 동기화 (bids=0이고 inpo21c에 값 있는 경우)
+        r = db.execute(text("""
+            UPDATE bids b
+            SET base_amount = ib.base_amount
+            FROM inpo21c_bids ib
+            WHERE b.announcement_no = ib.announcement_no
+              AND b.base_amount = 0
+              AND ib.base_amount > 0
+        """))
+        updated_base = r.rowcount
+
+        # 2. bid_open_date 동기화 (bids=null이고 inpo21c에 값 있는 경우)
+        r = db.execute(text("""
+            UPDATE bids b
+            SET bid_open_date = ib.open_datetime
+            FROM inpo21c_bids ib
+            WHERE b.announcement_no = ib.announcement_no
+              AND b.bid_open_date IS NULL
+              AND ib.open_datetime IS NOT NULL
+        """))
+        updated_open = r.rowcount
+
+        # 3. participant_count 동기화 (inpo21c 실증 참여자 수)
+        r = db.execute(text("""
+            UPDATE bids b
+            SET participant_count = cnt.n
+            FROM (
+                SELECT ib.announcement_no, COUNT(ip.inpo21c_bid_id) AS n
+                FROM inpo21c_bids ib
+                JOIN inpo21c_participants ip ON ip.inpo21c_bid_id = ib.inpo21c_bid_id
+                GROUP BY ib.announcement_no
+            ) cnt
+            WHERE b.announcement_no = cnt.announcement_no
+              AND (b.participant_count IS NULL OR b.participant_count < cnt.n)
+        """))
+        updated_participants = r.rowcount
+
+        db.commit()
+        logger.info(
+            "inpo21c→bids 동기화 완료: base={}, open_date={}, participants={}",
+            updated_base, updated_open, updated_participants,
+        )
+    except Exception as exc:
+        db.rollback()
+        logger.error("inpo21c→bids 동기화 실패: {}", exc)
+
+    return {
+        "updated_base_amount": updated_base,
+        "updated_open_date": updated_open,
+        "updated_participants": updated_participants,
+    }
+
 
 def collect_scsbid_results(db: Session, days_back: int = 30) -> CollectionLog:
     """ScsbidInfoService 낙찰결과 보강 수집 — 스케줄러 직접 호출용 (클라이언트 내부 생성)."""

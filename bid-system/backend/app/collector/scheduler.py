@@ -104,14 +104,18 @@ def run_inpo21c_job() -> None:
 
     변경: 주 1회(월) → 매일 19:30 KST (개찰 후 ~1시간 30분).
     당일 개찰 결과를 당일 수집하여 ML 학습 데이터 실시간 갱신.
+    수집 후 bids 테이블 역방향 동기화 (base_amount, bid_open_date, participant_count).
     """
     from app.database import SessionLocal
     from app.collector.inpo21c import collect_inpo21c
+    from app.collector.service import sync_inpo21c_to_bids
 
     db = SessionLocal()
     try:
         result = collect_inpo21c(db, max_pages=10)
         logger.info("inpo21c 수집 완료: %s", result)
+        sync_result = sync_inpo21c_to_bids(db)
+        logger.info("inpo21c→bids 동기화: %s", sync_result)
         if result.get("bids", 0) > 0:
             _trigger_ml_retrain("inpo21c 전참여자 수집 완료")
     except Exception as exc:
@@ -124,11 +128,14 @@ def run_inpo21c_national_job() -> None:
     """inpo21c 전국 낙찰 결과 수집 (매주 일요일 03:30 KST — 맞춤설정 비의존, 전국 커버리지)."""
     from app.database import SessionLocal
     from app.collector.inpo21c import collect_inpo21c_national
+    from app.collector.service import sync_inpo21c_to_bids
 
     db = SessionLocal()
     try:
         result = collect_inpo21c_national(db, max_pages=100)
         logger.info("inpo21c 전국 수집 완료: %s", result)
+        sync_result = sync_inpo21c_to_bids(db)
+        logger.info("inpo21c→bids 동기화: %s", sync_result)
         if result.get("bids", 0) > 0:
             _trigger_ml_retrain("inpo21c 전국 수집 완료")
     except Exception as exc:

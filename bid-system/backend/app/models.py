@@ -77,6 +77,7 @@ class Bid(Base):
     bid_close_date      = Column(DateTime(timezone=True))
     contact_name        = Column(String(100))
     contact_tel         = Column(String(50))
+    participant_count   = Column(Integer, default=0)   # inpo21c 실증 참여자 수
     created_at          = Column(DateTime(timezone=True), server_default=func.now())
     updated_at          = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

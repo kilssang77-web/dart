@@ -230,11 +230,16 @@ class NarajangterClient:
             except (TypeError, ValueError):
                 return None
 
+        # 기초금액: asignBdgtAmt(배정예산금액) → presmptPrce(추정가격) 순으로 시도
+        base_amount = (
+            _safe_int(item.get("asignBdgtAmt"))
+            or _safe_int(item.get("presmptPrce"))
+        )
         return BidNotice(
             announcement_no=item.get("bidNtceNo", ""),
             title=item.get("bidNtceNm", ""),
             agency_name=item.get("ntceInsttNm", ""),
-            base_amount=_safe_int(item.get("asignBdgtAmt")),
+            base_amount=base_amount,
             notice_date=item.get("bidNtceDt"),
             bid_open_date=item.get("opengDt"),
             bid_type=bid_type,
