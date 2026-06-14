@@ -708,7 +708,7 @@ def compute_srate_frequency_v2(db: Session) -> int:
                 OR TRIM(ib.agency_name) LIKE '%%' || TRIM(a.name) || '%%'
                 OR TRIM(a.name) LIKE '%%' || TRIM(ib.agency_name) || '%%'
             )
-            WHERE ip.bid_rate BETWEEN 0.750 AND 1.050
+            WHERE ip.bid_rate BETWEEN 0.860 AND 0.970
               AND ib.open_datetime >= :cutoff
             GROUP BY a.id, srate_bucket
             ORDER BY a.id, srate_bucket
@@ -846,8 +846,8 @@ def get_prism_zones(
         for r in hist_rows
     ]
 
-    # 통계적으로 유의한 구간만 TOP 선정 (count >= 5)
-    eligible = [h for h in histogram if h["count"] >= 5]
+    # 통계적으로 유의한 구간만 TOP 선정 (count >= 5, 낙찰하한율 이상 구간만)
+    eligible = [h for h in histogram if h["count"] >= 5 and h["srate"] >= 0.860]
 
     # 점수: win_rate × log(win_count+1)  — 절대 승수와 확률 균형
     def _score(h):
