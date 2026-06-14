@@ -472,12 +472,15 @@ def scan_zones_from_dist(
     scan_end: Optional[float] = None,
     scan_step: float = 0.001,
     n_sim: int = 20_000,
+    gmm_params: Optional[dict] = None,
 ) -> tuple[list[dict], list[dict]]:
     """
     사정률 분포로 투찰구간별 낙찰확률 스캔 (기초금액 대비 투찰률 기준).
 
+    우선순위: GMM > inpo21c 실증(단위변환 필수) > valid_ratio 하한 추정
+
     scan_start/end를 지정하지 않으면 srate_dist에서 동적 산출:
-      start = floor_rate_pct × p10(srate) × 0.99
+      start = floor_rate_pct × p10(srate) × 0.995
       end   = p95(srate) × 1.005
 
     Returns:
@@ -499,20 +502,35 @@ def scan_zones_from_dist(
     if n_steps > 200:
         scan_step = round((scan_end - scan_start) / 150, 4)
 
+    # inpo_rates: estimated_price 대비 → base_amount 대비 변환 (× srate_med)
+    inpo_base: Optional[np.ndarray] = None
+    if inpo_rates is not None and len(inpo_rates) >= 5:
+        inpo_base = np.asarray(inpo_rates, dtype=np.float64) * srate_med
+
     zones: list[dict] = []
     rate = scan_start
     while rate <= scan_end + 1e-9:
         rate_r = round(rate, 4)
         floor_ok = rate_r >= eff_floor_abs
 
-        if inpo_rates is not None and len(inpo_rates) >= 5 and expected_n_comp > 0:
+        if gmm_params is not None and expected_n_comp > 0:
+            wp = monte_carlo_win_prob_gmm(
+                rate_r, floor_rate_pct, srate_dist, expected_n_comp, n_sim, rng, gmm_params,
+            )
+        elif inpo_base is not None and expected_n_comp > 0:
             wp = monte_carlo_win_prob_empirical(
-                rate_r, floor_rate_pct, srate_dist, inpo_rates, expected_n_comp, n_sim, rng,
+                rate_r, floor_rate_pct, srate_dist, inpo_base, expected_n_comp, n_sim, rng,
             )
         else:
-            wp = monte_carlo_win_prob(
-                rate_r, floor_rate_pct, srate_dist, [], [], n_sim, rng,
-            )
+            # 경쟁사 데이터 없음 — valid_ratio를 상한으로 사용 (불확실 구간 표시용)
+            n = len(srate_dist)
+            idx    = rng.integers(0, n, size=n_sim)
+            srates = srate_dist[idx]
+            eff_fl = floor_rate_pct * srates
+            valid  = (rate_r >= eff_fl) & (rate_r <= srates)
+            vr     = float(valid.mean())
+            # 경쟁사 없으면 win_prob는 매우 불확실 — 0.5를 최대치로 스케일
+            wp = {"win_prob": round(vr * 0.5, 4), "avg_rank": 1.0, "valid_ratio": round(vr, 4)}
 
         zones.append({
             "rate":        rate_r,

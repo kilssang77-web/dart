@@ -219,24 +219,25 @@ class DecisionService:
             except Exception:
                 pass
 
-        all_zones, top_zones = scan_zones_from_dist(
-            srate_dist, floor_rate, base_amount,
-            inpo_rates, expected_n, n_sim=min(n_sim, 20_000),
-        )
-
         eff_floor = floor_rate * float(_np.median(srate_dist))
         rate_agg  = round(eff_floor + 0.0003, 4)
         rate_bal  = round(max(eff_floor + 0.0015, rate_agg + 0.0005), 4)
         rate_con  = round(max(eff_floor + 0.003,  rate_bal + 0.0005), 4)
         rng2 = _np.random.default_rng(42)
 
-        # GMM 파라미터 — DB 데이터로 피팅 시도
+        # GMM 파라미터 — DB 데이터로 피팅 시도 (scan_zones_from_dist 호출 전에 준비)
         _gmm_params = None
         try:
             from .ml.competitor_cluster import fit_from_db, get_cluster_params
             _gmm_params = fit_from_db(db)
         except Exception:
             pass
+
+        all_zones, top_zones = scan_zones_from_dist(
+            srate_dist, floor_rate, base_amount,
+            inpo_rates, expected_n, n_sim=min(n_sim, 20_000),
+            gmm_params=_gmm_params,
+        )
 
         def _wp(r):
             # 우선순위: GMM > empirical inpo > pure Monte Carlo
