@@ -30,10 +30,8 @@ interface SimilarCaseWithBars {
 
 async function fetchSimilarCases(eventId: number): Promise<SimilarCaseWithBars[]> {
   try {
-    const r = await http.get<{ similar_cases: SimilarCaseWithBars[] }>(
-      `/features/${eventId}/similar-with-bars`
-    )
-    return r.data.similar_cases ?? []
+    const result = await featuresApi.getSimilarWithBars(eventId, 5, 5, 15)
+    return (result.cases as unknown as SimilarCaseWithBars[]) ?? []
   } catch {
     return []
   }

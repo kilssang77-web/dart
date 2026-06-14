@@ -9,6 +9,7 @@ import { clsx } from 'clsx'
 import { featuresApi } from '@/api/features'
 import { recommendationsApi } from '@/api/recommendations'
 import { marketApi } from '@/api/market'
+import { disclosuresApi } from '@/api/disclosures'
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Badge, MarketBadge, EVENT_LABELS } from '@/components/ui/Badge'
@@ -575,6 +576,12 @@ export function Dashboard() {
     refetchInterval: 60_000,
   })
 
+  const { data: discStats } = useQuery({
+    queryKey:  ['disclosure-stats-24h'],
+    queryFn:   () => disclosuresApi.getStats(24),
+    staleTime: 300_000,
+  })
+
   const isRt = (indexLive as any)?.source === 'realtime'
   const buyCount = topRecs?.filter((r) => r.action === 'BUY').length
 
@@ -626,7 +633,7 @@ export function Dashboard() {
             summary={summary}
             perf={perf}
             buyCount={buyCount}
-            disclosureCount={undefined}
+            disclosureCount={discStats?.total}
           />
         </div>
       </div>

@@ -191,5 +191,5 @@ export const systemApi = {
     fetch('/health').then((r) => r.json()),
 
   metrics: () =>
-    fetch('/metrics').then((r) => r.json()),
+    fetch('/metrics').then((r) => r.text()),
 }

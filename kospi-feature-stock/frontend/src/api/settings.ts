@@ -1,42 +1,5 @@
 ﻿import { http } from './client'
 
-// ── Bootstrap / Admin ─────────────────────────────────────────────────────────
-
-export interface BootstrapStepInfo {
-  count?: number
-  ready?: boolean
-  ok:     boolean
-  label:  string
-}
-
-export interface BootstrapStatus {
-  steps: {
-    stocks:  BootstrapStepInfo
-    bars:    BootstrapStepInfo
-    model:   BootstrapStepInfo
-    vectors: BootstrapStepInfo
-  }
-  logs:       string[]
-  overall_ok: boolean
-}
-
-export const adminApi = {
-  getBootstrapStatus: () =>
-    http.get<BootstrapStatus>('/admin/bootstrap-status').then((r) => r.data),
-
-  runLoadStocks: () =>
-    http.post('/admin/bootstrap/load-stocks').then((r) => r.data),
-
-  runFetchHistorical: () =>
-    http.post('/admin/bootstrap/fetch-historical').then((r) => r.data),
-
-  runTrainModel: () =>
-    http.post('/admin/bootstrap/train-model').then((r) => r.data),
-
-  runBackfillVectors: () =>
-    http.post('/admin/bootstrap/backfill-vectors').then((r) => r.data),
-}
-
 export interface TelegramConfig {
   enabled:             boolean
   min_prob:            number
