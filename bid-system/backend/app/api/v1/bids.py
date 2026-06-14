@@ -6,7 +6,7 @@ from datetime import date
 from ...database import get_db
 from ...models import User, Agency, Industry, Region, Bid
 from ...schemas import BidCreate, BidResultCreate, BookmarkResponse, OpportunityScoreResponse, BidRecommendItem, JointPartnersResponse, JointSimRequest, JointSimResponse, FinalRecommendResponse
-from ...services import BidService, BookmarkService, get_active_industry_ids, OpportunityScoreService, JointQualService, JointSimulateService, FinalRecommendService, InpoParticipantService, RivalRadarService, ActualWinZoneService
+from ...services import BidService, BookmarkService, get_active_industry_ids, OpportunityScoreService, JointQualService, JointSimulateService, FinalRecommendService, InpoParticipantService, RivalRadarService, ActualWinZoneService, HotZoneService, BestRateService
 from ...common.security import get_current_user
 
 router = APIRouter(prefix="/bids", tags=["입찰"])
@@ -230,20 +230,11 @@ def hot_zones(
     db: Session  = Depends(get_db),
     _: User      = Depends(get_current_user),
 ):
-    """
-    Hot Zone 분포 — inpo21c_participants.bid_rate 기반 KDE 피크 탐지.
-    기관별 데이터 → 전국 집계 fallback.
-    """
-    from ...ml.hotzone import get_hot_zones as _get_hot_zones
-
-    bid = db.query(Bid).filter(Bid.id == bid_id).first()
-    if not bid:
-        raise HTTPException(404, "공고를 찾을 수 없습니다")
-
-    result = _get_hot_zones(db, agency_id=bid.agency_id, period_type=period)
-    result["bid_id"]    = bid_id
-    result["agency_id"] = bid.agency_id
-    return result
+    """Hot Zone 분포 — inpo21c_participants.bid_rate 기반 KDE 피크 탐지."""
+    try:
+        return HotZoneService().get(db, bid_id, period_type=period)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
 
 
 @router.get("/{bid_id}/best-rate")
@@ -253,25 +244,11 @@ def best_rate(
     db: Session  = Depends(get_db),
     _: User      = Depends(get_current_user),
 ):
-    """
-    원클릭 최적 투찰 사정율 추천.
-    Hot Zone(KDE 피크) + Prism(rate_frequency_tables) 결합 → 단일 srate 반환.
-    """
-    from ...ml.hotzone import get_best_rate as _get_best_rate
-
-    bid = db.query(Bid).filter(Bid.id == bid_id).first()
-    if not bid:
-        raise HTTPException(404, "공고를 찾을 수 없습니다")
-
-    result = _get_best_rate(
-        db,
-        agency_id=bid.agency_id,
-        base_amount=int(bid.base_amount or 0),
-        period_type=period,
-    )
-    result["bid_id"]      = bid_id
-    result["base_amount"] = bid.base_amount
-    return result
+    """원클릭 최적 투찰 사정율 추천 — Hot Zone + Prism 결합."""
+    try:
+        return BestRateService().get(db, bid_id, period_type=period)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
 
 
 @router.get("/{bid_id}/prism-histogram")

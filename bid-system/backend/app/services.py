@@ -4914,6 +4914,43 @@ class ActualWinZoneService:
 
 
 # ==================================================
+# Hot Zone / Best Rate 서비스
+# ==================================================
+
+class HotZoneService:
+    """inpo21c bid_rate 기반 Hot Zone KDE 피크 탐지."""
+
+    def get(self, db: Session, bid_id: int, period_type: str = "24M") -> dict:
+        from .ml.hotzone import get_hot_zones as _get_hot_zones
+        bid = db.query(Bid).filter(Bid.id == bid_id).first()
+        if not bid:
+            raise ValueError(f"공고를 찾을 수 없습니다: {bid_id}")
+        result = _get_hot_zones(db, agency_id=bid.agency_id, period_type=period_type)
+        result["bid_id"] = bid_id
+        result["agency_id"] = bid.agency_id
+        return result
+
+
+class BestRateService:
+    """Hot Zone + Prism 결합 원클릭 최적 투찰 사정율 추천."""
+
+    def get(self, db: Session, bid_id: int, period_type: str = "24M") -> dict:
+        from .ml.hotzone import get_best_rate as _get_best_rate
+        bid = db.query(Bid).filter(Bid.id == bid_id).first()
+        if not bid:
+            raise ValueError(f"공고를 찾을 수 없습니다: {bid_id}")
+        result = _get_best_rate(
+            db,
+            agency_id=bid.agency_id,
+            base_amount=int(bid.base_amount or 0),
+            period_type=period_type,
+        )
+        result["bid_id"] = bid_id
+        result["base_amount"] = bid.base_amount
+        return result
+
+
+# ==================================================
 # 시장 인텔리전스 서비스
 # ==================================================
 
