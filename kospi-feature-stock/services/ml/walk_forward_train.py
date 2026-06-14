@@ -546,6 +546,46 @@ async def main(args):
 
     logger.info(f"Models saved to {args.model_dir}")
 
+    # ── ml_models 테이블 기록 ─────────────────────────────────────────────────
+    import json as _json2
+    from datetime import datetime as _dt, timezone as _tz
+    _dsn = os.environ["POSTGRES_DSN"].replace("+asyncpg", "")
+    _pool2 = await asyncpg.create_pool(dsn=_dsn, min_size=1, max_size=3)
+    try:
+        _metrics = {
+            "auc":           round(float(va_e_auc), 4),
+            "val_auc":       round(float(va_e_auc), 4),
+            "test_auc":      round(float(te_e_auc), 4),
+            "brier":         round(float(va_e_brier), 4),
+            "risk_val_auc":  round(float(va_r_auc), 4),
+            "risk_test_auc": round(float(te_r_auc), 4),
+            "entry_threshold": round(float(best_t_e), 3),
+            "risk_threshold":  round(float(best_t_r), 3),
+            "n_train": int(len(Xtr_e)),
+            "n_val":   int(len(Xva_e)),
+            "n_test":  int(len(Xte_e)),
+        }
+        _version = f"wf-{_dt.now(_tz.utc).strftime('%Y%m%d')}"
+        _model_id = await _pool2.fetchval(
+            """
+            INSERT INTO ml_models
+                (model_type, version, trained_at, metrics, feature_names, model_path, is_active)
+            VALUES ($1, $2, NOW(), $3::jsonb, $4::jsonb, $5, TRUE)
+            RETURNING id
+            """,
+            "LightGBM (Entry+Risk)",
+            _version,
+            _json2.dumps(_metrics),
+            _json2.dumps(list(FEATURE_COLUMNS)),
+            str(args.model_dir),
+        )
+        await _pool2.execute("UPDATE ml_models SET is_active=FALSE WHERE id != $1", _model_id)
+        logger.info(f"ml_models 기록 완료: id={_model_id}, version={_version}, auc={_metrics['auc']}")
+    except Exception as _e:
+        logger.warning(f"ml_models 기록 실패 (비치명적): {_e}")
+    finally:
+        await _pool2.close()
+
     # ── 피처 컬럼 일관성 검증 ──────────────────────────────────────────────────
     # 저장된 feature_columns.json vs 이 스크립트의 FEATURE_COLUMNS 비교
     # 불일치 시 추론 시 피처 순서/구성이 달라져 모델 성능이 크게 저하됨
