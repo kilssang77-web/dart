@@ -4,6 +4,8 @@ import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle } from 'lucide-react'
 import { Sidebar } from './components/Layout/Sidebar'
 import { TopBar } from './components/Layout/TopBar'
+import { SystemBanner } from './components/Layout/SystemBanner'
+import { useIsMobile } from './hooks/useMediaQuery'
 import { useSidebarStore } from './store/sidebar'
 import { useRealtimeStream } from './hooks/useRealtimeStream'
 import { marketApi } from './api/market'
@@ -23,6 +25,10 @@ const Watchlist      = lazy(() => import('./pages/Watchlist').then((m) => ({ def
 const NotifHistory   = lazy(() => import('./pages/NotificationHistory').then((m) => ({ default: m.NotificationHistory })))
 const Tracking       = lazy(() => import('./pages/Tracking').then((m) => ({ default: m.Tracking })))
 const Themes         = lazy(() => import('./pages/Themes').then((m) => ({ default: m.Themes })))
+const SimilarCases   = lazy(() => import('./pages/SimilarCases').then((m) => ({ default: m.SimilarCases })))
+const Bootstrap      = lazy(() => import('./pages/Bootstrap').then((m) => ({ default: m.Bootstrap })))
+const PerfTracking   = lazy(() => import('./pages/PerformanceTracking').then((m) => ({ default: m.PerformanceTracking })))
+const SystemHealth   = lazy(() => import('./pages/SystemHealth').then((m) => ({ default: m.SystemHealth })))
 
 const META: Record<string, { title: string; subtitle?: string }> = {
   '/':               { title: '대시보드',    subtitle: '실시간 특징주 현황 요약' },
@@ -40,6 +46,10 @@ const META: Record<string, { title: string; subtitle?: string }> = {
   '/notifications':   { title: '텔레그램 이력', subtitle: '알림 발송 이력 조회' },
   '/tracking':         { title: '성과 추적', subtitle: '추천 종목 사후 수익률 · 이벤트별 성공률 분석' },
   '/themes':           { title: '테마 추적', subtitle: '뉴스 기반 K-Means 동적 테마 · 섹터 확산 분석' },
+  '/similar-cases':    { title: '유사사례 검색', subtitle: '과거 유사 패턴 · 차트 비교 · 수익률 분석' },
+  '/bootstrap':        { title: '시스템 초기화', subtitle: '데이터 수집 · 모델 학습 · 벡터화 단계별 실행' },
+  '/perf-tracking':    { title: '추천 성과 추적', subtitle: '활성 추천 모니터링 · 수익률 분포 · 완료 이력' },
+  '/system-health':    { title: '시스템 헬스',  subtitle: 'ML 모델 · DB · Kafka · 데이터 신선도 전체 현황' },
 }
 
 function Spinner() {
@@ -84,8 +94,9 @@ function MarketClosedBanner() {
 export default function App() {
   const { pathname }  = useLocation()
   const { collapsed } = useSidebarStore()
+  const isMobile      = useIsMobile()
   const meta = META[pathname] ?? { title: pathname.slice(1) || '대시보드' }
-  const ml   = collapsed ? 56 : 220
+  const ml   = isMobile ? 0 : collapsed ? 56 : 220
 
   return (
     <div className="flex min-h-screen bg-[var(--bg)]">
@@ -97,6 +108,7 @@ export default function App() {
         style={{ marginLeft: ml }}
       >
         <TopBar title={meta.title} subtitle={meta.subtitle} />
+        <SystemBanner />
         <MarketClosedBanner />
 
         <main className="flex-1 overflow-auto">
@@ -116,7 +128,12 @@ export default function App() {
               <Route path="/settings"        element={<Settings />} />
               <Route path="/notifications"   element={<NotifHistory />} />
               <Route path="/tracking"         element={<Tracking />} />
-              <Route path="/themes"           element={<Themes />} />
+              <Route path="/themes"                 element={<Themes />} />
+              <Route path="/similar-cases"         element={<SimilarCases />} />
+              <Route path="/similar-cases/:eventId" element={<SimilarCases />} />
+              <Route path="/bootstrap"             element={<Bootstrap />} />
+              <Route path="/perf-tracking"         element={<PerfTracking />} />
+              <Route path="/system-health"         element={<SystemHealth />} />
             </Routes>
           </Suspense>
         </main>

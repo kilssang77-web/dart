@@ -75,11 +75,11 @@ class DARTPoller:
                     INSERT INTO disclosures
                         (rcept_no, code, corp_name, disclosed_at,
                          report_type, title, category, sentiment_score,
-                         is_flagged, contract_amount)
+                         is_flagged, amount)
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                     ON CONFLICT (rcept_no) DO UPDATE SET
-                        is_flagged       = EXCLUDED.is_flagged OR disclosures.is_flagged,
-                        contract_amount  = COALESCE(EXCLUDED.contract_amount, disclosures.contract_amount)
+                        is_flagged = EXCLUDED.is_flagged OR disclosures.is_flagged,
+                        amount     = COALESCE(EXCLUDED.amount, disclosures.amount)
                     """,
                     parsed.get("rcept_no"),
                     parsed.get("code"),
@@ -90,10 +90,10 @@ class DARTPoller:
                     parsed.get("category"),
                     parsed.get("sentiment_score"),
                     parsed.get("is_flagged", False),
-                    parsed.get("contract_amount"),
+                    parsed.get("contract_amount"),   # 내부 dict 키는 유지, DB 컬럼만 amount로 수정
                 )
         except Exception as e:
-            logger.debug(f"Disclosure DB write error [{parsed.get('rcept_no')}]: {e}")
+            logger.error(f"Disclosure DB write error [{parsed.get('rcept_no')}]: {e}")
 
     # ── 폴링 ───────────────────────────────────────────────────
 

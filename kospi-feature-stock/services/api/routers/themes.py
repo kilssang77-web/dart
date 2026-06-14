@@ -234,6 +234,36 @@ async def save_spread_snapshot(
     return {"saved": saved, "date": str(today)}
 
 
+@router.get("/spread/history")
+async def get_spread_history(
+    theme: str = Query(description="테마 이름"),
+    days:  int  = Query(default=30, ge=1, le=180),
+    db: asyncpg.Pool = Depends(get_db),
+):
+    """테마별 일별 스냅쌏 이력 — momentum_score·velocity·lead_codes 포함."""
+    rows = await db.fetch(
+        """
+        SELECT snap_date::TEXT, stock_count, avg_return,
+               momentum_score, velocity, lead_codes, top_codes
+        FROM theme_snapshots
+        WHERE theme_name = $1
+          AND snap_date >= CURRENT_DATE - ($2 * INTERVAL '1 day')
+        ORDER BY snap_date
+        """,
+        theme, days,
+    )
+    result = []
+    for r in rows:
+        d = dict(r)
+        for col in ("lead_codes", "top_codes"):
+            if d.get(col):
+                d[col] = [c.strip() for c in d[col].split(",") if c.strip()]
+            else:
+                d[col] = []
+        result.append(d)
+    return {"theme": theme, "days": days, "history": result}
+
+
 @router.get("/{theme}")
 async def get_theme_detail(
     theme: str,

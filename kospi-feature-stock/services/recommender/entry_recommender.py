@@ -101,6 +101,8 @@ class EntryRecommender:
         risk   = self._risk(event, ml_result)
         action = self._decide(prob, risk, rr)
 
+        hold = self._estimate_hold_days(similar_cases, ml_result, target_dist)
+
         return EntryRecommendation(
             code=code,
             action=action,
@@ -109,7 +111,7 @@ class EntryRecommender:
             entry_price_high=int(price * (1 + _ENTRY_BAND)),
             target_price=target,
             stop_loss_price=stop,
-            expected_hold_days=ml_result.hold_days if ml_result else 5,
+            expected_hold_days=hold,
             success_prob=round(float(prob), 4),
             expected_return=round((target - price) / price * 100, 2),
             risk_score=round(float(risk), 4),
@@ -129,6 +131,51 @@ class EntryRecommender:
             },
             similar_cases=similar_cases[:5],
         )
+
+    def _estimate_hold_days(
+        self,
+        similar_cases: list,
+        ml_result,
+        target_dist: float,
+    ) -> int:
+        """유사 사례의 수익률 시계열에서 목표 수익률 달성 일수 중위수를 추정."""
+        target_pct = target_dist * 100  # e.g. 9.0
+
+        # 유사 사례 각각에서 목표 달성 일수 추정
+        hold_estimates: list[int] = []
+        for case in similar_cases:
+            r1  = float(case.get("result_1d")  or 0)
+            r3  = float(case.get("result_3d")  or 0)
+            r5  = float(case.get("result_5d")  or 0)
+            r10 = float(case.get("result_10d") or 0)
+
+            # 목표 달성 첫 날수 추정 (linear interpolation 근사)
+            if r1 >= target_pct:
+                hold_estimates.append(1)
+            elif r3 >= target_pct:
+                hold_estimates.append(3)
+            elif r5 >= target_pct:
+                hold_estimates.append(5)
+            elif r10 >= target_pct:
+                hold_estimates.append(10)
+            # 미달 사례는 제외 (목표 미달성)
+
+        if len(hold_estimates) >= 2:
+            hold_estimates.sort()
+            mid = len(hold_estimates) // 2
+            return hold_estimates[mid]
+
+        # 유사 사례 부족 → ML 모델 또는 ATR 기반 기본값
+        if ml_result and hasattr(ml_result, "hold_days") and ml_result.hold_days:
+            return int(ml_result.hold_days)
+        # target_dist 기반 경험 기본값: 목표가 높을수록 더 오래 걸림
+        if target_dist >= 0.15:
+            return 10
+        if target_dist >= 0.10:
+            return 7
+        if target_dist >= 0.06:
+            return 5
+        return 3
 
     def _decide(self, prob: float, risk: float, rr: float) -> str:
         if risk > _MAX_RISK:

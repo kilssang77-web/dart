@@ -1,0 +1,43 @@
+{
+  "title": "Quant Eye — System Overview",
+  "uid": "qe-system",
+  "version": 1,
+  "schemaVersion": 36,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Feature Events (Total)",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "targets": [{ "expr": "fstock_feature_events_total", "legendFormat": "events" }]
+    },
+    {
+      "id": 2, "type": "stat", "title": "Recommendations (Total)",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "targets": [{ "expr": "fstock_recommendations_total", "legendFormat": "recs" }]
+    },
+    {
+      "id": 3, "type": "stat", "title": "WS Connections",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "targets": [{ "expr": "fstock_ws_connections", "legendFormat": "ws" }]
+    },
+    {
+      "id": 4, "type": "timeseries", "title": "API Request Rate",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [{ "expr": "rate(http_requests_total[1m])", "legendFormat": "req/s" }]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "API P95 Latency",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [{
+        "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+        "legendFormat": "p95"
+      }]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Kafka Lag",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "targets": [{ "expr": "kafka_lag_total", "legendFormat": "total lag" }]
+    }
+  ]
+}

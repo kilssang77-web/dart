@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { Layers, TrendingUp, BarChart2, ChevronRight } from 'lucide-react'
+import { Layers, TrendingUp, BarChart2, ChevronRight, ArrowUp, ArrowDown, Minus } from 'lucide-react'
 import { http } from '@/api/client'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card'
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
 // ── API 타입 ────────────────────────────────────────────────────────────────
 interface TrendingTheme {
@@ -44,6 +45,22 @@ interface ThemeSpreadDaily {
   source:    string
 }
 
+interface ThemeHistoryItem {
+  snap_date:      string
+  stock_count:    number
+  avg_return:     number | null
+  momentum_score: number | null
+  velocity:       number | null
+  lead_codes:     string[]
+  top_codes:      string[]
+}
+
+interface ThemeHistory {
+  theme:   string
+  days:    number
+  history: ThemeHistoryItem[]
+}
+
 // ── API 함수 ────────────────────────────────────────────────────────────────
 const themesApi = {
   trending: (hours = 72) =>
@@ -57,6 +74,9 @@ const themesApi = {
         .then((r) => r.data),
   spreadDaily: (theme: string, days = 14) =>
     http.get<ThemeSpreadDaily>('/themes/spread/daily', { params: { theme, days } })
+        .then((r) => r.data),
+  spreadHistory: (theme: string, days = 30) =>
+    http.get<ThemeHistory>('/themes/spread/history', { params: { theme, days } })
         .then((r) => r.data),
 }
 
@@ -270,10 +290,24 @@ function ClusterCard({ cluster: c }: { cluster: ThemeCluster }) {
   )
 }
 
+const TOOLTIP_STYLE = {
+  background: 'var(--card)', border: '1px solid var(--border)',
+  borderRadius: 8, fontSize: 11, color: 'var(--fg)',
+}
+
 // ── 테마 상세 패널 ────────────────────────────────────────────────────────────
 function ThemeDetailPanel({ theme, detail, isLoading, hours }: {
   theme: string; detail: ThemeDetail | null; isLoading: boolean; hours: number
 }) {
+  const { data: histData } = useQuery({
+    queryKey: ['theme-history', theme],
+    queryFn:  () => themesApi.spreadHistory(theme, 30),
+    enabled:  !!theme,
+    staleTime: 300_000,
+  })
+
+  const hist = histData?.history ?? []
+
   return (
     <Card>
       <CardHeader>
@@ -292,6 +326,49 @@ function ThemeDetailPanel({ theme, detail, isLoading, hours }: {
           <p className="text-sm text-[var(--muted)] text-center py-8">데이터 없음</p>
         ) : (
           <>
+            {/* 모멘텀 추이 차트 */}
+            {hist.length > 1 && (
+              <div>
+                <div className="text-xs text-[var(--muted)] mb-2 font-medium flex items-center gap-1.5">
+                  <BarChart2 size={11} /> 30일 종목 수 추이
+                  {hist.length > 0 && (() => {
+                    const latest  = hist[hist.length - 1]
+                    const vel     = latest.velocity ?? 0
+                    const VIcon   = vel > 0 ? ArrowUp : vel < 0 ? ArrowDown : Minus
+                    const vColor  = vel > 0 ? 'text-green-400' : vel < 0 ? 'text-red-400' : 'text-[var(--muted)]'
+                    return (
+                      <span className={clsx('flex items-center gap-0.5 text-[10px] font-semibold ml-1', vColor)}>
+                        <VIcon size={10} /> {vel > 0 ? '+' : ''}{vel}
+                      </span>
+                    )
+                  })()}
+                </div>
+                <ResponsiveContainer width="100%" height={100}>
+                  <AreaChart data={hist} margin={{ top: 2, right: 4, bottom: 0, left: -20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                    <XAxis dataKey="snap_date" tick={{ fontSize: 9, fill: '#71717a' }}
+                      tickFormatter={(v: string) => v.slice(5)} />
+                    <YAxis tick={{ fontSize: 9, fill: '#71717a' }} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE}
+                      formatter={(v: number) => [v, '종목 수']} />
+                    <Area dataKey="stock_count" stroke="#22d3ee" fill="#22d3ee22"
+                      strokeWidth={1.5} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+                {/* 리드 종목 표시 */}
+                {hist[hist.length - 1]?.lead_codes.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    <span className="text-[10px] text-[var(--muted)] mr-1">리드 종목:</span>
+                    {hist[hist.length - 1].lead_codes.map((code) => (
+                      <span key={code} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-400">
+                        {code}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* 시간별 탐지 추이 */}
             {detail.hourly.length > 0 && (
               <div>

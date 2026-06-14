@@ -125,6 +125,12 @@ class ThemeClusterer:
         # Redis 캐시
         await self._cache_themes(themes)
 
+        # DB 스냅쌏 저장 (momentum 포함)
+        try:
+            await self._save_snapshots_with_momentum(themes)
+        except Exception as e:
+            logger.warning(f"[ThemeCluster] 스냅쌏 저장 실패: {e}")
+
         logger.info(f"[ThemeCluster] {len(themes)}개 테마 발견 (총 {len(vecs)}건 뉴스)")
         return themes
 
@@ -214,6 +220,53 @@ class ThemeClusterer:
             news_ids,
         )
         return [r["code"] for r in rows]
+
+    async def _save_snapshots_with_momentum(self, themes: list[Theme]) -> None:
+        """테마별 일별 스냅쌏 저장 — momentum_score·velocity·lead_codes 포함."""
+        today = datetime.now(timezone.utc).date()
+
+        # 전날 stock_count 조회 (velocity 계산용)
+        prev_rows = await self.db.fetch(
+            """
+            SELECT theme_name, stock_count
+            FROM theme_snapshots
+            WHERE snap_date = $1
+            """,
+            today - timedelta(days=1),
+        )
+        prev_map: dict[str, int] = {r["theme_name"]: r["stock_count"] for r in prev_rows}
+
+        for t in themes:
+            name  = ",".join(t.keywords[:3])  # 키워드 조합을 테마 이름으로 사용
+            prev  = prev_map.get(name, t.stock_count)
+            vel   = t.stock_count - prev        # 당일 변화량
+
+            # momentum_score: 뉴스 수 + trend + velocity 종합
+            trend_boost = 0.2 if t.trend == "rising" else (-0.1 if t.trend == "falling" else 0.0)
+            mom  = round(min(1.0, t.news_count / 100.0 + trend_boost + max(0, vel) / 20.0), 3)
+
+            lead = ",".join(t.stock_codes[:5]) if t.stock_codes else None
+
+            try:
+                await self.db.execute(
+                    """
+                    INSERT INTO theme_snapshots
+                        (theme_name, snap_date, stock_count, avg_return, top_codes,
+                         momentum_score, velocity, lead_codes)
+                    VALUES ($1, $2, $3, NULL, $4, $5, $6, $7)
+                    ON CONFLICT (theme_name, snap_date) DO UPDATE
+                      SET stock_count    = EXCLUDED.stock_count,
+                          top_codes      = EXCLUDED.top_codes,
+                          momentum_score = EXCLUDED.momentum_score,
+                          velocity       = EXCLUDED.velocity,
+                          lead_codes     = EXCLUDED.lead_codes
+                    """,
+                    name, today, t.stock_count,
+                    ",".join(t.stock_codes),
+                    mom, vel, lead,
+                )
+            except Exception as e:
+                logger.debug(f"[ThemeCluster] snapshot insert error [{name}]: {e}")
 
     async def _cache_themes(self, themes: list[Theme]) -> None:
         payload = [

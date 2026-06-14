@@ -1,0 +1,81 @@
+groups:
+  - name: quant-eye.alerts
+    interval: 60s
+    rules:
+
+      # ── Kafka 처리 지연 ────────────────────────────────────────────────────
+      - alert: KafkaLagHigh
+        expr: kafka_lag_total > 5000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka consumer lag high ({{ $value }} messages)"
+          description: "Kafka 처리 지연이 5,000 건을 초과하여 5분 이상 지속됩니다."
+
+      - alert: KafkaLagCritical
+        expr: kafka_lag_total > 20000
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kafka consumer lag critical ({{ $value }} messages)"
+          description: "Kafka 처리 지연이 20,000 건을 초과합니다. 즉시 확인이 필요합니다."
+
+      # ── ML 모델 데이터 신선도 ───────────────────────────────────────────────
+      - alert: MLModelStale
+        expr: time() - fstock_ml_model_trained_at > 604800
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML model not retrained in 7 days"
+          description: "LightGBM 모델이 7일 이상 재학습되지 않았습니다."
+
+      # ── 데이터 신선도 ──────────────────────────────────────────────────────
+      - alert: DataFreshnessViolation
+        expr: time() - fstock_latest_daily_bar_timestamp > 90000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Daily bar data not updated for 25+ hours"
+          description: "일봉 데이터가 25시간 이상 갱신되지 않았습니다."
+
+      - alert: FeatureEventStale
+        expr: time() - fstock_latest_feature_event_timestamp > 7200
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Feature events not detected for 2+ hours during market hours"
+          description: "장중 2시간 이상 특징주 이벤트가 탐지되지 않았습니다."
+
+      # ── API 응답 시간 ──────────────────────────────────────────────────────
+      - alert: APILatencyHigh
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 3.0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API P95 latency > 3s"
+          description: "API 응답 시간 95퍼센타일이 3초를 초과합니다."
+
+      - alert: APIErrorRateHigh
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API error rate > 5%"
+          description: "API 5xx 에러율이 5%를 초과합니다."
+
+      # ── 추천 생성 ─────────────────────────────────────────────────────────
+      - alert: RecommendationsDry
+        expr: increase(fstock_recommendations_total[1h]) == 0
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: "No recommendations generated in 2 hours"
+          description: "2시간 이상 추천 신호가 생성되지 않았습니다."

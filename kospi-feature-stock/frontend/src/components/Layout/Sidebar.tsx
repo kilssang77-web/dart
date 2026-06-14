@@ -1,13 +1,16 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
+import { useEffect } from 'react'
 import { clsx } from 'clsx'
 import {
   LayoutDashboard, Zap, DollarSign, FileText, Newspaper,
   Monitor, BarChart2, Settings, ChevronLeft, ChevronRight, LineChart,
-  Activity, Star, Bell, Layers, Search, TrendingUp,
+  Activity, Star, Bell, Layers, Search, TrendingUp, History, Cpu, Target,
+  HeartPulse, X,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { featuresApi } from '@/api/features'
 import { useSidebarStore } from '@/store/sidebar'
+import { useIsMobile } from '@/hooks/useMediaQuery'
 
 interface NavItem {
   to:    string
@@ -22,7 +25,12 @@ interface NavGroup {
 }
 
 export function Sidebar() {
-  const { collapsed, toggle } = useSidebarStore()
+  const { collapsed, toggle, mobileOpen, closeMobile } = useSidebarStore()
+  const isMobile = useIsMobile()
+  const { pathname } = useLocation()
+
+  // 라우트 변경 시 모바일 drawer 자동 닫기
+  useEffect(() => { closeMobile() }, [pathname, closeMobile])
 
   const { data: summary } = useQuery({
     queryKey: ['today-summary'],
@@ -40,33 +48,64 @@ export function Sidebar() {
       ],
     },
     {
-      title: '분석',
+      title: '종목',
       items: [
+        { to: '/search',          icon: <Search size={15} />,     label: '종목 검색·분석' },
         { to: '/recommendations', icon: <DollarSign size={15} />, label: '추천 매매' },
-        { to: '/search',          icon: <Search size={15} />,     label: '종목 검색' },
-        { to: '/analysis',        icon: <LineChart size={15} />,  label: '종목 분석' },
-        { to: '/disclosures',     icon: <FileText size={15} />,   label: '공시 분석' },
-        { to: '/news',            icon: <Newspaper size={15} />,  label: '뉴스/테마' },
-        { to: '/themes',          icon: <Layers size={15} />,     label: '테마 추적' },
+        { to: '/similar-cases',   icon: <History size={15} />,    label: '유사사례' },
+        { to: '/watchlist',       icon: <Star size={15} />,       label: '관심종목' },
       ],
     },
     {
-      title: '전략',
+      title: '시장',
       items: [
-        { to: '/backtest',    icon: <BarChart2 size={15} />,  label: '백테스트' },
-        { to: '/performance', icon: <Activity size={15} />,   label: '모델 성능' },
-        { to: '/tracking',    icon: <TrendingUp size={15} />, label: '성과 추적' },
+        { to: '/news',        icon: <Newspaper size={15} />, label: '뉴스/테마' },
+        { to: '/themes',      icon: <Layers size={15} />,    label: '테마 추적' },
+        { to: '/disclosures', icon: <FileText size={15} />,  label: '공시 분석' },
+      ],
+    },
+    {
+      title: '성과·분석',
+      items: [
+        { to: '/backtest',      icon: <BarChart2 size={15} />,  label: '백테스트' },
+        { to: '/performance',   icon: <Activity size={15} />,   label: '모델 성능' },
+        { to: '/perf-tracking', icon: <Target size={15} />,     label: '추천 성과 추적' },
+        { to: '/tracking',      icon: <TrendingUp size={15} />, label: '이벤트 추적' },
       ],
     },
     {
       title: '관리',
       items: [
-        { to: '/watchlist',      icon: <Star size={15} />,     label: '관심종목' },
-        { to: '/notifications',  icon: <Bell size={15} />,     label: '알림 이력' },
-        { to: '/settings',       icon: <Settings size={15} />, label: '설정' },
+        { to: '/system-health', icon: <HeartPulse size={15} />, label: '시스템 헬스' },
+        { to: '/notifications', icon: <Bell size={15} />,       label: '알림 이력' },
+        { to: '/settings',      icon: <Settings size={15} />,   label: '설정' },
+        { to: '/bootstrap',     icon: <Cpu size={15} />,        label: '초기화 (Admin)' },
       ],
     },
   ]
+
+  if (isMobile) {
+    return (
+      <>
+        {/* 모바일 overlay backdrop */}
+        {mobileOpen && (
+          <div
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+            onClick={closeMobile}
+          />
+        )}
+        {/* 모바일 drawer */}
+        <aside className={clsx(
+          'fixed left-0 top-0 bottom-0 z-50 flex flex-col w-[260px]',
+          'bg-[var(--bg)] border-r border-[var(--border)]',
+          'transition-transform duration-250',
+          mobileOpen ? 'translate-x-0' : '-translate-x-full',
+        )}>
+          <SidebarContent collapsed={false} toggle={closeMobile} navGroups={navGroups} summary={summary} isCloseMobile />
+        </aside>
+      </>
+    )
+  }
 
   return (
     <aside className={clsx(
@@ -75,6 +114,22 @@ export function Sidebar() {
       'transition-all duration-200',
       collapsed ? 'w-[56px]' : 'w-[220px]'
     )}>
+      <SidebarContent collapsed={collapsed} toggle={toggle} navGroups={navGroups} summary={summary} />
+    </aside>
+  )
+}
+
+function SidebarContent({
+  collapsed, toggle, navGroups, summary, isCloseMobile,
+}: {
+  collapsed: boolean
+  toggle: () => void
+  navGroups: NavGroup[]
+  summary: { total: number } | undefined
+  isCloseMobile?: boolean
+}) {
+  return (
+    <>
       {/* 로고 */}
       <div className={clsx(
         'flex items-center gap-2.5 p-4 border-b border-[var(--border)] flex-shrink-0',
@@ -88,12 +143,17 @@ export function Sidebar() {
           </svg>
         </div>
         {!collapsed && (
-          <div>
+          <div className="flex-1 min-w-0">
             <div className="text-sm font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent tracking-wide">
               Quant Eye
             </div>
             <div className="text-[10px] text-[var(--muted)] leading-tight">AI의 눈으로 시장을 분석</div>
           </div>
+        )}
+        {isCloseMobile && (
+          <button onClick={toggle} className="p-1 rounded text-[var(--muted)] hover:text-[var(--fg)] ml-auto">
+            <X size={16} />
+          </button>
         )}
       </div>
 
@@ -115,22 +175,24 @@ export function Sidebar() {
       </nav>
 
       {/* 상태 표시 + 접기 버튼 */}
-      <div className="border-t border-[var(--border)] p-3 flex items-center justify-between flex-shrink-0">
-        {!collapsed && (
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
-            <span className="text-xs text-[var(--muted)]">실시간 연결됨</span>
-          </div>
-        )}
-        <button
-          onClick={toggle}
-          className="p-1 rounded hover:bg-[var(--border)] text-[var(--muted)] hover:text-[var(--fg)] transition-colors ml-auto"
-          title={collapsed ? '사이드바 펼치기' : '사이드바 접기'}
-        >
-          {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-        </button>
-      </div>
-    </aside>
+      {!isCloseMobile && (
+        <div className="border-t border-[var(--border)] p-3 flex items-center justify-between flex-shrink-0">
+          {!collapsed && (
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
+              <span className="text-xs text-[var(--muted)]">실시간 연결됨</span>
+            </div>
+          )}
+          <button
+            onClick={toggle}
+            className="p-1 rounded hover:bg-[var(--border)] text-[var(--muted)] hover:text-[var(--fg)] transition-colors ml-auto"
+            title={collapsed ? '사이드바 펼치기' : '사이드바 접기'}
+          >
+            {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+          </button>
+        </div>
+      )}
+    </>
   )
 }
 

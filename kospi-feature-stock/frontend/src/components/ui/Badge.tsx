@@ -25,6 +25,8 @@ const EVENT_COLORS: Record<string, Variant> = {
   MORNING_STAR:           'purple',
   SUPPLY_ANOMALY:         'cyan',
   POST_DISCLOSURE_SURGE:  'purple',
+  SHORT_SURGE:            'red',
+  DUAL_BUY_STREAK:        'green',
 }
 
 export const EVENT_LABELS: Record<string, string> = {
@@ -40,6 +42,8 @@ export const EVENT_LABELS: Record<string, string> = {
   MORNING_STAR:           '모닝스타 패턴',
   SUPPLY_ANOMALY:         '수급 이상',
   POST_DISCLOSURE_SURGE:  '공시 후 급등',
+  SHORT_SURGE:            '공매도 급증',
+  DUAL_BUY_STREAK:        '외인+기관 연속 매수',
   PRICE_SURGE:            '가격 급등',
   BREAKOUT:               '박스권 돌파',
   GOLDEN_CROSS:           '골든크로스',

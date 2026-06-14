@@ -2,10 +2,12 @@
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { ChevronUp, ChevronDown, Filter } from 'lucide-react'
+import { ChevronUp, ChevronDown, Filter, Zap } from 'lucide-react'
 import { featuresApi } from '@/api/features'
 import { Badge, MarketBadge, EVENT_LABELS } from '@/components/ui/Badge'
 import { EventDetailModal } from '@/components/modals/EventDetailModal'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { DataFreshness } from '@/components/ui/DataFreshness'
 import { fmt, pctColor } from '@/lib/utils'
 import type { FeatureEvent } from '@/types'
 
@@ -16,6 +18,7 @@ const EVENT_TYPE_OPTIONS = [
   'VOLUME_SURGE', 'AMOUNT_SURGE', 'BREAKOUT_52W', 'BREAKOUT_26W',
   'BREAKOUT_13W', 'BREAKOUT_20D', 'VI_TRIGGERED', 'LONG_WHITE_CANDLE',
   'HAMMER_CANDLE', 'MORNING_STAR', 'SUPPLY_ANOMALY', 'POST_DISCLOSURE_SURGE',
+  'SHORT_SURGE', 'DUAL_BUY_STREAK',
 ]
 
 
@@ -35,7 +38,7 @@ export function Features() {
   const [sortDir,        setSortDir]        = useState<SortDir>('desc')
   const [selectedEvent,  setSelectedEvent]  = useState<FeatureEvent | null>(null)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, dataUpdatedAt } = useQuery({
     queryKey:        ['features', { eventType, market, minScore, hours, dedupe }],
     queryFn:         () =>
       featuresApi.list({
@@ -157,8 +160,9 @@ export function Features() {
         >
           초기화
         </button>
-        <div className="text-sm text-[var(--muted)] tabular font-medium">
+        <div className="flex items-center gap-2 text-sm text-[var(--muted)] tabular font-medium">
           {isLoading ? '로딩 중…' : `${rows.length}건`}
+          {dataUpdatedAt > 0 && <DataFreshness updatedAt={dataUpdatedAt} staleAfterMs={60_000} />}
         </div>
       </div>
 
@@ -264,8 +268,12 @@ export function Features() {
               ))}
               {!isLoading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-[var(--muted)]">
-                    조건에 맞는 특징주가 없습니다
+                  <td colSpan={8}>
+                    <EmptyState
+                      icon={Zap}
+                      title="탐지된 특징주 없음"
+                      description="선택한 조건에 맞는 특징주가 없습니다. 기간이나 필터를 조정해보세요."
+                    />
                   </td>
                 </tr>
               )}

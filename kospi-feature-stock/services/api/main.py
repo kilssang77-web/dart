@@ -27,7 +27,8 @@ def _is_market_open() -> bool:
     t = now.time()
     return _time(9, 0) <= t <= _time(15, 35)
 
-from routers import stocks, features, recommendations, disclosures, backtest, themes, market, disclosure_filters, ml, news, watchlist, settings, notifications, tracking
+from routers import stocks, features, recommendations, disclosures, backtest, themes, market, disclosure_filters, ml, news, watchlist, settings, notifications, tracking, admin
+from middleware.auth import APIKeyMiddleware
 from perf_tracker import tracker_loop
 
 logger = logging.getLogger("api")
@@ -47,15 +48,19 @@ async def lifespan(app: FastAPI):
     for _alter in [
         "ALTER TABLE disclosures ADD COLUMN IF NOT EXISTS contract_amount BIGINT",
         """CREATE TABLE IF NOT EXISTS theme_snapshots (
-            id          BIGSERIAL PRIMARY KEY,
-            theme_name  VARCHAR(100) NOT NULL,
-            snap_date   DATE NOT NULL,
-            stock_count INT  NOT NULL DEFAULT 0,
-            avg_return  NUMERIC(8,4),
-            top_codes   TEXT,
-            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            id             BIGSERIAL PRIMARY KEY,
+            theme_name     VARCHAR(100) NOT NULL,
+            snap_date      DATE NOT NULL,
+            stock_count    INT  NOT NULL DEFAULT 0,
+            avg_return     NUMERIC(8,4),
+            top_codes      TEXT,
+            created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             UNIQUE(theme_name, snap_date)
         )""",
+        "ALTER TABLE theme_snapshots ADD COLUMN IF NOT EXISTS momentum_score NUMERIC(6,3)",
+        "ALTER TABLE theme_snapshots ADD COLUMN IF NOT EXISTS velocity INT",
+        "ALTER TABLE theme_snapshots ADD COLUMN IF NOT EXISTS lead_codes TEXT",
+        "CREATE INDEX IF NOT EXISTS idx_theme_snapshots_name_date ON theme_snapshots(theme_name, snap_date DESC)",
     ]:
         try:
             await app.state.db.execute(_alter)
@@ -64,6 +69,14 @@ async def lifespan(app: FastAPI):
 
     # recommendation_performance / telegram_logs 자동 생성 (이미 존재하면 skip)
     for _sql in [
+        """CREATE TABLE IF NOT EXISTS backtest_results (
+            id           BIGSERIAL PRIMARY KEY,
+            name         VARCHAR(200) NOT NULL,
+            params       TEXT,
+            result       TEXT,
+            equity_curve TEXT,
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )""",
         """CREATE TABLE IF NOT EXISTS recommendation_performance (
             id BIGSERIAL PRIMARY KEY, rec_id BIGINT NOT NULL, code VARCHAR(10) NOT NULL,
             entry_price NUMERIC NOT NULL, event_type VARCHAR(50), signal_time TIMESTAMPTZ NOT NULL,
@@ -118,8 +131,9 @@ app.add_middleware(
     allow_origins=_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*", "X-API-Key"],
 )
+app.add_middleware(APIKeyMiddleware)
 
 app.include_router(stocks.router,          prefix="/api/v1/stocks",          tags=["stocks"])
 app.include_router(features.router,        prefix="/api/v1/features",        tags=["features"])
@@ -135,6 +149,7 @@ app.include_router(watchlist.router,         prefix="/api/v1/watchlist",        
 app.include_router(settings.router,         prefix="/api/v1/settings",          tags=["settings"])
 app.include_router(notifications.router,  prefix="/api/v1/notifications",     tags=["notifications"])
 app.include_router(tracking.router,       prefix="/api/v1/tracking",          tags=["tracking"])
+app.include_router(admin.router,          prefix="/api/v1",                   tags=["admin"])
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")

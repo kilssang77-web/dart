@@ -63,6 +63,29 @@ class BatchScanner:
     # 진입점
     # ─────────────────────────────────────────────────────────────
 
+    async def _fetch_realtime_candle_dedup(
+        self, codes: list[str], today: date
+    ) -> set[tuple[str, str]]:
+        """실시간 탐지기가 당일 Redis에 기록한 candle dedup 키 조회 — 파이프라인."""
+        _CANDLE_TYPES = ("LONG_WHITE_CANDLE", "HAMMER_CANDLE", "MORNING_STAR")
+        today_str = today.strftime("%Y-%m-%d")
+        result: set[tuple[str, str]] = set()
+        try:
+            pipe = self.redis.pipeline()
+            for code in codes:
+                for et in _CANDLE_TYPES:
+                    pipe.exists(f"candle:rt:{code}:{today_str}:{et}")
+            values = await pipe.execute()
+            idx = 0
+            for code in codes:
+                for et in _CANDLE_TYPES:
+                    if values[idx]:
+                        result.add((code, et))
+                    idx += 1
+        except Exception as e:
+            logger.debug(f"[BatchScan] candle dedup check error: {e}")
+        return result
+
     async def _fetch_today_detections(self, today: date) -> set[tuple[str, str]]:
         """detector가 오늘 이미 기록한 (code, event_type) 집합 — 배치 중복 방지용."""
         try:
@@ -107,6 +130,8 @@ class BatchScanner:
         recent_bars_map = await self._fetch_recent_bars(live_codes, today)
 
         # 6. 시그널 판정 (detector 중복 제외)
+        _candle_rt_dedup = await self._fetch_realtime_candle_dedup(live_codes, today)
+
         events: list[dict] = []
         for code in live_codes:
             bar         = today_map[code]
@@ -114,8 +139,14 @@ class BatchScanner:
             avgs        = avgs_map.get(code, {})
             recent_bars = recent_bars_map.get(code, [])
             for ev in self._detect(code, bar, highs, avgs, recent_bars):
-                if (ev["code"], ev["event_type"]) not in already_detected:
-                    events.append(ev)
+                et = ev["event_type"]
+                if (ev["code"], et) in already_detected:
+                    continue
+                # 실시간 탐지기가 이미 Redis dedup 키를 설정한 캔들 이벤트는 건너뜀
+                if et in ("LONG_WHITE_CANDLE", "HAMMER_CANDLE", "MORNING_STAR"):
+                    if (code, et) in _candle_rt_dedup:
+                        continue
+                events.append(ev)
 
         logger.info(f"[BatchScan] Detected {len(events)} new signals (deduped)")
 

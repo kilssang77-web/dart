@@ -1,0 +1,83 @@
+﻿from datetime import datetime, timezone, timedelta
+
+_KST = timezone(timedelta(hours=9))
+
+
+def _fmt_price(price) -> str:
+    try:
+        return f"{int(price):,}"
+    except (TypeError, ValueError):
+        return str(price)
+
+
+def _fmt_pct(a, b) -> str:
+    try:
+        pct = (float(b) - float(a)) / float(a) * 100
+        sign = "+" if pct >= 0 else ""
+        return f"{sign}{pct:.1f}%"
+    except Exception:
+        return "N/A"
+
+
+def _fmt_dt(iso: str) -> str:
+    try:
+        dt = datetime.fromisoformat(iso)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(_KST).strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return iso[:16] if iso else ""
+
+
+def format_buy_signal(msg: dict) -> str:
+    code        = msg.get("code", "")
+    name        = msg.get("name", "") or code
+    entry       = msg.get("entry_price", 0)
+    target      = msg.get("target_price", 0)
+    stop        = msg.get("stop_loss_price", 0)
+    prob        = msg.get("success_prob", 0)
+    risk        = msg.get("risk_score", 0)
+    created_at  = _fmt_dt(msg.get("created_at", ""))
+
+    upside   = _fmt_pct(entry, target)
+    downside = _fmt_pct(entry, stop)
+
+    name_line = f"&#128204; 종목: <b>{name}</b>  (<code>{code}</code>)\n" if name != code else f"&#128204; 종목: <b>{code}</b>\n"
+
+    return (
+        f"<b>&#128640; 매수 추천 알림</b>\n"
+        f"\n"
+        f"{name_line}"
+        f"&#127919; 성공확률: <b>{prob * 100:.0f}%</b>\n"
+        f"\n"
+        f"&#128176; 매수가(진입): <b>{_fmt_price(entry)}원</b>\n"
+        f"&#127937; 목표가(매도): <b>{_fmt_price(target)}원</b>  (<code>{upside}</code>)\n"
+        f"&#128721; 손절가: <b>{_fmt_price(stop)}원</b>  (<code>{downside}</code>)\n"
+        f"&#9888;&#65039; 리스크: <b>{risk * 100:.0f}%</b>\n"
+        f"\n"
+        f"&#128336; {created_at}"
+    )
+
+
+def format_disclosure(msg: dict) -> str:
+    corp_name       = msg.get("corp_name", "")
+    code            = msg.get("code", "")
+    title           = msg.get("title", "")
+    category        = msg.get("category", "")
+    sentiment_score = msg.get("sentiment_score", 0.0)
+    disclosed_at    = _fmt_dt(msg.get("disclosed_at", ""))
+    keywords        = msg.get("keywords", [])
+
+    sentiment_label = "&#128994;" if sentiment_score >= 0.3 else ("&#128308;" if sentiment_score <= -0.3 else "&#128992;")
+    kw_text = "  ".join(f"#{k}" for k in keywords[:5]) if keywords else ""
+
+    return (
+        f"<b>&#128226; 공시 알림</b>\n"
+        f"\n"
+        f"&#127970; 법인: <b>{corp_name}</b>  (<code>{code}</code>)\n"
+        f"&#128203; 제목: {title}\n"
+        f"&#128202; 분류: {category}  {sentiment_label} <code>{sentiment_score:+.2f}</code>\n"
+        f"{('&#128273; ' + kw_text + chr(10)) if kw_text else ''}"
+        f"\n"
+        f"&#128336; {disclosed_at}"
+    )

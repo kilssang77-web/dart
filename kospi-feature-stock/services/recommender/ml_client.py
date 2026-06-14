@@ -174,8 +174,9 @@ def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: li
     ma5_slope  = (ma(5) / ma(min(10, len(closes))) - 1) if len(closes) >= 5 else 0.0
     ma20_slope = (ma(20) / ma(min(40, len(closes))) - 1) if len(closes) >= 20 else 0.0
 
-    # ── 가격 가속도·갭 ──
-    price_accel = return_1d - (return_3d / 3.0)
+    # ── 가격 가속도·갭 ── (학습과 동일: 최근 5일 모멘텀 - 직전 5일 모멘텀)
+    prior5      = (closes[0] / closes[10] - 1) * 100 if len(closes) > 10 and closes[10] else 0.0
+    price_accel = return_5d - prior5
     gap_pct = (opens[0] / closes[1] - 1) * 100 if len(closes) > 1 and closes[1] else 0.0
 
     # ── 연속 상승/하락 일수 ──
@@ -309,12 +310,12 @@ def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: li
     rel_strength_5d  = return_5d - kospi_return_5d
     market_vol_ratio = vol_ratio_20d
 
-    # ── 시간 인코딩 (sin/cos) ──
+    # ── 시간 인코딩 (sin/cos) — 학습 코드와 동일하게 /7 사용 ──
     _now = datetime.now()
-    dow = _now.weekday()  # 0=Mon…4=Fri
+    dow = _now.weekday()  # 0=Mon…6=Sun (한국 주식은 Mon-Fri만 거래하지만 /7로 인코딩)
     month = _now.month
-    dow_sin   = math.sin(2 * math.pi * dow / 5)
-    dow_cos   = math.cos(2 * math.pi * dow / 5)
+    dow_sin   = math.sin(2 * math.pi * dow / 7)
+    dow_cos   = math.cos(2 * math.pi * dow / 7)
     month_sin = math.sin(2 * math.pi * (month - 1) / 12)
     month_cos = math.cos(2 * math.pi * (month - 1) / 12)
 

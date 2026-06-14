@@ -12,19 +12,25 @@ from rules.candlestick import CandlestickDetector
 from rules.supply_anomaly import SupplyAnomalyDetector
 from rules.vi_detector import VIDetector
 from rules.post_disclosure import PostDisclosureDetector
+from rules.correlation import CorrelationDetector
 from kafka.consumer import KafkaConsumerWrapper
 from kafka.producer import KafkaProducerWrapper
 
-_COOLDOWN_MINUTES = int(os.environ.get("SIGNAL_COOLDOWN_MINUTES", "10"))
+_COOLDOWN_MINUTES   = int(os.environ.get("SIGNAL_COOLDOWN_MINUTES",  "10"))
+_NOISE_SCORE_FLOOR  = float(os.environ.get("NOISE_SCORE_FLOOR",      "0.45"))
 # 분봉 개별 캔들스틱 탐지는 기본 비활성화.
 # 동일 패턴을 일봉 마감 후 batch_scanner에서 더 정확하게 탐지하므로
 # 중복 신호 및 데이터 불일치 방지를 위해 0으로 유지한다.
 _DETECTOR_CANDLE_ENABLED = os.environ.get("DETECTOR_CANDLE_ENABLED", "0") == "1"
 # 세션 OHLC 기반 장중 캔들 탐지 (기본 활성화 — 세션 전체 등락 기준으로 더 안정적)
 _DETECTOR_SESSION_CANDLE_ENABLED = os.environ.get("DETECTOR_SESSION_CANDLE_ENABLED", "1") == "1"
+# 실시간 캔들 탐지 (장중 세션 OHLC 기반 — batch_scanner dedup Redis 키 병행)
+_DETECTOR_CANDLE_REALTIME    = os.environ.get("DETECTOR_CANDLE_REALTIME", "1") == "1"
 _SESSION_CANDLE_MIN_RETURN   = float(os.environ.get("SESSION_CANDLE_MIN_RETURN", "0.03"))   # 3%+
 _SESSION_CANDLE_HOUR_AFTER   = int(os.environ.get("SESSION_CANDLE_HOUR_AFTER",   "13"))     # 13시 이후
 _SESSION_OHLC_TTL            = 28800  # 8시간 (당일 세션 유효)
+_CANDLE_RT_MIN_BARS          = int(os.environ.get("CANDLE_RT_MIN_BARS", "5"))   # 최소 분봉 수
+_CANDLE_DEDUP_TTL            = 90_000  # 25시간 (당일 + 다음날 장 전까지)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,9 +56,11 @@ class FeatureStockDetector:
         self.sup_det   = SupplyAnomalyDetector(self.redis)
         self.vi_det    = VIDetector(self.redis)
         self.disc_det  = PostDisclosureDetector(self.redis)
+        self.corr_det  = CorrelationDetector(self.redis)
         self._cooldown: dict[tuple, datetime] = {}
         self._emit_count: int = 0
         self._bar_buffer: dict[str, deque] = {}  # 모닝스타용 종목별 최근 3봉
+        self._bar_count:  dict[str, int]   = {}  # 실시간 캔들 탐지용 분봉 누적 카운터
 
     async def run(self):
         await asyncio.gather(
@@ -223,6 +231,13 @@ class FeatureStockDetector:
                             "signal_data": {"bars": buf[-3:]},
                         })
 
+                # 실시간 세션 캔들 탐지 (DETECTOR_CANDLE_REALTIME=1, 기본값 활성화)
+                # 세션 누적 OHLC 기준으로 장중 탐지 → Redis dedup 키로 batch_scanner와 중복 방지
+                if _DETECTOR_CANDLE_REALTIME:
+                    self._bar_count[code] = self._bar_count.get(code, 0) + 1
+                    if self._bar_count[code] >= _CANDLE_RT_MIN_BARS:
+                        await self._detect_realtime_candles(code, bar)
+
     async def _update_session_ohlc(self, code: str, bar: dict):
         """분봉 데이터로 당일 세션 OHLC를 Redis에 누적."""
         today = datetime.now(timezone.utc).astimezone(
@@ -292,12 +307,89 @@ class FeatureStockDetector:
             logger.debug(f"session candle detect error {code}: {e}")
         return None
 
+    async def _detect_realtime_candles(self, code: str, bar: dict) -> None:
+        """세션 OHLC 기반 실시간 캔들 탐지 — batch_scanner Redis dedup 키 병행."""
+        now_kst = datetime.now(timezone.utc).astimezone(
+            __import__("zoneinfo").ZoneInfo("Asia/Seoul")
+        )
+        if now_kst.hour < _SESSION_CANDLE_HOUR_AFTER:
+            return
+
+        key_ohlc = f"session:ohlc:{code}"
+        try:
+            raw = await self.redis.get(key_ohlc)
+            if not raw:
+                return
+            ohlc = orjson.loads(raw)
+        except Exception:
+            return
+
+        o = float(ohlc.get("o") or 0)
+        h = float(ohlc.get("h") or 0)
+        l = float(ohlc.get("l") or 0)
+        c = float(ohlc.get("c") or 0)
+        if not o or not c:
+            return
+
+        today    = now_kst.strftime("%Y-%m-%d")
+        chg_rate = float(bar.get("change_rate", 0))
+        price    = int(c)
+
+        # ── 장대양봉 ───────────────────────────────────────────
+        body   = abs(c - o)
+        rng    = h - l
+        body_r = body / rng if rng else 0
+        chg_pct = (c - o) / o * 100 if o else 0
+        if body_r >= 0.65 and chg_pct >= 3.0 and c > o:
+            dedup = f"candle:rt:{code}:{today}:LONG_WHITE_CANDLE"
+            if not await self.redis.exists(dedup):
+                score = round(min(0.88, 0.50 + body_r * 0.4 + min(chg_pct / 20.0, 0.10)), 3)
+                await self.redis.set(dedup, "1", ex=_CANDLE_DEDUP_TTL)
+                await self._emit({
+                    "code":        code,
+                    "event_type":  "LONG_WHITE_CANDLE",
+                    "price":       price,
+                    "change_rate": chg_rate,
+                    "signal_score": score,
+                    "signal_data":  {"body_ratio": round(body_r, 3), "change_pct": round(chg_pct, 2), "realtime": True},
+                })
+
+        # ── 망치형 ────────────────────────────────────────────
+        lower  = min(o, c) - l
+        upper  = h - max(o, c)
+        if body > 0 and lower >= 2 * body and upper <= 0.1 * body:
+            dedup = f"candle:rt:{code}:{today}:HAMMER_CANDLE"
+            if not await self.redis.exists(dedup):
+                ratio_val = lower / body
+                score = round(min(0.72, 0.45 + ratio_val * 0.05), 3)
+                await self.redis.set(dedup, "1", ex=_CANDLE_DEDUP_TTL)
+                await self._emit({
+                    "code":        code,
+                    "event_type":  "HAMMER_CANDLE",
+                    "price":       price,
+                    "change_rate": chg_rate,
+                    "signal_score": score,
+                    "signal_data":  {"lower_shadow_ratio": round(ratio_val, 2), "realtime": True},
+                })
+
     async def _process_supply_demand(self):
         async for batch in self.consumer.consume(["supply-demand"], batch_size=50):
             for data in batch:
-                anomaly = await self.sup_det.detect(data)
-                if anomaly:
-                    await self._emit(anomaly)
+                for sig in await self._detect_supply(data):
+                    await self._emit(sig)
+
+    async def _detect_supply(self, data: dict) -> list[dict]:
+        sigs: list[dict] = []
+        anomaly = await self.sup_det.detect(data)
+        if anomaly:
+            sigs.append(anomaly)
+        short = await self.sup_det.detect_short_surge(data)
+        if short:
+            sigs.append(short)
+        streak = await self.sup_det.detect_dual_buy_streak(data)
+        if streak:
+            sigs.append(streak)
+        return sigs
 
     async def _process_disclosures(self):
         async for batch in self.consumer.consume(["disclosure"], batch_size=20):
@@ -308,6 +400,15 @@ class FeatureStockDetector:
                     await self.disc_det.mark_disclosure(code, category)
 
     async def _emit(self, signal: dict):
+        # 노이즈 필터: signal_score 임계치 미달 신호 조기 차단
+        score = float(signal.get("signal_score", 0.5))
+        if score < _NOISE_SCORE_FLOOR:
+            logger.debug(
+                f"[NOISE] {signal.get('code')} {signal.get('event_type')} "
+                f"score={score:.2f} < {_NOISE_SCORE_FLOOR:.2f} — skipped"
+            )
+            return
+
         ck = (signal.get("code"), signal.get("event_type"))
         now = datetime.now()
         last = self._cooldown.get(ck)
@@ -331,6 +432,21 @@ class FeatureStockDetector:
             f"[SIGNAL] {signal.get('code')} {signal.get('event_type')} "
             f"score={signal.get('signal_score', 0):.2f}"
         )
+
+        # 섹터 상관 탐지: 동일 섹터 집중 신호 확인
+        corr = await self.corr_det.record_and_check(signal)
+        if corr:
+            # SECTOR_CORRELATION은 별도 cooldown (코드+타입 키로 관리됨)
+            corr_ck = (corr.get("code"), "SECTOR_CORRELATION")
+            corr_last = self._cooldown.get(corr_ck)
+            if not corr_last or now - corr_last >= timedelta(minutes=_COOLDOWN_MINUTES):
+                self._cooldown[corr_ck] = now
+                corr.setdefault("detected_at", now.isoformat())
+                await self.producer.send("feature-detected", corr, key=corr.get("code", ""))
+                logger.info(
+                    f"[CORR] {corr.get('code')} sector={corr.get('signal_data', {}).get('sector')} "
+                    f"stocks={corr.get('signal_data', {}).get('stock_count')} score={corr.get('signal_score', 0):.2f}"
+                )
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect } from 'react'
 import { clsx } from 'clsx'
 import { useSidebarStore } from '@/store/sidebar'
+import { useIsMobile } from '@/hooks/useMediaQuery'
 
 interface TopBarProps {
   title:     string
@@ -15,7 +16,8 @@ export function TopBar({ title, subtitle }: TopBarProps) {
   const { mode, toggle }     = useThemeStore()
   const isConnected          = useRealtimeStore((s) => s.isConnected)
   const qc                   = useQueryClient()
-  const { toggle: toggleSidebar } = useSidebarStore()
+  const { toggle: toggleSidebar, openMobile } = useSidebarStore()
+  const isMobile = useIsMobile()
   const [refreshing, setRefreshing] = useState(false)
   const [colorblind, setColorblind] = useState(() => localStorage.getItem('colorblind') === '1')
 
@@ -38,7 +40,7 @@ export function TopBar({ title, subtitle }: TopBarProps) {
     )}>
       {/* 모바일 햄버거 */}
       <button
-        onClick={toggleSidebar}
+        onClick={isMobile ? openMobile : toggleSidebar}
         className="md:hidden p-2 rounded-md text-[var(--muted)] hover:text-[var(--fg)] hover:bg-[var(--border)] transition-colors mr-2"
       >
         <Menu size={16} />
