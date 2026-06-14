@@ -222,6 +222,8 @@ export const adminApi = {
     api.get('/admin/ml/win-prob-status').then((r) => r.data),
   retrainAll: (): Promise<{ status: string; message: string }> =>
     api.post('/admin/ml/retrain').then((r) => r.data),
+  syncInpo21cToBids: (): Promise<{ updated_base_amount: number; updated_open_date: number; updated_participants: number }> =>
+    api.post('/admin/sync-inpo21c-to-bids').then((r) => r.data),
 }
 
 // -- 투찰 이력 --------------------------------------------------

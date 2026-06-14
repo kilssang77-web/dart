@@ -28,6 +28,167 @@ const ROLE_CONFIG: Record<string, { label: string; cls: string }> = {
   viewer:  { label: '뷰어',   cls: 'bg-slate-100 text-slate-600 border border-slate-200' },
 }
 
+function WinProbTrainCard() {
+  const { data: wpStatus, refetch, isFetching } = useQuery({
+    queryKey: ['win-prob-status'],
+    queryFn: () => adminApi.winProbStatus(),
+    refetchInterval: false,
+  })
+  const trainMut = useMutation({
+    mutationFn: () => adminApi.trainWinProb(),
+    onSuccess: () => {
+      // 학습은 백그라운드 스레드 — 60초 후 자동 새로고침
+      setTimeout(() => refetch(), 60_000)
+    },
+  })
+
+  const fi = wpStatus?.feature_importance as Record<string, number> | undefined
+  const fiTotal = fi ? Object.values(fi).reduce((s, v) => s + v, 0) : 0
+  const fiSorted = fi
+    ? Object.entries(fi).sort((a, b) => b[1] - a[1])
+    : []
+
+  const featureLabels: Record<string, string> = {
+    bid_rate:      '투찰율',
+    inv_n_comp:    '경쟁자수 역수',
+    srate:         '사정율',
+    bid_vs_floor:  'floor 거리',
+    win_rank_est:  'GMM 순위',
+    bid_z_score:   'z-score',
+    n_competitors: '경쟁자수',
+    n_comp_log:    'log(경쟁자)',
+    bid_rate_sq:   '투찰율²',
+  }
+
+  return (
+    <Card className="bg-white border-slate-200 shadow-sm">
+      <CardHeader className="border-b border-slate-100 pb-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
+              <Zap className="h-4 w-4 text-emerald-600" />실증 낙찰확률 모델
+              <span className="text-xs font-normal text-slate-400">win_prob v3 · LightGBM</span>
+            </CardTitle>
+            <p className="text-xs text-slate-500 mt-0.5">
+              inpo21c 복수예가 실적 → 이진 분류 · GMM CDF 피처 · 경쟁자 수 직접 반영
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {isFetching && <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => refetch()}
+              className="h-7 text-xs gap-1"
+            >
+              <RefreshCw className="h-3 w-3" />새로고침
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => trainMut.mutate()}
+              disabled={trainMut.isPending}
+              className="h-7 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {trainMut.isPending
+                ? <><Loader2 className="h-3 w-3 animate-spin" />학습 중...</>
+                : <><Zap className="h-3 w-3" />지금 학습</>
+              }
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="p-5 space-y-3">
+
+        {/* 상태 배지 */}
+        <div className="flex justify-between items-center">
+          <span className="text-sm text-slate-500">모델 상태</span>
+          <span className={cn(
+            'text-xs font-semibold px-2.5 py-1 rounded-full border',
+            wpStatus?.trained
+              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              : 'bg-amber-50 text-amber-600 border-amber-200'
+          )}>
+            {wpStatus?.trained ? '학습됨 ✓' : '미학습 (Monte Carlo fallback 중)'}
+          </span>
+        </div>
+
+        {wpStatus?.trained && (
+          <>
+            {/* 핵심 지표 */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-slate-50 rounded-lg p-3 text-center">
+                <div className="text-xs text-slate-400 mb-1">AUC</div>
+                <div className="text-lg font-bold text-emerald-700">
+                  {wpStatus.auc != null ? wpStatus.auc.toFixed(4) : '-'}
+                </div>
+              </div>
+              <div className="bg-slate-50 rounded-lg p-3 text-center">
+                <div className="text-xs text-slate-400 mb-1">학습 건수</div>
+                <div className="text-lg font-bold text-slate-700">
+                  {wpStatus.n_train != null ? wpStatus.n_train.toLocaleString() : '-'}
+                </div>
+              </div>
+              <div className="bg-slate-50 rounded-lg p-3 text-center">
+                <div className="text-xs text-slate-400 mb-1">최적 반복</div>
+                <div className="text-lg font-bold text-slate-700">
+                  {wpStatus.best_iteration ?? '-'}회
+                </div>
+              </div>
+            </div>
+
+            {/* 피처 중요도 */}
+            {fiSorted.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">피처 중요도</div>
+                {fiSorted.map(([name, val]) => (
+                  <div key={name} className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500 w-24 shrink-0">
+                      {featureLabels[name] ?? name}
+                    </span>
+                    <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
+                      <div
+                        className="h-full bg-emerald-500 rounded-full transition-all"
+                        style={{ width: `${fiTotal > 0 ? (val / fiTotal) * 100 : 0}%` }}
+                      />
+                    </div>
+                    <span className="text-xs font-mono text-slate-600 w-8 text-right">{val}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 학습 시각 */}
+            <div className="flex justify-between text-xs text-slate-400 pt-1 border-t border-dashed">
+              <span>학습 완료</span>
+              <span className="font-mono">{wpStatus.trained_at_str ?? '-'}</span>
+            </div>
+          </>
+        )}
+
+        {/* 학습 시작 메시지 */}
+        {trainMut.isSuccess && (
+          <div className="text-xs text-emerald-600 bg-emerald-50 rounded-lg px-3 py-2">
+            학습 시작됨 — 약 60초 후 "새로고침"을 클릭하세요.
+          </div>
+        )}
+        {trainMut.isError && (
+          <div className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">
+            학습 요청 실패 — 서버 로그를 확인하세요.
+          </div>
+        )}
+
+        {/* 미학습 안내 */}
+        {!wpStatus?.trained && (
+          <div className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+            학습 전: 투찰결정이 Monte Carlo 시뮬레이션만 사용합니다.
+            "지금 학습" 클릭 시 inpo21c 실증 데이터로 고정밀 모델이 생성됩니다.
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 interface UserFormState { email: string; password: string; name: string; role: string; department: string }
 const EMPTY_FORM: UserFormState = { email: '', password: '', name: '', role: 'viewer', department: '' }
 
@@ -81,6 +242,19 @@ export default function AdminPage() {
     onError: () => {
       setInpoCollectMsg({ type: 'error', text: 'inpo21c 수집 요청 실패' })
       setTimeout(() => setInpoCollectMsg(null), 5000)
+    },
+  })
+
+  const [syncMsg, setSyncMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const syncInpo21cMutation = useMutation({
+    mutationFn: () => adminApi.syncInpo21cToBids(),
+    onSuccess: (data) => {
+      setSyncMsg({ type: 'success', text: `동기화 완료 — 기초금액 ${data.updated_base_amount}건 · 개찰일 ${data.updated_open_date}건 · 경쟁사수 ${data.updated_participants}건 갱신` })
+      setTimeout(() => setSyncMsg(null), 8000)
+    },
+    onError: () => {
+      setSyncMsg({ type: 'error', text: 'inpo21c → bids 동기화 요청 실패' })
+      setTimeout(() => setSyncMsg(null), 5000)
     },
   })
 
@@ -740,6 +914,9 @@ export default function AdminPage() {
                   </Card>
                 </div>
 
+                {/* 실증 낙찰확률 모델 훈련 */}
+                <WinProbTrainCard />
+
                 {/* 수집 이력 테이블 */}
                 {collectionLogs.length > 0 && (
                   <Card className="bg-white border-slate-200 shadow-sm overflow-hidden">
@@ -969,6 +1146,37 @@ export default function AdminPage() {
                           : 'text-red-700 bg-red-50 border-red-200'
                       )}>
                         {inpoCollectMsg.text}
+                      </div>
+                    )}
+
+                    {/* inpo21c → bids 동기화 */}
+                    <div className="border-t border-slate-100 pt-4 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-slate-700">inpo21c → 공고 데이터 동기화</p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          기초금액 · 개찰일 · 경쟁사수를 inpo21c 실증 데이터로 보완 (G2B API 누락 필드 복구)
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="shrink-0 gap-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                        disabled={syncInpo21cMutation.isPending}
+                        onClick={() => syncInpo21cMutation.mutate()}
+                      >
+                        {syncInpo21cMutation.isPending
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : <RefreshCw className="h-3.5 w-3.5" />}
+                        {syncInpo21cMutation.isPending ? '동기화 중...' : '데이터 동기화'}
+                      </Button>
+                    </div>
+                    {syncMsg && (
+                      <div className={cn('text-sm px-4 py-3 rounded-lg border',
+                        syncMsg.type === 'success'
+                          ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                          : 'text-red-700 bg-red-50 border-red-200'
+                      )}>
+                        {syncMsg.text}
                       </div>
                     )}
                   </CardContent>
