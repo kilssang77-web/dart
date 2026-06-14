@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { clsx } from 'clsx'
 import { X, Building2, FileText, Tag, TrendingUp, TrendingDown, Calendar, DollarSign, Lightbulb, Users, Clock4 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
@@ -6,35 +7,33 @@ import { SentimentBadge } from '@/components/ui/Badge'
 import { fmt, pctColor } from '@/lib/utils'
 import type { Disclosure } from '@/types'
 
-function buildDisclosureNarrative(d: Disclosure): string {
+function DisclosureNarrative({ d }: { d: Disclosure }) {
   const corpStr = d.corp_name ? `${d.corp_name}${d.code ? ` (${d.code})` : ''}` : d.code ?? '해당 법인'
-  const catMap: Record<string, string> = {
-    favorable:   '호재성',
-    unfavorable: '악재성',
-    neutral:     '중립적',
-  }
-  const catStr   = catMap[d.category ?? ''] ?? '내용 미분류'
-  const scoreStr = d.sentiment_score != null
-    ? `감성 분석 점수는 <strong>${d.sentiment_score >= 0 ? '+' : ''}${d.sentiment_score?.toFixed(3)}</strong>으로 `
-    + (d.sentiment_score >= 0.3 ? '시장에 긍정적인 반응이 예상됩니다.' : d.sentiment_score <= -0.3 ? '시장에 부정적인 반응이 우려됩니다.' : '중립 수준의 반응이 예상됩니다.')
-    : ''
-  const amtStr = (d.amount_text || d.amount)
-    ? `공시와 관련된 금액은 <strong>${d.amount_text ?? fmt.amount(d.amount)}</strong>입니다. ` : ''
-  const cpStr    = d.counterparty ? `거래 상대방은 <strong>${d.counterparty}</strong>입니다. ` : ''
-  const chgStr   = d.post_1d_change != null
-    ? `공시 다음날 주가 등락률은 <strong>${fmt.pct(d.post_1d_change)}</strong>를 기록했습니다. ` : ''
-  const kwStr    = d.keywords && d.keywords.length > 0
-    ? `주요 키워드: <strong>${d.keywords.slice(0, 5).join(', ')}</strong>.` : ''
-
-  return [
-    `${corpStr}이(가) <strong>${d.title}</strong> 공시를 제출했습니다.`,
-    `해당 공시는 <strong>${catStr}</strong> 성격의 ${d.disclosure_type ?? d.report_type ?? ''}공시로 분류되어 있습니다.`,
-    scoreStr,
-    amtStr,
-    cpStr,
-    chgStr,
-    kwStr,
-  ].filter(Boolean).join(' ')
+  const catMap: Record<string, string> = { favorable: '호재성', unfavorable: '악재성', neutral: '중립적' }
+  const catStr  = catMap[d.category ?? ''] ?? '내용 미분류'
+  const B = ({ children }: { children: ReactNode }) => <strong className="font-semibold text-[var(--fg)]">{children}</strong>
+  const sentimentMsg = d.sentiment_score != null
+    ? (d.sentiment_score >= 0.3 ? '시장에 긍정적인 반응이 예상됩니다.' : d.sentiment_score <= -0.3 ? '시장에 부정적인 반응이 우려됩니다.' : '중립 수준의 반응이 예상됩니다.')
+    : null
+  return (
+    <>
+      <span>{corpStr}이(가) <B>{d.title}</B> 공시를 제출했습니다. </span>
+      <span>해당 공시는 <B>{catStr}</B> 성격의 {d.disclosure_type ?? d.report_type ?? ''}공시로 분류되어 있습니다. </span>
+      {d.sentiment_score != null && sentimentMsg && (
+        <span>감성 분석 점수는 <B>{d.sentiment_score >= 0 ? '+' : ''}{d.sentiment_score.toFixed(3)}</B>으로 {sentimentMsg} </span>
+      )}
+      {(d.amount_text || d.amount) && (
+        <span>공시와 관련된 금액은 <B>{d.amount_text ?? fmt.amount(d.amount)}</B>입니다. </span>
+      )}
+      {d.counterparty && <span>거래 상대방은 <B>{d.counterparty}</B>입니다. </span>}
+      {d.post_1d_change != null && (
+        <span>공시 다음날 주가 등락률은 <B>{fmt.pct(d.post_1d_change)}</B>를 기록했습니다. </span>
+      )}
+      {d.keywords && d.keywords.length > 0 && (
+        <span>주요 키워드: <B>{d.keywords.slice(0, 5).join(', ')}</B>.</span>
+      )}
+    </>
+  )
 }
 
 interface Props {
@@ -208,10 +207,9 @@ export function DisclosureDetailModal({ disclosure: d, onClose }: Props) {
           {/* AI 분석 요약 */}
           <div className="px-6 pt-5 pb-3">
             <div className="text-sm font-semibold text-[var(--fg)] mb-3">📋 AI 분석 요약</div>
-            <p
-              className="modal-narrative text-sm text-[var(--fg)] leading-7"
-              dangerouslySetInnerHTML={{ __html: buildDisclosureNarrative(d) }}
-            />
+            <p className="modal-narrative text-sm text-[var(--fg)] leading-7">
+              <DisclosureNarrative d={d} />
+            </p>
           </div>
 
           {/* 유사 공시 기반 가격 충격 예측 */}

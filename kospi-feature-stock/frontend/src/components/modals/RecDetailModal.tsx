@@ -1,4 +1,5 @@
 ﻿// v3
+import type { ReactNode } from 'react'
 import { X, Target, Shield, Zap, TrendingUp, BrainCircuit, BarChart2, Clock, History } from 'lucide-react'
 import { clsx } from 'clsx'
 import { fmt, probColor, pctColor } from '@/lib/utils'
@@ -79,8 +80,7 @@ const EVT_NAMES: Record<string, string> = {
   SECTOR_ROTATION:       '섹터 자금 이동',
 }
 
-function buildRecNarrative(rec: Recommendation): string {
-  const parts: string[] = []
+function RecNarrative({ rec }: { rec: Recommendation }) {
   const evtType   = rec.rationale?.event_type
   const mlProb    = rec.rationale?.ml_prob
   const simCount  = rec.rationale?.sim_count ?? 0
@@ -88,38 +88,36 @@ function buildRecNarrative(rec: Recommendation): string {
   const atrBased  = rec.rationale?.atr_based ?? false
   const risks     = rec.rationale?.risk_factors ?? []
   const evtName   = evtType ? (EVT_NAMES[evtType] || evtType) : null
+  const B = ({ children }: { children: ReactNode }) => <strong className="font-bold text-[var(--fg)]">{children}</strong>
 
+  const sentences: ReactNode[] = []
   if (rec.action === 'BUY') {
-    parts.push(`ML 모델이 이 종목을 <b>매수(BUY)</b> 추천합니다. 성공 확률 <b>${fmt.prob(rec.success_prob)}</b>로 모델이 단기 상승 가능성이 높다고 판단했습니다.`)
+    sentences.push(<span key="action">ML 모델이 이 종목을 <B>매수(BUY)</B> 추천합니다. 성공 확률 <B>{fmt.prob(rec.success_prob)}</B>로 모델이 단기 상승 가능성이 높다고 판단했습니다.</span>)
   } else if (rec.action === 'WAIT') {
-    parts.push(`현재 조건이 완전히 충족되지 않아 <b>대기(WAIT)</b> 신호입니다. 성공 확률 <b>${fmt.prob(rec.success_prob)}</b>로, 조건이 개선되면 BUY 신호로 전환될 수 있습니다.`)
+    sentences.push(<span key="action">현재 조건이 완전히 충족되지 않아 <B>대기(WAIT)</B> 신호입니다. 성공 확률 <B>{fmt.prob(rec.success_prob)}</B>로, 조건이 개선되면 BUY 신호로 전환될 수 있습니다.</span>)
   } else {
-    parts.push(`현재 리스크가 높아 <b>보류(SKIP)</b> 판단입니다. 신호 확률 <b>${fmt.prob(rec.success_prob)}</b>.`)
+    sentences.push(<span key="action">현재 리스크가 높아 <B>보류(SKIP)</B> 판단입니다. 신호 확률 <B>{fmt.prob(rec.success_prob)}</B>.</span>)
   }
   if (evtName) {
-    parts.push(`신호 발생의 핵심 트리거는 <b>${evtName}</b> 이벤트입니다.`)
+    sentences.push(<span key="evt"> 신호 발생의 핵심 트리거는 <B>{evtName}</B> 이벤트입니다.</span>)
   }
   if (mlProb != null) {
     const pStr = (mlProb * 100).toFixed(1)
-    if (mlProb >= 0.35) {
-      parts.push(`ML 모델의 원시 예측 확률은 <b>${pStr}%</b>로, 학습 패턴 기반으로 상당히 높은 상승 신뢰도를 의미합니다.`)
-    } else {
-      parts.push(`ML 모델의 원시 예측 확률은 <b>${pStr}%</b>입니다.`)
-    }
+    sentences.push(<span key="ml"> ML 모델의 원시 예측 확률은 <B>{pStr}%</B>{mlProb >= 0.35 ? '로, 학습 패턴 기반으로 상당히 높은 상승 신뢰도를 의미합니다.' : '입니다.'}</span>)
   }
   if (simCount > 0 && simReturn != null) {
     const retSign = simReturn >= 0 ? '+' : ''
-    parts.push(`과거 유사 패턴 <b>${simCount}건</b>에서 평균 <b>${retSign}${(simReturn * 100).toFixed(1)}%</b>의 수익이 관측됐습니다.`)
+    sentences.push(<span key="sim"> 과거 유사 패턴 <B>{simCount}건</B>에서 평균 <B>{retSign}{(simReturn * 100).toFixed(1)}%</B>의 수익이 관측됐습니다.</span>)
   }
   if (atrBased) {
-    parts.push(`진입가 <b>${fmt.price(rec.entry_price)}</b>을 기준으로, 목표가 <b>${fmt.price(rec.target_price)}</b> · 손절가 <b>${fmt.price(rec.stop_loss_price)}</b>는 ATR(변동폭) 기반으로 동적 산정됩니다. R:R ${rec.risk_reward_ratio?.toFixed(1) ?? '—'}.`)
+    sentences.push(<span key="price"> 진입가 <B>{fmt.price(rec.entry_price)}</B>을 기준으로, 목표가 <B>{fmt.price(rec.target_price)}</B> · 손절가 <B>{fmt.price(rec.stop_loss_price)}</B>는 ATR(변동폭) 기반으로 동적 산정됩니다. R:R {rec.risk_reward_ratio?.toFixed(1) ?? '—'}.</span>)
   } else {
-    parts.push(`진입가 <b>${fmt.price(rec.entry_price)}</b> 기준, 목표가 <b>${fmt.price(rec.target_price)}</b> · 손절가 <b>${fmt.price(rec.stop_loss_price)}</b>. R:R ${rec.risk_reward_ratio?.toFixed(1) ?? '—'}.`)
+    sentences.push(<span key="price"> 진입가 <B>{fmt.price(rec.entry_price)}</B> 기준, 목표가 <B>{fmt.price(rec.target_price)}</B> · 손절가 <B>{fmt.price(rec.stop_loss_price)}</B>. R:R {rec.risk_reward_ratio?.toFixed(1) ?? '—'}.</span>)
   }
   if (risks.length > 0) {
-    parts.push(`주의 위험 요소: ${risks.map((r) => `<b>${r}</b>`).join(', ')}. 손절 원칙을 반드시 지키세요.`)
+    sentences.push(<span key="risk"> 주의 위험 요소: {risks.map((r, i) => <span key={i}>{i > 0 ? ', ' : ''}<B>{r}</B></span>)}. 손절 원칙을 반드시 지키세요.</span>)
   }
-  return parts.join(' ')
+  return <>{sentences}</>
 }
 
 interface RecDetailModalProps {
@@ -130,7 +128,6 @@ interface RecDetailModalProps {
 }
 
 export function RecDetailModal({ rec, onClose, onGoDetail, compact = false }: RecDetailModalProps) {
-  const narrative = buildRecNarrative(rec)
   const crDelta   = rec.current_price != null
     ? ((rec.current_price - rec.entry_price) / rec.entry_price * 100)
     : null
@@ -309,10 +306,9 @@ export function RecDetailModal({ rec, onClose, onGoDetail, compact = false }: Re
               )}
             </div>
             <div className={compact ? 'px-4 py-3' : 'px-8 py-7'}>
-              <p
-                className={`modal-narrative text-[var(--fg)] ${compact ? 'text-sm font-medium leading-relaxed' : 'text-[18px] leading-[2.1]'}`}
-                dangerouslySetInnerHTML={{ __html: narrative }}
-              />
+              <p className={`modal-narrative text-[var(--fg)] ${compact ? 'text-sm font-medium leading-relaxed' : 'text-[18px] leading-[2.1]'}`}>
+                <RecNarrative rec={rec} />
+              </p>
             </div>
           </div>
 
