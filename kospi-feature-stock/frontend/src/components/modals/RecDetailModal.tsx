@@ -1,9 +1,58 @@
-﻿// v2
-import { X, Target, Shield, Zap, TrendingUp, BrainCircuit, BarChart2, Clock } from 'lucide-react'
+﻿// v3
+import { X, Target, Shield, Zap, TrendingUp, BrainCircuit, BarChart2, Clock, History } from 'lucide-react'
 import { clsx } from 'clsx'
-import { fmt, probColor } from '@/lib/utils'
-import type { Recommendation } from '@/types'
+import { fmt, probColor, pctColor } from '@/lib/utils'
+import type { Recommendation, SimilarCase } from '@/types'
 import { ActionBadge, Badge } from '@/components/ui/Badge'
+
+const EVT_LABEL: Record<string, string> = {
+  VOLUME_SURGE:          '거래량 급증',
+  AMOUNT_SURGE:          '거래대금 급증',
+  BREAKOUT_52W:          '52주 신고가',
+  BREAKOUT_26W:          '26주 신고가',
+  BREAKOUT_13W:          '13주 신고가',
+  BREAKOUT_20D:          '20일 신고가',
+  VI_TRIGGERED:          'VI 발동',
+  LONG_WHITE_CANDLE:     '장대양봉',
+  HAMMER_CANDLE:         '망치형',
+  MORNING_STAR:          '아침별 패턴',
+  SUPPLY_ANOMALY:        '수급 이상',
+  POST_DISCLOSURE_SURGE: '공시 후 급등',
+}
+
+function SimilarCaseCard({ sc, rank }: { sc: SimilarCase; rank: number }) {
+  const best = sc.return_5d ?? sc.return_3d ?? sc.return_1d
+  return (
+    <div className="flex items-center gap-3 bg-[var(--bg)] rounded-xl px-4 py-3 border border-[var(--border)]/60">
+      <div className="w-5 h-5 rounded-full bg-[var(--border)] flex items-center justify-center text-xs font-bold text-[var(--muted)] shrink-0">
+        {rank}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-semibold text-sm text-[var(--fg)]">{sc.name ?? sc.code}</span>
+          <code className="text-xs text-[var(--muted)] font-mono">{sc.code}</code>
+          {sc.event_type && (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--border)] text-[var(--muted)]">
+              {EVT_LABEL[sc.event_type] ?? sc.event_type}
+            </span>
+          )}
+        </div>
+        <div className="text-xs text-[var(--muted)] mt-0.5">{sc.date?.slice(0, 10)}</div>
+      </div>
+      <div className="text-right shrink-0 space-y-0.5">
+        <div className="text-xs text-[var(--muted)]">유사도 {(sc.similarity * 100).toFixed(0)}%</div>
+        {best != null && (
+          <div className={clsx('text-sm font-bold tabular', pctColor(best))}>
+            {best >= 0 ? '+' : ''}{(best * 100).toFixed(1)}%
+            <span className="text-xs font-normal text-[var(--muted)] ml-1">
+              {sc.return_5d != null ? '5일' : sc.return_3d != null ? '3일' : '1일'}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 const EVT_NAMES: Record<string, string> = {
   VOLUME_SURGE:          '거래량 급증',
@@ -266,6 +315,31 @@ export function RecDetailModal({ rec, onClose, onGoDetail, compact = false }: Re
               />
             </div>
           </div>
+
+          {/* 유사 과거 사례 */}
+          {rec.similar_cases && rec.similar_cases.length > 0 && (
+            <div className={`rounded-xl border border-[var(--border)] overflow-hidden`}>
+              <div className={`flex items-center gap-2 border-b border-[var(--border)]/60 bg-[var(--bg)] ${compact ? 'px-4 py-2.5' : 'px-8 py-5'}`}>
+                <History size={compact ? 14 : 20} className="text-purple-400 shrink-0" />
+                <span className={compact ? 'text-sm font-bold text-[var(--fg)]' : 'text-lg font-bold text-[var(--fg)]'}>
+                  유사 과거 사례
+                </span>
+                <span className="ml-auto text-xs text-[var(--muted)]">
+                  총 {rec.rationale?.sim_count ?? rec.similar_cases.length}건 검색 ·{' '}
+                  {rec.rationale?.avg_sim_return != null && (
+                    <span className={clsx('font-semibold', pctColor(rec.rationale.avg_sim_return))}>
+                      평균 {rec.rationale.avg_sim_return >= 0 ? '+' : ''}{(rec.rationale.avg_sim_return * 100).toFixed(1)}%
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className={`${compact ? 'px-4 py-3 space-y-2' : 'px-8 py-5 space-y-2.5'}`}>
+                {rec.similar_cases.slice(0, 5).map((sc, i) => (
+                  <SimilarCaseCard key={`${sc.code}-${sc.date}-${i}`} sc={sc} rank={i + 1} />
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* 하단 */}
           <div className="flex items-center justify-end pb-1">

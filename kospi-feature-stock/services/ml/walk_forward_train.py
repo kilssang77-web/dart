@@ -546,6 +546,26 @@ async def main(args):
 
     logger.info(f"Models saved to {args.model_dir}")
 
+    # ── 피처 컬럼 일관성 검증 ──────────────────────────────────────────────────
+    # 저장된 feature_columns.json vs 이 스크립트의 FEATURE_COLUMNS 비교
+    # 불일치 시 추론 시 피처 순서/구성이 달라져 모델 성능이 크게 저하됨
+    import json as _json
+    _fc_path = Path(args.model_dir) / "feature_columns.json"
+    if _fc_path.exists():
+        _saved = _json.loads(_fc_path.read_text())
+        _train_set  = set(FEATURE_COLUMNS)
+        _saved_set  = set(_saved)
+        _only_train = _train_set - _saved_set
+        _only_saved = _saved_set - _train_set
+        if _only_train or _only_saved:
+            logger.warning(
+                f"[FEATURE MISMATCH] 학습({len(FEATURE_COLUMNS)}) vs 저장({len(_saved)}) 불일치!"
+                f"\n  학습에만 있음: {_only_train}"
+                f"\n  저장에만 있음: {_only_saved}"
+            )
+        else:
+            logger.info(f"[FEATURE OK] {len(FEATURE_COLUMNS)}개 피처 컬럼 검증 통과")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Walk-Forward ML Training")

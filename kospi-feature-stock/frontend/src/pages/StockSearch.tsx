@@ -2,8 +2,9 @@
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { Search, X, Clock, Trash2, ChevronRight, TrendingUp, TrendingDown, Minus, Star, StarOff, BarChart2, ShoppingCart } from 'lucide-react'
-import { stocksApi } from '@/api/stocks'
+import { Search, X, Clock, Trash2, ChevronRight, TrendingUp, TrendingDown, Minus, Star, StarOff, BarChart2, ShoppingCart, BookOpen } from 'lucide-react'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import { stocksApi, type FinancialItem } from '@/api/stocks'
 import { featuresApi } from '@/api/features'
 import { recommendationsApi } from '@/api/recommendations'
 import { watchlistApi } from '@/api/watchlist'
@@ -24,7 +25,7 @@ function loadLS<T>(key: string, def: T): T {
   try { return JSON.parse(localStorage.getItem(key) || 'null') ?? def } catch { return def }
 }
 
-type ActiveTab = 'chart' | 'supply' | 'analysis'
+type ActiveTab = 'chart' | 'supply' | 'analysis' | 'financials'
 type Period = 'D' | 'W' | 'M'
 
 function aggregateBars(bars: import('@/types').DailyBar[], period: Period): import('@/types').DailyBar[] {
@@ -172,6 +173,13 @@ export function StockSearch() {
     staleTime: 120_000,
   })
 
+  const { data: financials = [], isLoading: financialsLoading } = useQuery({
+    queryKey: ['financials', selCode],
+    queryFn: () => stocksApi.getFinancials(selCode),
+    enabled: !!selCode && tab === 'financials',
+    staleTime: 3_600_000,
+  })
+
   const isFav = favs.some((f) => f.code === selCode)
 
   function persistLS(key: string, val: unknown) { localStorage.setItem(key, JSON.stringify(val)) }
@@ -310,9 +318,9 @@ export function StockSearch() {
               {year52 && price != null && <div className="mt-3 pt-3 border-t border-[var(--border)]"><RangeBar low={year52.low} high={year52.high} current={price} label="52주" /></div>}
             </div>
             <div className="flex gap-1 bg-[var(--card)] border border-[var(--border)] rounded-xl p-1">
-              {(['chart', 'supply', 'analysis'] as ActiveTab[]).map((t) => (
+              {(['chart', 'supply', 'analysis', 'financials'] as ActiveTab[]).map((t) => (
                 <button key={t} onClick={() => setTab(t)} className={clsx('flex-1 py-1.5 text-xs font-medium rounded-lg transition-colors', tab === t ? 'bg-cyan-500/20 text-cyan-400' : 'text-[var(--muted)] hover:text-[var(--fg)]')}>
-                  {t === 'chart' ? '📈 차트' : t === 'supply' ? '🏦 수급' : '🔍 분석'}
+                  {t === 'chart' ? '📈 차트' : t === 'supply' ? '🏦 수급' : t === 'analysis' ? '🔍 분석' : '📊 재무'}
                 </button>
               ))}
             </div>
@@ -450,11 +458,148 @@ export function StockSearch() {
                 )}
               </div>
             )}
+            {tab === 'financials' && (
+              <FinancialsTab data={financials} loading={financialsLoading} />
+            )}
           </div>
         )}
       </div>
       {selectedEvent && <EventDetailModal event={selectedEvent} onClose={() => setSelectedEvent(null)} onGoDetail={() => setSelectedEvent(null)} />}
       {selectedRec && <RecDetailModal rec={selectedRec} onClose={() => setSelectedRec(null)} onGoDetail={() => setSelectedRec(null)} />}
+    </div>
+  )
+}
+
+const FIN_TOOLTIP_STYLE = {
+  background: 'var(--card)', border: '1px solid var(--border)',
+  borderRadius: 8, fontSize: 12, color: 'var(--fg)',
+}
+
+function fmtBillion(v: number | null | undefined) {
+  if (v == null) return '—'
+  const abs = Math.abs(v)
+  if (abs >= 1_000_000_000_000) return `${(v / 1_000_000_000_000).toFixed(1)}조`
+  if (abs >= 100_000_000) return `${(v / 100_000_000).toFixed(0)}억`
+  return `${v.toLocaleString()}`
+}
+
+function FinancialsTab({ data, loading }: { data: FinancialItem[]; loading: boolean }) {
+  const chartData = [...data].reverse().map((f) => ({
+    label: f.quarter ? `${f.year}Q${f.quarter}` : `${f.year}`,
+    revenue:          f.revenue          != null ? Math.round(f.revenue / 100_000_000)          : null,
+    operating_profit: f.operating_profit != null ? Math.round(f.operating_profit / 100_000_000) : null,
+    net_profit:       f.net_profit       != null ? Math.round(f.net_profit / 100_000_000)       : null,
+  }))
+
+  const latest = data[0]
+
+  if (loading) {
+    return (
+      <div className="space-y-2">
+        {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-12 skeleton rounded" />)}
+      </div>
+    )
+  }
+
+  if (!data.length) {
+    return (
+      <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-8 text-center text-sm text-[var(--muted)]">
+        재무 데이터가 없습니다
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* 밸류에이션 요약 */}
+      {latest && (
+        <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
+          <div className="text-sm font-semibold text-[var(--fg)] mb-3 flex items-center gap-2">
+            <BookOpen size={14} className="text-cyan-400" />
+            밸류에이션 ({latest.quarter ? `${latest.year}Q${latest.quarter}` : `${latest.year}`} 기준)
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { label: 'PER', value: latest.per != null ? `${latest.per.toFixed(1)}배` : '—', color: latest.per != null && latest.per < 15 ? 'text-green-400' : latest.per != null && latest.per > 30 ? 'text-red-400' : 'text-[var(--fg)]' },
+              { label: 'PBR', value: latest.pbr != null ? `${latest.pbr.toFixed(2)}배` : '—', color: latest.pbr != null && latest.pbr < 1 ? 'text-green-400' : 'text-[var(--fg)]' },
+              { label: 'ROE', value: latest.roe != null ? `${latest.roe.toFixed(1)}%` : '—', color: latest.roe != null && latest.roe > 15 ? 'text-green-400' : latest.roe != null && latest.roe < 0 ? 'text-red-400' : 'text-[var(--fg)]' },
+              { label: 'EPS', value: latest.eps != null ? `${latest.eps.toLocaleString()}원` : '—', color: 'text-[var(--fg)]' },
+              { label: 'BPS', value: latest.bps != null ? `${latest.bps.toLocaleString()}원` : '—', color: 'text-[var(--fg)]' },
+              { label: '부채비율', value: latest.debt_ratio != null ? `${latest.debt_ratio.toFixed(1)}%` : '—', color: latest.debt_ratio != null && latest.debt_ratio > 200 ? 'text-red-400' : 'text-[var(--fg)]' },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="flex flex-col gap-0.5 py-2 px-3 bg-[var(--bg)] rounded-lg">
+                <span className="text-xs text-[var(--muted)]">{label}</span>
+                <span className={clsx('text-sm font-bold tabular', color)}>{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 분기 실적 차트 */}
+      <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
+        <div className="text-sm font-semibold text-[var(--fg)] mb-3">분기 실적 (억원)</div>
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#71717a' }} />
+            <YAxis tick={{ fontSize: 11, fill: '#71717a' }} tickFormatter={(v) => `${v.toLocaleString()}`} />
+            <Tooltip contentStyle={FIN_TOOLTIP_STYLE} formatter={(v: number, name: string) => [`${v.toLocaleString()}억`, name === 'revenue' ? '매출' : name === 'operating_profit' ? '영업이익' : '순이익']} />
+            <Legend formatter={(v) => v === 'revenue' ? '매출' : v === 'operating_profit' ? '영업이익' : '순이익'} wrapperStyle={{ fontSize: 11 }} />
+            <Bar dataKey="revenue" fill="#22d3ee" radius={[2, 2, 0, 0]} />
+            <Bar dataKey="operating_profit" fill="#4ade80" radius={[2, 2, 0, 0]} />
+            <Bar dataKey="net_profit" fill="#f59e0b" radius={[2, 2, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* 분기별 테이블 */}
+      <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
+        <div className="text-sm font-semibold text-[var(--fg)] mb-3">분기별 재무 상세</div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-[var(--muted)] border-b border-[var(--border)]">
+                <th className="text-left py-2 font-medium">기간</th>
+                <th className="text-right py-2 font-medium">매출</th>
+                <th className="text-right py-2 font-medium">영업이익</th>
+                <th className="text-right py-2 font-medium">순이익</th>
+                <th className="text-right py-2 font-medium">영업이익률</th>
+                <th className="text-right py-2 font-medium">ROE</th>
+                <th className="text-right py-2 font-medium">PER</th>
+                <th className="text-right py-2 font-medium">PBR</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--border)]">
+              {data.map((f, i) => {
+                const label = f.quarter ? `${f.year}Q${f.quarter}` : `${f.year}`
+                const opMargin = f.revenue && f.operating_profit != null
+                  ? (f.operating_profit / f.revenue * 100) : null
+                return (
+                  <tr key={i} className="hover:bg-white/5">
+                    <td className="py-2 font-semibold text-[var(--fg)]">{label}</td>
+                    <td className="py-2 text-right tabular text-[var(--fg)]">{fmtBillion(f.revenue)}</td>
+                    <td className={clsx('py-2 text-right tabular font-medium', f.operating_profit != null && f.operating_profit >= 0 ? 'text-green-400' : 'text-red-400')}>
+                      {fmtBillion(f.operating_profit)}
+                    </td>
+                    <td className={clsx('py-2 text-right tabular font-medium', f.net_profit != null && f.net_profit >= 0 ? 'text-green-400' : 'text-red-400')}>
+                      {fmtBillion(f.net_profit)}
+                    </td>
+                    <td className={clsx('py-2 text-right tabular', opMargin != null && opMargin >= 0 ? 'text-green-400' : 'text-red-400')}>
+                      {opMargin != null ? `${opMargin.toFixed(1)}%` : '—'}
+                    </td>
+                    <td className={clsx('py-2 text-right tabular', f.roe != null && f.roe > 0 ? 'text-green-400' : 'text-[var(--fg)]')}>
+                      {f.roe != null ? `${f.roe.toFixed(1)}%` : '—'}
+                    </td>
+                    <td className="py-2 text-right tabular text-[var(--fg)]">{f.per != null ? `${f.per.toFixed(1)}x` : '—'}</td>
+                    <td className="py-2 text-right tabular text-[var(--fg)]">{f.pbr != null ? `${f.pbr.toFixed(2)}x` : '—'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   )
 }

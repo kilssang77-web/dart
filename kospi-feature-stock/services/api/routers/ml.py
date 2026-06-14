@@ -2,11 +2,12 @@ import json
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 import httpx
 import redis.asyncio as redis_lib
+import asyncpg
 
-from deps import get_redis
+from deps import get_redis, get_db
 
 router = APIRouter()
 
@@ -71,3 +72,109 @@ async def get_kafka_lag(redis: redis_lib.Redis = Depends(get_redis)):
         }
     except Exception as e:
         return {"total_lag": 0, "by_topic": {}, "error": str(e)}
+
+
+@router.get("/performance-trend")
+async def performance_trend(
+    days: int = Query(default=30, le=180),
+    db: asyncpg.Pool = Depends(get_db),
+):
+    """일별 추천 승률·수익률 추이 (recommendation_performance 기반)."""
+    rows = await db.fetch(
+        """
+        SELECT
+            DATE(rec.created_at AT TIME ZONE 'Asia/Seoul') AS day,
+            COUNT(*)                                        AS total,
+            COUNT(*) FILTER (WHERE rp.is_success = TRUE)   AS wins,
+            ROUND(AVG(rp.r_5d)::NUMERIC, 4)               AS avg_return_5d,
+            ROUND(AVG(rp.r_1d)::NUMERIC, 4)               AS avg_return_1d
+        FROM recommendations rec
+        JOIN recommendation_performance rp ON rp.rec_id = rec.id
+        WHERE rp.tracking_complete = TRUE
+          AND rec.created_at >= NOW() - ($1 * INTERVAL '1 day')
+        GROUP BY 1
+        ORDER BY 1
+        """,
+        days,
+    )
+    return [
+        {
+            "day":           str(r["day"]),
+            "total":         r["total"],
+            "wins":          r["wins"],
+            "win_rate":      round(r["wins"] / r["total"] * 100, 1) if r["total"] else 0.0,
+            "avg_return_5d": float(r["avg_return_5d"] or 0),
+            "avg_return_1d": float(r["avg_return_1d"] or 0),
+        }
+        for r in rows
+    ]
+
+
+@router.get("/event-performance")
+async def event_performance(
+    days: int = Query(default=90, le=365),
+    db: asyncpg.Pool = Depends(get_db),
+):
+    """이벤트 유형별 추천 성과 비교."""
+    rows = await db.fetch(
+        """
+        SELECT
+            COALESCE(rp.event_type, 'UNKNOWN')              AS event_type,
+            COUNT(*)                                         AS total,
+            COUNT(*) FILTER (WHERE rp.is_success = TRUE)    AS wins,
+            ROUND(AVG(rp.r_5d)::NUMERIC, 2)                AS avg_return_5d,
+            ROUND(AVG(rp.r_1d)::NUMERIC, 2)                AS avg_return_1d,
+            ROUND(AVG(rec.success_prob)::NUMERIC, 3)        AS avg_pred_prob
+        FROM recommendation_performance rp
+        JOIN recommendations rec ON rec.id = rp.rec_id
+        WHERE rp.tracking_complete = TRUE
+          AND rec.created_at >= NOW() - ($1 * INTERVAL '1 day')
+        GROUP BY 1
+        ORDER BY total DESC
+        """,
+        days,
+    )
+    return [
+        {
+            "event_type":    r["event_type"],
+            "total":         r["total"],
+            "wins":          r["wins"],
+            "win_rate":      round(r["wins"] / r["total"] * 100, 1) if r["total"] else 0.0,
+            "avg_return_5d": float(r["avg_return_5d"] or 0),
+            "avg_return_1d": float(r["avg_return_1d"] or 0),
+            "avg_pred_prob": float(r["avg_pred_prob"] or 0),
+        }
+        for r in rows
+    ]
+
+
+@router.get("/model-history")
+async def model_history(
+    db: asyncpg.Pool = Depends(get_db),
+):
+    """ML 모델 버전 이력 (ml_models 테이블)."""
+    rows = await db.fetch(
+        """
+        SELECT id, model_type, version, trained_at, metrics, is_active
+        FROM ml_models
+        ORDER BY trained_at DESC
+        LIMIT 20
+        """,
+    )
+    result = []
+    for r in rows:
+        metrics = r["metrics"]
+        if isinstance(metrics, str):
+            try:
+                metrics = json.loads(metrics)
+            except Exception:
+                metrics = {}
+        result.append({
+            "id":         r["id"],
+            "model_type": r["model_type"],
+            "version":    r["version"],
+            "trained_at": r["trained_at"].isoformat() if r["trained_at"] else None,
+            "metrics":    metrics or {},
+            "is_active":  r["is_active"],
+        })
+    return result

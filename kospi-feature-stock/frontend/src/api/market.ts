@@ -1,5 +1,5 @@
 ﻿import { http } from './client'
-import type { DailyBar, BacktestResult } from '@/types'
+import type { DailyBar, BacktestResult, SavedBacktestResult } from '@/types'
 
 export interface MarketSummary {
   data_date:          string
@@ -75,6 +75,34 @@ export interface ShapExplain {
   note?:      string
   error?:     string
 }
+
+export interface PerformanceTrendPoint {
+  day:           string
+  total:         number
+  wins:          number
+  win_rate:      number
+  avg_return_5d: number
+  avg_return_1d: number
+}
+
+export interface EventPerformance {
+  event_type:    string
+  total:         number
+  wins:          number
+  win_rate:      number
+  avg_return_5d: number
+  avg_return_1d: number
+  avg_pred_prob: number
+}
+
+export interface ModelHistoryItem {
+  id:         number
+  model_type: string
+  version:    string | null
+  trained_at: string | null
+  metrics:    Record<string, number>
+  is_active:  boolean
+}
 export interface IndexQuote {
   code?:        string
   name:         string
@@ -126,8 +154,36 @@ export const marketApi = {
   getShapExplain: () =>
     http.get<ShapExplain>('/ml/shap').then((r) => r.data),
 
-  runBacktest: (params: { start: string; end: string; event_type?: string; min_score?: number; stop_loss_pct?: number; target_pct?: number }) =>
+  getPerformanceTrend: (days = 30) =>
+    http.get<PerformanceTrendPoint[]>('/ml/performance-trend', { params: { days } }).then((r) => r.data),
+
+  getEventPerformance: (days = 90) =>
+    http.get<EventPerformance[]>('/ml/event-performance', { params: { days } }).then((r) => r.data),
+
+  getModelHistory: () =>
+    http.get<ModelHistoryItem[]>('/ml/model-history').then((r) => r.data),
+
+  runBacktest: (params: {
+    start: string; end: string
+    event_type?: string; event_types?: string[]
+    market?: string
+    min_score?: number; ml_min_prob?: number
+    stop_loss_pct?: number; target_pct?: number
+    walkforward?: boolean
+  }) =>
     http.post<BacktestResult>('/backtest/run', params).then((r) => r.data),
+
+  saveBacktestResult: (body: { name: string; params: object; result: object; equity_curve?: object[] }) =>
+    http.post<{ id: number; name: string; created_at: string }>('/backtest/results', body).then((r) => r.data),
+
+  listBacktestResults: () =>
+    http.get<SavedBacktestResult[]>('/backtest/results').then((r) => r.data),
+
+  getBacktestResult: (id: number) =>
+    http.get<SavedBacktestResult>(`/backtest/results/${id}`).then((r) => r.data),
+
+  deleteBacktestResult: (id: number) =>
+    http.delete<{ deleted: number }>(`/backtest/results/${id}`).then((r) => r.data),
 }
 
 export const systemApi = {

@@ -138,7 +138,7 @@ class RecommenderService:
                 if rec:
                     await self._emit(rec, event, producer, feature_event_id=row["id"])
                     processed += 1
-                asyncio.create_task(update_pattern_vector(self._db, row["id"], row["code"]))
+                await update_pattern_vector(self._db, row["id"], row["code"])
             except Exception as e:
                 logger.error(f"Recovery error {row['code']}: {e}\n{traceback.format_exc()}")
 
@@ -280,7 +280,7 @@ class RecommenderService:
             logger.info(f"Feature event saved: {code} {event.get('event_type')} (id={event_id})")
 
             if event_id:
-                asyncio.create_task(update_pattern_vector(self._db, event_id, code))
+                await update_pattern_vector(self._db, event_id, code)
 
             return event_id
         except Exception as e:

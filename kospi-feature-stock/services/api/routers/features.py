@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, Query
+from __future__ import annotations
+from datetime import timedelta
+from fastapi import APIRouter, Depends, HTTPException, Query
 import asyncpg
 import redis.asyncio as redis_lib
 from deps import get_db, get_redis
@@ -43,6 +45,53 @@ async def get_similar(
     svc: FeatureService = Depends(_svc),
 ):
     return await svc.get_similar(event_id, top_k)
+
+
+@router.get("/{event_id}/similar-with-bars")
+async def get_similar_with_bars(
+    event_id:      int,
+    top_k:         int = Query(default=5, le=10),
+    window_before: int = Query(default=5, ge=3, le=20),
+    window_after:  int = Query(default=15, ge=5, le=30),
+    db:  asyncpg.Pool   = Depends(get_db),
+    svc: FeatureService = Depends(_svc),
+):
+    event = await svc.get_by_id(event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="이벤트 없음")
+
+    cases = await svc.get_similar(event_id, top_k)
+
+    async def _bars(code: str, detected_at) -> list[dict]:
+        if hasattr(detected_at, 'date'):
+            ev_date = detected_at.date()
+        else:
+            from datetime import datetime
+            ev_date = datetime.fromisoformat(str(detected_at)[:19]).date()
+        start = ev_date - timedelta(days=window_before)
+        end   = ev_date + timedelta(days=window_after)
+        rows  = await db.fetch(
+            """SELECT date::text, open, high, low, close, volume, change_rate
+               FROM daily_bars WHERE code = $1 AND date BETWEEN $2 AND $3
+               ORDER BY date""",
+            code, start, end,
+        )
+        return [dict(r) for r in rows]
+
+    event_dict = dict(event)
+    event_bars = await _bars(event_dict['code'], event_dict['detected_at'])
+
+    enriched = []
+    for c in cases:
+        cd = dict(c)
+        cd['bars'] = await _bars(cd['code'], cd['detected_at'])
+        enriched.append(cd)
+
+    return {
+        'event':      event_dict,
+        'event_bars': event_bars,
+        'cases':      enriched,
+    }
 
 
 @router.get("/{event_id}")

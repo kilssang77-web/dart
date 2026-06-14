@@ -1,4 +1,4 @@
-﻿import { http } from './client'
+import { http } from './client'
 
 export interface NewsItem {
   id:               number
@@ -15,6 +15,19 @@ export interface NewsItem {
 }
 
 export const newsApi = {
-  list: (params?: { code?: string; category?: string; hours?: number; limit?: number }) =>
+  list: (params?: {
+    code?:     string
+    category?: string
+    hours?:    number
+    limit?:    number
+    offset?:   number
+    source?:   string
+  }) =>
     http.get<NewsItem[]>('/news', { params }).then((r) => r.data),
+
+  getSources: (hours = 72) =>
+    http.get<string[]>('/news/sources', { params: { hours } }).then((r) => r.data),
+
+  getSimilar: (newsId: number, topK = 5) =>
+    http.get<NewsItem[]>(`/news/${newsId}/similar`, { params: { top_k: topK } }).then((r) => r.data),
 }

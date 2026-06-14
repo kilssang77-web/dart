@@ -1,0 +1,1 @@
+import{h as e}from"./index-CRL2pO4-.js";const d={list:t=>e.get("/disclosures",{params:t}).then(s=>s.data),getStats:(t=72)=>e.get("/disclosures/stats",{params:{hours:t}}).then(s=>s.data),getById:t=>e.get(`/disclosures/${t}`).then(s=>s.data),predictImpact:t=>e.get(`/disclosures/${t}/predict-impact`).then(s=>s.data)};export{d};

@@ -47,7 +47,7 @@ async def get_buy_signals(
         LEFT JOIN stocks s ON s.code = r.code
         WHERE r.action = 'BUY'
           AND r.success_prob >= $1
-          AND r.created_at >= NOW() - INTERVAL '24 hours'
+          AND r.created_at >= NOW() - INTERVAL '72 hours'
         ORDER BY r.success_prob DESC
         LIMIT 20
         """,

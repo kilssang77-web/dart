@@ -38,7 +38,7 @@ NXT_AFTER_CLOSE = dtime(20, 0)
 # 환경변수로 주요 파라미터 설정
 TICK_FLUSH_SEC   = int(os.environ.get("TICK_FLUSH_SEC", "5"))
 MINUTE_INTERVAL  = int(os.environ.get("MINUTE_INTERVAL_SEC", "60"))
-SUPPLY_INTERVAL  = int(os.environ.get("SUPPLY_INTERVAL_SEC", "1800"))
+SUPPLY_INTERVAL  = int(os.environ.get("SUPPLY_INTERVAL_SEC", "600"))   # 10분 (기본값 30분→10분)
 BACKFILL_DAYS    = int(os.environ.get("DAILY_BACKFILL_DAYS", "260"))
 NEWS_INTERVAL    = int(os.environ.get("NEWS_INTERVAL_SEC", "1800"))
 
@@ -228,6 +228,7 @@ class StockCollector:
             self._minute_bar_loop(active_codes),
             self._watching_scan_loop(),
             self._intraday_rest_scan_loop(all_codes),
+            self._priority_scan_loop(),
             return_exceptions=True,
         )
 
@@ -265,6 +266,7 @@ class StockCollector:
             self._daily_bar_loop(all_codes),          # 전체 종목 일봉
             self._batch_scan_loop(all_codes),          # 전체 종목 배치 탐지
             self._news_loop(active_codes),
+            self._priority_scan_loop(),               # 관심종목·열람종목 1분 우선 스캔
             self.dart.run(),
             self.kind.run(),
             return_exceptions=True,
@@ -551,7 +553,79 @@ class StockCollector:
 
             await asyncio.sleep(max(0, 5 - elapsed % 5))
 
-    # ── 수급 수집 (REST, 30분, 장중) ────────────────────────
+    # ── 관심종목·열람 종목 우선 스캔 (60초 주기) ────────────
+    async def _priority_scan_loop(self):
+        """관심종목(DB) + 현재 열람 중인 종목(watching:*) 1분 주기 추가 스캔.
+
+        active_codes 에 이미 포함된 종목은 WebSocket·인트라데이 스캔이 처리하므로 제외.
+        """
+        interval = int(os.environ.get("PRIORITY_SCAN_SEC", "60"))
+
+        while True:
+            await asyncio.sleep(interval)
+            if not is_market_open():
+                continue
+            try:
+                # 관심종목 (DB watchlist 테이블)
+                wl_codes: set[str] = set()
+                if self.db:
+                    try:
+                        rows = await self.db.fetch(
+                            "SELECT DISTINCT code FROM watchlist WHERE code IS NOT NULL"
+                        )
+                        wl_codes = {r["code"] for r in rows}
+                    except Exception:
+                        pass  # 테이블 미존재 시 skip
+
+                # 현재 사용자가 열람 중인 종목 (watching:* TTL 키)
+                watching_codes: set[str] = set()
+                try:
+                    keys = await self.redis.keys("watching:*")
+                    for k in keys:
+                        code = (k.decode() if isinstance(k, bytes) else k).split(":", 1)[-1]
+                        if code and len(code) == 6 and code.isdigit():
+                            watching_codes.add(code)
+                except Exception:
+                    pass
+
+                priority = list(wl_codes | watching_codes)
+                if not priority:
+                    continue
+
+                # active_codes 에 포함된 종목은 이미 다른 루프에서 처리
+                active_set = set(await load_active_stocks(self.redis))
+                to_scan = [c for c in priority if c not in active_set]
+                if not to_scan:
+                    continue
+
+                logger.debug(f"[Priority] {len(to_scan)}종목 우선 스캔")
+                for code in to_scan:
+                    try:
+                        snap = await self.rest.get_current_price(code)
+                        if not snap or not snap.get("price"):
+                            continue
+                        price = snap["price"]
+                        cr    = snap.get("change_rate", 0.0)
+                        snap["source"] = "priority"
+                        await self.redis.set(f"quote:{code}", orjson.dumps(snap), ex=1800)
+                        await self.kafka.send(
+                            "tick-data",
+                            {
+                                "code": code, "price": price, "change_rate": cr,
+                                "volume": snap.get("volume", 0),
+                                "cum_amount": snap.get("amount", 0),
+                                "source": "priority",
+                            },
+                            key=code,
+                        )
+                    except Exception as e:
+                        logger.debug(f"[Priority] {code}: {e}")
+                    await asyncio.sleep(0.15)
+
+            except Exception as e:
+                logger.error(f"[Priority] Scan error: {e}", exc_info=True)
+
+    # ── 수급 수집 (REST, 장중 10분 주기) ────────────────────
     async def _supply_demand_loop(self, codes: list[str]):
         while True:
             if not is_market_open():

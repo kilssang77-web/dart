@@ -6,7 +6,7 @@ import orjson
 import redis.asyncio as redis_lib
 from datetime import datetime, timedelta, timezone
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
-from disclosure.classifier import DisclosureClassifier
+from disclosure.classifier import DisclosureClassifier, DisclosureBERTClassifier
 from embedding.embedder import LocalEmbedder
 from news.sentiment import analyze as news_sentiment
 
@@ -44,7 +44,8 @@ class AnalyzerService:
         self._db: asyncpg.Pool | None = None
         self._redis: redis_lib.Redis | None = None
         self._producer: AIOKafkaProducer | None = None
-        self.classifier = DisclosureClassifier()
+        self.classifier      = DisclosureClassifier()
+        self.bert_classifier = DisclosureBERTClassifier()
         self.embedder   = LocalEmbedder(
             model_name=os.environ.get("EMBEDDING_MODEL_NAME", "jhgan/ko-sroberta-multitask"),
             cache_dir=os.environ.get("MODEL_CACHE_DIR", "/models"),
@@ -77,6 +78,7 @@ class AnalyzerService:
                 self._consume_topic("news",       self._process_news),
                 self._theme_cluster_loop(),
                 self._theme_snapshot_loop(),
+                self._post_change_updater_loop(),
             )
         finally:
             if self._producer:
@@ -202,19 +204,14 @@ class AnalyzerService:
         except Exception:
             disclosed_dt = datetime.now()
 
-        clf     = self.classifier.classify(title, content)
+        clf     = self.bert_classifier.classify(title, content, data.get("disclosure_type", ""))
         amount, amount_text = self.classifier.extract_amount(f"{title} {content}")
         counterparty = self.classifier.extract_counterparty(content)
         period       = self.classifier.extract_contract_period(content)
         embedding    = self.embedder.encode_disclosure(title, content)
         vec_str = "[" + ",".join(f"{v:.6f}" for v in embedding.tolist()) + "]"
 
-        # KR-FinBERT 감성 점수 (keyword 분류 fallback)
-        try:
-            bert = news_sentiment(title, content)
-            sentiment_score = bert["sentiment_score"]
-        except Exception:
-            sentiment_score = clf["sentiment_score"]
+        sentiment_score = clf["sentiment_score"]
 
         async with self._db.acquire() as conn:
             await conn.execute(
@@ -345,6 +342,85 @@ class AnalyzerService:
             )
         except Exception as e:
             logger.debug(f"news sentiment redis update failed {code}: {e}")
+
+
+    async def _post_change_updater_loop(self):
+        """매 시간 공시 사후 수익률(post_1d/3d_change)을 daily_bars에서 자동 채운다.
+
+        disclosed_at 기준:
+          - post_1d_change: 공시 다음 거래일 종가 vs 당일 종가
+          - post_3d_change: 공시 후 3거래일 종가 vs 당일 종가
+        """
+        await asyncio.sleep(120)  # 기동 2분 후 첫 실행
+        while True:
+            try:
+                await self._fill_post_changes()
+            except Exception as e:
+                logger.error(f"[PostChange] 업데이트 오류: {e}")
+            await asyncio.sleep(3600)
+
+    async def _fill_post_changes(self):
+        rows = await self._db.fetch(
+            """
+            SELECT d.rcept_no, d.code,
+                   d.disclosed_at::date AS disc_date
+            FROM disclosures d
+            WHERE d.code IS NOT NULL
+              AND d.disclosed_at >= NOW() - INTERVAL '90 days'
+              AND (d.post_1d_change IS NULL OR d.post_3d_change IS NULL)
+            ORDER BY d.disclosed_at DESC
+            LIMIT 200
+            """,
+        )
+        if not rows:
+            return
+
+        updated = 0
+        for row in rows:
+            code      = row["code"]
+            disc_date = row["disc_date"]
+            rcept_no  = row["rcept_no"]
+
+            bars = await self._db.fetch(
+                """
+                SELECT date::TEXT, close
+                FROM daily_bars
+                WHERE code = $1
+                  AND date BETWEEN $2 AND ($2 + INTERVAL '10 days')::date
+                ORDER BY date ASC
+                LIMIT 6
+                """,
+                code, disc_date,
+            )
+            if len(bars) < 2:
+                continue
+
+            base_close = float(bars[0]["close"])
+            if base_close <= 0:
+                continue
+
+            post_1d = float(bars[1]["close"]) if len(bars) > 1 else None
+            post_3d = float(bars[3]["close"]) if len(bars) > 3 else None
+
+            chg_1d = round((post_1d - base_close) / base_close * 100, 2) if post_1d else None
+            chg_3d = round((post_3d - base_close) / base_close * 100, 2) if post_3d else None
+
+            if chg_1d is None and chg_3d is None:
+                continue
+
+            await self._db.execute(
+                """
+                UPDATE disclosures
+                   SET post_1d_change = COALESCE($2, post_1d_change),
+                       post_3d_change = COALESCE($3, post_3d_change)
+                 WHERE rcept_no = $1
+                """,
+                rcept_no, chg_1d, chg_3d,
+            )
+            updated += 1
+
+        if updated:
+            logger.info(f"[PostChange] {updated}건 post_1d/3d_change 업데이트 완료")
 
 
 if __name__ == "__main__":

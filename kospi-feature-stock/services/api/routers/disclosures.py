@@ -6,22 +6,78 @@ from services.disclosure_service import DisclosureService
 
 router = APIRouter()
 
+_SORT_ALLOW = {
+    "disclosed_at", "sentiment_score", "post_1h_change",
+    "post_1d_change", "post_3d_change", "contract_amount",
+}
+
 
 def _svc(db: asyncpg.Pool = Depends(get_db), redis: redis_lib.Redis = Depends(get_redis)) -> DisclosureService:
     return DisclosureService(db, redis)
 
 
+@router.get("/stats")
+async def disclosure_stats(
+    hours: int = Query(default=72, le=168),
+    db: asyncpg.Pool = Depends(get_db),
+):
+    """공시 유형별 통계 — favorable/unfavorable/neutral 비율, 감성점수 분포."""
+    row = await db.fetchrow(
+        """
+        SELECT
+            COUNT(*)                                              AS total,
+            COUNT(*) FILTER (WHERE category = 'favorable')       AS favorable,
+            COUNT(*) FILTER (WHERE category = 'unfavorable')     AS unfavorable,
+            COUNT(*) FILTER (WHERE category = 'neutral')         AS neutral,
+            ROUND(AVG(sentiment_score)::NUMERIC, 4)             AS avg_sentiment,
+            COUNT(*) FILTER (WHERE post_1d_change > 0)          AS positive_impact,
+            ROUND(AVG(post_1d_change)::NUMERIC, 4)              AS avg_1d_impact
+        FROM disclosures
+        WHERE disclosed_at >= NOW() - ($1 * INTERVAL '1 hour')
+        """,
+        hours,
+    )
+    by_type = await db.fetch(
+        """
+        SELECT disclosure_type, COUNT(*) AS cnt,
+               ROUND(AVG(sentiment_score)::NUMERIC, 3) AS avg_score
+        FROM disclosures
+        WHERE disclosed_at >= NOW() - ($1 * INTERVAL '1 hour')
+          AND disclosure_type IS NOT NULL
+        GROUP BY 1 ORDER BY cnt DESC LIMIT 10
+        """,
+        hours,
+    )
+    return {
+        "total":           row["total"],
+        "favorable":       row["favorable"],
+        "unfavorable":     row["unfavorable"],
+        "neutral":         row["neutral"],
+        "avg_sentiment":   float(row["avg_sentiment"] or 0),
+        "positive_impact": row["positive_impact"],
+        "avg_1d_impact":   float(row["avg_1d_impact"] or 0),
+        "by_type": [
+            {"type": r["disclosure_type"], "count": r["cnt"], "avg_score": float(r["avg_score"] or 0)}
+            for r in by_type
+        ],
+    }
+
+
 @router.get("")
 async def list_disclosures(
-    code:     str | None = None,
-    category: str | None = None,
-    market:   str | None = None,
-    flagged:  bool | None = None,
-    hours:    int = Query(default=72, le=168),
-    limit:    int = Query(default=50, le=200),
+    code:       str | None = None,
+    category:   str | None = None,
+    market:     str | None = None,
+    flagged:    bool | None = None,
+    hours:      int   = Query(default=72, le=168),
+    limit:      int   = Query(default=50, le=200),
+    sort_by:    str   = Query(default="disclosed_at"),
+    sort_dir:   str   = Query(default="desc", pattern="^(asc|desc)$"),
+    min_amount: int | None = Query(default=None, description="최소 계약금액 (억 단위, 100=100억)"),
     svc: DisclosureService = Depends(_svc),
 ):
-    return await svc.list_disclosures(code, category, market, flagged, hours, limit)
+    col = sort_by if sort_by in _SORT_ALLOW else "disclosed_at"
+    return await svc.list_disclosures(code, category, market, flagged, hours, limit, col, sort_dir, min_amount)
 
 
 @router.get("/favorable")

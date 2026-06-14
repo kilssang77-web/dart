@@ -774,6 +774,42 @@ async def list_favorites(redis: redis_lib.Redis = Depends(get_redis)):
     return orjson.loads(raw) if raw else []
 
 
+@router.get("/{code}/financials")
+async def get_financials(
+    code: str,
+    limit: int = Query(default=8, le=20),
+    db: asyncpg.Pool = Depends(get_db),
+):
+    """분기별 재무정보 (최근 N분기, 최신 순)."""
+    rows = await db.fetch(
+        """
+        SELECT year, quarter, revenue, operating_profit, net_profit,
+               eps, bps, per, pbr, roe, debt_ratio
+        FROM financials
+        WHERE code = $1
+        ORDER BY year DESC, quarter DESC NULLS LAST
+        LIMIT $2
+        """,
+        code, limit,
+    )
+    return [
+        {
+            "year":             r["year"],
+            "quarter":          r["quarter"],
+            "revenue":          int(r["revenue"])          if r["revenue"]          is not None else None,
+            "operating_profit": int(r["operating_profit"]) if r["operating_profit"] is not None else None,
+            "net_profit":       int(r["net_profit"])       if r["net_profit"]       is not None else None,
+            "eps":              r["eps"],
+            "bps":              r["bps"],
+            "per":              float(r["per"])             if r["per"]              is not None else None,
+            "pbr":              float(r["pbr"])             if r["pbr"]              is not None else None,
+            "roe":              float(r["roe"])             if r["roe"]              is not None else None,
+            "debt_ratio":       float(r["debt_ratio"])     if r["debt_ratio"]       is not None else None,
+        }
+        for r in rows
+    ]
+
+
 @router.get("/{code}/quote")
 async def get_stock_quote(
     code: str,

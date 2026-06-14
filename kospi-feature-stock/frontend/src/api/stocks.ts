@@ -25,11 +25,28 @@ export const stocksApi = {
       params: purchasePrice ? { purchase_price: purchasePrice } : undefined,
     }).then((r) => r.data),
 
+  getFinancials: (code: string) =>
+    http.get<FinancialItem[]>(`/stocks/${code}/financials`).then((r) => r.data),
+
   watchStock: (code: string) =>
     http.post(`/stocks/${code}/watch`).then((r) => r.data),
 
   getOrderbook: (code: string) =>
     http.get<Orderbook>(`/stocks/${code}/orderbook`).then((r) => r.data),
+}
+
+export interface FinancialItem {
+  year:             number
+  quarter:          number | null
+  revenue:          number | null
+  operating_profit: number | null
+  net_profit:       number | null
+  eps:              number | null
+  bps:              number | null
+  per:              number | null
+  pbr:              number | null
+  roe:              number | null
+  debt_ratio:       number | null
 }
 
 export interface OrderbookLevel {

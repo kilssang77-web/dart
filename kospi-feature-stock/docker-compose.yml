@@ -14,7 +14,10 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01_init.sql
-      - ./infra/postgres/V6__watchlist.sql:/docker-entrypoint-initdb.d/V6__watchlist.sql
+      - ./infra/postgres/V6__watchlist.sql:/docker-entrypoint-initdb.d/02_V6__watchlist.sql
+      - ./infra/postgres/V7__telegram_logs.sql:/docker-entrypoint-initdb.d/03_V7__telegram_logs.sql
+      - ./infra/postgres/V8__recommendation_performance.sql:/docker-entrypoint-initdb.d/04_V8__recommendation_performance.sql
+      - ./infra/postgres/V9__backfill_rec_performance.sql:/docker-entrypoint-initdb.d/05_V9__backfill_rec_performance.sql
     command: >
       postgres
         -c shared_preload_libraries='timescaledb,pg_stat_statements'
