@@ -24,7 +24,7 @@ const NAV_GROUPS = [
     items: [
       { to: '/decision',  label: '투찰 결정 (AI)', icon: Crosshair },
       { to: '/dashboard', label: '대시보드',        icon: LayoutDashboard },
-      { to: '/kpi',       label: 'KPI 분석',        icon: Activity },
+      { to: '/kpi-dashboard', label: 'KPI 분석',     icon: Activity },
     ],
   },
   {
