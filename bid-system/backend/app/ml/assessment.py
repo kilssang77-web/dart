@@ -867,3 +867,152 @@ def get_prism_zones(
         "total_bids":  sum(h["count"] for h in histogram),
         "total_wins":  sum(h["win_count"] for h in histogram),
     }
+
+
+# ──────────────────────────────────────────────
+# B-4: 기관별 사정율 세분화 프로파일 + 계절 패턴
+# ──────────────────────────────────────────────
+
+def load_agency_srate_profile(
+    db: Session,
+    agency_id: int,
+    industry_id: int = 0,
+    bid_date: Optional[datetime] = None,
+) -> dict:
+    """
+    기관별 사정율 세분화 프로파일.
+
+    단순 평균 대신:
+      · 최근 12개월 monthly 이동평균 (트렌드)
+      · 월별 계절지수 (당월 편향)
+      · 공종 교차 효과 (기관 × 공종 평균)
+      · Bayesian 블렌드 (기관 ← 공종 ← 전국 순)
+
+    Returns:
+        blended_center : 최종 추천 사정율 중심
+        seasonal_adj   : 당월 계절 보정값
+        trend_slope    : 최근 트렌드 기울기 (월 단위)
+        confidence     : 데이터 신뢰도 0~1
+        raw            : 세부 raw 수치 dict
+    """
+    dt = bid_date or datetime.now()
+    month = dt.month
+
+    # ── 1. 기관별 월간 사정율 이력 (24개월)
+    monthly = db.execute(text("""
+        SELECT
+            TO_CHAR(b.bid_open_date, 'YYYY-MM')                          AS ym,
+            AVG(b.estimated_price::numeric / NULLIF(b.base_amount, 0))   AS srate_mean,
+            COUNT(*)                                                       AS cnt
+        FROM bids b
+        WHERE b.agency_id = :aid
+          AND b.estimated_price IS NOT NULL
+          AND b.base_amount > 0
+          AND b.bid_open_date >= NOW() - INTERVAL '24 months'
+          AND ABS(b.estimated_price::numeric / NULLIF(b.base_amount, 0) - (10.0/11.0)) > 0.002
+        GROUP BY ym
+        ORDER BY ym
+    """), {"aid": agency_id}).fetchall()
+
+    # ── 2. 기관 × 공종 교차 평균
+    cross_row = None
+    if industry_id:
+        cross_row = db.execute(text("""
+            SELECT AVG(b.estimated_price::numeric / NULLIF(b.base_amount, 0)),
+                   COUNT(*)
+            FROM bids b
+            WHERE b.agency_id   = :aid
+              AND b.industry_id = :iid
+              AND b.estimated_price IS NOT NULL
+              AND b.base_amount > 0
+              AND b.bid_open_date >= NOW() - INTERVAL '36 months'
+        """), {"aid": agency_id, "iid": industry_id}).fetchone()
+
+    # ── 3. 계절지수 (같은 월의 역대 평균 편차)
+    seasonal = db.execute(text("""
+        SELECT
+            EXTRACT(MONTH FROM b.bid_open_date)::int                    AS mo,
+            AVG(b.estimated_price::numeric / NULLIF(b.base_amount, 0))  AS srate_mean,
+            COUNT(*)                                                      AS cnt
+        FROM bids b
+        WHERE b.agency_id = :aid
+          AND b.estimated_price IS NOT NULL
+          AND b.base_amount > 0
+          AND b.bid_open_date >= NOW() - INTERVAL '48 months'
+          AND ABS(b.estimated_price::numeric / NULLIF(b.base_amount, 0) - (10.0/11.0)) > 0.002
+        GROUP BY mo
+    """), {"aid": agency_id}).fetchall()
+
+    # ── 4. 전국 평균 (폴백)
+    global_row = db.execute(text("""
+        SELECT AVG(yega_ratio / 100.0), STDDEV(yega_ratio / 100.0)
+        FROM inpo21c_bids WHERE yega_ratio BETWEEN 87 AND 105
+    """)).fetchone()
+    global_mean = float(global_row[0]) if global_row and global_row[0] else GLOBAL_SRATE_DEFAULT
+    global_std  = float(global_row[1]) if global_row and global_row[1] else 0.012
+
+    # ── 계산
+    monthly_means = [float(r[1]) for r in monthly if r[1] is not None]
+    monthly_counts = [int(r[2]) for r in monthly]
+    n_months = len(monthly_means)
+
+    # 트렌드 (선형 회귀)
+    trend_slope = 0.0
+    if n_months >= 4:
+        try:
+            from scipy.stats import linregress
+            x = np.arange(n_months)
+            slope, _, _, _, _ = linregress(x, monthly_means)
+            trend_slope = float(slope)
+        except Exception:
+            pass
+
+    # 최근 3개월 가중평균 (트렌드 반영)
+    agency_recent = None
+    if monthly_means:
+        recent = monthly_means[-3:]
+        w = np.arange(1, len(recent) + 1, dtype=float)
+        agency_recent = float(np.average(recent, weights=w))
+
+    # 계절 보정
+    seasonal_dict = {int(r[0]): float(r[1]) for r in seasonal if r[1] is not None}
+    all_season_vals = list(seasonal_dict.values())
+    season_overall = float(np.mean(all_season_vals)) if all_season_vals else global_mean
+    seasonal_adj = seasonal_dict.get(month, season_overall) - season_overall
+
+    # 교차 기관×공종 평균
+    cross_mean = float(cross_row[0]) if cross_row and cross_row[0] else None
+    cross_n    = int(cross_row[1])   if cross_row and cross_row[1] else 0
+
+    # Bayesian 블렌드: 기관 → 공종×기관 → 전국
+    total_n = sum(monthly_counts)
+    if agency_recent is not None and total_n >= 10:
+        w_agency = min(0.8, total_n / (total_n + 20))
+        if cross_mean and cross_n >= 5:
+            blended = agency_recent * w_agency + cross_mean * (1 - w_agency) * 0.6 + global_mean * (1 - w_agency) * 0.4
+        else:
+            blended = agency_recent * w_agency + global_mean * (1 - w_agency)
+        confidence = min(1.0, total_n / 30)
+    elif cross_mean and cross_n >= 5:
+        blended = cross_mean * 0.7 + global_mean * 0.3
+        confidence = min(0.5, cross_n / 20)
+    else:
+        blended = global_mean
+        confidence = 0.1
+
+    # 계절 보정 적용 (신뢰도 가중)
+    blended_with_season = blended + seasonal_adj * confidence * 0.5
+
+    return {
+        "blended_center":  round(blended_with_season, 5),
+        "seasonal_adj":    round(seasonal_adj, 5),
+        "trend_slope":     round(trend_slope, 6),
+        "confidence":      round(confidence, 3),
+        "raw": {
+            "agency_recent":  round(agency_recent, 5) if agency_recent else None,
+            "cross_mean":     round(cross_mean, 5)    if cross_mean else None,
+            "global_mean":    round(global_mean, 5),
+            "n_months":       n_months,
+            "total_records":  total_n,
+        },
+    }

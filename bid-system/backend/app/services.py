@@ -2947,7 +2947,7 @@ class MyBidFeedbackService:
             return
         cls.RETRAIN_LOCK = True
         from .database import SessionLocal
-        from .ml.engine import train_models, build_features, FEATURE_COLS, get_engine
+        from .ml.engine import train_models, train_models_temporal, build_features, FEATURE_COLS, get_engine
         from .ml.assessment import compute_and_store_stats, train_srate_model
         import pandas as pd
         from sqlalchemy import text as sa_text
@@ -3030,7 +3030,7 @@ class MyBidFeedbackService:
                 for col in FEATURE_COLS:
                     if col not in train_df.columns:
                         train_df[col] = None
-                result = train_models(train_df)
+                result = train_models_temporal(train_df, val_weeks=4, date_col="bid_open_date")
                 if result:
                     get_engine().reload()
                     db.add(ModelPerformanceLog(
@@ -6058,7 +6058,13 @@ class InpoNoticesSyncService:
         return {"created": created, "skipped": skipped}
 
 
-class DecisionService:
+# DecisionService and JournalService extracted to dedicated modules.
+# Re-exported here for backward compatibility with all existing router imports.
+from .decision_service import DecisionService  # noqa: E402, F401
+from .journal_service  import JournalService   # noqa: E402, F401
+
+# ── kept below for reference during transition ──────────────────
+class _DecisionService_REMOVED:
     """투찰 결정 전용 서비스 — TenderDecisionPage 백엔드."""
 
     def get_bid_context(self, db: Session, bid_id: int) -> dict:
@@ -6225,6 +6231,19 @@ class DecisionService:
                 inpo_rates = get_inpo_raw_rates(db, expected_n)
             except Exception:
                 pass
+        # journal 낙찰자 투찰률로 보강 (기관별 실전 데이터)
+        if inpo_rates is not None:
+            try:
+                from .ml.rank_model import get_journal_winner_rates
+                _journal_rates = get_journal_winner_rates(db, agency_id)
+                if _journal_rates is not None and len(_journal_rates) >= 5:
+                    import numpy as _np2
+                    _base = _np2.array(inpo_rates) if not isinstance(inpo_rates, _np2.ndarray) else inpo_rates
+                    # journal 낙찰자율 30% 혼합 (실전 데이터 우선)
+                    n_journal = min(len(_journal_rates), int(len(_base) * 0.3))
+                    inpo_rates = _np2.concatenate([_base, _journal_rates[:n_journal]])
+            except Exception:
+                pass
 
         all_zones, top_zones = scan_zones_from_dist(
             srate_dist, floor_rate, base_amount,
@@ -6270,6 +6289,28 @@ class DecisionService:
             for i in range(len(hist_counts))
         ]
 
+        # prediction_logs_v2에 이번 추천 저장 (bid_id 반드시 기록)
+        pred_log_id = None
+        try:
+            from .models import PredictionLogV2
+            from .ml.engine import get_model_meta
+            meta = get_model_meta()
+            plog = PredictionLogV2(
+                bid_id=bid_id,
+                model_version=meta.get("version"),
+                srate_pred_center=round(srate_center, 6),
+                rate_aggressive=strategies["aggressive"]["rate"],
+                rate_balanced=strategies["balanced"]["rate"],
+                rate_conservative=strategies["conservative"]["rate"],
+                win_prob_center=strategies["balanced"].get("win_prob"),
+            )
+            db.add(plog)
+            db.commit()
+            db.refresh(plog)
+            pred_log_id = plog.id
+        except Exception as _e:
+            logger.warning(f"prediction_logs_v2 저장 실패: {_e}")
+
         return {
             "bid_id":           bid_id,
             "base_amount":      base_amount,
@@ -6277,6 +6318,7 @@ class DecisionService:
             "srate_center":     round(srate_center, 4),
             "srate_std":        round(srate_std, 4),
             "mode":             mode,
+            "pred_log_id":      pred_log_id,
             "yega_candidates":  candidates,
             "top_combinations": top_combinations,
             "all_zones":        [dict(z) for z in all_zones],
@@ -6284,6 +6326,169 @@ class DecisionService:
             "strategies":       strategies,
             "optimal":          optimal,
             "histogram":        histogram,
+        }
+
+
+# ─────────────────────────────────────────────────────────────
+# JournalService extracted → app/journal_service.py (re-exported above)
+# ─────────────────────────────────────────────────────────────
+
+class _JournalService_REMOVED:
+    """
+    투찰 의사결정 → 실제투찰 → 개찰결과 를 bid_journal에 기록.
+    prediction_logs_v2와 연결해 모델 성능을 실측으로 검증한다.
+    """
+
+    def create(self, db: Session, user_id: int, req) -> "BidJournal":
+        from .models import BidJournal, Bid
+        from .schemas import JournalCreateRequest
+        from datetime import datetime as _dt
+
+        b = db.query(Bid).filter(Bid.id == req.bid_id).first()
+        ann_no = b.announcement_no if b else None
+
+        rate_delta = None
+        if req.submitted_rate and req.recommended_rate:
+            rate_delta = round(float(req.submitted_rate) - float(req.recommended_rate), 6)
+
+        submitted_amount = req.submitted_amount
+        if not submitted_amount and req.submitted_rate and b and b.base_amount:
+            submitted_amount = int(round(float(req.submitted_rate) * b.base_amount))
+
+        obj = BidJournal(
+            bid_id=req.bid_id,
+            user_id=user_id,
+            announcement_no=ann_no,
+            predicted_at=_dt.now() if req.pred_log_id else None,
+            pred_log_id=req.pred_log_id,
+            recommended_rate=req.recommended_rate,
+            recommended_amount=req.recommended_amount,
+            pred_win_prob=req.pred_win_prob,
+            pred_srate_center=req.pred_srate_center,
+            strategy_chosen=req.strategy_chosen,
+            submitted_at=_dt.now(),
+            submitted_rate=req.submitted_rate,
+            submitted_amount=submitted_amount,
+            floor_rate=req.floor_rate,
+            rate_delta=rate_delta,
+            note=req.note,
+        )
+        db.add(obj)
+        db.commit()
+        db.refresh(obj)
+        return obj
+
+    def record_result(self, db: Session, journal_id: int, user_id: int, req) -> "BidJournal":
+        from .models import BidJournal
+        from datetime import datetime as _dt
+
+        VALID_RESULTS = {"낙찰", "패찰", "무효", "취소"}
+        if req.result not in VALID_RESULTS:
+            from fastapi import HTTPException
+            raise HTTPException(400, f"result는 {VALID_RESULTS} 중 하나여야 합니다.")
+
+        obj = db.query(BidJournal).filter(
+            BidJournal.id == journal_id,
+            BidJournal.user_id == user_id,
+        ).first()
+        if not obj:
+            from fastapi import HTTPException
+            raise HTTPException(404, "저널 레코드를 찾을 수 없습니다.")
+
+        obj.result = req.result
+        obj.opened_at = _dt.now()
+        if req.actual_srate is not None:
+            obj.actual_srate = req.actual_srate
+        if req.our_rank is not None:
+            obj.our_rank = req.our_rank
+        if req.total_bidders is not None:
+            obj.total_bidders = req.total_bidders
+        if req.winner_rate is not None:
+            obj.winner_rate = req.winner_rate
+        if req.winner_amount is not None:
+            obj.winner_amount = req.winner_amount
+        if req.winner_biz_no is not None:
+            obj.winner_biz_no = req.winner_biz_no
+        if req.winner_name is not None:
+            obj.winner_name = req.winner_name
+        if req.note is not None:
+            obj.note = req.note
+
+        # 파생 필드 계산
+        if obj.winner_rate and obj.submitted_rate:
+            obj.rate_gap = round(float(obj.winner_rate) - float(obj.submitted_rate), 6)
+        if obj.actual_srate and obj.pred_srate_center:
+            obj.srate_error = round(float(obj.actual_srate) - float(obj.pred_srate_center), 6)
+
+        db.commit()
+        db.refresh(obj)
+        return obj
+
+    def list_journals(self, db: Session, user_id: int, result_filter: str = None,
+                      page: int = 1, size: int = 20) -> dict:
+        from .models import BidJournal
+        from .schemas import JournalOut
+
+        q = db.query(BidJournal).filter(BidJournal.user_id == user_id)
+        if result_filter:
+            if result_filter == "pending":
+                q = q.filter(BidJournal.result == None)  # noqa: E711
+            else:
+                q = q.filter(BidJournal.result == result_filter)
+
+        total = q.count()
+        items = q.order_by(BidJournal.created_at.desc()).offset((page - 1) * size).limit(size).all()
+        return {
+            "total": total,
+            "page": page,
+            "size": size,
+            "items": [JournalOut.model_validate(i).model_dump() for i in items],
+        }
+
+    def get_stats(self, db: Session, user_id: int) -> dict:
+        """피드백 루프 현황 + 모델 성능 지표."""
+        from sqlalchemy import text as _text
+
+        rows = db.execute(_text("""
+            SELECT
+              COUNT(*)                                              AS total,
+              COUNT(CASE WHEN result IS NOT NULL  THEN 1 END)      AS with_result,
+              COUNT(CASE WHEN result = '낙찰'    THEN 1 END)      AS wins,
+              COUNT(CASE WHEN result = '패찰'    THEN 1 END)      AS losses,
+              COUNT(CASE WHEN result IS NULL
+                          AND submitted_rate IS NOT NULL THEN 1 END) AS pending_result,
+              ROUND(AVG(CASE WHEN result IS NOT NULL
+                             THEN ABS(srate_error) END)::numeric, 4) AS avg_srate_mae,
+              ROUND(AVG(CASE WHEN result = '패찰'
+                             THEN rate_gap END)::numeric, 4)      AS avg_rate_gap_loss,
+              ROUND(AVG(CASE WHEN result IS NOT NULL
+                             THEN rate_delta END)::numeric, 4)    AS avg_rate_delta
+            FROM bid_journal
+            WHERE user_id = :uid
+        """), {"uid": user_id}).fetchone()
+
+        total      = rows[0] or 0
+        with_result= rows[1] or 0
+        wins       = rows[2] or 0
+        losses     = rows[3] or 0
+        pending    = rows[4] or 0
+        mae        = float(rows[5]) if rows[5] else None
+        avg_gap    = float(rows[6]) if rows[6] else None
+        avg_delta  = float(rows[7]) if rows[7] else None
+
+        win_rate = round(wins / with_result, 4) if with_result > 0 else None
+
+        return {
+            "total":            total,
+            "with_result":      with_result,
+            "pending_result":   pending,
+            "wins":             wins,
+            "losses":           losses,
+            "win_rate":         win_rate,
+            "avg_srate_mae":    mae,
+            "avg_rate_gap_loss": avg_gap,   # 패찰 시 낙찰자와 우리 투찰률 차이
+            "avg_rate_delta":   avg_delta,   # AI추천 vs 실제 투찰 차이
+            "feedback_completeness": round(with_result / total, 4) if total > 0 else 0,
         }
 
 

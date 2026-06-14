@@ -201,6 +201,10 @@ export const adminApi = {
     api.get('/admin/collector-status').then((r) => r.data),
   mlCalibration: (): Promise<import('@/types').MlCalibration> =>
     api.get('/admin/ml/calibration').then((r) => r.data),
+  collusionScan: (days = 30, limit = 100): Promise<import('@/types').CollusionScanResponse> =>
+    api.get('/admin/ml/collusion-scan', { params: { days, limit } }).then((r) => r.data),
+  collusionScanOne: (announcementNo: string): Promise<import('@/types').CollusionResult> =>
+    api.get(`/admin/ml/collusion-scan/${announcementNo}`).then((r) => r.data),
 }
 
 // -- 투찰 이력 --------------------------------------------------

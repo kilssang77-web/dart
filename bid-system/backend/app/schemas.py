@@ -1310,6 +1310,13 @@ class SucviewImportResult(BaseModel):
 # ──────────────────────────────────────────────
 # 투찰 결정 전용 — TenderDecisionPage
 # ──────────────────────────────────────────────
+class AgencySrateProfile(BaseModel):
+    blended_center: Optional[float]
+    seasonal_adj:   Optional[float]
+    trend_slope:    Optional[float]
+    confidence:     Optional[float]
+
+
 class BidContextResponse(BaseModel):
     bid_id:               int
     announcement_no:      str
@@ -1329,6 +1336,7 @@ class BidContextResponse(BaseModel):
     notice_date:          Optional[date]
     bid_open_date:        Optional[date]
     status:               Optional[str]
+    agency_srate_profile: Optional[AgencySrateProfile] = None
 
 
 class SimulateBidRequest(BaseModel):
@@ -1353,6 +1361,7 @@ class SimulateBidResponse(BaseModel):
     srate_center:     float
     srate_std:        float
     mode:             str        # "real" | "estimated"
+    pred_log_id:      Optional[int] = None
     yega_candidates:  List[dict]
     top_combinations: List[dict]
     all_zones:        List[ZoneItem]
@@ -1360,4 +1369,66 @@ class SimulateBidResponse(BaseModel):
     strategies:       dict
     optimal:          dict
     histogram:        List[dict]
+
+
+# ── 투찰 저널 (피드백 루프) ──────────────────────────────────
+
+class JournalCreateRequest(BaseModel):
+    """투찰 결정 기록 요청 — 시뮬레이션 후 실제 투찰률 확정 시 저장"""
+    bid_id:             int
+    pred_log_id:        Optional[int]   = None
+    recommended_rate:   Optional[float] = None
+    recommended_amount: Optional[int]   = None
+    pred_win_prob:      Optional[float] = None
+    pred_srate_center:  Optional[float] = None
+    strategy_chosen:    Optional[str]   = None   # aggressive/balanced/conservative
+    submitted_rate:     float
+    submitted_amount:   Optional[int]   = None
+    floor_rate:         Optional[float] = None
+    note:               Optional[str]   = None
+
+
+class JournalResultRequest(BaseModel):
+    """개찰 결과 입력 — 개찰 후 결과 업데이트"""
+    result:         str                  # 낙찰/패찰/무효/취소
+    actual_srate:   Optional[float] = None
+    our_rank:       Optional[int]   = None
+    total_bidders:  Optional[int]   = None
+    winner_rate:    Optional[float] = None
+    winner_amount:  Optional[int]   = None
+    winner_biz_no:  Optional[str]   = None
+    winner_name:    Optional[str]   = None
+    note:           Optional[str]   = None
+
+
+class JournalOut(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id:                 int
+    bid_id:             int
+    announcement_no:    Optional[str]
+    pred_log_id:        Optional[int]
+    recommended_rate:   Optional[float]
+    recommended_amount: Optional[int]
+    pred_win_prob:      Optional[float]
+    pred_srate_center:  Optional[float]
+    strategy_chosen:    Optional[str]
+    submitted_at:       Optional[datetime]
+    submitted_rate:     Optional[float]
+    submitted_amount:   Optional[int]
+    floor_rate:         Optional[float]
+    rate_delta:         Optional[float]
+    opened_at:          Optional[datetime]
+    result:             Optional[str]
+    our_rank:           Optional[int]
+    total_bidders:      Optional[int]
+    actual_srate:       Optional[float]
+    winner_rate:        Optional[float]
+    winner_amount:      Optional[int]
+    winner_biz_no:      Optional[str]
+    winner_name:        Optional[str]
+    rate_gap:           Optional[float]
+    srate_error:        Optional[float]
+    note:               Optional[str]
+    created_at:         Optional[datetime]
 

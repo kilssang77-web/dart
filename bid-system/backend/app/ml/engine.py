@@ -269,6 +269,107 @@ def train_models(df: pd.DataFrame, clf_df: Optional["pd.DataFrame"] = None) -> d
     return {"version": version, "train_size": len(df)}
 
 
+def train_models_temporal(
+    df: pd.DataFrame,
+    clf_df: Optional[pd.DataFrame] = None,
+    val_weeks: int = 4,
+    date_col: str = "bid_open_date",
+) -> dict:
+    """
+    C-3: 시간적 교차검증 기반 모델 학습.
+
+    랜덤 분할 대신 최근 val_weeks주를 검증셋으로 사용.
+    미래 데이터 누수를 방지해 실전 성능 추정의 신뢰도를 높인다.
+
+    Returns: train_models() 결과 + temporal_val_metrics 포함
+    """
+    from datetime import timedelta
+
+    result = {}
+
+    if date_col not in df.columns or df[date_col].isna().all():
+        logger.warning("temporal CV: 날짜 컬럼 없음 — 일반 학습으로 폴백")
+        return train_models(df, clf_df)
+
+    df = df.copy()
+    df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+    df = df.sort_values(date_col)
+
+    cutoff = df[date_col].max() - timedelta(weeks=val_weeks)
+    train_mask = df[date_col] < cutoff
+    val_mask   = df[date_col] >= cutoff
+
+    df_train = df[train_mask].copy()
+    df_val   = df[val_mask].copy()
+
+    if len(df_train) < 20 or len(df_val) < 5:
+        logger.warning(f"temporal CV: train={len(df_train)} val={len(df_val)} 부족 — 일반 학습")
+        return train_models(df, clf_df)
+
+    # clf_df도 동일 날짜 기준으로 분할
+    clf_train = None
+    if clf_df is not None and date_col in clf_df.columns:
+        clf_df_copy = clf_df.copy()
+        clf_df_copy[date_col] = pd.to_datetime(clf_df_copy[date_col], errors="coerce")
+        clf_train = clf_df_copy[clf_df_copy[date_col] < cutoff].copy()
+
+    logger.info(f"Temporal CV: train={len(df_train)}건 ({df_train[date_col].min().date()}~{cutoff.date()}) "
+                f"val={len(df_val)}건 ({cutoff.date()}~{df_val[date_col].max().date()})")
+
+    # 훈련
+    result = train_models(df_train, clf_train)
+
+    # 검증 지표 계산
+    try:
+        import xgboost as xgb
+        from sklearn.impute import SimpleImputer
+        import joblib
+
+        rate_models = joblib.load(MODEL_DIR / "rate_models.pkl")
+        imputer     = joblib.load(MODEL_DIR / "imputer.pkl")
+
+        X_val = imputer.transform(df_val[FEATURE_COLS].copy())
+        y_val = df_val["target_rate"].astype(float).values
+
+        pred_center = rate_models[0.50].predict(X_val)
+        mae  = float(np.mean(np.abs(y_val - pred_center)))
+        rmse = float(np.sqrt(np.mean((y_val - pred_center) ** 2)))
+        bias = float(np.mean(pred_center - y_val))
+
+        # 분위수 커버리지
+        pred_low  = rate_models[0.25].predict(X_val)
+        pred_high = rate_models[0.75].predict(X_val)
+        coverage_50 = float(np.mean((y_val >= pred_low) & (y_val <= pred_high)))
+
+        temporal_metrics = {
+            "val_weeks":     val_weeks,
+            "val_size":      len(df_val),
+            "train_size":    len(df_train),
+            "mae":           round(mae, 6),
+            "rmse":          round(rmse, 6),
+            "bias":          round(bias, 6),
+            "coverage_50pct": round(coverage_50, 4),
+            "cutoff_date":   str(cutoff.date()),
+        }
+        result["temporal_val_metrics"] = temporal_metrics
+        logger.info(f"Temporal 검증: MAE={mae:.5f} RMSE={rmse:.5f} Bias={bias:.5f} "
+                    f"Coverage(50%)={coverage_50:.3f}")
+
+        # 메타 파일에 temporal 지표 추가
+        import json
+        meta_path = MODEL_DIR / "meta.json"
+        if meta_path.exists():
+            with open(meta_path) as f:
+                meta = json.load(f)
+            meta.update(temporal_metrics)
+            with open(meta_path, "w") as f:
+                json.dump(meta, f)
+    except Exception as e:
+        logger.warning(f"Temporal 검증 지표 계산 실패: {e}")
+
+    return result
+
+
 # ──────────────────────────────────────────────────
 # 추천 엔진
 # ──────────────────────────────────────────────────

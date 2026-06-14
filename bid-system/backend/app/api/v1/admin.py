@@ -1126,3 +1126,39 @@ def ml_calibration(
             "캘리브레이션 개선 필요 (ECE > 0.10)"
         ),
     }
+
+
+# ---------------------------------------------------------------------------
+# C-4: 담합 의심 탐지 API
+# ---------------------------------------------------------------------------
+@router.get("/ml/collusion-scan")
+def collusion_scan(
+    days: int = 30,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin")),
+):
+    """최근 N일 수집 공고에서 담합 의심 건 스캔."""
+    from ...ml.anomaly_detector import scan_recent_collusion
+    results = scan_recent_collusion(db, days=min(days, 180), limit=min(limit, 500))
+    return {"days": days, "flagged_count": len(results), "results": results}
+
+
+@router.get("/ml/collusion-scan/{announcement_no}")
+def collusion_scan_one(
+    announcement_no: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin")),
+):
+    """특정 공고번호의 담합 의심 분석."""
+    from ...ml.anomaly_detector import detect_collusion
+    rows = db.execute(
+        text("""
+            SELECT p.bid_rate FROM inpo21c_participants p
+            JOIN inpo21c_bids b ON b.inpo21c_bid_id = p.inpo21c_bid_id
+            WHERE b.announcement_no = :ano AND p.bid_rate BETWEEN 0.70 AND 1.05
+        """),
+        {"ano": announcement_no},
+    ).fetchall()
+    rates = [float(r[0]) for r in rows]
+    return detect_collusion(rates, announcement_no=announcement_no)

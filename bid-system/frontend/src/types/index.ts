@@ -1229,6 +1229,13 @@ export interface PrismHistogramResponse {
 }
 
 // ── 투찰 결정 전용 (TenderDecisionPage) ──────────────────
+export interface AgencySrateProfile {
+  blended_center: number | null
+  seasonal_adj:   number | null
+  trend_slope:    number | null
+  confidence:     number | null
+}
+
 export interface BidContext {
   bid_id:               number
   announcement_no:      string
@@ -1248,12 +1255,16 @@ export interface BidContext {
   notice_date:          string | null
   bid_open_date:        string | null
   status:               string | null
+  agency_srate_profile: AgencySrateProfile | null
 }
 
 export interface CompetitorZone {
-  rate_center: number
-  rate_std:    number
-  count:       number
+  rate:  number
+  prob:  number
+  // legacy fields
+  rate_center?: number
+  rate_std?:    number
+  count?:       number
 }
 
 export interface ZoneItem {
@@ -1404,5 +1415,24 @@ export interface MlCalibration {
   srate_median_bias: number | null
   interpretation:    string
   message?:          string
+}
+
+export interface CollusionResult {
+  flag:                 'clean' | 'suspicious' | 'collusion' | 'insufficient_data'
+  score:                number
+  cv:                   number | null
+  n:                    number
+  mean_rate?:           number
+  std_rate?:            number
+  near_identical_pairs: number
+  cluster_density:      number
+  reasons:              string[]
+  announcement_no:      string
+}
+
+export interface CollusionScanResponse {
+  days:          number
+  flagged_count: number
+  results:       CollusionResult[]
 }
 

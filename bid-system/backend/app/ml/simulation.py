@@ -16,6 +16,59 @@ from typing import List, Optional
 from .a_value import FLOOR_RATE_TABLE, DEFAULT_FLOOR_RATE, calc_floor_rate as get_floor_rate
 
 
+def simulate_yejung_bimodal(
+    base_amount: int,
+    srate_center: float,
+    srate_std: float,
+    n_sim: int = 30_000,
+    rng: Optional[np.random.Generator] = None,
+    pos_weights: Optional[List[float]] = None,
+    high_mix: float = 0.30,
+    high_shift: float = 0.008,
+) -> np.ndarray:
+    """
+    바이모달 사정율 시뮬레이션.
+
+    일부 발주기관의 복수예가는 단일 정규분포가 아닌 두 봉우리를 가짐.
+    예: 사전공개 없이 동일 기관이 분기별로 높/낮 예가 패턴을 반복하는 경우.
+
+    구현: 두 개의 정규분포를 (1-high_mix) : high_mix 비율로 혼합.
+      · 저예가 집단: N(srate_center - high_shift/2, srate_std)
+      · 고예가 집단: N(srate_center + high_shift, srate_std * 0.7)
+
+    Args:
+        high_mix:   고예가 집단 비율 (0~1, 기본 0.30)
+        high_shift: 저→고 예가 중심 이동 폭 (기본 0.008 = 0.8%p)
+    """
+    if rng is None:
+        rng = np.random.default_rng(42)
+
+    sigma = max(0.002, min(srate_std, 0.010))
+    n_high = int(n_sim * high_mix)
+    n_low  = n_sim - n_high
+
+    center_low  = srate_center - high_shift * 0.4
+    center_high = srate_center + high_shift * 0.6
+
+    def _draw(n: int, center: float, sig: float) -> np.ndarray:
+        cands = rng.normal(loc=center, scale=sig, size=(n, 15))
+        cands = np.clip(cands, srate_center - 0.028, srate_center + 0.028)
+        if pos_weights is not None:
+            log_w  = np.log(np.maximum(pos_weights, 1e-9))
+            gumbel = rng.gumbel(size=(n, 15))
+            idx    = np.argsort(log_w + gumbel, axis=1)[:, -4:]
+        else:
+            idx = np.argsort(rng.random((n, 15)), axis=1)[:, :4]
+        return cands[np.arange(n)[:, None], idx].mean(axis=1)
+
+    parts = []
+    if n_low  > 0: parts.append(_draw(n_low,  center_low,  sigma))
+    if n_high > 0: parts.append(_draw(n_high, center_high, sigma * 0.75))
+    result = np.concatenate(parts)
+    rng.shuffle(result)
+    return result
+
+
 def simulate_yejung(
     base_amount: int,
     srate_center: float,

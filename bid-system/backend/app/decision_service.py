@@ -3,7 +3,10 @@ import logging
 from sqlalchemy.orm import Session
 from .models import Bid
 from .ml.assessment import load_srate_stats, predict_srate
-from .ml.simulation import simulate_yejung_from_real, simulate_yejung, scan_zones_from_dist, monte_carlo_win_prob_gmm
+from .ml.simulation import (
+    simulate_yejung_from_real, simulate_yejung, simulate_yejung_bimodal,
+    scan_zones_from_dist, monte_carlo_win_prob_gmm,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +18,7 @@ class DecisionService:
         from .ml.a_value import calc_floor_rate
         from .ml.yega import load_inpo21c_yega_stats
         from .ml.competitor_predict import predict_bid_zone
+        from .ml.assessment import load_agency_srate_profile
 
         b = db.query(Bid).filter(Bid.id == bid_id).first()
         if not b:
@@ -33,6 +37,18 @@ class DecisionService:
             or features.get("global_srate_std")
             or 0.012
         )
+
+        # B-4: 기관별 세분화 프로파일로 사정율 중심 보정
+        agency_profile = {}
+        try:
+            agency_profile = load_agency_srate_profile(db, agency_id, industry_id, b.bid_open_date)
+            if agency_profile.get("confidence", 0) >= 0.3:
+                profile_center = agency_profile["blended_center"]
+                conf = agency_profile["confidence"]
+                srate_center = srate_center * (1 - conf * 0.4) + profile_center * (conf * 0.4)
+                srate_center = round(srate_center, 5)
+        except Exception:
+            pass
         expected_n = int(
             features.get("expected_competitor_count")
             or features.get("global_comp_count")
@@ -78,6 +94,12 @@ class DecisionService:
             "notice_date":          _to_date(b.notice_date),
             "bid_open_date":        _to_date(b.bid_open_date),
             "status":               b.status,
+            "agency_srate_profile": {
+                "blended_center":  agency_profile.get("blended_center"),
+                "seasonal_adj":    agency_profile.get("seasonal_adj"),
+                "trend_slope":     agency_profile.get("trend_slope"),
+                "confidence":      agency_profile.get("confidence"),
+            } if agency_profile else None,
         }
 
     def simulate_bid(self, db: Session, bid_id: int, req) -> dict:
@@ -137,7 +159,21 @@ class DecisionService:
         else:
             mode = "estimated"
             rng = _np.random.default_rng(42)
-            srate_dist = simulate_yejung(base_amount, srate_center, srate_std, n_sim, rng, pos_weights)
+            # 기관 사정율 분포의 bimodal 여부 감지: 사분위 범위가 넓고 표준편차가 큰 경우
+            _use_bimodal = (
+                srate_std > 0.010 or
+                features.get("agency_srate_p75") is not None
+                and features.get("agency_srate_p25") is not None
+                and float(features["agency_srate_p75"] or 0) - float(features["agency_srate_p25"] or 0) > 0.018
+            )
+            if _use_bimodal:
+                srate_dist = simulate_yejung_bimodal(
+                    base_amount, srate_center, srate_std, n_sim, rng, pos_weights,
+                    high_mix=min(0.40, srate_std * 4),
+                )
+                mode = "estimated_bimodal"
+            else:
+                srate_dist = simulate_yejung(base_amount, srate_center, srate_std, n_sim, rng, pos_weights)
             yega_res = calc_yega_frequency(base_amount, b.a_value, srate_center)
             candidates = [
                 {"idx": i + 1, "amount": int(c["amount"]), "rate": round(c["rate"], 4)}
