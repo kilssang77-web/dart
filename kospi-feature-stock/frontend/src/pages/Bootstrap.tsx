@@ -12,17 +12,19 @@ import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card'
 const STEP_ACTIONS: Partial<Record<string, () => Promise<unknown>>> = {
   load_stocks:       () => adminApi.runLoadStocks(),
   fetch_bars:        () => adminApi.runFetchHistorical(),
+  refresh_stats:     () => adminApi.runRefreshStats(),
   train_model:       () => adminApi.runTrainModel(),
   generate_vectors:  () => adminApi.runBackfillVectors(),
 }
 
 // prerequisite map: step id → id that must be done first
 const PREREQ: Record<string, string> = {
-  fetch_bars:       'load_stocks',
+  fetch_bars:         'load_stocks',
   compute_indicators: 'fetch_bars',
-  backfill_events:  'compute_indicators',
-  train_model:      'backfill_events',
-  generate_vectors: 'train_model',
+  refresh_stats:      'compute_indicators',
+  backfill_events:    'refresh_stats',
+  train_model:        'backfill_events',
+  generate_vectors:   'train_model',
 }
 
 function pct(count: number | null, target: number | null): number {

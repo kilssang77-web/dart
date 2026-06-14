@@ -19,9 +19,8 @@ async def system_status(
     db: asyncpg.Pool = Depends(get_db),
     redis: redis_lib.Redis = Depends(get_redis),
 ):
-    """전체 시스템 상태를 한 번에 반환 (ML 모델 상태 + 데이터 신선도 + 서비스 헬스)."""
-    # ML 모델 파일 확인
-    model_loaded  = (_MODEL_DIR / "entry_model.lgb").exists()
+    """전체 시스템 상태 (ML 모델 + 데이터 신선도 + 서비스 헬스)."""
+    model_loaded = (_MODEL_DIR / "entry_model.lgb").exists()
     model_metrics: dict = {}
     if (_MODEL_DIR / "model_metrics.json").exists():
         try:
@@ -29,7 +28,7 @@ async def system_status(
         except Exception:
             pass
 
-    # 데이터 신선도 + 카운트
+    # 데이터 신선도
     async with db.acquire() as conn:
         freshness = await conn.fetchrow("""
             SELECT
@@ -49,6 +48,15 @@ async def system_status(
     vec = int(freshness["vector_count"] or 0)
     bar_count = int(freshness["bar_count"] or 0)
 
+    # DB health check (실제 ping)
+    db_ok = False
+    try:
+        async with db.acquire() as conn:
+            await conn.fetchval("SELECT 1")
+        db_ok = True
+    except Exception:
+        pass
+
     # Redis 연결 확인
     redis_ok = False
     try:
@@ -57,7 +65,22 @@ async def system_status(
     except Exception:
         pass
 
-    # Kafka lag (Redis에 탐지기가 기록한 값 사용)
+    # Redis 통계 키 카운트 (stats:{code}:* 형태)
+    stats_key_count = 0
+    try:
+        cursor = 0
+        while True:
+            cursor, keys = await redis.scan(cursor, match="stats:*:avg_vol_20d", count=500)
+            stats_key_count += len(keys)
+            if cursor == 0:
+                break
+    except Exception:
+        pass
+
+    # ML 모드: 모델 로드 여부
+    model_mode = "ml" if model_loaded else "fallback"
+
+    # Kafka lag (Redis에 탐지기가 기록한 값)
     kafka_lags: dict = {}
     for topic in ["feature-detected", "recommendation", "disclosure", "minute-bar"]:
         try:
@@ -68,28 +91,30 @@ async def system_status(
 
     return {
         "ml": {
-            "model_loaded":   model_loaded,
-            "model_dir":      str(_MODEL_DIR),
-            "trained_at":     model_metrics.get("trained_at"),
-            "auc":            model_metrics.get("auc"),
-            "f1":             model_metrics.get("f1"),
+            "model_loaded":      model_loaded,
+            "model_mode":        model_mode,
+            "model_dir":         str(_MODEL_DIR),
+            "trained_at":        model_metrics.get("trained_at"),
+            "auc":               model_metrics.get("auc"),
+            "f1":                model_metrics.get("f1"),
             "optimal_threshold": model_metrics.get("optimal_threshold"),
         },
         "data": {
-            "latest_daily_bar":       freshness["latest_bar"],
-            "latest_feature_event":   freshness["latest_event"],
-            "latest_recommendation":  freshness["latest_rec"],
-            "latest_disclosure":      freshness["latest_disc"],
-            "stock_count":            int(freshness["stock_count"] or 0),
-            "bar_count":              bar_count,
-            "event_count":            ev,
-            "vector_count":           vec,
-            "rec_count":              int(freshness["rec_count"] or 0),
-            "disc_count":             int(freshness["disc_count"] or 0),
+            "latest_daily_bar":        freshness["latest_bar"],
+            "latest_feature_event":    freshness["latest_event"],
+            "latest_recommendation":   freshness["latest_rec"],
+            "latest_disclosure":       freshness["latest_disc"],
+            "stock_count":             int(freshness["stock_count"] or 0),
+            "bar_count":               bar_count,
+            "event_count":             ev,
+            "vector_count":            vec,
+            "rec_count":               int(freshness["rec_count"] or 0),
+            "disc_count":              int(freshness["disc_count"] or 0),
             "pattern_vector_coverage": round(vec / ev * 100, 1) if ev > 0 else 0.0,
+            "redis_stats_count":       stats_key_count,
         },
         "services": {
-            "db":    True,
+            "db":    db_ok,
             "redis": redis_ok,
         },
         "kafka_lag": kafka_lags,
@@ -101,7 +126,7 @@ async def bootstrap_status(
     db: asyncpg.Pool = Depends(get_db),
     redis: redis_lib.Redis = Depends(get_redis),
 ):
-    """Bootstrap 각 단계 완료 여부를 상세히 반환."""
+    """Bootstrap 각 단계 완료 여부 (7단계)."""
     async with db.acquire() as conn:
         stats = await conn.fetchrow("""
             SELECT
@@ -113,7 +138,7 @@ async def bootstrap_status(
                 (SELECT COUNT(*) FROM feature_events WHERE pattern_vector IS NOT NULL)     AS vector_count
         """)
 
-    model_loaded  = (_MODEL_DIR / "entry_model.lgb").exists()
+    model_loaded = (_MODEL_DIR / "entry_model.lgb").exists()
     model_metrics: dict = {}
     if (_MODEL_DIR / "model_metrics.json").exists():
         try:
@@ -121,11 +146,23 @@ async def bootstrap_status(
         except Exception:
             pass
 
-    sc  = int(stats["stock_count"]     or 0)
-    bc  = int(stats["bar_count"]       or 0)
-    ic  = int(stats["indicator_count"] or 0)
-    ec  = int(stats["event_count"]     or 0)
-    vc  = int(stats["vector_count"]    or 0)
+    sc = int(stats["stock_count"]     or 0)
+    bc = int(stats["bar_count"]       or 0)
+    ic = int(stats["indicator_count"] or 0)
+    ec = int(stats["event_count"]     or 0)
+    vc = int(stats["vector_count"]    or 0)
+
+    # Redis 통계 키 카운트
+    stats_key_count = 0
+    try:
+        cursor = 0
+        while True:
+            cursor, keys = await redis.scan(cursor, match="stats:*:avg_vol_20d", count=500)
+            stats_key_count += len(keys)
+            if cursor == 0:
+                break
+    except Exception:
+        pass
 
     logs_raw = await redis.lrange("bootstrap:log", 0, 49)
     logs = [l.decode() if isinstance(l, bytes) else l for l in logs_raw]
@@ -149,6 +186,12 @@ async def bootstrap_status(
                 "detail": f"{ic:,}개 완료",
             },
             {
+                "id": "refresh_stats", "label": "Redis 탐지 통계 초기화",
+                "done": stats_key_count >= 1000,
+                "count": stats_key_count, "target": sc * 7 if sc > 0 else 17500,
+                "detail": f"{stats_key_count:,}개 통계 키 적재됨 (종목당 7개)",
+            },
+            {
                 "id": "backfill_events", "label": "특징주 이벤트 역산",
                 "done": ec >= 10_000, "count": ec, "target": 50_000,
                 "detail": f"{ec:,}개 이벤트",
@@ -158,7 +201,7 @@ async def bootstrap_status(
                 "done": model_loaded, "count": None, "target": None,
                 "detail": (
                     f"AUC {model_metrics.get('auc','?')} / F1 {model_metrics.get('f1','?')}"
-                    if model_loaded else "미학습"
+                    if model_loaded else "미학습 — 규칙 기반 fallback 운영 중"
                 ),
             },
             {
@@ -169,7 +212,12 @@ async def bootstrap_status(
             },
         ],
         "logs": logs,
-        "overall_ok": sc >= 1000 and bc >= 500_000 and model_loaded and (ec > 0 and vc >= ec * 0.75),
+        "overall_ok": (
+            sc >= 1000 and bc >= 500_000 and
+            stats_key_count >= 1000 and
+            model_loaded and
+            ec > 0 and vc >= ec * 0.75
+        ),
     }
 
 
@@ -189,6 +237,17 @@ async def run_fetch_historical(
 ):
     background_tasks.add_task(_run_make_target, redis, "stats", "과거 일봉 통계 수집")
     return {"status": "started", "step": "fetch-historical"}
+
+
+@router.post("/bootstrap/refresh-stats")
+async def run_refresh_stats(
+    background_tasks: BackgroundTasks,
+    db: asyncpg.Pool = Depends(get_db),
+    redis: redis_lib.Redis = Depends(get_redis),
+):
+    """Redis 탐지 통계 초기화 (daily_bars → Redis stats:{code}:*)."""
+    background_tasks.add_task(_run_refresh_stats, db, redis)
+    return {"status": "started", "step": "refresh-stats"}
 
 
 @router.post("/bootstrap/train-model")
@@ -235,6 +294,22 @@ async def _run_make_target(redis: redis_lib.Redis, target: str, label: str) -> N
             await _log(redis, f"실패: {label} — {stdout.decode()[:200]}")
     except Exception as e:
         await _log(redis, f"오류: {label} — {str(e)[:200]}")
+
+
+async def _run_refresh_stats(db: asyncpg.Pool, redis: redis_lib.Redis) -> None:
+    """daily_bars에서 탐지 통계 계산 → Redis 적재."""
+    from collector.redis_stats import refresh_all_stats  # type: ignore
+    await _log(redis, "Redis 탐지 통계 초기화 시작...")
+    try:
+        codes_raw = await db.fetch(
+            "SELECT code FROM stocks WHERE is_active ORDER BY code"
+        )
+        codes = [r["code"] for r in codes_raw]
+        await _log(redis, f"{len(codes):,}개 종목 통계 계산 시작")
+        await refresh_all_stats(db, redis, codes)
+        await _log(redis, f"완료: Redis 통계 {len(codes):,}개 종목 × 7개 키 적재")
+    except Exception as e:
+        await _log(redis, f"오류: Redis 통계 초기화 — {str(e)[:300]}")
 
 
 async def _run_backfill_vectors(redis: redis_lib.Redis) -> None:

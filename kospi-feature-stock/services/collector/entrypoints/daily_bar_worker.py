@@ -11,6 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from main import StockCollector, load_all_stocks, load_active_stocks
+from redis_stats import refresh_all_stats
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,6 +40,14 @@ async def run():
         svc._supply_demand_eod_loop(all_codes),
         return_exceptions=True,
     )
+
+    # 일봉 수집 완료 후 Redis 탐지 통계 갱신 (탐지 규칙 정상 동작 보장)
+    logger.info("[daily] 일봉 수집 완료 — Redis 탐지 통계 갱신 시작")
+    try:
+        refreshed = await refresh_all_stats(svc.db, svc.redis, all_codes)
+        logger.info(f"[daily] Redis 통계 갱신 완료: {refreshed}/{len(all_codes)}개")
+    except Exception as e:
+        logger.error(f"[daily] Redis 통계 갱신 실패: {e}")
 
 
 if __name__ == "__main__":

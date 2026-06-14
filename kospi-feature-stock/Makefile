@@ -1,5 +1,6 @@
 ﻿.PHONY: up down restart logs ps build pull stats train backtest load-stocks migrate health \
-        bootstrap test test-resilience migrate-v5 migrate-v6 audit-features
+        bootstrap test test-resilience migrate-v5 migrate-v6 migrate-v7 migrate-v8 migrate-v9 \
+        migrate-all audit-features
 
 # ── 환경 설정 ──────────────────────────────────────────────────
 CP_ENV := cp .env.example .env
@@ -49,10 +50,11 @@ stats:
 	docker compose exec ml python scripts/update_stats.py
 	@echo "Stats updated."
 
-# ── 모델 학습 ──────────────────────────────────────────────────
+# ── 모델 학습 (walk-forward) ────────────────────────────────────
 train:
-	docker compose exec ml python scripts/train_model.py \
-		--start 2022-01-01 --end 2024-12-31
+	docker compose exec ml python walk_forward_train.py \
+		--train-start 2022-01-01 --val-start 2024-01-01 \
+		--val-end 2024-12-31 --smote
 	@echo "Training complete."
 
 # ── 백테스트 ───────────────────────────────────────────────────
@@ -112,6 +114,25 @@ migrate-v6:
 	docker compose exec postgres psql \
 		-U ${POSTGRES_USER} -d ${POSTGRES_DB} \
 		-f /docker-entrypoint-initdb.d/V6__watchlist.sql
+
+# ── DB 마이그레이션 V7~V9: 텔레그램·성과·역산 ─────────────────
+migrate-v7:
+	docker compose exec postgres psql \
+		-U $${POSTGRES_USER} -d $${POSTGRES_DB} \
+		-f /docker-entrypoint-initdb.d/03_V7__telegram_logs.sql
+
+migrate-v8:
+	docker compose exec postgres psql \
+		-U $${POSTGRES_USER} -d $${POSTGRES_DB} \
+		-f /docker-entrypoint-initdb.d/04_V8__recommendation_performance.sql
+
+migrate-v9:
+	docker compose exec postgres psql \
+		-U $${POSTGRES_USER} -d $${POSTGRES_DB} \
+		-f /docker-entrypoint-initdb.d/05_V9__backfill_rec_performance.sql
+
+migrate-all: migrate migrate-v5 migrate-v6 migrate-v7 migrate-v8 migrate-v9
+	@echo "All migrations applied."
 
 # ── 단위 테스트 ─────────────────────────────────────────────────
 test:

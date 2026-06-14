@@ -25,6 +25,15 @@ import orjson
 
 logger = logging.getLogger(__name__)
 
+_kiwi_instance = None
+
+def _get_kiwi():
+    global _kiwi_instance
+    if _kiwi_instance is None:
+        from kiwipiepy import Kiwi  # type: ignore
+        _kiwi_instance = Kiwi()
+    return _kiwi_instance
+
 _N_CLUSTERS   = int(os.environ.get("THEME_N_CLUSTERS",    "30"))
 _MIN_NEWS_PER_CLUSTER = int(os.environ.get("THEME_MIN_NEWS", "5"))
 _LOOKBACK_DAYS = int(os.environ.get("THEME_LOOKBACK_DAYS", "7"))
@@ -179,7 +188,7 @@ class ThemeClusterer:
     def _extract_keywords(
         self, titles: list[str], contents: list[str], top_k: int = 8
     ) -> list[str]:
-        """TF-IDF 기반 키워드 추출 (형태소 분석기 없이 공백/구두점 분리)."""
+        """형태소 분석 기반 명사 추출 (kiwipiepy 우선, regex fallback)."""
         import re
         from collections import Counter
 
@@ -188,19 +197,28 @@ class ThemeClusterer:
             "에서", "와", "과", "도", "만", "보다", "부터", "까지", "이다",
             "있다", "하다", "되다", "않다", "없다", "같다",
             "주식", "주가", "종목", "투자", "증시", "코스피", "코스닥",
-            "상승", "하락", "전망", "분석", "관련",
+            "상승", "하락", "전망", "분석", "관련", "통해", "위해", "대한",
         }
 
-        texts = [t + " " + c[:200] for t, c in zip(titles, contents)]
-        full_text = " ".join(texts)
+        title_text = " ".join(titles)
+        body_texts  = [t + " " + c[:200] for t, c in zip(titles, contents)]
+        full_text   = " ".join(body_texts)
 
-        # 한글 2~6자 단어 추출
-        words = re.findall(r"[가-힣]{2,6}", full_text)
-        words = [w for w in words if w not in stopwords]
+        def _kiwi_nouns(text: str) -> list[str]:
+            try:
+                from kiwipiepy import Kiwi  # type: ignore
+                kiwi = _get_kiwi()
+                tokens = kiwi.tokenize(text)
+                return [
+                    t.form for t in tokens
+                    if t.tag in ("NNG", "NNP", "SL") and len(t.form) >= 2
+                ]
+            except Exception:
+                return re.findall(r"[가-힣]{2,6}", text)
 
-        # 제목 단어 3배 가중
-        title_words = re.findall(r"[가-힣]{2,6}", " ".join(titles))
-        all_words = words + title_words * 2
+        body_words  = [w for w in _kiwi_nouns(full_text)  if w not in stopwords]
+        title_words = [w for w in _kiwi_nouns(title_text) if w not in stopwords]
+        all_words   = body_words + title_words * 2  # 제목 2배 가중
 
         counter = Counter(all_words)
         return [w for w, _ in counter.most_common(top_k)]

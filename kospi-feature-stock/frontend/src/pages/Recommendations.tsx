@@ -1,4 +1,4 @@
-﻿import { useState } from 'react'
+﻿import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { clsx } from 'clsx'
@@ -165,6 +165,26 @@ function SignalSummary({ signals }: { signals: SignalItem[] }) {
   )
 }
 
+// ── 안전한 볼드 렌더러 (<b> / <b class="..."> 태그만 허용) ──────────────────
+function SafeHtml({ html }: { html: string }): React.ReactElement {
+  const nodes: React.ReactNode[] = []
+  let remaining = html
+  let key = 0
+  while (remaining.length > 0) {
+    const bStart = remaining.indexOf('<b')
+    if (bStart === -1) { nodes.push(<span key={key++}>{remaining}</span>); break }
+    if (bStart > 0) nodes.push(<span key={key++}>{remaining.slice(0, bStart)}</span>)
+    const bEnd = remaining.indexOf('</b>', bStart)
+    if (bEnd === -1) { nodes.push(<span key={key++}>{remaining.slice(bStart)}</span>); break }
+    const tag = remaining.slice(bStart, bEnd + 4)
+    const cls = (tag.match(/class="([^"]*)"/) ?? [])[1] ?? ''
+    const inner = (tag.match(/>([^<]*)<\/b>/) ?? [])[1] ?? ''
+    nodes.push(<b key={key++} className={cls}>{inner}</b>)
+    remaining = remaining.slice(bEnd + 4)
+  }
+  return <>{nodes}</>
+}
+
 // ── AI 분석 해설 ─────────────────────────────────────────────────────────────
 function RecommendationNarrative({ signals }: { signals: SignalItem[] }) {
   if (!signals.length) return null
@@ -285,10 +305,9 @@ function RecommendationNarrative({ signals }: { signals: SignalItem[] }) {
         <span>AI 분석 해설</span>
         <span className="text-[var(--border)] font-normal">· 탐지 데이터 기반 자동 생성</span>
       </div>
-      <p
-        className="text-xs text-[var(--muted)] leading-relaxed"
-        dangerouslySetInnerHTML={{ __html: parts.join(' ') }}
-      />
+      <p className="text-xs text-[var(--muted)] leading-relaxed">
+        {parts.map((part, i) => <span key={i}><SafeHtml html={part} />{' '}</span>)}
+      </p>
     </div>
   )
 }
@@ -469,7 +488,7 @@ export function Recommendations() {
             <Card
               key={rec.id}
               className="hover:border-cyan-500/40 transition-colors cursor-pointer"
-              onClick={() => nav(`/search?code=${rec.code}`)}
+              onClick={() => setSelectedRec(rec)}
             >
               <CardBody>
                 {/* 헤더 */}
@@ -555,11 +574,28 @@ export function Recommendations() {
 
                 {/* 하단 메타 */}
                 <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--border)]">
-                  <div className="flex items-center gap-3 text-sm text-[var(--muted)]">
+                  <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
                     <span className="flex items-center gap-0.5"><TrendingUp size={9} />R:R {rec.risk_reward_ratio?.toFixed(1) ?? '—'}</span>
                     <span>예상 {rec.expected_hold_days}일</span>
+                    {rec.risk_score != null && (
+                      <span className={clsx(
+                        'px-1.5 py-0.5 rounded-full text-xs font-semibold border',
+                        rec.risk_score >= 0.6
+                          ? 'bg-red-500/15 text-red-400 border-red-500/30'
+                          : rec.risk_score >= 0.3
+                          ? 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30'
+                          : 'bg-green-500/15 text-green-400 border-green-500/30'
+                      )}>
+                        위험 {rec.risk_score >= 0.6 ? '높음' : rec.risk_score >= 0.3 ? '중간' : '낮음'}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-1.5">
+                    {rec.rationale?.model_mode === 'ml' ? (
+                      <span className="text-xs px-1.5 py-0.5 rounded border border-purple-500/30 text-purple-400">ML</span>
+                    ) : rec.rationale?.model_mode === 'fallback' ? (
+                      <span className="text-xs px-1.5 py-0.5 rounded border border-amber-500/30 text-amber-400">규칙기반</span>
+                    ) : null}
                     {rec.rationale?.atr_based && (
                       <span className="text-xs px-1.5 py-0.5 rounded border border-cyan-500/30 text-cyan-400">ATR</span>
                     )}

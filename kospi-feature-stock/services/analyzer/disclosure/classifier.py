@@ -1,6 +1,7 @@
 import re
 import os
 import logging
+from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
@@ -104,8 +105,15 @@ AMOUNT_PATTERNS = [
 
 class DisclosureClassifier:
 
+    @staticmethod
+    def _normalize(text: str) -> str:
+        """한글 단어 사이 공백 제거 — '유상 증자' → '유상증자' 매칭 지원."""
+        import re
+        return re.sub(r"(?<=[가-힣])\s+(?=[가-힣])", "", text)
+
     def classify(self, title: str, content: str = "", disclosure_type: str = "") -> dict:
-        text = f"{title} {content[:2000]}"
+        raw = f"{title} {content[:2000]}"
+        text = self._normalize(raw)
         matched_kw: list[str] = []
         score = 0.0
 
@@ -217,3 +225,95 @@ class DisclosureClassifier:
             if m:
                 return m.group(1).strip()[:100]
         return ""
+
+
+# ── KR-FinBERT 기반 공시 분류기 ───────────────────────────────────────────────
+
+_BERT_MODEL   = os.environ.get("SENTIMENT_MODEL", "snunlp/KR-FinBert-SC")
+_BERT_CACHE   = os.environ.get("MODEL_CACHE_DIR", "/models")
+_USE_BERT     = os.environ.get("USE_BERT_SENTIMENT", "true").lower() == "true"
+_BERT_WEIGHT  = float(os.environ.get("DISCLOSURE_BERT_WEIGHT", "0.65"))
+_BERT_LABEL_MAP = {
+    "positive": 1, "LABEL_2": 1,
+    "negative": -1, "LABEL_0": -1,
+    "neutral": 0, "LABEL_1": 0,
+    "긍정": 1, "부정": -1, "중립": 0,
+}
+
+
+@lru_cache(maxsize=1)
+def _load_bert_pipeline():
+    if not _USE_BERT:
+        return None
+    try:
+        from transformers import pipeline as hf_pipeline
+        pipe = hf_pipeline(
+            "text-classification",
+            model=_BERT_MODEL,
+            cache_dir=_BERT_CACHE,
+            device=-1,
+            truncation=True,
+            max_length=128,
+        )
+        logger.info(f"[DisclosureBERT] 모델 로드 완료: {_BERT_MODEL}")
+        return pipe
+    except Exception as e:
+        logger.warning(f"[DisclosureBERT] 로드 실패: {e} — keyword fallback 사용")
+        return None
+
+
+class DisclosureBERTClassifier:
+    """KR-FinBERT 1차 + 키워드 분류기 2차 앙상블.
+
+    BERT 신뢰도(confidence)가 높을수록 BERT 결과에 더 많은 가중치를 부여하며,
+    신뢰도가 낮거나 BERT를 사용할 수 없을 때는 키워드 분류기로 대체한다.
+    """
+
+    def __init__(self):
+        self._kw_clf = DisclosureClassifier()
+
+    def classify(self, title: str, content: str = "", disclosure_type: str = "") -> dict:
+        kw_result = self._kw_clf.classify(title, content, disclosure_type)
+        kw_score  = kw_result["sentiment_score"]
+
+        bert_score: float | None = None
+        bert_confidence: float = 0.0
+        model_used = "keyword"
+
+        pipe = _load_bert_pipeline()
+        if pipe is not None:
+            try:
+                text = (title + " " + content[:300]).strip()[:512]
+                result = pipe(text)[0]
+                polarity   = _BERT_LABEL_MAP.get(result["label"],
+                             _BERT_LABEL_MAP.get(result["label"].lower(), 0))
+                bert_confidence = float(result["score"])
+                bert_score = round(polarity * bert_confidence, 4)
+                model_used = _BERT_MODEL
+            except Exception as e:
+                logger.warning(f"[DisclosureBERT] 추론 오류: {e}")
+
+        if bert_score is not None:
+            w = _BERT_WEIGHT * bert_confidence
+            combined = w * bert_score + (1.0 - w) * kw_score
+        else:
+            combined = kw_score
+
+        combined = round(max(-1.0, min(1.0, combined)), 3)
+
+        if combined >= _POS_THR:
+            category = "favorable"
+        elif combined <= _NEG_THR:
+            category = "unfavorable"
+        else:
+            category = "neutral"
+
+        return {
+            "category":        category,
+            "sentiment_score": combined,
+            "bert_score":      bert_score,
+            "bert_confidence": round(bert_confidence, 4),
+            "kw_score":        kw_score,
+            "keywords":        kw_result["keywords"],
+            "model":           model_used,
+        }

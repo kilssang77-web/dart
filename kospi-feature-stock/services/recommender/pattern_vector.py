@@ -108,6 +108,10 @@ def build_vector(bars: list[dict], disclosure_score: float = 0.0) -> np.ndarray 
 
     vec = np.concatenate([sec1, sec2, sec3, sec4]).astype(np.float32)
     assert len(vec) == PATTERN_DIM, f"dim mismatch: {len(vec)}"
+
+    if not np.isfinite(vec).all():
+        vec = np.nan_to_num(vec, nan=0.0, posinf=1.0, neginf=-1.0)
+
     return vec
 
 

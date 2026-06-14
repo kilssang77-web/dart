@@ -59,6 +59,7 @@ export interface Recommendation {
 
 export interface RationaleDetail {
   event_type?:       string
+  model_mode?:       'ml' | 'fallback'
   ml_prob?:          number
   sim_prob?:         number
   sim_count?:        number
@@ -73,8 +74,12 @@ export interface RationaleDetail {
 
 export interface SimilarCase {
   code:        string
+  name?:       string
   date:        string
+  event_type?: string
   similarity:  number
+  return_1d?:  number
+  return_3d?:  number
   return_5d?:  number
 }
 
@@ -98,13 +103,16 @@ export interface Disclosure {
   category?:        'favorable' | 'unfavorable' | 'neutral'
   sentiment_score?: number
   amount?:          number
+  amount_text?:     string
   keywords?:        string[]
   counterparty?:    string
+  contract_period?: string
   report_type?:     string
   disclosure_type?: string
   post_1h_change?:  number
   post_1d_change?:  number
   post_3d_change?:  number
+  pre_close?:       number
 }
 
 // ── 종목 ───────────────────────────────────────────────────────────────────────
@@ -178,34 +186,48 @@ export interface BacktestEquityPoint {
   pnl:      number
 }
 
+export interface BacktestSummary {
+  total:          number
+  win:            number
+  loss:           number
+  win_rate:       string
+  avg_return:     string
+  avg_win:        string
+  avg_loss:       string
+  profit_factor:  number
+  max_drawdown:   string
+  sharpe:         number
+  sortino:        number
+  calmar:         number
+  win_streak:     number
+  lose_streak:    number
+}
+
+export interface BacktestWindowResult {
+  period:       string
+  signals:      number
+  result:       BacktestSummary | null
+  equity_curve?: BacktestEquityPoint[]
+}
+
 export interface BacktestResult {
   error?: string
   params?: {
-    event_type:    string
+    event_type?:   string
+    event_types?:  string[]
     start:         string
     end:           string
     min_score:     number
+    ml_min_prob?:  number
     stop_loss_pct: number
     target_pct:    number
+    market?:       string | null
+    walkforward?:  boolean
   }
-  result?: {
-    total:          number
-    win:            number
-    loss:           number
-    win_rate:       string
-    avg_return:     string
-    avg_win:        string
-    avg_loss:       string
-    profit_factor:  number
-    max_drawdown:   string
-    sharpe:         number
-    sortino:        number
-    calmar:         number
-    win_streak:     number
-    lose_streak:    number
-  }
+  result?:       BacktestSummary
   trade_log?:    BacktestTradeItem[]
   equity_curve?: BacktestEquityPoint[]
+  walkforward?:  BacktestWindowResult[]
   sample_trades?: Array<{
     code:   string
     entry:  string
@@ -213,6 +235,15 @@ export interface BacktestResult {
     pnl:    number
     status: string
   }>
+}
+
+export interface SavedBacktestResult {
+  id:          number
+  name:        string
+  params:      BacktestResult['params']
+  result:      BacktestSummary
+  equity_curve?: BacktestEquityPoint[]
+  created_at:  string
 }
 
 export interface BacktestEventStats {

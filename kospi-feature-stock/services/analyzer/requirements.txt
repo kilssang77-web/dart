@@ -9,3 +9,4 @@ python-dotenv==1.0.1
 orjson==3.10.3
 pgvector==0.2.5
 lz4==4.3.3
+kiwipiepy>=0.17.0

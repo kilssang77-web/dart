@@ -1,11 +1,10 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { clsx } from 'clsx'
 import {
   LayoutDashboard, Zap, DollarSign, FileText, Newspaper,
-  Monitor, BarChart2, Settings, ChevronLeft, ChevronRight, LineChart,
-  Activity, Star, Bell, Layers, Search, TrendingUp, History, Cpu, Target,
-  HeartPulse, X,
+  Monitor, BarChart2, Settings, ChevronLeft, ChevronRight, ChevronDown,
+  Activity, Star, Search, History, Cpu, X,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { featuresApi } from '@/api/features'
@@ -20,8 +19,49 @@ interface NavItem {
 }
 
 interface NavGroup {
-  title: string
-  items: NavItem[]
+  title:       string
+  items:       NavItem[]
+  collapsible?: boolean
+}
+
+// ── 메뉴 정의 (4그룹 11항목) ────────────────────────────────────────────────
+function buildNavGroups(badge?: string): NavGroup[] {
+  return [
+    {
+      title: '핵심',
+      items: [
+        { to: '/',                icon: <LayoutDashboard size={15} />, label: '대시보드' },
+        { to: '/features',        icon: <Zap size={15} />,            label: '특징주 탐지', badge },
+        { to: '/recommendations', icon: <DollarSign size={15} />,     label: '추천 매매' },
+      ],
+    },
+    {
+      title: '분석',
+      items: [
+        { to: '/search',        icon: <Search size={15} />,   label: '종목 검색·분석' },
+        { to: '/disclosures',   icon: <FileText size={15} />, label: '공시 분석' },
+        { to: '/news',          icon: <Newspaper size={15} />,label: '뉴스·테마' },
+        { to: '/similar-cases', icon: <History size={15} />,  label: '유사사례' },
+      ],
+    },
+    {
+      title: '모니터링',
+      items: [
+        { to: '/hts',       icon: <Monitor size={15} />, label: 'HTS 시세판' },
+        { to: '/watchlist', icon: <Star size={15} />,    label: '관심종목' },
+      ],
+    },
+    {
+      title: '시스템',
+      collapsible: true,
+      items: [
+        { to: '/backtest',    icon: <BarChart2 size={15} />, label: '백테스트' },
+        { to: '/performance', icon: <Activity size={15} />,  label: '모델 성능' },
+        { to: '/settings',    icon: <Settings size={15} />,  label: '설정' },
+        { to: '/bootstrap',   icon: <Cpu size={15} />,       label: '초기화 (Admin)' },
+      ],
+    },
+  ]
 }
 
 export function Sidebar() {
@@ -29,7 +69,6 @@ export function Sidebar() {
   const isMobile = useIsMobile()
   const { pathname } = useLocation()
 
-  // 라우트 변경 시 모바일 drawer 자동 닫기
   useEffect(() => { closeMobile() }, [pathname, closeMobile])
 
   const { data: summary } = useQuery({
@@ -38,70 +77,26 @@ export function Sidebar() {
     refetchInterval: 30_000,
   })
 
-  const navGroups: NavGroup[] = [
-    {
-      title: '실시간',
-      items: [
-        { to: '/',         icon: <LayoutDashboard size={15} />, label: '대시보드' },
-        { to: '/features', icon: <Zap size={15} />,            label: '특징주 탐지', badge: summary ? String(summary.total) : undefined },
-        { to: '/hts',      icon: <Monitor size={15} />,        label: 'HTS 시세판' },
-      ],
-    },
-    {
-      title: '종목',
-      items: [
-        { to: '/search',          icon: <Search size={15} />,     label: '종목 검색·분석' },
-        { to: '/recommendations', icon: <DollarSign size={15} />, label: '추천 매매' },
-        { to: '/similar-cases',   icon: <History size={15} />,    label: '유사사례' },
-        { to: '/watchlist',       icon: <Star size={15} />,       label: '관심종목' },
-      ],
-    },
-    {
-      title: '시장',
-      items: [
-        { to: '/news',        icon: <Newspaper size={15} />, label: '뉴스/테마' },
-        { to: '/themes',      icon: <Layers size={15} />,    label: '테마 추적' },
-        { to: '/disclosures', icon: <FileText size={15} />,  label: '공시 분석' },
-      ],
-    },
-    {
-      title: '성과·분석',
-      items: [
-        { to: '/backtest',      icon: <BarChart2 size={15} />,  label: '백테스트' },
-        { to: '/performance',   icon: <Activity size={15} />,   label: '모델 성능' },
-        { to: '/perf-tracking', icon: <Target size={15} />,     label: '추천 성과 추적' },
-        { to: '/tracking',      icon: <TrendingUp size={15} />, label: '이벤트 추적' },
-      ],
-    },
-    {
-      title: '관리',
-      items: [
-        { to: '/system-health', icon: <HeartPulse size={15} />, label: '시스템 헬스' },
-        { to: '/notifications', icon: <Bell size={15} />,       label: '알림 이력' },
-        { to: '/settings',      icon: <Settings size={15} />,   label: '설정' },
-        { to: '/bootstrap',     icon: <Cpu size={15} />,        label: '초기화 (Admin)' },
-      ],
-    },
-  ]
+  const navGroups = buildNavGroups(
+    summary && summary.total > 0 ? String(summary.total) : undefined
+  )
 
   if (isMobile) {
     return (
       <>
-        {/* 모바일 overlay backdrop */}
         {mobileOpen && (
           <div
             className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
             onClick={closeMobile}
           />
         )}
-        {/* 모바일 drawer */}
         <aside className={clsx(
           'fixed left-0 top-0 bottom-0 z-50 flex flex-col w-[260px]',
           'bg-[var(--bg)] border-r border-[var(--border)]',
           'transition-transform duration-250',
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
         )}>
-          <SidebarContent collapsed={false} toggle={closeMobile} navGroups={navGroups} summary={summary} isCloseMobile />
+          <SidebarContent collapsed={false} toggle={closeMobile} navGroups={navGroups} isCloseMobile />
         </aside>
       </>
     )
@@ -114,20 +109,21 @@ export function Sidebar() {
       'transition-all duration-200',
       collapsed ? 'w-[56px]' : 'w-[220px]'
     )}>
-      <SidebarContent collapsed={collapsed} toggle={toggle} navGroups={navGroups} summary={summary} />
+      <SidebarContent collapsed={collapsed} toggle={toggle} navGroups={navGroups} />
     </aside>
   )
 }
 
 function SidebarContent({
-  collapsed, toggle, navGroups, summary, isCloseMobile,
+  collapsed, toggle, navGroups, isCloseMobile,
 }: {
   collapsed: boolean
   toggle: () => void
   navGroups: NavGroup[]
-  summary: { total: number } | undefined
   isCloseMobile?: boolean
 }) {
+  const [sysOpen, setSysOpen] = useState(false)
+
   return (
     <>
       {/* 로고 */}
@@ -159,22 +155,39 @@ function SidebarContent({
 
       {/* 내비게이션 */}
       <nav className="flex-1 py-2 overflow-y-auto overflow-x-hidden">
-        {navGroups.map((group) => (
-          <div key={group.title} className="mb-1">
-            {!collapsed && (
-              <div className="px-3 pt-3 pb-1 text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest">
-                {group.title}
-              </div>
-            )}
-            {collapsed && <div className="mx-2 my-1 border-t border-[var(--border)]/50" />}
-            {group.items.map((item) => (
-              <SidebarNavItem key={item.to} item={item} collapsed={collapsed} />
-            ))}
-          </div>
-        ))}
+        {navGroups.map((group) => {
+          const isSystem = group.collapsible === true
+          const showItems = !isSystem || sysOpen || collapsed
+
+          return (
+            <div key={group.title} className="mb-1">
+              {!collapsed && (
+                <div
+                  className={clsx(
+                    'px-3 pt-3 pb-1 text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest',
+                    isSystem && 'flex items-center justify-between cursor-pointer hover:text-[var(--fg)] select-none',
+                  )}
+                  onClick={isSystem ? () => setSysOpen((v) => !v) : undefined}
+                >
+                  <span>{group.title}</span>
+                  {isSystem && (
+                    <ChevronDown
+                      size={10}
+                      className={clsx('transition-transform duration-150', sysOpen && 'rotate-180')}
+                    />
+                  )}
+                </div>
+              )}
+              {collapsed && <div className="mx-2 my-1 border-t border-[var(--border)]/50" />}
+              {showItems && group.items.map((item) => (
+                <SidebarNavItem key={item.to} item={item} collapsed={collapsed} />
+              ))}
+            </div>
+          )
+        })}
       </nav>
 
-      {/* 상태 표시 + 접기 버튼 */}
+      {/* 접기 버튼 */}
       {!isCloseMobile && (
         <div className="border-t border-[var(--border)] p-3 flex items-center justify-between flex-shrink-0">
           {!collapsed && (
@@ -212,10 +225,7 @@ function SidebarNavItem({ item, collapsed }: { item: NavItem; collapsed: boolean
       <span className="flex-shrink-0">{item.icon}</span>
       {!collapsed && <span className="truncate">{item.label}</span>}
       {!collapsed && item.badge && item.badge !== '0' && (
-        <span className={clsx(
-          'ml-auto text-xs font-semibold px-1.5 py-0.5 rounded-full',
-          'bg-cyan-500/15 text-cyan-400'
-        )}>
+        <span className="ml-auto text-xs font-semibold px-1.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400">
           {item.badge}
         </span>
       )}

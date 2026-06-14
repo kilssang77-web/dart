@@ -263,9 +263,9 @@ export function HTS() {
             <WifiOff size={24} />
           )}
           <p className="text-sm">
-            {status === 'connecting'   ? 'WebSocket 연결 중…' :
-             isMarketOpen === false    ? '장 마감 — 시세 데이터 없음' :
-                                         'WebSocket 수신 대기 중'}
+            {status === 'connecting'   ? '시세 데이터 연결 중…' :
+             isMarketOpen === false    ? '장 마감 — 종가 기준 데이터' :
+                                         '시세 데이터 수신 대기 중'}
           </p>
           {isMarketOpen !== false && (
             <p className="text-xs">KIS API에서 실시간 데이터가 수신되면 자동으로 표시됩니다</p>
@@ -301,7 +301,7 @@ export function HTS() {
                   </div>
                   {tick.snapshot && (
                     <span className="text-xs text-[var(--muted)]/50 shrink-0 mt-0.5">
-                      {tick.snap_date?.slice(5) ?? '종가'}
+                      장 마감·종가 {tick.snap_date?.slice(5) ?? ''}
                     </span>
                   )}
                 </div>
@@ -371,7 +371,7 @@ export function HTS() {
           {(!orderbook || (orderbook.asks.length === 0 && orderbook.bids.length === 0)) ? (
             <div className="flex flex-col items-center justify-center h-full text-[var(--muted)] gap-2 py-8">
               <Clock size={18} className="opacity-40" />
-              <p className="text-center">장중 호가 데이터<br/>없음 (collector 연결 필요)</p>
+              <p className="text-center">장 중에 호가 데이터가<br/>표시됩니다</p>
             </div>
           ) : (
             <>

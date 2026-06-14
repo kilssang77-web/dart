@@ -118,6 +118,7 @@ class EntryRecommender:
             risk_reward_ratio=round(rr, 2),
             rationale={
                 "event_type":      event.get("event_type"),
+                "model_mode":      "ml" if ml_result.model_used else "fallback",
                 "ml_prob":         round(float(ml_prob), 4),
                 "sim_prob":        round(float(sim_prob), 4),
                 "sim_count":       n_cases,
