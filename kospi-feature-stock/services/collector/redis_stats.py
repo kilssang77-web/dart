@@ -49,6 +49,8 @@ async def refresh_all_stats(db, redis, codes: Sequence[str]) -> int:
 
     # 갱신 완료 마커 저장
     await redis.set("stats:last_refresh", datetime.utcnow().isoformat(), ex=_TTL)
+    # admin 엔드포인트가 SCAN 없이 즉시 조회할 수 있도록 종목 수 저장
+    await redis.set("stats:refresh_count", total, ex=_TTL)
 
     # 갱신된 데이터를 DB에 일괄 백업 (redis_stats_snapshot 테이블)
     try:

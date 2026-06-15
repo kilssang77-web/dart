@@ -28,7 +28,7 @@ async def system_status(
         except Exception:
             pass
 
-    # 데이터 신선도
+    # 데이터 신선도 — 대용량 테이블은 approximate_row_count() 사용 (TimescaleDB 통계 기반)
     async with db.acquire() as conn:
         freshness = await conn.fetchrow("""
             SELECT
@@ -37,15 +37,13 @@ async def system_status(
                 (SELECT MAX(created_at)::TEXT      FROM recommendations)                  AS latest_rec,
                 (SELECT MAX(disclosed_at)::TEXT    FROM disclosures)                      AS latest_disc,
                 (SELECT COUNT(*)                   FROM stocks      WHERE is_active)       AS stock_count,
-                (SELECT COUNT(*)                   FROM daily_bars)                       AS bar_count,
-                (SELECT COUNT(*)                   FROM feature_events)                   AS event_count,
-                (SELECT COUNT(*) FROM feature_events WHERE pattern_vector IS NOT NULL)    AS vector_count,
+                approximate_row_count('daily_bars')                                        AS bar_count,
+                approximate_row_count('feature_events')                                    AS event_count,
                 (SELECT COUNT(*)                   FROM recommendations)                  AS rec_count,
                 (SELECT COUNT(*)                   FROM disclosures)                      AS disc_count
         """)
 
-    ev  = int(freshness["event_count"] or 0)
-    vec = int(freshness["vector_count"] or 0)
+    ev        = int(freshness["event_count"] or 0)
     bar_count = int(freshness["bar_count"] or 0)
 
     # DB health check (실제 ping)
@@ -65,15 +63,14 @@ async def system_status(
     except Exception:
         pass
 
-    # Redis 통계 키 카운트 (stats:{code}:* 형태)
+    # Redis 통계 키 카운트 + vector_count 캐시 조회 (SCAN 50k키 순회 제거)
     stats_key_count = 0
+    vec = 0
     try:
-        cursor = 0
-        while True:
-            cursor, keys = await redis.scan(cursor, match="stats:*:avg_vol_20d", count=500)
-            stats_key_count += len(keys)
-            if cursor == 0:
-                break
+        rc = await redis.get("stats:refresh_count")
+        vc = await redis.get("stats:vector_count")
+        stats_key_count = int(rc or 0)
+        vec = int(vc or 0)
     except Exception:
         pass
 
@@ -133,9 +130,8 @@ async def bootstrap_status(
                 (SELECT COUNT(*) FROM stocks WHERE is_active)                              AS stock_count,
                 (SELECT COUNT(*) FROM daily_bars
                  WHERE date >= NOW() - INTERVAL '365 days')                                AS bar_count,
-                (SELECT COUNT(*) FROM daily_bars WHERE rsi14 IS NOT NULL)                  AS indicator_count,
-                (SELECT COUNT(*) FROM feature_events)                                      AS event_count,
-                (SELECT COUNT(*) FROM feature_events WHERE pattern_vector IS NOT NULL)     AS vector_count
+                approximate_row_count('daily_bars')                                        AS indicator_count,
+                approximate_row_count('feature_events')                                    AS event_count
         """)
 
     model_loaded = (_MODEL_DIR / "entry_model.lgb").exists()
@@ -150,17 +146,15 @@ async def bootstrap_status(
     bc = int(stats["bar_count"]       or 0)
     ic = int(stats["indicator_count"] or 0)
     ec = int(stats["event_count"]     or 0)
-    vc = int(stats["vector_count"]    or 0)
 
-    # Redis 통계 키 카운트
+    # vector_count와 stats_key_count는 Redis 캐시에서 즉시 조회
+    vc = 0
     stats_key_count = 0
     try:
-        cursor = 0
-        while True:
-            cursor, keys = await redis.scan(cursor, match="stats:*:avg_vol_20d", count=500)
-            stats_key_count += len(keys)
-            if cursor == 0:
-                break
+        rc = await redis.get("stats:refresh_count")
+        vc_v = await redis.get("stats:vector_count")
+        stats_key_count = int(rc or 0)
+        vc = int(vc_v or 0)
     except Exception:
         pass
 
@@ -262,9 +256,10 @@ async def run_train_model(
 @router.post("/bootstrap/backfill-vectors")
 async def run_backfill_vectors(
     background_tasks: BackgroundTasks,
+    db: asyncpg.Pool = Depends(get_db),
     redis: redis_lib.Redis = Depends(get_redis),
 ):
-    background_tasks.add_task(_run_backfill_vectors, redis)
+    background_tasks.add_task(_run_backfill_vectors, redis, db)
     return {"status": "started", "step": "backfill-vectors"}
 
 
@@ -348,12 +343,13 @@ async def _run_refresh_stats(db: asyncpg.Pool, redis: redis_lib.Redis) -> None:
             except Exception:
                 pass
         await redis.set("stats:last_refresh", _dt.utcnow().isoformat(), ex=_TTL)
+        await redis.set("stats:refresh_count", total, ex=_TTL)
         await _log(redis, f"완료: Redis 통계 {total}/{len(codes):,}개 종목 × 7개 키 적재")
     except Exception as e:
         await _log(redis, f"오류: Redis 통계 초기화 — {str(e)[:300]}")
 
 
-async def _run_backfill_vectors(redis: redis_lib.Redis) -> None:
+async def _run_backfill_vectors(redis: redis_lib.Redis, db: asyncpg.Pool | None = None) -> None:
     await _log(redis, "패턴 벡터 백필 시작...")
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -365,6 +361,15 @@ async def _run_backfill_vectors(redis: redis_lib.Redis) -> None:
         stdout, _ = await proc.communicate()
         if proc.returncode == 0:
             await _log(redis, "완료: 패턴 벡터 백필")
+            # vector_count 캐시 갱신
+            if db:
+                try:
+                    vc = await db.fetchval(
+                        "SELECT COUNT(*) FROM feature_events WHERE pattern_vector IS NOT NULL"
+                    )
+                    await redis.set("stats:vector_count", int(vc or 0), ex=60 * 60 * 72)
+                except Exception:
+                    pass
         else:
             await _log(redis, f"실패: 벡터 백필 — {stdout.decode()[:200]}")
     except Exception as e:
@@ -388,44 +393,43 @@ async def pipeline_status(
                  WHERE disclosed_at >= NOW() - INTERVAL '24 hours')         AS disclosures_24h,
                 (SELECT COUNT(*) FROM news
                  WHERE published_at >= NOW() - INTERVAL '24 hours')         AS news_24h,
-                (SELECT COUNT(*) FROM feature_events
-                 WHERE result_5d IS NOT NULL)                                AS events_with_result,
-                (SELECT COUNT(*) FROM feature_events
-                 WHERE pattern_vector IS NOT NULL)                           AS events_with_vector,
-                (SELECT COUNT(*) FROM feature_events)                        AS total_events,
+                0::BIGINT                                                    AS events_with_result,
+                0::BIGINT                                                    AS events_with_vector,
+                approximate_row_count('feature_events')                      AS total_events,
                 (SELECT COUNT(*) FROM news
                  WHERE sentiment_score IS NOT NULL)                          AS news_with_sentiment
         """)
 
-    # Redis 통계 키 수
+    # Redis 통계 키 수 — refresh_count 키로 즉시 조회 (SCAN 50k키 순회 제거)
     redis_stats_count = 0
     try:
-        cursor = 0
-        while True:
-            cursor, keys = await redis.scan(cursor, match="stats:*:avg_vol_20d", count=500)
-            redis_stats_count += len(keys)
-            if cursor == 0:
-                break
+        v = await redis.get("stats:refresh_count")
+        redis_stats_count = int(v or 0)
     except Exception:
         pass
 
-    # 뉴스 감성 Redis 키 수
+    # 뉴스 감성 Redis 키 수 — SCAN 제거, news:sentiment:count 캐시 키 사용
     news_sentiment_keys = 0
     try:
-        cursor = 0
-        while True:
-            cursor, keys = await redis.scan(cursor, match="news:sentiment:*", count=500)
-            news_sentiment_keys += len(keys)
-            if cursor == 0:
-                break
+        v = await redis.get("news:sentiment:count")
+        news_sentiment_keys = int(v or 0)
     except Exception:
         pass
 
     last_refresh = await redis.get("stats:last_refresh")
 
+    # feature_events 대용량 COUNT는 Redis 캐시 우선, 없으면 approximate_row_count
     total = int(counts["total_events"] or 0)
-    with_result = int(counts["events_with_result"] or 0)
-    with_vector = int(counts["events_with_vector"] or 0)
+    # with_result / with_vector: Redis 캐시 우선 (없으면 0 — 비필수 지표)
+    with_result = 0
+    with_vector = 0
+    try:
+        rr = await redis.get("stats:result_count")
+        vc = await redis.get("stats:vector_count")
+        with_result = int(rr or 0)
+        with_vector = int(vc or 0)
+    except Exception:
+        pass
 
     return {
         "realtime": {
