@@ -52,6 +52,18 @@ function GlobalRealtimeStream() {
   return null
 }
 
+function getLastTradingDay(): string {
+  // en-CA locale → 'YYYY-MM-DD' 형식으로 서울 기준 날짜 취득
+  const seoulDateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' })
+  const [y, m, d] = seoulDateStr.split('-').map(Number)
+  const seoulDate = new Date(y, m - 1, d)
+  const dow = seoulDate.getDay() // 0=일, 6=토
+  const daysBack = dow === 0 ? 2 : dow === 6 ? 1 : 0
+  seoulDate.setDate(d - daysBack)
+  // 다시 YYYY-MM-DD 형식으로 반환
+  return seoulDate.toLocaleDateString('en-CA')
+}
+
 function MarketClosedBanner() {
   const { data } = useQuery({
     queryKey:        ['market-summary-banner'],
@@ -61,9 +73,9 @@ function MarketClosedBanner() {
   })
   if (!data?.data_date) return null
 
-  // 서울 기준 오늘 날짜와 비교
-  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' })
-  if (data.data_date >= today) return null
+  // 마지막 영업일(주말 제외)과 비교 — 장 중에도 전 거래일 데이터는 정상
+  const lastTradingDay = getLastTradingDay()
+  if (data.data_date >= lastTradingDay) return null
 
   return (
     <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-sm">
