@@ -22,8 +22,10 @@ logger = logging.getLogger("collector-bars-backfill")
 
 _KST              = timezone(timedelta(hours=9))
 _REDIS_KEY_LAST   = "bars_backfill:last_run"
-_REDIS_KEY_SKIP   = "bars_backfill:skip:{code}"  # KIS 조회 불가 종목 7일 스킵
+_REDIS_KEY_SKIP   = "bars_backfill:skip:{code}"       # KIS 조회 불가 종목 7일 스킵
+_REDIS_KEY_FAIL   = "bars_backfill:fail_count:{code}" # 연속 조회 불가 카운터 (30일 TTL)
 _MIN_BARS_1Y      = 250      # 최근 365일 기준 최소 봉 수
+_MAX_FAIL_COUNT   = 3        # N회 연속 0행 → stocks.is_active = FALSE
 _BACKFILL_DAYS    = int(os.environ.get("BARS_BACKFILL_DAYS", "1825"))  # 5년 (기본)
 _REQ_DELAY        = 0.5      # 초 / 종목
 _BATCH_LOG_EVERY  = 200
@@ -76,11 +78,23 @@ async def run_backfill(svc: StockCollector, all_codes: list[str]) -> None:
             if bars:
                 n = await write_daily_bars(svc.db, bars)
                 total_added += n
+                await svc.redis.delete(_REDIS_KEY_FAIL.format(code=code))
             else:
                 # 7일간 재시도 없음 (비상장/거래정지/조회불가)
                 await svc.redis.set(
                     _REDIS_KEY_SKIP.format(code=code), "1", ex=86400 * 7
                 )
+                # 연속 실패 카운터 증가 → N회 도달 시 is_active = FALSE
+                fail_key = _REDIS_KEY_FAIL.format(code=code)
+                _raw     = await svc.redis.get(fail_key)
+                fail_cnt = (int(_raw.decode() if isinstance(_raw, bytes) else _raw) if _raw else 0) + 1
+                await svc.redis.set(fail_key, fail_cnt, ex=86400 * 30)
+                if fail_cnt >= _MAX_FAIL_COUNT:
+                    await svc.db.execute(
+                        "UPDATE stocks SET is_active = FALSE WHERE code = $1", code
+                    )
+                    await svc.redis.delete(fail_key)
+                    logger.info(f"[bars-backfill] {code} is_active=FALSE (연속 {fail_cnt}회 0봉)")
                 zero_count += 1
         except Exception as e:
             logger.warning(f"[bars-backfill] {code} 오류: {e}")

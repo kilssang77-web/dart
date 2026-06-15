@@ -50,6 +50,7 @@ FEATURE_COLUMNS: list[str] = [
     "foreign_net_ratio", "inst_net_ratio",
     "dow_sin", "dow_cos", "month_sin", "month_cos",
     "news_sentiment_7d", "news_count_7d",
+    "per", "pbr", "roe", "debt_ratio",
 ]
 
 
@@ -140,7 +141,8 @@ def _safe(v, default=0.0) -> float:
 
 def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: list = None,
                       news_sentiment: dict | None = None,
-                      _kospi_returns: tuple[float, float] | None = None) -> dict:
+                      _kospi_returns: tuple[float, float] | None = None,
+                      fin_row: dict | None = None) -> dict:
     """daily_bars rows(최신 → 과거 순) + 수급 + 공시 + 뉴스감성 → FEATURE_COLUMNS dict."""
     if not rows:
         return {k: 0.0 for k in FEATURE_COLUMNS}
@@ -332,6 +334,12 @@ def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: li
         news_sentiment_7d = 0.0
         news_count_7d     = 0.0
 
+    # ── 재무 피처 (분기별, financials 테이블 최신 분기) ──
+    per        = _safe(fin_row.get("per"),        0.0) if fin_row else 0.0
+    pbr        = _safe(fin_row.get("pbr"),        0.0) if fin_row else 0.0
+    roe        = _safe(fin_row.get("roe"),        0.0) if fin_row else 0.0
+    debt_ratio = _safe(fin_row.get("debt_ratio"), 0.0) if fin_row else 0.0
+
     return {k: locals().get(k, 0.0) for k in FEATURE_COLUMNS}
 
 
@@ -381,6 +389,13 @@ async def get_ml_result(event: dict, db: asyncpg.Pool, redis=None) -> MLResult:
                 """,
                 code,
             )
+            fin_row_rec = await conn.fetchrow(
+                """
+                SELECT per, pbr, roe, debt_ratio FROM financials
+                WHERE code=$1 ORDER BY year DESC, quarter DESC LIMIT 1
+                """,
+                code,
+            )
             if _kospi_returns is None:
                 kospi_rows = await conn.fetch(
                     "SELECT close FROM daily_bars WHERE code = '0001' ORDER BY date DESC LIMIT 10"
@@ -419,7 +434,8 @@ async def get_ml_result(event: dict, db: asyncpg.Pool, redis=None) -> MLResult:
     feats = _compute_features(bars, sd, [dict(r) for r in disc_rows],
                               kospi_rows=[dict(r) for r in kospi_rows],
                               news_sentiment=_news_sentiment,
-                              _kospi_returns=_kospi_returns)
+                              _kospi_returns=_kospi_returns,
+                              fin_row=dict(fin_row_rec) if fin_row_rec else None)
     _atr_ratio = feats.get("atr_ratio", 0.0)
 
     # ── ML 서비스 HTTP 추론 (우선) ──

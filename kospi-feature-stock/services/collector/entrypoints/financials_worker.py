@@ -22,8 +22,10 @@ logger = logging.getLogger("collector-financials")
 
 _KST = timezone(timedelta(hours=9))
 _REDIS_KEY_LAST_RUN = "financials:last_run"
-_REDIS_KEY_SKIP     = "financials:skip:{code}"   # KIS 조회 불가 종목 24h 스킵
+_REDIS_KEY_SKIP     = "financials:skip:{code}"       # KIS 조회 불가 종목 24h 스킵
+_REDIS_KEY_FAIL     = "financials:fail_count:{code}" # 연속 조회 불가 카운터 (90일 TTL)
 _RUN_INTERVAL_DAYS  = 6
+_MAX_FAIL_COUNT     = 3  # N회 연속 0건 → stocks.is_active = FALSE
 _REQ_DELAY          = 1.0   # 초 / 종목 (2회 API 호출 포함, KIS 초당 20회 제한 준수)
 _BATCH_LOG_EVERY    = 100
 
@@ -77,9 +79,21 @@ async def run_collection(svc: StockCollector, codes: list[str]) -> None:
             if records:
                 n = await write_financials(svc.db, records)
                 total_records += n
+                await svc.redis.delete(_REDIS_KEY_FAIL.format(code=code))
             else:
                 # 연속 0행 → 24h 스킵 마킹 (비상장/ETF/조회불가 종목)
                 await svc.redis.set(_REDIS_KEY_SKIP.format(code=code), "1", ex=86400)
+                # 연속 실패 카운터 증가 → N회 도달 시 is_active = FALSE
+                fail_key = _REDIS_KEY_FAIL.format(code=code)
+                _raw     = await svc.redis.get(fail_key)
+                fail_cnt = (int(_raw.decode() if isinstance(_raw, bytes) else _raw) if _raw else 0) + 1
+                await svc.redis.set(fail_key, fail_cnt, ex=86400 * 90)
+                if fail_cnt >= _MAX_FAIL_COUNT:
+                    await svc.db.execute(
+                        "UPDATE stocks SET is_active = FALSE WHERE code = $1", code
+                    )
+                    await svc.redis.delete(fail_key)
+                    logger.info(f"[financials] {code} is_active=FALSE (연속 {fail_cnt}회 0건)")
                 skip_count += 1
         except Exception as e:
             logger.warning(f"[financials] {code} 오류: {e}")

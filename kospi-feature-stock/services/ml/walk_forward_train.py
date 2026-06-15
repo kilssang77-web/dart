@@ -123,6 +123,24 @@ async def load_disclosures(pool: asyncpg.Pool, start, end) -> pd.DataFrame:
     return pd.DataFrame([dict(r) for r in rows])
 
 
+async def load_financials(pool: asyncpg.Pool) -> pd.DataFrame:
+    """분기별 재무 데이터 로드 (전체 기간, 날짜 변환 포함)."""
+    rows = await pool.fetch(
+        "SELECT code, year, quarter, per, pbr, roe, debt_ratio FROM financials"
+    )
+    if not rows:
+        return pd.DataFrame(columns=["code", "quarter_date", "per", "pbr", "roe", "debt_ratio"])
+    df = pd.DataFrame([dict(r) for r in rows])
+    qend_month = {1: 3, 2: 6, 3: 9, 4: 12}
+    qend_day   = {1: 31, 2: 30, 3: 30, 4: 31}
+    df["quarter_date"] = pd.to_datetime(
+        df["year"].astype(str) + "-"
+        + df["quarter"].map(qend_month).astype(str).str.zfill(2) + "-"
+        + df["quarter"].map(qend_day).astype(str).str.zfill(2)
+    )
+    return df.sort_values(["code", "quarter_date"]).reset_index(drop=True)
+
+
 async def load_news_sentiment(pool: asyncpg.Pool, start, end) -> pd.DataFrame:
     rows = await pool.fetch(
         """
@@ -156,7 +174,8 @@ def _safe(v, default=0.0):
 
 
 def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFrame,
-                   news_df: pd.DataFrame | None = None) -> pd.DataFrame:
+                   news_df: pd.DataFrame | None = None,
+                   fin_df: pd.DataFrame | None = None) -> pd.DataFrame:
     """
     daily_bars DataFrame → 특징 행렬 (FEATURE_COLUMNS 기준).
     종목별 순서 정렬 후 롤링 계산.
@@ -170,6 +189,12 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
         _ddf["date"] = pd.to_datetime(_ddf["date"])
         for _dc, _dg in _ddf.groupby("code"):
             disc_by_code[_dc] = _dg.sort_values("date").reset_index(drop=True)
+
+    # Pre-group financials by code for quarterly data lookup (O(log N) via searchsorted)
+    fin_by_code: dict = {}
+    if fin_df is not None and len(fin_df) > 0:
+        for _fc, _fg in fin_df.groupby("code"):
+            fin_by_code[_fc] = _fg.sort_values("quarter_date").reset_index(drop=True)
 
     # Pre-group news data by code for O(log N) per-row lookup
     news_by_code: dict = {}
@@ -360,6 +385,19 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
             month_sin = math.sin(2 * math.pi * (_mon - 1) / 12)
             month_cos = math.cos(2 * math.pi * (_mon - 1) / 12)
 
+            # Financials (quarterly — most recent quarter before current date)
+            per_v = pbr_v = roe_v = debt_r = 0.0
+            if code in fin_by_code:
+                _fg    = fin_by_code[code]
+                _fdate = np.datetime64(pd.Timestamp(date_val))
+                _fidx  = np.searchsorted(_fg["quarter_date"].values, _fdate, side="right") - 1
+                if _fidx >= 0:
+                    _fr    = _fg.iloc[_fidx]
+                    per_v  = _safe(_fr.get("per"))
+                    pbr_v  = _safe(_fr.get("pbr"))
+                    roe_v  = _safe(_fr.get("roe"))
+                    debt_r = _safe(_fr.get("debt_ratio"))
+
             # News sentiment features (7d lookback, O(log N) via searchsorted)
             news_s7 = 0.0
             news_c7 = 0.0
@@ -402,6 +440,7 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
                 "dow_sin": dow_sin, "dow_cos": dow_cos,
                 "month_sin": month_sin, "month_cos": month_cos,
                 "news_sentiment_7d": news_s7, "news_count_7d": news_c7,
+                "per": per_v, "pbr": pbr_v, "roe": roe_v, "debt_ratio": debt_r,
                 "__code": code, "__date": date_val, "__close": c,
             }
             rows_feat.append(feat)
@@ -479,16 +518,18 @@ async def main(args):
     kospi_te = await load_kospi(pool, test_start,  test_end)
     disc_all = await load_disclosures(pool, all_start, all_end)
     news_all = await load_news_sentiment(pool, all_start, all_end)
+    fin_all  = await load_financials(pool)
     await pool.close()
 
     logger.info(f"Raw data: train={len(tr_raw)} val={len(va_raw)} test={len(te_raw)}")
     logger.info(f"News sentiment: {len(news_all)} (code,date) pairs")
+    logger.info(f"Financials: {len(fin_all)} (code,quarter) records")
 
     # 피처 엔지니어링
     logger.info("Building features...")
-    tr_feat = build_features(tr_raw, kospi_tr, disc_all, news_all)
-    va_feat = build_features(va_raw, kospi_va, disc_all, news_all)
-    te_feat = build_features(te_raw, kospi_te, disc_all, news_all)
+    tr_feat = build_features(tr_raw, kospi_tr, disc_all, news_all, fin_all)
+    va_feat = build_features(va_raw, kospi_va, disc_all, news_all, fin_all)
+    te_feat = build_features(te_raw, kospi_te, disc_all, news_all, fin_all)
 
     # 레이블 생성
     logger.info("Generating labels (5-day forward returns)...")

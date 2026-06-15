@@ -39,6 +39,7 @@ DEFAULT_FEATURE_COLUMNS: list[str] = [
     "dow_sin", "dow_cos",
     "month_sin", "month_cos",
     "news_sentiment_7d", "news_count_7d",
+    "per", "pbr", "roe", "debt_ratio",
 ]
 
 
