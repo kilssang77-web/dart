@@ -155,7 +155,7 @@ class NaverNewsCrawler:
                 href = _BASE_URL + href
 
             date_el = row.select_one("td.date, span.date, .date")
-            pub_at  = _parse_date(date_el.get_text()) if date_el else datetime.now().isoformat()
+            pub_at  = _parse_date(date_el.get_text()) if date_el else datetime.now(KST).isoformat()
 
             items.append({
                 "code":         code,
@@ -196,7 +196,7 @@ class NaverNewsCrawler:
                     "code":         code,
                     "title":        title,
                     "url":          href,
-                    "published_at": datetime.now().isoformat(),
+                    "published_at": datetime.now(KST).isoformat(),
                     "source":       "naver_finance",
                     "themes":       _detect_themes(title),
                     "content":      "",

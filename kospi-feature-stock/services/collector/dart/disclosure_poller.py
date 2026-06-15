@@ -1,7 +1,9 @@
 import asyncio
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+_KST = timezone(timedelta(hours=9))
 from .dart_client import DARTClient
 
 logger = logging.getLogger(__name__)
@@ -66,7 +68,7 @@ class DARTPoller:
         if not self.db:
             return
         # DART rcept_dt는 날짜(YYYYMMDD)만 제공 — 수집 시각을 사용해 5분 이내 오차로 기록
-        disclosed_at = parsed.get("_collected_at") or datetime.now()
+        disclosed_at = parsed.get("_collected_at") or datetime.now(_KST)
 
         try:
             async with self.db.acquire() as conn:
@@ -100,7 +102,7 @@ class DARTPoller:
     async def _poll(self):
         await self._load_filters()
 
-        today = datetime.now().strftime("%Y%m%d")
+        today = datetime.now(_KST).strftime("%Y%m%d")
         data  = await self.client.get_recent_disclosures(start_date=today, end_date=today)
 
         if data.get("status") != "000":
@@ -110,7 +112,7 @@ class DARTPoller:
         items     = data.get("list", [])
         new_count = 0
 
-        collected_at = datetime.now()   # 폴링 시각 — 모든 신규 공시의 disclosed_at 기준
+        collected_at = datetime.now(_KST)   # 폴링 시각 — 모든 신규 공시의 disclosed_at 기준
 
         for item in reversed(items):
             rcept_no = item.get("rcept_no", "")
