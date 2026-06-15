@@ -139,7 +139,8 @@ def _safe(v, default=0.0) -> float:
 
 
 def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: list = None,
-                      news_sentiment: dict | None = None) -> dict:
+                      news_sentiment: dict | None = None,
+                      _kospi_returns: tuple[float, float] | None = None) -> dict:
     """daily_bars rows(최신 → 과거 순) + 수급 + 공시 + 뉴스감성 → FEATURE_COLUMNS dict."""
     if not rows:
         return {k: 0.0 for k in FEATURE_COLUMNS}
@@ -300,13 +301,16 @@ def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: li
     has_favorable_disclosure = has_favorable
 
     # ── KOSPI/시장 대비 상대강도 ──
-    kc = [float(r["close"]) for r in (kospi_rows or []) if r.get("close")]
-    if len(kc) >= 6:
-        kospi_return_1d = (kc[0] / kc[1] - 1) * 100 if kc[1] else 0.0
-        kospi_return_5d = (kc[0] / kc[5] - 1) * 100 if kc[5] else 0.0
+    if _kospi_returns is not None:
+        kospi_return_1d, kospi_return_5d = _kospi_returns
     else:
-        kospi_return_1d = 0.0
-        kospi_return_5d = 0.0
+        kc = [float(r["close"]) for r in (kospi_rows or []) if r.get("close")]
+        if len(kc) >= 6:
+            kospi_return_1d = (kc[0] / kc[1] - 1) * 100 if kc[1] else 0.0
+            kospi_return_5d = (kc[0] / kc[5] - 1) * 100 if kc[5] else 0.0
+        else:
+            kospi_return_1d = 0.0
+            kospi_return_5d = 0.0
     rel_strength_1d  = return_1d - kospi_return_1d
     rel_strength_5d  = return_5d - kospi_return_5d
     market_vol_ratio = vol_ratio_20d
@@ -337,6 +341,17 @@ async def get_ml_result(event: dict, db: asyncpg.Pool, redis=None) -> MLResult:
     _try_load_models()
     code = event.get("code", "")
 
+    # Redis에 사전 계산된 KOSPI 수익률이 있으면 DB 쿼리 생략
+    _kospi_returns: tuple[float, float] | None = None
+    if redis:
+        try:
+            r1d = await redis.get("market:kospi_return_1d")
+            r5d = await redis.get("market:kospi_return_5d")
+            if r1d is not None and r5d is not None:
+                _kospi_returns = (float(r1d), float(r5d))
+        except Exception:
+            pass
+
     try:
         async with db.acquire() as conn:
             bar_rows = await conn.fetch(
@@ -366,13 +381,12 @@ async def get_ml_result(event: dict, db: asyncpg.Pool, redis=None) -> MLResult:
                 """,
                 code,
             )
-            kospi_rows = await conn.fetch(
-                """
-                SELECT close FROM daily_bars
-                WHERE code = '0001'
-                ORDER BY date DESC LIMIT 10
-                """,
-            )
+            if _kospi_returns is None:
+                kospi_rows = await conn.fetch(
+                    "SELECT close FROM daily_bars WHERE code = '0001' ORDER BY date DESC LIMIT 10"
+                )
+            else:
+                kospi_rows = []
     except Exception as e:
         logger.error(f"[MLClient] DB query error {code}: {e}")
         return MLResult()
@@ -404,7 +418,8 @@ async def get_ml_result(event: dict, db: asyncpg.Pool, redis=None) -> MLResult:
 
     feats = _compute_features(bars, sd, [dict(r) for r in disc_rows],
                               kospi_rows=[dict(r) for r in kospi_rows],
-                              news_sentiment=_news_sentiment)
+                              news_sentiment=_news_sentiment,
+                              _kospi_returns=_kospi_returns)
     _atr_ratio = feats.get("atr_ratio", 0.0)
 
     # ── ML 서비스 HTTP 추론 (우선) ──

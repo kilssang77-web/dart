@@ -11,7 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from main import StockCollector, load_all_stocks, load_active_stocks
-from redis_stats import refresh_all_stats
+from redis_stats import refresh_all_stats, refresh_market_returns
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,6 +48,12 @@ async def run():
         logger.info(f"[daily] Redis 통계 갱신 완료: {refreshed}/{len(all_codes)}개")
     except Exception as e:
         logger.error(f"[daily] Redis 통계 갱신 실패: {e}")
+
+    # KOSPI 지수 수익률 갱신 (ml_client의 per-event DB 쿼리 제거)
+    try:
+        await refresh_market_returns(svc.db, svc.redis)
+    except Exception as e:
+        logger.error(f"[daily] KOSPI 수익률 갱신 실패: {e}")
 
 
 if __name__ == "__main__":

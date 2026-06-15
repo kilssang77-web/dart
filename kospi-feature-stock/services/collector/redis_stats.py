@@ -113,6 +113,19 @@ async def _refresh_one(db, redis, code: str) -> bool:
     return True
 
 
+async def refresh_market_returns(db, redis) -> None:
+    """KOSPI 지수 수익률을 Redis에 저장 — ml_client의 per-event DB 쿼리 대체."""
+    rows = await db.fetch(
+        "SELECT close FROM daily_bars WHERE code='0001' ORDER BY date DESC LIMIT 10"
+    )
+    kc = [float(r["close"]) for r in rows if r.get("close")]
+    ret_1d = (kc[0] / kc[1] - 1) * 100 if len(kc) >= 2 and kc[1] else 0.0
+    ret_5d = (kc[0] / kc[5] - 1) * 100 if len(kc) >= 6 and kc[5] else 0.0
+    await redis.set("market:kospi_return_1d", ret_1d, ex=_TTL)
+    await redis.set("market:kospi_return_5d", ret_5d, ex=_TTL)
+    logger.info(f"[redis_stats] KOSPI 수익률 갱신: 1d={ret_1d:.2f}% 5d={ret_5d:.2f}%")
+
+
 async def _backup_stats_to_db(db, redis, codes: Sequence[str]) -> None:
     """갱신된 Redis 통계를 DB에 백업 (redis_stats_snapshot 테이블)."""
     stat_keys = ["avg_vol_20d", "avg_amt_20d", "high_20d", "high_13w", "high_26w", "high_52w", "atr14"]
