@@ -31,6 +31,24 @@ export interface MarketMovers {
   losers:  MarketMover[]
 }
 
+export interface ForeignFlowItem {
+  code:              string
+  name:              string
+  market:            string
+  sector?:           string | null
+  foreign_net:       number
+  inst_net:          number
+  foreign_hold_rate?: number | null
+  price?:            number | null
+  change_rate?:      number | null
+  data_date?:        string | null
+}
+
+export interface ForeignFlowResponse {
+  foreign_buy: ForeignFlowItem[]
+  inst_buy:    ForeignFlowItem[]
+}
+
 export interface TrendingTheme {
   theme:       string
   count:       number
@@ -137,7 +155,7 @@ export const marketApi = {
     http.get('/market/new-highs').then((r) => r.data),
 
   getForeignFlow: () =>
-    http.get('/market/foreign-flow').then((r) => r.data),
+    http.get<ForeignFlowResponse>('/market/foreign-flow').then((r) => r.data),
 
   getThemes: () =>
     http.get<TrendingThemesResponse>('/themes/trending').then((r) => r.data.themes),

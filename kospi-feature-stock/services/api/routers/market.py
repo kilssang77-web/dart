@@ -114,22 +114,45 @@ async def foreign_flow(
     params = [limit * 4] + ([market.upper()] if market else [])
 
     rows = await db.fetch(f"""
-        WITH ld AS (SELECT MAX(date) AS d FROM supply_demand WHERE foreign_net != 0 OR inst_net != 0),
-        db_latest AS (
+        WITH sd_ld AS (
+            SELECT MAX(date) AS d FROM supply_demand
+            WHERE foreign_net != 0 OR inst_net != 0
+        ),
+        bar_ld AS (
+            SELECT MAX(date) AS d FROM daily_bars
+            WHERE foreign_net_buy != 0 OR inst_net_buy != 0
+        ),
+        effective AS (
+            SELECT
+                GREATEST(sd_ld.d, bar_ld.d) AS data_date,
+                sd_ld.d  AS sd_date,
+                bar_ld.d AS bar_date
+            FROM sd_ld CROSS JOIN bar_ld
+        ),
+        price_latest AS (
             SELECT code, close, change_rate
             FROM daily_bars
             WHERE date = (SELECT MAX(date) FROM daily_bars)
         )
-        SELECT sd.code, s.name, s.market, s.sector,
-               sd.foreign_net, sd.inst_net, sd.foreign_hold_rate,
-               db.close AS price, db.change_rate
-        FROM supply_demand sd
-        JOIN stocks s ON s.code = sd.code
-        CROSS JOIN ld
-        LEFT JOIN db_latest db ON db.code = sd.code
-        WHERE sd.date = ld.d
-          AND (sd.foreign_net IS NOT NULL OR sd.inst_net IS NOT NULL)
+        SELECT
+            s.code, s.name, s.market, s.sector,
+            COALESCE(NULLIF(sd.foreign_net, 0), db.foreign_net_buy, 0) AS foreign_net,
+            COALESCE(NULLIF(sd.inst_net,   0), db.inst_net_buy,   0) AS inst_net,
+            sd.foreign_hold_rate,
+            pl.close       AS price,
+            pl.change_rate AS change_rate,
+            e.data_date::TEXT AS data_date
+        FROM stocks s
+        JOIN effective e ON TRUE
+        LEFT JOIN supply_demand  sd ON sd.code = s.code AND sd.date = e.sd_date
+        LEFT JOIN daily_bars     db ON db.code = s.code AND db.date = e.bar_date
+        LEFT JOIN price_latest   pl ON pl.code = s.code
+        WHERE s.is_active = TRUE
           {mkt_filter}
+          AND (
+              COALESCE(NULLIF(sd.foreign_net, 0), db.foreign_net_buy, 0) != 0
+              OR COALESCE(NULLIF(sd.inst_net,   0), db.inst_net_buy,   0) != 0
+          )
         LIMIT $1
     """, *params)
 
