@@ -114,7 +114,7 @@ async def foreign_flow(
     params = [limit * 4] + ([market.upper()] if market else [])
 
     rows = await db.fetch(f"""
-        WITH ld AS (SELECT MAX(date) AS d FROM supply_demand),
+        WITH ld AS (SELECT MAX(date) AS d FROM supply_demand WHERE foreign_net != 0 OR inst_net != 0),
         db_latest AS (
             SELECT code, close, change_rate
             FROM daily_bars
