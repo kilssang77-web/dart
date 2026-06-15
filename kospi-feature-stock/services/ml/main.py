@@ -68,6 +68,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_result_update_loop(_db_pool))
     asyncio.create_task(_weekly_retrain_loop(_db_pool, _predictor))
     asyncio.create_task(_redis_retrain_loop(_db_pool, _predictor, _redis))
+    asyncio.create_task(_model_watch_loop(_predictor, _redis))
     yield
     if _db_pool:
         await _db_pool.close()
@@ -311,6 +312,29 @@ async def _run_retrain(pool: asyncpg.Pool, predictor: LGBMPredictor):
             pass
     ML_RETRAIN_TOTAL.inc()
     logger.info("[Retrain] 완료")
+
+
+async def _model_watch_loop(predictor: LGBMPredictor, redis: redis_lib.Redis):
+    """60초마다 ml:model_updated 플래그를 폴링 — 외부 학습 완료 시 핫스왑."""
+    while True:
+        await asyncio.sleep(60)
+        try:
+            flag = await redis.get("ml:model_updated")
+            if not flag:
+                continue
+            await redis.delete("ml:model_updated")
+            loaded = predictor.load()
+            logger.info(f"[ModelWatch] 외부 학습 완료 감지 → 핫스왑: loaded={loaded}")
+            import json as _json
+            metrics_path = Path(_MODEL_DIR) / "model_metrics.json"
+            if metrics_path.exists():
+                try:
+                    m = _json.loads(metrics_path.read_text())
+                    ML_ENTRY_AUC.set(float(m.get("auc", 0)))
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"[ModelWatch] 폴링 오류: {e}")
 
 
 async def _update_event_results(pool: asyncpg.Pool):
