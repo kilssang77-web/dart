@@ -19,12 +19,13 @@ services:
       - ./infra/postgres/V8__recommendation_performance.sql:/docker-entrypoint-initdb.d/04_V8__recommendation_performance.sql
       - ./infra/postgres/V9__backfill_rec_performance.sql:/docker-entrypoint-initdb.d/05_V9__backfill_rec_performance.sql
       - ./infra/postgres/V11__redis_stats_backup.sql:/docker-entrypoint-initdb.d/06_V11__redis_stats_backup.sql
+    shm_size: '512m'
     command: >
       postgres
         -c shared_preload_libraries='timescaledb,pg_stat_statements'
         -c max_connections=200
         -c work_mem=64MB
-        -c maintenance_work_mem=256MB
+        -c maintenance_work_mem=512MB
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s

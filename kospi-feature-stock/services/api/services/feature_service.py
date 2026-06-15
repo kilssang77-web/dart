@@ -207,10 +207,11 @@ class FeatureService:
             return []
 
         if event["pattern_vector"]:
-            # IVFFlat: SET LOCAL ivfflat.probes 트랜잭션 필요 (lists=200, probes=10 → ~5% 클러스터)
+            # HNSW/IVFFlat 양쪽 파라미터 SET — 활성 인덱스 타입에만 적용됨
             async with self.db.acquire() as conn:
                 async with conn.transaction():
                     await conn.execute("SET LOCAL ivfflat.probes = 10")
+                    await conn.execute("SET LOCAL hnsw.ef_search = 100")
                     candidates = await conn.fetch(
                         """
                         SELECT
