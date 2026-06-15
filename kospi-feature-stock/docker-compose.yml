@@ -260,6 +260,55 @@ services:
     command: ["python", "entrypoints/batch_worker.py"]
     restart: unless-stopped
 
+  # ── Collector: 재무 데이터 수집 (주 1회) ────────────────────────────────────
+  collector-financials:
+    build:
+      context: ./services/collector
+      dockerfile: Dockerfile.batch
+    container_name: fstock-collector-financials
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      SERVICE_NAME: collector-financials
+    volumes:
+      - ./services/collector:/app
+    command: ["python", "entrypoints/financials_worker.py"]
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # ── Collector: 일봉 재백필 (장외 시간, 매일) ────────────────────────────────
+  collector-bars-backfill:
+    build:
+      context: ./services/collector
+      dockerfile: Dockerfile.batch
+    container_name: fstock-collector-bars-backfill
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      SERVICE_NAME: collector-bars-backfill
+      BARS_BACKFILL_DAYS: "1825"   # 5년치 (조정 가능)
+    volumes:
+      - ./services/collector:/app
+    command: ["python", "entrypoints/backfill_bars_worker.py"]
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
   # ── Collector: 히스토리 백필 (one-shot, profile=tools) ──────────────────────
   collector-backfill:
     build:

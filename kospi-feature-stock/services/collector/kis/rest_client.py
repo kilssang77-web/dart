@@ -192,6 +192,96 @@ class KISRestClient:
             for r in data.get("output", [])
         ]
 
+    async def get_financial_ratio(self, code: str) -> list[dict]:
+        """분기별 재무비율 (FHKST66430300) — EPS/BPS/PER/PBR/ROE/부채비율."""
+        try:
+            data = await self._get(
+                "/uapi/domestic-stock/v1/finance/financial-ratio",
+                "FHKST66430300",
+                {
+                    "FID_COND_MRKT_DIV_CODE": "J",
+                    "FID_INPUT_ISCD": code,
+                    "FID_DIV_CLS_CODE": "0",  # 0: 분기, 1: 연간
+                },
+            )
+        except KISAPIError as e:
+            logger.debug(f"get_financial_ratio [{code}]: {e}")
+            return []
+
+        results = []
+        for r in data.get("output", []):
+            stac_yymm = r.get("stac_yymm", "")
+            if not stac_yymm or len(stac_yymm) < 6:
+                continue
+            year    = int(stac_yymm[:4])
+            month   = int(stac_yymm[4:6])
+            quarter = (month - 1) // 3 + 1
+
+            def _fi(key):
+                v = r.get(key)
+                try:
+                    return int(float(v)) if v not in (None, "", "-") else None
+                except (ValueError, TypeError):
+                    return None
+
+            def _ff(key):
+                v = r.get(key)
+                try:
+                    return round(float(v), 2) if v not in (None, "", "-") else None
+                except (ValueError, TypeError):
+                    return None
+
+            results.append({
+                "code": code, "year": year, "quarter": quarter,
+                "eps":        _fi("eps"),
+                "bps":        _fi("bps"),
+                "per":        _ff("per"),
+                "pbr":        _ff("pbr"),
+                "roe":        _ff("roe"),
+                "debt_ratio": _ff("lblt_rate"),
+            })
+        return results
+
+    async def get_income_statement(self, code: str) -> list[dict]:
+        """분기별 손익계산서 (FHKST66430200) — 매출/영업이익/순이익."""
+        try:
+            data = await self._get(
+                "/uapi/domestic-stock/v1/finance/income-statement",
+                "FHKST66430200",
+                {
+                    "FID_COND_MRKT_DIV_CODE": "J",
+                    "FID_INPUT_ISCD": code,
+                    "FID_DIV_CLS_CODE": "0",
+                },
+            )
+        except KISAPIError as e:
+            logger.debug(f"get_income_statement [{code}]: {e}")
+            return []
+
+        results = []
+        for r in data.get("output", []):
+            stac_yymm = r.get("stac_yymm", "")
+            if not stac_yymm or len(stac_yymm) < 6:
+                continue
+            year    = int(stac_yymm[:4])
+            month   = int(stac_yymm[4:6])
+            quarter = (month - 1) // 3 + 1
+
+            def _bi(key):
+                v = r.get(key)
+                try:
+                    return int(float(v) * 1_000_000) if v not in (None, "", "-") else None
+                except (ValueError, TypeError):
+                    return None
+
+            results.append({
+                "code": code, "year": year, "quarter": quarter,
+                "revenue":          _bi("sale_account"),
+                "operating_profit": _bi("bsop_prti"),
+                "net_profit":       _bi("thtr_ntin"),
+            })
+        return results
+
     async def get_orderbook(self, code: str) -> dict:
         """주식 호가 잔량 (FHKST01010200) — 매도/매수 각 10단계."""
         try:

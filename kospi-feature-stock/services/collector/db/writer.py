@@ -348,6 +348,57 @@ async def write_feature_events(pool: asyncpg.Pool, events: list[dict]) -> int:
         return 0
 
 
+async def write_financials(pool: asyncpg.Pool, records: list[dict]) -> int:
+    """재무 데이터 UPSERT — 재무비율 + 손익계산서 merged 레코드."""
+    if not records:
+        return 0
+    rows = [
+        (
+            r["code"], int(r["year"]), int(r["quarter"]),
+            r.get("revenue"),
+            r.get("operating_profit"),
+            r.get("net_profit"),
+            r.get("eps"),
+            r.get("bps"),
+            r.get("per"),
+            r.get("pbr"),
+            r.get("roe"),
+            r.get("debt_ratio"),
+        )
+        for r in records
+        if r.get("code") and r.get("year") and r.get("quarter")
+    ]
+    if not rows:
+        return 0
+    try:
+        async with pool.acquire() as conn:
+            await conn.executemany(
+                """
+                INSERT INTO financials
+                    (code, year, quarter,
+                     revenue, operating_profit, net_profit,
+                     eps, bps, per, pbr, roe, debt_ratio, updated_at)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, NOW())
+                ON CONFLICT (code, year, quarter) DO UPDATE SET
+                    revenue          = COALESCE(EXCLUDED.revenue,          financials.revenue),
+                    operating_profit = COALESCE(EXCLUDED.operating_profit, financials.operating_profit),
+                    net_profit       = COALESCE(EXCLUDED.net_profit,       financials.net_profit),
+                    eps              = COALESCE(EXCLUDED.eps,              financials.eps),
+                    bps              = COALESCE(EXCLUDED.bps,              financials.bps),
+                    per              = COALESCE(EXCLUDED.per,              financials.per),
+                    pbr              = COALESCE(EXCLUDED.pbr,              financials.pbr),
+                    roe              = COALESCE(EXCLUDED.roe,              financials.roe),
+                    debt_ratio       = COALESCE(EXCLUDED.debt_ratio,       financials.debt_ratio),
+                    updated_at       = NOW()
+                """,
+                rows,
+            )
+        return len(rows)
+    except Exception as e:
+        logger.error(f"write_financials error: {e}")
+        return 0
+
+
 async def write_supply_demand(pool: asyncpg.Pool, sd: dict) -> None:
     """수급 데이터를 daily_bars 업데이트 + supply_demand 테이블 UPSERT"""
     from datetime import date as _date, datetime as _dt
