@@ -162,10 +162,14 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
     종목별 순서 정렬 후 롤링 계산.
     """
     df = df.sort_values(["code", "date"]).reset_index(drop=True)
-    # asyncpg returns Python date objects; convert to Timestamp for comparison
+
+    # Pre-group disclosures by code for O(log N) per-row lookup (avoid O(N²) full scan)
+    disc_by_code: dict = {}
     if len(disc_df) > 0 and "date" in disc_df.columns:
-        disc_df = disc_df.copy()
-        disc_df["date"] = pd.to_datetime(disc_df["date"])
+        _ddf = disc_df.copy()
+        _ddf["date"] = pd.to_datetime(_ddf["date"])
+        for _dc, _dg in _ddf.groupby("code"):
+            disc_by_code[_dc] = _dg.sort_values("date").reset_index(drop=True)
 
     # Pre-group news data by code for O(log N) per-row lookup
     news_by_code: dict = {}
@@ -175,7 +179,8 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
         for _nc, _ng in _ndf.groupby("code"):
             news_by_code[_nc] = _ng.sort_values("date").reset_index(drop=True)
 
-    results = []
+    chunk_frames: list[pd.DataFrame] = []
+    _float_meta = ("__code", "__date")
     for code, grp in df.groupby("code"):
         grp = grp.reset_index(drop=True)
         if len(grp) < 80:
@@ -189,6 +194,10 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
         opens   = grp["open"].astype(float).values
         f_nets  = grp["foreign_net"].astype(float).fillna(0).values
         i_nets  = grp["inst_net"].astype(float).fillna(0).values
+
+        # Pre-extract disclosure data for this code (O(log N) per row via searchsorted)
+        disc_code_df = disc_by_code.get(code)
+        disc_dates_np = disc_code_df["date"].values if disc_code_df is not None else None
 
         rows_feat = []
         for i in range(60, len(grp)):
@@ -273,13 +282,17 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
             short_r = sv_arr[-1]/volumes[i] if volumes[i] else 0.0
             short_inc = 1.0 if (len(sv_arr) >= 6 and sv_arr[-3:].mean() > sv_arr[-6:-3].mean()+1) else 0.0
 
-            # Disclosure
+            # Disclosure (O(log N) via pre-grouped searchsorted)
             date_val = grp["date"].iloc[i]
-            disc_sub = disc_df[(disc_df["code"]==code) &
-                                (disc_df["date"]>=pd.Timestamp(date_val)-pd.Timedelta(days=7)) &
-                                (disc_df["date"]<=pd.Timestamp(date_val))]
-            disc_s  = float(disc_sub["sentiment_score"].mean()) if len(disc_sub) > 0 else 0.0
-            has_fav = 1.0 if len(disc_sub[disc_sub["category"]=="favorable"]) > 0 else 0.0
+            disc_s = 0.0; has_fav = 0.0
+            if disc_dates_np is not None:
+                _ts_disc = pd.Timestamp(date_val)
+                _d_lo = np.searchsorted(disc_dates_np, np.datetime64(_ts_disc - pd.Timedelta(days=7)), side="left")
+                _d_hi = np.searchsorted(disc_dates_np, np.datetime64(_ts_disc), side="right")
+                if _d_hi > _d_lo:
+                    _ds = disc_code_df.iloc[_d_lo:_d_hi]
+                    disc_s  = float(_ds["sentiment_score"].mean())
+                    has_fav = 1.0 if (_ds["category"] == "favorable").any() else 0.0
 
             # KOSPI
             kdate = pd.Timestamp(date_val)
@@ -392,13 +405,16 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
                 "__code": code, "__date": date_val, "__close": c,
             }
             rows_feat.append(feat)
-        results.extend(rows_feat)
 
-    feat_df = pd.DataFrame(results)
-    # Downcast float64 → float32 to halve feature matrix memory
-    float_cols = [c for c in feat_df.columns if c not in ("__code", "__date")]
-    feat_df[float_cols] = feat_df[float_cols].astype("float32")
-    return feat_df
+        if rows_feat:
+            _cdf = pd.DataFrame(rows_feat)
+            # Downcast per-code immediately to halve peak memory (float64→float32)
+            _fc = [c for c in _cdf.columns if c not in _float_meta]
+            _cdf[_fc] = _cdf[_fc].astype("float32")
+            chunk_frames.append(_cdf)
+        del rows_feat  # release per-code list
+
+    return pd.concat(chunk_frames, ignore_index=True) if chunk_frames else pd.DataFrame()
 
 
 # ── 검증 리포트 ───────────────────────────────────────────────────────────────
