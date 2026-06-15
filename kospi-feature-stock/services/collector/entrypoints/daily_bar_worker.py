@@ -55,6 +55,21 @@ async def run():
     except Exception as e:
         logger.error(f"[daily] KOSPI 수익률 갱신 실패: {e}")
 
+    # admin 엔드포인트용 카운터 캐시 갱신 (TTL 72h, SCAN 대체)
+    try:
+        _TTL = 60 * 60 * 72
+        vc = await svc.db.fetchval(
+            "SELECT COUNT(*) FROM feature_events WHERE pattern_vector IS NOT NULL"
+        )
+        rc = await svc.db.fetchval(
+            "SELECT COUNT(*) FROM feature_events WHERE result_5d IS NOT NULL"
+        )
+        await svc.redis.set("stats:vector_count", int(vc or 0), ex=_TTL)
+        await svc.redis.set("stats:result_count",  int(rc or 0), ex=_TTL)
+        logger.info(f"[daily] 카운터 캐시 갱신: vector={vc}, result={rc}")
+    except Exception as e:
+        logger.error(f"[daily] 카운터 캐시 갱신 실패: {e}")
+
 
 if __name__ == "__main__":
     asyncio.run(run())
