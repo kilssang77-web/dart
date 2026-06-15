@@ -324,15 +324,24 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
             if len(kospi_df) >= 6:
                 kidx = kospi_df.index.searchsorted(kdate, side="right") - 1
                 if kidx >= 1:
-                    kc = float(kospi_df["close"].iloc[kidx])
-                    kc1 = float(kospi_df["close"].iloc[kidx-1])
-                    kc5 = float(kospi_df["close"].iloc[max(0,kidx-5)])
-                    kr1d = (kc/kc1-1)*100 if kc1 else 0.0
-                    kr5d = (kc/kc5-1)*100 if kc5 else 0.0
+                    kc   = float(kospi_df["close"].iloc[kidx])
+                    kc1  = float(kospi_df["close"].iloc[max(0, kidx-1)])
+                    kc3  = float(kospi_df["close"].iloc[max(0, kidx-3)])
+                    kc5  = float(kospi_df["close"].iloc[max(0, kidx-5)])
+                    kc10 = float(kospi_df["close"].iloc[max(0, kidx-10)])
+                    kc20 = float(kospi_df["close"].iloc[max(0, kidx-20)])
+                    kr1d  = (kc/kc1  - 1)*100 if kc1  else 0.0
+                    kr3d  = (kc/kc3  - 1)*100 if kc3  else 0.0
+                    kr5d  = (kc/kc5  - 1)*100 if kc5  else 0.0
+                    kr10d = (kc/kc10 - 1)*100 if kc10 else 0.0
+                    kr20d = (kc/kc20 - 1)*100 if kc20 else 0.0
+                    # KOSPI 5일 변동성 (방향 아닌 시장 불확실성 지표)
+                    ks5 = [float(kospi_df["close"].iloc[max(0, kidx-j)]) for j in range(5)]
+                    kospi_vol_5d = float(np.std([(ks5[j]/ks5[j+1]-1)*100 for j in range(len(ks5)-1)])) if len(ks5) >= 2 else 0.0
                 else:
-                    kr1d = kr5d = 0.0
+                    kr1d = kr3d = kr5d = kr10d = kr20d = kospi_vol_5d = 0.0
             else:
-                kr1d = kr5d = 0.0
+                kr1d = kr3d = kr5d = kr10d = kr20d = kospi_vol_5d = 0.0
             rel5 = r5d - kr5d
 
             # Medium-term momentum
@@ -428,8 +437,11 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
                 "dual_buy":db, "dual_buy_3d":db3,
                 "short_ratio":short_r, "short_increasing":short_inc,
                 "disclosure_sentiment":disc_s, "has_favorable_disclosure":has_fav,
-                "kospi_return_1d":kr1d, "kospi_return_5d":kr5d,
-                "rel_strength_1d":r1d - kr1d, "rel_strength_5d":rel5, "market_vol_ratio":vr20,
+                "rel_strength_1d":r1d - kr1d, "rel_strength_3d":r3d - kr3d,
+                "rel_strength_5d":rel5, "rel_strength_10d":r10d - kr10d,
+                "rel_strength_20d":r20d - kr20d,
+                "kospi_vol_5d": kospi_vol_5d,
+                "market_vol_ratio":vr20,
                 "return_10d": r10d, "return_20d": r20d,
                 "price_accel": price_accel,
                 "gap_pct": gap_pct,
@@ -602,6 +614,18 @@ async def main(args):
         print(imp.head(20).to_string())
 
     logger.info(f"Models saved to {args.model_dir}")
+
+    # ── Redis 핫리로드 신호 (ml/main.py의 _model_watch_loop가 감지) ──────────
+    try:
+        import redis as _redis_lib
+        _redis_url = os.environ.get("REDIS_URL", "")
+        if _redis_url:
+            _r = _redis_lib.from_url(_redis_url)
+            _r.set("ml:model_updated", "1", ex=3600)
+            _r.close()
+            logger.info("[Retrain] Redis ml:model_updated 신호 전송 완료")
+    except Exception as _re:
+        logger.warning(f"[Retrain] Redis 신호 전송 실패 (비필수): {_re}")
 
     # ── ml_models 테이블 기록 ─────────────────────────────────────────────────
     import json as _json2

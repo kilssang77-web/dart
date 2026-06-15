@@ -39,8 +39,9 @@ FEATURE_COLUMNS: list[str] = [
     "dual_buy", "dual_buy_3d",
     "short_ratio", "short_increasing",
     "disclosure_sentiment", "has_favorable_disclosure",
-    "kospi_return_1d", "kospi_return_5d",
-    "rel_strength_1d", "rel_strength_5d",
+    "rel_strength_1d", "rel_strength_3d", "rel_strength_5d",
+    "rel_strength_10d", "rel_strength_20d",
+    "kospi_vol_5d",
     "market_vol_ratio",
     "price_accel",
     "gap_pct",
@@ -141,7 +142,7 @@ def _safe(v, default=0.0) -> float:
 
 def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: list = None,
                       news_sentiment: dict | None = None,
-                      _kospi_returns: tuple[float, float] | None = None,
+                      _kospi_returns: tuple[float, float, float, float, float, float] | None = None,
                       fin_row: dict | None = None) -> dict:
     """daily_bars rows(최신 → 과거 순) + 수급 + 공시 + 뉴스감성 → FEATURE_COLUMNS dict."""
     if not rows:
@@ -302,19 +303,26 @@ def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: li
     disclosure_sentiment   = disc_sentiment
     has_favorable_disclosure = has_favorable
 
-    # ── KOSPI/시장 대비 상대강도 ──
+    # ── KOSPI/시장 대비 상대강도 (방향성 제거 — 상대강도만 사용) ──
     if _kospi_returns is not None:
-        kospi_return_1d, kospi_return_5d = _kospi_returns
+        kr1d, kr3d, kr5d, kr10d, kr20d, kospi_vol_5d = _kospi_returns
     else:
         kc = [float(r["close"]) for r in (kospi_rows or []) if r.get("close")]
         if len(kc) >= 6:
-            kospi_return_1d = (kc[0] / kc[1] - 1) * 100 if kc[1] else 0.0
-            kospi_return_5d = (kc[0] / kc[5] - 1) * 100 if kc[5] else 0.0
+            kr1d  = (kc[0] / kc[1]  - 1) * 100 if kc[1]  else 0.0
+            kr3d  = (kc[0] / kc[3]  - 1) * 100 if len(kc) > 3  and kc[3]  else 0.0
+            kr5d  = (kc[0] / kc[5]  - 1) * 100 if kc[5]  else 0.0
+            kr10d = (kc[0] / kc[10] - 1) * 100 if len(kc) > 10 and kc[10] else 0.0
+            kr20d = (kc[0] / kc[20] - 1) * 100 if len(kc) > 20 and kc[20] else 0.0
+            _ks5  = kc[:5]
+            kospi_vol_5d = float(np.std([((_ks5[j] / _ks5[j+1] - 1) * 100) for j in range(len(_ks5)-1)])) if len(_ks5) >= 2 else 0.0
         else:
-            kospi_return_1d = 0.0
-            kospi_return_5d = 0.0
-    rel_strength_1d  = return_1d - kospi_return_1d
-    rel_strength_5d  = return_5d - kospi_return_5d
+            kr1d = kr3d = kr5d = kr10d = kr20d = kospi_vol_5d = 0.0
+    rel_strength_1d  = return_1d  - kr1d
+    rel_strength_3d  = return_3d  - kr3d
+    rel_strength_5d  = return_5d  - kr5d
+    rel_strength_10d = return_10d - kr10d
+    rel_strength_20d = return_20d - kr20d
     market_vol_ratio = vol_ratio_20d
 
     # ── 시간 인코딩 (sin/cos) — 학습 코드와 동일하게 /7 사용 ──
@@ -350,13 +358,24 @@ async def get_ml_result(event: dict, db: asyncpg.Pool, redis=None) -> MLResult:
     code = event.get("code", "")
 
     # Redis에 사전 계산된 KOSPI 수익률이 있으면 DB 쿼리 생략
-    _kospi_returns: tuple[float, float] | None = None
+    _kospi_returns: tuple[float, float, float, float, float, float] | None = None
     if redis:
         try:
-            r1d = await redis.get("market:kospi_return_1d")
-            r5d = await redis.get("market:kospi_return_5d")
+            r1d  = await redis.get("market:kospi_return_1d")
+            r5d  = await redis.get("market:kospi_return_5d")
+            r3d  = await redis.get("market:kospi_return_3d")
+            r10d = await redis.get("market:kospi_return_10d")
+            r20d = await redis.get("market:kospi_return_20d")
+            rvol = await redis.get("market:kospi_vol_5d")
             if r1d is not None and r5d is not None:
-                _kospi_returns = (float(r1d), float(r5d))
+                _kospi_returns = (
+                    float(r1d),
+                    float(r3d)  if r3d  else 0.0,
+                    float(r5d),
+                    float(r10d) if r10d else 0.0,
+                    float(r20d) if r20d else 0.0,
+                    float(rvol) if rvol else 0.0,
+                )
         except Exception:
             pass
 
@@ -398,7 +417,7 @@ async def get_ml_result(event: dict, db: asyncpg.Pool, redis=None) -> MLResult:
             )
             if _kospi_returns is None:
                 kospi_rows = await conn.fetch(
-                    "SELECT close FROM daily_bars WHERE code = '0001' ORDER BY date DESC LIMIT 10"
+                    "SELECT close FROM daily_bars WHERE code = '0001' ORDER BY date DESC LIMIT 25"
                 )
             else:
                 kospi_rows = []
@@ -564,9 +583,10 @@ async def get_similar_cases(event: dict, db: asyncpg.Pool) -> tuple[list, dict]:
             )
 
             if anchor and anchor["pattern_vector"] is not None:
-                # IVFFlat: probes=10(lists=200의 5%) → 높은 recall 유지
+                # HNSW가 있으면 ef_search 설정, IVFFlat이면 probes 설정 — 양쪽 다 SET해도 무해함
                 async with conn.transaction():
                     await conn.execute("SET LOCAL ivfflat.probes = 10")
+                    await conn.execute("SET LOCAL hnsw.ef_search = 100")
                     rows = await conn.fetch(
                         """
                         SELECT id, code, detected_at::TEXT, event_type,
@@ -582,7 +602,7 @@ async def get_similar_cases(event: dict, db: asyncpg.Pool) -> tuple[list, dict]:
                         code,
                         anchor["pattern_vector"],
                     )
-                search_method = "ivfflat_ann"
+                search_method = "ann"
             else:
                 rows = await conn.fetch(
                     """

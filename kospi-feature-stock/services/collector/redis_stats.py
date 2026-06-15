@@ -116,16 +116,30 @@ async def _refresh_one(db, redis, code: str) -> bool:
 
 
 async def refresh_market_returns(db, redis) -> None:
-    """KOSPI 지수 수익률을 Redis에 저장 — ml_client의 per-event DB 쿼리 대체."""
+    """KOSPI 지수 수익률·변동성을 Redis에 저장 — ml_client의 per-event DB 쿼리 대체."""
+    import numpy as np
     rows = await db.fetch(
-        "SELECT close FROM daily_bars WHERE code='0001' ORDER BY date DESC LIMIT 10"
+        "SELECT close FROM daily_bars WHERE code='0001' ORDER BY date DESC LIMIT 25"
     )
     kc = [float(r["close"]) for r in rows if r.get("close")]
-    ret_1d = (kc[0] / kc[1] - 1) * 100 if len(kc) >= 2 and kc[1] else 0.0
-    ret_5d = (kc[0] / kc[5] - 1) * 100 if len(kc) >= 6 and kc[5] else 0.0
-    await redis.set("market:kospi_return_1d", ret_1d, ex=_TTL)
-    await redis.set("market:kospi_return_5d", ret_5d, ex=_TTL)
-    logger.info(f"[redis_stats] KOSPI 수익률 갱신: 1d={ret_1d:.2f}% 5d={ret_5d:.2f}%")
+    if len(kc) < 2:
+        return
+    ret_1d  = (kc[0] / kc[1]  - 1) * 100 if kc[1]  else 0.0
+    ret_3d  = (kc[0] / kc[3]  - 1) * 100 if len(kc) >  3 and kc[3]  else 0.0
+    ret_5d  = (kc[0] / kc[5]  - 1) * 100 if len(kc) >  5 and kc[5]  else 0.0
+    ret_10d = (kc[0] / kc[10] - 1) * 100 if len(kc) > 10 and kc[10] else 0.0
+    ret_20d = (kc[0] / kc[20] - 1) * 100 if len(kc) > 20 and kc[20] else 0.0
+    _ks5    = kc[:5]
+    vol_5d  = float(np.std([(_ks5[j] / _ks5[j+1] - 1) * 100 for j in range(len(_ks5)-1)])) if len(_ks5) >= 2 else 0.0
+    pipe = redis.pipeline()
+    pipe.set("market:kospi_return_1d",  ret_1d,  ex=_TTL)
+    pipe.set("market:kospi_return_3d",  ret_3d,  ex=_TTL)
+    pipe.set("market:kospi_return_5d",  ret_5d,  ex=_TTL)
+    pipe.set("market:kospi_return_10d", ret_10d, ex=_TTL)
+    pipe.set("market:kospi_return_20d", ret_20d, ex=_TTL)
+    pipe.set("market:kospi_vol_5d",     vol_5d,  ex=_TTL)
+    await pipe.execute()
+    logger.info(f"[redis_stats] KOSPI 갱신: 1d={ret_1d:.2f}% 5d={ret_5d:.2f}% vol5d={vol_5d:.2f}%")
 
 
 async def _backup_stats_to_db(db, redis, codes: Sequence[str]) -> None:
