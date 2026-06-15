@@ -10,6 +10,7 @@ import { StatCard, Card, CardBody } from '@/components/ui/Card'
 import { fmt, pctColor, probColor } from '@/lib/utils'
 import type { Recommendation } from '@/types'
 import { RecDetailModal } from '@/components/modals/RecDetailModal'
+import { ErrorState } from '@/components/ui/ErrorState'
 
 // ── 날짜/시간 초 단위 포맷 ───────────────────────────────────────────────────
 function fmtSec(iso: string | null | undefined): string {
@@ -549,7 +550,7 @@ export function Recommendations() {
   const [signalModal, setSignalModal] = useState<{ code: string; name: string } | null>(null)
   const [selectedRec, setSelectedRec] = useState<Recommendation | null>(null)
 
-  const { data: recs, isLoading } = useQuery({
+  const { data: recs, isLoading, isError, error, refetch } = useQuery({
     queryKey:        ['recs', filter, minProb, dedupe],
     queryFn:         () => recommendationsApi.list({
       action:   filter === 'ALL' ? undefined : filter,
@@ -659,6 +660,11 @@ export function Recommendations() {
 
       {/* 신호 카드 그리드 */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {isError && (
+          <div className="col-span-full">
+            <ErrorState error={error as Error} retry={refetch} />
+          </div>
+        )}
         {isLoading && Array.from({ length: 6 }).map((_, i) => (
           <div key={i} className="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 space-y-3">
             <div className="flex items-start justify-between">
@@ -697,7 +703,7 @@ export function Recommendations() {
             />
           )
         })}
-        {!isLoading && (!recs || recs.length === 0) && (
+        {!isLoading && !isError && (!recs || recs.length === 0) && (
           <div className="col-span-full py-16 text-center text-[var(--muted)] text-sm">조건에 맞는 신호가 없습니다</div>
         )}
       </div>

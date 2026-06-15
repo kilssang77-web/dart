@@ -12,6 +12,7 @@ import { marketApi } from '@/api/market'
 import { SentimentBadge } from '@/components/ui/Badge'
 import { fmt, pctColor } from '@/lib/utils'
 import { DisclosureDetailModal } from '@/components/modals/DisclosureDetailModal'
+import { ErrorState } from '@/components/ui/ErrorState'
 import type { Disclosure } from '@/types'
 
 type IntelTab = 'disclosures' | 'news' | 'themes'
@@ -48,7 +49,7 @@ function DisclosuresTab() {
   const [sortDir,  setSortDir]  = useState<'asc' | 'desc'>('desc')
   const [selected, setSelected] = useState<Disclosure | null>(null)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['disclosures-intel', corp, category, hours, sortBy, sortDir],
     queryFn: () => disclosuresApi.list({
       code:     corp || undefined,
@@ -157,6 +158,13 @@ function DisclosuresTab() {
               </tr>
             </thead>
             <tbody>
+              {isError && (
+                <tr>
+                  <td colSpan={7} className="py-8">
+                    <ErrorState error={error as Error} retry={refetch} />
+                  </td>
+                </tr>
+              )}
               {isLoading && Array.from({ length: 6 }).map((_, i) => (
                 <tr key={i} className="border-b border-[var(--border)]/50">
                   <td className="py-3 pl-5 pr-3"><div className="h-4 skeleton rounded w-20 mb-1" /><div className="h-3 skeleton rounded w-12" /></td>
@@ -192,7 +200,7 @@ function DisclosuresTab() {
                   <td className="py-2.5 pr-5 text-right text-xs"><PctCell value={d.post_1d_change} /></td>
                 </tr>
               ))}
-              {!isLoading && !data?.length && (
+              {!isLoading && !isError && !data?.length && (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-[var(--muted)]">공시 데이터가 없습니다</td>
                 </tr>

@@ -7,6 +7,7 @@ import { newsApi, type NewsItem } from '@/api/news'
 import { marketApi } from '@/api/market'
 import { SentimentBadge } from '@/components/ui/Badge'
 import { fmt } from '@/lib/utils'
+import { ErrorState } from '@/components/ui/ErrorState'
 
 const PAGE_SIZE = 30
 
@@ -136,6 +137,7 @@ export function News() {
 
   const {
     data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading: newsLoading,
+    isError: newsError, error: newsErrorObj, refetch: refetchNews,
   } = useInfiniteQuery({
     queryKey:  ['news-infinite', category, hours, source, themeFilter],
     queryFn:   ({ pageParam = 0 }) =>
@@ -241,6 +243,7 @@ export function News() {
 
         {/* 뉴스 피드 */}
         <div className="lg:col-span-2 space-y-2">
+          {newsError && <ErrorState error={newsErrorObj as Error} retry={refetchNews} />}
           {newsLoading && Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 space-y-3">
               <div className="h-4 skeleton rounded w-4/5" />
@@ -272,7 +275,7 @@ export function News() {
             )}
           </div>
 
-          {!newsLoading && !allNews.length && (
+          {!newsLoading && !newsError && !allNews.length && (
             <div className="py-16 text-center text-[var(--muted)] text-sm">뉴스 데이터가 없습니다</div>
           )}
         </div>

@@ -7,6 +7,7 @@ import { featuresApi } from '@/api/features'
 import { Badge, MarketBadge, EVENT_LABELS } from '@/components/ui/Badge'
 import { EventDetailModal } from '@/components/modals/EventDetailModal'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { ErrorState } from '@/components/ui/ErrorState'
 import { DataFreshness } from '@/components/ui/DataFreshness'
 import { fmt, pctColor } from '@/lib/utils'
 import type { FeatureEvent } from '@/types'
@@ -57,7 +58,7 @@ export function Features() {
   const [sortDir,        setSortDir]        = useState<SortDir>('desc')
   const [selectedEvent,  setSelectedEvent]  = useState<FeatureEvent | null>(null)
 
-  const { data, isLoading, dataUpdatedAt } = useQuery({
+  const { data, isLoading, isError, error, refetch, dataUpdatedAt } = useQuery({
     queryKey:        ['features', { eventType, market, minScore, hours, dedupe }],
     queryFn:         () =>
       featuresApi.list({
@@ -296,7 +297,14 @@ export function Features() {
                 </tr>
                 )
               })}
-              {!isLoading && rows.length === 0 && (
+              {isError && (
+                <tr>
+                  <td colSpan={8} className="py-8">
+                    <ErrorState error={error as Error} retry={refetch} />
+                  </td>
+                </tr>
+              )}
+              {!isLoading && !isError && rows.length === 0 && (
                 <tr>
                   <td colSpan={8}>
                     <EmptyState
