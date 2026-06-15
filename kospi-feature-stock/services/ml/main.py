@@ -258,123 +258,59 @@ async def _weekly_retrain_loop(pool: asyncpg.Pool, predictor: LGBMPredictor):
 
 
 async def _run_retrain(pool: asyncpg.Pool, predictor: LGBMPredictor):
+    """walk_forward_train.py 서브프로세스를 실행하여 모델을 재학습.
+    수동 학습(make train)과 동일한 파이프라인 사용 — feature schema 불일치 방지.
+    """
+    import subprocess
     import sys
-    sys.path.insert(0, "/app")
-    import pandas as pd
-    from sklearn.model_selection import TimeSeriesSplit
-    from sklearn.metrics import roc_auc_score, brier_score_loss
-    from features.technical import TechnicalFeatureExtractor
-    from features.supply_demand import SupplyDemandFeatureExtractor
-    from models.lgbm_predictor import FEATURE_COLUMNS
-    from models.trainer import LGBMTrainer
-
     end_dt   = date.today()
-    start_dt = end_dt - timedelta(days=730)  # 최근 2년
+    # walk-forward 분할: 최근 2년 train / 최근 6개월 val / 최근 90일 test
+    train_end   = (end_dt - timedelta(days=180)).isoformat()
+    val_start   = (end_dt - timedelta(days=180)).isoformat()
+    val_end     = (end_dt - timedelta(days=90)).isoformat()
+    test_start  = (end_dt - timedelta(days=90)).isoformat()
+    test_end    = end_dt.isoformat()
+    train_start = (end_dt - timedelta(days=730)).isoformat()
 
-    rows = await pool.fetch(
-        """
-        SELECT
-            db.date::TEXT AS date, db.code,
-            db.open, db.high, db.low, db.close,
-            db.volume, db.amount, db.change_rate,
-            db.short_sell_vol,
-            COALESCE(sd.foreign_net, db.foreign_net_buy) AS foreign_net,
-            COALESCE(sd.inst_net,    db.inst_net_buy)    AS inst_net,
-            COALESCE(sd.indiv_net,   db.indiv_net_buy)   AS indiv_net
-        FROM daily_bars db
-        LEFT JOIN supply_demand sd ON sd.code=db.code AND sd.date=db.date
-        WHERE db.date BETWEEN $1 AND $2
-        ORDER BY db.code, db.date
-        """,
-        start_dt, end_dt,
+    cmd = [
+        sys.executable, "/app/walk_forward_train.py",
+        "--train-start", train_start, "--train-end", train_end,
+        "--val-start",   val_start,   "--val-end",   val_end,
+        "--test-start",  test_start,  "--test-end",  test_end,
+        "--smote", "--model-dir", _MODEL_DIR, "--max-codes", "400",
+    ]
+    logger.info(f"[Retrain] walk_forward_train.py 시작: {train_start} ~ {test_end}")
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
     )
-    if not rows:
-        logger.warning("No data for retrain, skipping")
+    stdout, _ = await proc.communicate()
+    log_tail = (stdout or b"").decode(errors="replace").strip().splitlines()[-10:]
+    for line in log_tail:
+        logger.info(f"[Retrain] {line}")
+
+    if proc.returncode != 0:
+        logger.error(f"[Retrain] walk_forward_train.py 실패 (exit={proc.returncode})")
         return
 
-    raw = pd.DataFrame([dict(r) for r in rows])
+    # 학습 완료 → 핫스왑
+    if predictor is not None:
+        loaded = predictor.load()
+        logger.info(f"[Retrain] 모델 핫스왑: loaded={loaded}")
 
-    # KOSPI 지수 데이터 로드
-    kospi_rows = await pool.fetch(
-        "SELECT date::TEXT AS date, close, volume FROM daily_bars "
-        "WHERE code='0001' AND date BETWEEN $1 AND $2 ORDER BY date",
-        start_dt, end_dt,
-    )
-    kospi_close  = pd.Series({r["date"]: float(r["close"])  for r in kospi_rows}) if kospi_rows else pd.Series(dtype=float)
-    market_vol   = pd.Series({r["date"]: float(r["volume"]) for r in kospi_rows}) if kospi_rows else pd.Series(dtype=float)
-
-    logger.info(f"Retrain data: {len(raw)} rows, {raw['code'].nunique()} stocks, KOSPI={len(kospi_close)} days")
-
-    tech = TechnicalFeatureExtractor()
-    sd   = SupplyDemandFeatureExtractor()
-    tr   = LGBMTrainer()
-
-    all_feat, all_label_e, all_label_r = [], [], []
-    for code, grp in raw.groupby("code"):
-        grp = grp.sort_values("date").reset_index(drop=True)
-        if len(grp) < 80:
-            continue
+    # Prometheus 메트릭 업데이트 (model_metrics.json에서 읽기)
+    import json as _json
+    metrics_path = Path(_MODEL_DIR) / "model_metrics.json"
+    if metrics_path.exists():
         try:
-            f = tech.extract(grp)
-            f = sd.extract(f)
-            if len(kospi_close) > 0:
-                f = tech.inject_market_features(f, kospi_close, market_vol if len(market_vol) > 0 else None)
-            f["code"] = code
-            all_feat.append(f)
-            all_label_e.append(tr.make_label_entry(f, fwd=5, thr=0.05))
-            all_label_r.append(tr.make_label_risk(f,   fwd=5, loss=-0.05))
-        except Exception as e:
-            logger.debug(f"Feature error {code}: {e}")
-
-    if not all_feat:
-        logger.warning("No valid features for retrain")
-        return
-
-    df = pd.concat(all_feat).reset_index(drop=True)
-    le = pd.concat(all_label_e).reset_index(drop=True)
-    lr = pd.concat(all_label_r).reset_index(drop=True)
-
-    mask = le.notna() & lr.notna()
-    df, le, lr = df[mask], le[mask], lr[mask]
-    for col in FEATURE_COLUMNS:
-        if col not in df.columns:
-            df[col] = 0.0
-    X = df[FEATURE_COLUMNS].fillna(0)
-
-    tscv = TimeSeriesSplit(n_splits=5)
-    sp = list(tscv.split(X))
-    ti, vi = sp[-1]
-    X_tr, X_va = X.iloc[ti], X.iloc[vi]
-    le_tr, le_va = le.iloc[ti], le.iloc[vi]
-    lr_tr, lr_va = lr.iloc[ti], lr.iloc[vi]
-
-    tmp_dir = Path(_MODEL_DIR) / "tmp"
-    tmp_dir.mkdir(parents=True, exist_ok=True)
-
-    entry_m = tr.train_entry(X_tr, le_tr, X_va, le_va, str(tmp_dir))
-    risk_m  = tr.train_risk(X_tr,  lr_tr, X_va, lr_va, str(tmp_dir))
-
-    entry_raw = entry_m.predict_proba(X_va)[:, 1]
-    risk_raw  = risk_m.predict_proba(X_va)[:, 1]
-    auc_e     = roc_auc_score(le_va, entry_raw)
-    auc_r     = roc_auc_score(lr_va, risk_raw)
-    brier_e   = brier_score_loss(le_va, entry_raw)
-    brier_r   = brier_score_loss(lr_va, risk_raw)
-
-    # atomic 교체 (tmp → 실제 경로)
-    model_dir = Path(_MODEL_DIR)
-    for fname in ["entry_model.lgb", "risk_model.lgb", "entry_calibrator.pkl", "risk_calibrator.pkl"]:
-        src = tmp_dir / fname
-        if src.exists():
-            src.rename(model_dir / fname)
-
-    # atomic 교체 완료 후 전역 predictor 핫스왑
-    if _predictor is not None:
-        _predictor.load()
+            m = _json.loads(metrics_path.read_text())
+            ML_ENTRY_AUC.set(float(m.get("auc", 0)))
+        except Exception:
+            pass
     ML_RETRAIN_TOTAL.inc()
-    ML_ENTRY_AUC.set(auc_e)
-    ML_RISK_AUC.set(auc_r)
-    logger.info(f"Weekly retrain done, Entry AUC={auc_e:.4f} Brier={brier_e:.4f}, Risk AUC={auc_r:.4f} Brier={brier_r:.4f}")
+    logger.info("[Retrain] 완료")
 
 
 async def _update_event_results(pool: asyncpg.Pool):

@@ -519,7 +519,7 @@ async def _short_increasing(db: asyncpg.Pool, code: str, bars: list[dict]) -> in
 
 
 async def get_similar_cases(event: dict, db: asyncpg.Pool) -> tuple[list, dict]:
-    """pgvector HNSW 인덱스를 사용한 실제 유사사례 검색."""
+    """pgvector IVFFlat 인덱스를 사용한 실제 유사사례 검색."""
     code = event.get("code", "")
     try:
         async with db.acquire() as conn:
@@ -533,22 +533,25 @@ async def get_similar_cases(event: dict, db: asyncpg.Pool) -> tuple[list, dict]:
             )
 
             if anchor and anchor["pattern_vector"] is not None:
-                rows = await conn.fetch(
-                    """
-                    SELECT id, code, detected_at::TEXT, event_type,
-                           ROUND((1 - (pattern_vector <=> $2::vector))::NUMERIC, 4) AS similarity,
-                           result_1d, result_3d, result_5d
-                    FROM feature_events
-                    WHERE code != $1
-                      AND pattern_vector IS NOT NULL
-                      AND result_5d IS NOT NULL
-                    ORDER BY pattern_vector <=> $2::vector
-                    LIMIT 50
-                    """,
-                    code,
-                    anchor["pattern_vector"],
-                )
-                search_method = "hnsw_ann"
+                # IVFFlat: probes=10(lists=200의 5%) → 높은 recall 유지
+                async with conn.transaction():
+                    await conn.execute("SET LOCAL ivfflat.probes = 10")
+                    rows = await conn.fetch(
+                        """
+                        SELECT id, code, detected_at::TEXT, event_type,
+                               ROUND((1 - (pattern_vector <=> $2::vector))::NUMERIC, 4) AS similarity,
+                               result_1d, result_3d, result_5d
+                        FROM feature_events
+                        WHERE code != $1
+                          AND pattern_vector IS NOT NULL
+                          AND result_5d IS NOT NULL
+                        ORDER BY pattern_vector <=> $2::vector
+                        LIMIT 50
+                        """,
+                        code,
+                        anchor["pattern_vector"],
+                    )
+                search_method = "ivfflat_ann"
             else:
                 rows = await conn.fetch(
                     """

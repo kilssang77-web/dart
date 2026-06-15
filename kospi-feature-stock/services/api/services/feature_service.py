@@ -207,25 +207,28 @@ class FeatureService:
             return []
 
         if event["pattern_vector"]:
-            # 벡터 이웃을 top_k*4로 넓게 가져온 뒤 멀티모달 점수로 재순위 매김
-            candidates = await self.db.fetch(
-                """
-                SELECT
-                    fe.id, fe.code, fe.event_type, fe.signal_score,
-                    (fe.detected_at AT TIME ZONE 'Asia/Seoul')::TEXT AS detected_at,
-                    ROUND((1 - (fe.pattern_vector <=> $1::vector))::NUMERIC, 4) AS vec_sim,
-                    fe.result_1d, fe.result_3d, fe.result_5d,
-                    COALESCE(s.sector, '-') AS sector
-                FROM feature_events fe
-                LEFT JOIN stocks s ON s.code = fe.code
-                WHERE fe.code != $2
-                  AND fe.pattern_vector IS NOT NULL
-                  AND fe.result_5d IS NOT NULL
-                ORDER BY fe.pattern_vector <=> $1::vector
-                LIMIT $3
-                """,
-                event["pattern_vector"], event["code"], top_k * 4,
-            )
+            # IVFFlat: SET LOCAL ivfflat.probes 트랜잭션 필요 (lists=200, probes=10 → ~5% 클러스터)
+            async with self.db.acquire() as conn:
+                async with conn.transaction():
+                    await conn.execute("SET LOCAL ivfflat.probes = 10")
+                    candidates = await conn.fetch(
+                        """
+                        SELECT
+                            fe.id, fe.code, fe.event_type, fe.signal_score,
+                            (fe.detected_at AT TIME ZONE 'Asia/Seoul')::TEXT AS detected_at,
+                            ROUND((1 - (fe.pattern_vector <=> $1::vector))::NUMERIC, 4) AS vec_sim,
+                            fe.result_1d, fe.result_3d, fe.result_5d,
+                            COALESCE(s.sector, '-') AS sector
+                        FROM feature_events fe
+                        LEFT JOIN stocks s ON s.code = fe.code
+                        WHERE fe.code != $2
+                          AND fe.pattern_vector IS NOT NULL
+                          AND fe.result_5d IS NOT NULL
+                        ORDER BY fe.pattern_vector <=> $1::vector
+                        LIMIT $3
+                        """,
+                        event["pattern_vector"], event["code"], top_k * 4,
+                    )
             if candidates:
                 src_event_type = event["event_type"] or ""
                 src_sector     = event["sector"] or "-"
