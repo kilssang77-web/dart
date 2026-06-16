@@ -73,15 +73,19 @@ function MarketClosedBanner() {
   })
   if (!data?.data_date) return null
 
-  // 마지막 영업일(주말 제외)과 비교 — 장 중에도 전 거래일 데이터는 정상
   const lastTradingDay = getLastTradingDay()
   if (data.data_date >= lastTradingDay) return null
+
+  // 오늘이 거래일이고 EOD 수집 완료(16:30 KST) 전이면 정상 — 배너 숨김
+  const seoulNow    = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })
+  const todayIsWeekday = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' }) === lastTradingDay
+  if (todayIsWeekday && seoulNow < '16:30') return null
 
   return (
     <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-sm">
       <AlertTriangle size={14} className="shrink-0" />
       <span>
-        마지막 거래일 기준 데이터입니다 ({data.data_date}). 장 휴장 중이거나 거래 전 시간대일 수 있습니다.
+        일봉 데이터 미갱신 ({data.data_date}). EOD 수집이 지연되고 있습니다.
       </span>
     </div>
   )
