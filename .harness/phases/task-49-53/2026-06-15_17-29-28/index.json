@@ -1,0 +1,14 @@
+{
+  "task": "task-49-53",
+  "runId": "2026-06-15_17-29-28",
+  "status": "in_progress",
+  "description": "Tasks #49-53: 벡터 임베딩 재설계 / KOSPI 의존도 감소 / HNSW 인덱스 / ML 핫리로드 자동화",
+  "steps": [
+    { "id": 1, "file": "step1.md", "status": "pending", "title": "Task #49: pattern_vector.py 섹션4 제로패딩 제거" },
+    { "id": 2, "file": "step2.md", "status": "pending", "title": "Task #50: KOSPI 방향성 피처 교체 → 상대강도 3종 추가" },
+    { "id": 3, "file": "step3.md", "status": "pending", "title": "Task #53: 외부 학습 완료 → ML 서비스 핫리로드 자동화" },
+    { "id": 4, "file": "step4.md", "status": "pending", "title": "Task #52: HNSW 인덱스 마이그레이션 (shm_size 증설)" },
+    { "id": 5, "file": "step5.md", "status": "pending", "title": "자체 검증: 컨테이너 재시작 + API 헬스체크" }
+  ],
+  "created_at": "2026-06-15T17:29:28+09:00"
+}
