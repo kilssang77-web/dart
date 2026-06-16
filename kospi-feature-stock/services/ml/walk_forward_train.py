@@ -35,7 +35,7 @@ from sklearn.metrics import (
 )
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from models.lgbm_predictor import FEATURE_COLUMNS
+from shared.feature_schema import DEFAULT_FEATURE_COLUMNS as FEATURE_COLUMNS
 from models.trainer import LGBMTrainer
 
 logging.basicConfig(
