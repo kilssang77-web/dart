@@ -52,6 +52,7 @@ FEATURE_COLUMNS: list[str] = [
     "dow_sin", "dow_cos", "month_sin", "month_cos",
     "news_sentiment_7d", "news_count_7d",
     "per", "pbr", "roe", "debt_ratio",
+    "log_market_cap",
 ]
 
 
@@ -348,6 +349,10 @@ def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: li
     roe        = _safe(fin_row.get("roe"),        0.0) if fin_row else 0.0
     debt_ratio = _safe(fin_row.get("debt_ratio"), 0.0) if fin_row else 0.0
 
+    # ── 시가총액 크기 인자 (size factor) ──
+    _mc = _safe(rows[0].get("market_cap"), 0.0) if rows else 0.0
+    log_market_cap = math.log(_mc) if _mc > 0 else 0.0
+
     return {k: locals().get(k, 0.0) for k in FEATURE_COLUMNS}
 
 
@@ -387,7 +392,8 @@ async def get_ml_result(event: dict, db: asyncpg.Pool, redis=None) -> MLResult:
                        rsi14, macd, macd_signal,
                        (macd - macd_signal) AS macd_hist,
                        bb_upper, bb_lower, ma5, ma20, ma60,
-                       foreign_net_buy, inst_net_buy, short_sell_vol
+                       foreign_net_buy, inst_net_buy, short_sell_vol,
+                       COALESCE(market_cap, 0) AS market_cap
                 FROM daily_bars
                 WHERE code=$1 ORDER BY date DESC LIMIT 280
                 """,

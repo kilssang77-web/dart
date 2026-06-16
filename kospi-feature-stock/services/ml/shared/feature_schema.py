@@ -41,6 +41,7 @@ DEFAULT_FEATURE_COLUMNS: list[str] = [
     "month_sin", "month_cos",
     "news_sentiment_7d", "news_count_7d",
     "per", "pbr", "roe", "debt_ratio",
+    "log_market_cap",
 ]
 
 

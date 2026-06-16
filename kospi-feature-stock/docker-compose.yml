@@ -285,6 +285,30 @@ services:
         max-size: "20m"
         max-file: "3"
 
+  # ── Collector: 금융위원회 시가총액 (일 1회, 18:00 KST 이후) ────────────────
+  collector-govdata:
+    build:
+      context: ./services/collector
+      dockerfile: Dockerfile.batch
+    container_name: fstock-collector-govdata
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      SERVICE_NAME: collector-govdata
+    volumes:
+      - ./services/collector:/app
+    command: ["python", "entrypoints/govdata_worker.py"]
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # ── Collector: 일봉 재백필 (장외 시간, 매일) ────────────────────────────────
   collector-bars-backfill:
     build:

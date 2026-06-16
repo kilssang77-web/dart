@@ -78,6 +78,7 @@ async def load_daily_bars(pool: asyncpg.Pool, start, end, codes: list[str] | Non
             d.change_rate, d.foreign_net_buy, d.inst_net_buy,
             d.short_sell_vol, d.rsi14, d.macd, d.macd_signal,
             d.bb_upper, d.bb_lower, d.ma5, d.ma20, d.ma60, d.atr14,
+            d.market_cap,
             COALESCE(sd.foreign_net, d.foreign_net_buy) AS foreign_net,
             COALESCE(sd.inst_net,    d.inst_net_buy)    AS inst_net
         FROM daily_bars d
@@ -394,6 +395,10 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
             month_sin = math.sin(2 * math.pi * (_mon - 1) / 12)
             month_cos = math.cos(2 * math.pi * (_mon - 1) / 12)
 
+            # Market cap size factor
+            mc_raw = _safe(grp["market_cap"].iloc[i]) if "market_cap" in grp.columns else 0.0
+            log_market_cap = math.log(mc_raw) if mc_raw > 0 else 0.0
+
             # Financials (quarterly — most recent quarter before current date)
             per_v = pbr_v = roe_v = debt_r = 0.0
             if code in fin_by_code:
@@ -453,6 +458,7 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
                 "month_sin": month_sin, "month_cos": month_cos,
                 "news_sentiment_7d": news_s7, "news_count_7d": news_c7,
                 "per": per_v, "pbr": pbr_v, "roe": roe_v, "debt_ratio": debt_r,
+                "log_market_cap": log_market_cap,
                 "__code": code, "__date": date_val, "__close": c,
             }
             rows_feat.append(feat)
