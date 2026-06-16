@@ -42,11 +42,13 @@ SUPPLY_INTERVAL  = int(os.environ.get("SUPPLY_INTERVAL_SEC", "600"))   # 10분 (
 BACKFILL_DAYS    = int(os.environ.get("DAILY_BACKFILL_DAYS", "260"))
 NEWS_INTERVAL    = int(os.environ.get("NEWS_INTERVAL_SEC", "1800"))
 
-# 전 종목 인트라데이 REST 스캔 — KIS 20 TPS 기준 안전 마진 87%
-INTRADAY_REQ_INTERVAL = float(os.environ.get("INTRADAY_REQ_INTERVAL", "0.09"))  # ~11 req/s
-INTRADAY_VOL_RATIO    = float(os.environ.get("INTRADAY_VOL_RATIO",    "3.0"))   # 거래량 급증 배율
-INTRADAY_AMT_RATIO    = float(os.environ.get("INTRADAY_AMT_RATIO",    "3.0"))   # 거래대금 급증 배율
-INTRADAY_MIN_AMOUNT   = int(os.environ.get("INTRADAY_MIN_AMOUNT",     "200000000"))  # 최소 2억
+# 전 종목 인트라데이 REST 스캔 — 동시 처리 기반
+# CONCURRENT=5, 응답 238ms avg → 5/0.238 ≈ 21 TPS (KIS 한도 20 이내)
+# 사이클: 2,759종목 / 20 TPS ≈ 138s (2.3분)
+INTRADAY_CONCURRENT   = int(os.environ.get("INTRADAY_CONCURRENT",    "5"))      # 동시 요청 수
+INTRADAY_VOL_RATIO    = float(os.environ.get("INTRADAY_VOL_RATIO",   "3.0"))    # 거래량 급증 배율
+INTRADAY_AMT_RATIO    = float(os.environ.get("INTRADAY_AMT_RATIO",   "3.0"))    # 거래대금 급증 배율
+INTRADAY_MIN_AMOUNT   = int(os.environ.get("INTRADAY_MIN_AMOUNT",    "200000000"))  # 최소 2억
 
 
 def is_market_open() -> bool:
@@ -427,45 +429,28 @@ class StockCollector:
             except Exception as e:
                 logger.error(f"[WatchScan] {e}")
 
-    # ── 전 종목 인트라데이 REST 스캔 ─────────────────────────
+    # ── 전 종목 인트라데이 REST 스캔 (동시 처리) ─────────────
     async def _intraday_rest_scan_loop(self, all_codes: list[str]):
-        """전 종목 장중 현재가 REST 폴링 → 신고가·거래량급증 탐지.
+        """전 종목 장중 현재가 동시 REST 스캔 → 신고가·거래량급증 탐지.
 
-        사이클 시간: len(all_codes) × INTRADAY_REQ_INTERVAL
-          2,000종목 × 0.09s ≈ 180s (3분) / 4,000종목 ≈ 360s (6분)
-        KIS TPS: minute_bar(~7/s) + intraday(~11/s) = ~18/s  (한도 20/s)
+        INTRADAY_CONCURRENT개 병렬로 요청, KIS Semaphore가 TPS를 제어.
+        사이클: 2,759종목 / ~20 TPS ≈ 138s (2.3분)  [이전: 순차 ~11분]
         """
+        _sem          = asyncio.Semaphore(INTRADAY_CONCURRENT)
         _scan_count   = 0
         _signal_count = 0
         _cycle_count  = 0
         _last_log     = datetime.now()
 
-        while True:
-            if not is_market_open():
-                await asyncio.sleep(60)
-                continue
-
-            # active_codes 우선 순위, 나머지 후순
-            active_set = set(await load_active_stocks(self.redis))
-            ordered = (
-                [c for c in all_codes if c in active_set]
-                + [c for c in all_codes if c not in active_set]
-            )
-
-            cycle_start = asyncio.get_event_loop().time()
-            now_kst     = datetime.now(_KST)
-            # 장 중 경과 시간 비율 (0~1) → 거래량 정규화용
-            elapsed_min = (now_kst.hour * 60 + now_kst.minute) - 9 * 60
-            elapsed_pct = max(0.05, min(1.0, elapsed_min / 390))
-
-            for code in ordered:
+        async def _scan_one(code: str, elapsed_pct: float) -> None:
+            nonlocal _scan_count, _signal_count
+            async with _sem:
                 if not is_market_open():
-                    break
+                    return
                 try:
                     snap = await self.rest.get_current_price(code)
                     if not snap or not snap.get("price"):
-                        await asyncio.sleep(INTRADAY_REQ_INTERVAL)
-                        continue
+                        return
 
                     _scan_count += 1
                     price  = snap["price"]
@@ -473,26 +458,26 @@ class StockCollector:
                     amount = snap.get("amount", 0)
                     cr     = snap.get("change_rate", 0.0)
 
-                    # ── 1. tick-data 발행 → 기존 BreakoutDetector 동작 ──
+                    # ── 1. tick-data 발행 → BreakoutDetector ──
                     await self.kafka.send(
                         "tick-data",
                         {"code": code, "price": price, "change_rate": cr,
                          "volume": volume, "cum_amount": amount},
                         key=code,
                     )
-                    # Redis 최신가 캐시 (30분 TTL — 스캔 사이클 6분을 여러 번 커버)
                     snap["source"] = "intraday"
-                    await self.redis.set(f"quote:{code}",
-                                         orjson.dumps(snap), ex=1800)
+                    await self.redis.set(f"quote:{code}", orjson.dumps(snap), ex=1800)
 
-                    # ── 2. 인트라데이 거래량·거래대금 급증 탐지 ─────
+                    # ── 2. 거래량·거래대금 급증 탐지 ──────────
                     if amount >= INTRADAY_MIN_AMOUNT:
-                        avg_v_raw = await self.redis.get(f"stats:{code}:avg_vol_20d")
-                        avg_a_raw = await self.redis.get(f"stats:{code}:avg_amount_20d")
+                        avg_v_raw, avg_a_raw = await asyncio.gather(
+                            self.redis.get(f"stats:{code}:avg_vol_20d"),
+                            self.redis.get(f"stats:{code}:avg_amount_20d"),
+                        )
 
                         if avg_v_raw:
-                            avg_v    = float(avg_v_raw)
-                            exp_vol  = avg_v * elapsed_pct
+                            avg_v   = float(avg_v_raw)
+                            exp_vol = avg_v * elapsed_pct
                             if exp_vol > 0 and volume / exp_vol >= INTRADAY_VOL_RATIO:
                                 ratio = volume / exp_vol
                                 score = min(0.95, 0.50 + (ratio - INTRADAY_VOL_RATIO)
@@ -512,8 +497,8 @@ class StockCollector:
                                 _signal_count += 1
 
                         if avg_a_raw:
-                            avg_a    = float(avg_a_raw)
-                            exp_amt  = avg_a * elapsed_pct
+                            avg_a   = float(avg_a_raw)
+                            exp_amt = avg_a * elapsed_pct
                             if exp_amt > 0 and amount / exp_amt >= INTRADAY_AMT_RATIO:
                                 ratio = amount / exp_amt
                                 score = min(0.90, 0.45 + (ratio - INTRADAY_AMT_RATIO)
@@ -536,17 +521,36 @@ class StockCollector:
                 except Exception as e:
                     logger.debug(f"[IntradayScan] {code}: {e}")
 
-                await asyncio.sleep(INTRADAY_REQ_INTERVAL)
+        while True:
+            if not is_market_open():
+                await asyncio.sleep(60)
+                continue
 
-            elapsed   = asyncio.get_event_loop().time() - cycle_start
+            active_set = set(await load_active_stocks(self.redis))
+            ordered = (
+                [c for c in all_codes if c in active_set]
+                + [c for c in all_codes if c not in active_set]
+            )
+
+            cycle_start = asyncio.get_event_loop().time()
+            now_kst     = datetime.now(_KST)
+            elapsed_min = (now_kst.hour * 60 + now_kst.minute) - 9 * 60
+            elapsed_pct = max(0.05, min(1.0, elapsed_min / 390))
+
+            await asyncio.gather(
+                *[_scan_one(c, elapsed_pct) for c in ordered],
+                return_exceptions=True,
+            )
+
+            elapsed      = asyncio.get_event_loop().time() - cycle_start
             _cycle_count += 1
             now = datetime.now()
             if (now - _last_log).total_seconds() >= 300:
                 rps = _scan_count / max((now - _last_log).total_seconds(), 1)
                 logger.info(
-                    f"[IntradayScan] cycles={_cycle_count} "
-                    f"last_cycle={elapsed:.1f}s scanned={_scan_count} "
-                    f"signals={_signal_count} rps={rps:.1f}"
+                    f"[IntradayScan] concurrent={INTRADAY_CONCURRENT} "
+                    f"cycles={_cycle_count} last_cycle={elapsed:.1f}s "
+                    f"scanned={_scan_count} signals={_signal_count} rps={rps:.1f}"
                 )
                 _scan_count = _signal_count = _cycle_count = 0
                 _last_log = now
