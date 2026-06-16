@@ -351,7 +351,7 @@ class StockCollector:
 
                 for code in new_codes:
                     task = asyncio.create_task(
-                        self.ws._ws_loop([code], self._on_tick)
+                        self.ws._ws_loop([code], self._on_tick, False)
                     )
                     watched_tasks[code] = task
                     logger.info(f"[Watch] Subscribed {code}")

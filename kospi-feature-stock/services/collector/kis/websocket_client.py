@@ -37,12 +37,12 @@ class KISWebSocketClient:
         self,
         codes: list[str],
         callback: Callable,
-        chunk_size: int = 30,
+        chunk_size: int = 100,
         include_nxt: bool = False,
     ) -> None:
         """
-        include_nxt=True 이면 각 청크마다 KRX(H0STCNT0)와 NXT(H0NXCNT0) 동시 구독.
-        하나의 WebSocket 연결에서 두 TR_ID를 모두 구독하므로 연결 수는 동일.
+        KIS approval_key당 동시 WebSocket 연결 1개 한도 → chunk_size=100(KIS 종목 한도)으로
+        단일 연결 유지. include_nxt=True 이면 KRX(H0STCNT0)+NXT(H0NXCNT0) 동시 구독.
         """
         chunks = [codes[i:i+chunk_size] for i in range(0, len(codes), chunk_size)]
         tasks  = [self._ws_loop(chunk, callback, include_nxt) for chunk in chunks]
