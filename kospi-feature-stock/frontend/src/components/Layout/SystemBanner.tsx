@@ -4,8 +4,11 @@ import { adminApi, type SystemStatus } from '@/api/admin'
 
 function isStale(dateStr: string | null, maxHours = 25): boolean {
   if (!dateStr) return true
-  const diff = Date.now() - new Date(dateStr).getTime()
-  return diff > maxHours * 3600_000
+  // date-only 문자열(YYYY-MM-DD)은 EOD 수집 완료 시각 16:30 KST 기준으로 파싱
+  const parsed = dateStr.includes('T')
+    ? new Date(dateStr)
+    : new Date(dateStr + 'T16:30:00+09:00')
+  return Date.now() - parsed.getTime() > maxHours * 3600_000
 }
 
 export function SystemBanner() {
