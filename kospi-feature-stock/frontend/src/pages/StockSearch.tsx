@@ -2,8 +2,10 @@
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { Search, X, Clock, Trash2, ChevronRight, TrendingUp, TrendingDown, Minus, Star, StarOff, BarChart2, ShoppingCart, BookOpen, History } from 'lucide-react'
+import { Search, X, Clock, Trash2, ChevronRight, TrendingUp, TrendingDown, Minus, Star, StarOff, BarChart2, ShoppingCart, BookOpen, History, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import { useSidebarStore } from '@/store/sidebar'
+import { useIsMobile } from '@/hooks/useMediaQuery'
 import { stocksApi, type FinancialItem } from '@/api/stocks'
 import { featuresApi } from '@/api/features'
 import { recommendationsApi } from '@/api/recommendations'
@@ -134,6 +136,10 @@ function OpinionText({ text }: { text: string }) {
 }
 
 export function StockSearch() {
+  const { collapsed } = useSidebarStore()
+  const isMobile      = useIsMobile()
+  const sidebarW      = isMobile ? 0 : collapsed ? 56 : 220
+
   const [searchParams, setSearchParams] = useSearchParams()
   const [query, setQuery] = useState(searchParams.get('q') ?? '')
   const [market, setMarket] = useState('')
@@ -299,8 +305,8 @@ export function StockSearch() {
         </div>
       )}
       <div className="flex-1 overflow-y-auto min-w-0">
-        <button onClick={() => setShowList((v) => !v)} className="fixed left-0 top-1/2 z-20 bg-[var(--card)] border border-[var(--border)] rounded-r-md p-0.5 text-[var(--muted)] hover:text-[var(--fg)] transition-colors" style={{ left: showList ? '256px' : '56px' }} title={showList ? '목록 숨기기' : '목록 보기'}>
-          {showList ? <X size={11} /> : <Search size={11} />}
+        <button onClick={() => setShowList((v) => !v)} className="fixed top-1/2 z-20 bg-[var(--card)] border border-[var(--border)] rounded-r-md p-1 text-[var(--muted)] hover:text-[var(--fg)] transition-colors -translate-y-1/2" style={{ left: showList ? sidebarW + 256 : sidebarW }} title={showList ? '목록 숨기기' : '목록 보기'}>
+          {showList ? <PanelLeftClose size={13} /> : <PanelLeftOpen size={13} />}
         </button>
         {!selCode ? (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-[var(--muted)]"><Search size={40} className="opacity-20" /><div className="text-center"><p className="text-sm font-medium">종목을 선택하세요</p><p className="text-xs mt-1">검색 또는 최근 검색 목록에서 종목을 클릭하세요</p></div></div>

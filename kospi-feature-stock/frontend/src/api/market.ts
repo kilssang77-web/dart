@@ -121,6 +121,12 @@ export interface ModelHistoryItem {
   metrics:    Record<string, number>
   is_active:  boolean
 }
+
+export interface RetrainStatus {
+  status:      'idle' | 'running' | 'done' | 'failed' | 'pending' | 'already_running' | 'unknown'
+  started_at:  string | null
+  finished_at: string | null
+}
 export interface IndexQuote {
   code?:        string
   name:         string
@@ -180,6 +186,12 @@ export const marketApi = {
 
   getModelHistory: () =>
     http.get<ModelHistoryItem[]>('/ml/model-history').then((r) => r.data),
+
+  triggerRetrain: () =>
+    http.post<{ status: string }>('/ml/retrain').then((r) => r.data),
+
+  getRetrainStatus: () =>
+    http.get<RetrainStatus>('/ml/retrain-status').then((r) => r.data),
 
   runBacktest: (params: {
     start: string; end: string

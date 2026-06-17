@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { clsx } from 'clsx'
 import {
   LayoutDashboard, Zap, TrendingUp, Search, Newspaper, Star,
-  FlaskConical, BarChart3, Settings2,
+  FlaskConical, BarChart3, Settings2, Send,
   ChevronLeft, ChevronRight, ChevronDown, X,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
@@ -47,9 +47,10 @@ function buildNavGroups(badge?: string): NavGroup[] {
       title: '시스템',
       collapsible: true,
       items: [
-        { to: '/backtest',    icon: <FlaskConical size={15} />, label: '백테스트' },
-        { to: '/performance', icon: <BarChart3 size={15} />,    label: '모델 성능' },
-        { to: '/settings',    icon: <Settings2 size={15} />,    label: '설정' },
+        { to: '/backtest',       icon: <FlaskConical size={15} />, label: '백테스트' },
+        { to: '/performance',    icon: <BarChart3 size={15} />,    label: '모델 성능' },
+        { to: '/notifications',  icon: <Send size={15} />,         label: '발송 이력' },
+        { to: '/settings',       icon: <Settings2 size={15} />,    label: '설정' },
       ],
     },
   ]

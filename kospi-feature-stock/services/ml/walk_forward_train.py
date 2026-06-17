@@ -209,7 +209,7 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
     _float_meta = ("__code", "__date")
     for code, grp in df.groupby("code"):
         grp = grp.reset_index(drop=True)
-        if len(grp) < 80:
+        if len(grp) < 62:  # range(60,...) 시작 → 최소 2개 행 보장
             continue
 
         closes  = grp["close"].astype(float).values

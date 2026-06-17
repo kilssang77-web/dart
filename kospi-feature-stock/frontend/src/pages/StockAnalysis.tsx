@@ -686,7 +686,7 @@ export function StockAnalysis() {
                   {analysis.disclosures_recent.map((d, i) => {
                     const cat = d.category ?? 'neutral'
                     const dartUrl = d.rcept_no
-                      ? `https://dart.fss.or.kr/dsab002/main.do?rcp_no=${d.rcept_no}`
+                      ? `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${d.rcept_no}`
                       : null
                     return (
                       <div key={i} className="flex items-start gap-2 py-1.5 border-b border-[var(--border)]/40 last:border-0">

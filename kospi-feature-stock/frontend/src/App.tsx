@@ -20,7 +20,8 @@ const ModelPerf      = lazy(() => import('./pages/ModelPerformance').then((m) =>
 const Settings       = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })))
 const StockAnalysis  = lazy(() => import('./pages/StockAnalysis').then((m) => ({ default: m.StockAnalysis })))
 const Watchlist      = lazy(() => import('./pages/Watchlist').then((m) => ({ default: m.Watchlist })))
-const SystemHealth   = lazy(() => import('./pages/SystemHealth').then((m) => ({ default: m.SystemHealth })))
+const SystemHealth         = lazy(() => import('./pages/SystemHealth').then((m) => ({ default: m.SystemHealth })))
+const NotificationHistory  = lazy(() => import('./pages/NotificationHistory').then((m) => ({ default: m.NotificationHistory })))
 
 const META: Record<string, { title: string; subtitle?: string }> = {
   '/':               { title: '대시보드',    subtitle: '실시간 특징주 현황 요약' },
@@ -33,7 +34,8 @@ const META: Record<string, { title: string; subtitle?: string }> = {
   '/performance':    { title: '모델 성능',   subtitle: 'LightGBM AUC · F1 · 피처 중요도' },
   '/settings':       { title: '설정',        subtitle: '시스템 파라미터 · API 연결 관리' },
   '/analysis':       { title: '종목 분석',   subtitle: '주가 예측 · 매수/매도 전략 추천' },
-  '/system-health':  { title: '시스템 헬스', subtitle: 'ML 모델 · DB · Kafka · 데이터 신선도 전체 현황' },
+  '/system-health':  { title: '시스템 헬스',  subtitle: 'ML 모델 · DB · Kafka · 데이터 신선도 전체 현황' },
+  '/notifications':  { title: '발송 이력',   subtitle: '텔레그램 발송 내역 · 매수신호 · 공시' },
 }
 
 function Spinner() {
@@ -125,14 +127,14 @@ export default function App() {
               <Route path="/settings"        element={<Settings />} />
               <Route path="/analysis"        element={<StockAnalysis />} />
               <Route path="/system-health"   element={<SystemHealth />} />
-              {/* 제거된 라우트 → /intel 리다이렉트 */}
+              <Route path="/notifications"   element={<NotificationHistory />} />
+              {/* 제거된 라우트 → 리다이렉트 */}
               <Route path="/disclosures"     element={<Navigate to="/intel" replace />} />
               <Route path="/news"            element={<Navigate to="/intel" replace />} />
               <Route path="/themes"          element={<Navigate to="/intel" replace />} />
               <Route path="/similar-cases"         element={<Navigate to="/search" replace />} />
               <Route path="/similar-cases/:eventId" element={<Navigate to="/search" replace />} />
               <Route path="/hts"             element={<Navigate to="/" replace />} />
-              <Route path="/notifications"   element={<Navigate to="/" replace />} />
               <Route path="/bootstrap"       element={<Navigate to="/" replace />} />
               <Route path="/tracking"        element={<Navigate to="/" replace />} />
               <Route path="/perf-tracking"   element={<Navigate to="/" replace />} />

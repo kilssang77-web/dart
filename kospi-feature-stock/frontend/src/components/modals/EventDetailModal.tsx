@@ -92,7 +92,7 @@ function DisclosurePanel({ code, detectedAt }: { code: string; detectedAt: strin
           ? 'text-blue-400 bg-blue-500/10 border-blue-500/20'
           : 'text-[var(--muted)] bg-[var(--bg)] border-[var(--border)]'
         const dartUrl = d.rcept_no
-          ? `https://dart.fss.or.kr/dsab002/main.do?rcp_no=${d.rcept_no}`
+          ? `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${d.rcept_no}`
           : null
         return (
           <div key={d.id} className="bg-[var(--bg)] rounded-xl p-3.5 border border-[var(--border)]/60">

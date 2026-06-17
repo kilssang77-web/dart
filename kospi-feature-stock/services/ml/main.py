@@ -144,6 +144,36 @@ async def reload_model():
     return {"status": "ok", "model_loaded": loaded}
 
 
+@app.post("/retrain")
+async def trigger_retrain():
+    """수동 재학습 트리거 — 백그라운드로 walk_forward_train.py 실행."""
+    if _db_pool is None:
+        return {"status": "error", "message": "db not ready"}
+    if _redis:
+        s = await _redis.get("ml:retrain_status")
+        if s and s.decode() == "running":
+            return {"status": "already_running"}
+    asyncio.create_task(_run_retrain(_db_pool, _predictor))
+    return {"status": "started"}
+
+
+@app.get("/retrain-status")
+async def get_retrain_status():
+    """재학습 진행 상태 반환."""
+    if not _redis:
+        return {"status": "unknown", "started_at": None, "finished_at": None}
+    pipe = _redis.pipeline()
+    pipe.get("ml:retrain_status")
+    pipe.get("ml:retrain_started_at")
+    pipe.get("ml:retrain_finished_at")
+    s, started, finished = await pipe.execute()
+    return {
+        "status":      s.decode() if s else "idle",
+        "started_at":  started.decode() if started else None,
+        "finished_at": finished.decode() if finished else None,
+    }
+
+
 @app.get("/shap-explain")
 async def shap_explain():
     """entry 모델 기준 SHAP 피처 기여도 — 중립 샘플(all-zero) 기준."""
@@ -262,8 +292,14 @@ async def _run_retrain(pool: asyncpg.Pool, predictor: LGBMPredictor):
     """walk_forward_train.py 서브프로세스를 실행하여 모델을 재학습.
     수동 학습(make train)과 동일한 파이프라인 사용 — feature schema 불일치 방지.
     """
-    import subprocess
     import sys
+    from datetime import datetime as _dt, timezone as _tz
+    _now = lambda: _dt.now(_tz.utc).isoformat()
+
+    if _redis:
+        await _redis.set("ml:retrain_status", "running", ex=7200)
+        await _redis.set("ml:retrain_started_at", _now(), ex=86400)
+
     end_dt   = date.today()
     # walk-forward 분할: 최근 2년 train / 최근 6개월 val / 최근 90일 test
     train_end   = (end_dt - timedelta(days=180)).isoformat()
@@ -294,6 +330,9 @@ async def _run_retrain(pool: asyncpg.Pool, predictor: LGBMPredictor):
 
     if proc.returncode != 0:
         logger.error(f"[Retrain] walk_forward_train.py 실패 (exit={proc.returncode})")
+        if _redis:
+            await _redis.set("ml:retrain_status", "failed", ex=86400)
+            await _redis.set("ml:retrain_finished_at", _now(), ex=86400)
         return
 
     # 학습 완료 → 핫스왑
@@ -311,6 +350,9 @@ async def _run_retrain(pool: asyncpg.Pool, predictor: LGBMPredictor):
         except Exception:
             pass
     ML_RETRAIN_TOTAL.inc()
+    if _redis:
+        await _redis.set("ml:retrain_status", "done", ex=86400)
+        await _redis.set("ml:retrain_finished_at", _now(), ex=86400)
     logger.info("[Retrain] 완료")
 
 

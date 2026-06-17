@@ -148,6 +148,46 @@ async def event_performance(
     ]
 
 
+@router.post("/retrain")
+async def trigger_retrain(redis: redis_lib.Redis = Depends(get_redis)):
+    """수동 재학습 트리거."""
+    if _ML_SERVICE_URL:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.post(f"{_ML_SERVICE_URL}/retrain")
+                if resp.status_code == 200:
+                    return resp.json()
+        except Exception:
+            pass
+    # Fallback: Redis 플래그
+    await redis.set("ml:retrain_needed", "1", ex=86400)
+    await redis.set("ml:retrain_status", "pending", ex=86400)
+    return {"status": "queued"}
+
+
+@router.get("/retrain-status")
+async def get_retrain_status(redis: redis_lib.Redis = Depends(get_redis)):
+    """재학습 진행 상태 조회."""
+    if _ML_SERVICE_URL:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{_ML_SERVICE_URL}/retrain-status")
+                if resp.status_code == 200:
+                    return resp.json()
+        except Exception:
+            pass
+    pipe = redis.pipeline()
+    pipe.get("ml:retrain_status")
+    pipe.get("ml:retrain_started_at")
+    pipe.get("ml:retrain_finished_at")
+    s, started, finished = await pipe.execute()
+    return {
+        "status":      s.decode() if s else "idle",
+        "started_at":  started.decode() if started else None,
+        "finished_at": finished.decode() if finished else None,
+    }
+
+
 @router.get("/model-history")
 async def model_history(
     db: asyncpg.Pool = Depends(get_db),

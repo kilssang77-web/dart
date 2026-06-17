@@ -343,12 +343,14 @@ function SignalRow({ sig, index }: { sig: SignalItem; index: number }) {
 function RecCard({
   rec,
   crDelta,
+  normProb,
   onOpen,
   onSignalModal,
   onNav,
 }: {
   rec:          Recommendation
   crDelta:      number | null
+  normProb:     number
   onOpen:       () => void
   onSignalModal: () => void
   onNav:        (code: string) => void
@@ -398,20 +400,23 @@ function RecCard({
           <div className="flex justify-between text-sm mb-1.5">
             <span className="flex items-center gap-1 text-[var(--muted)] font-medium">
               성공 확률
-              <span title="LightGBM ML 모델 추정값 · 최대 95%로 제한" className="cursor-help">
+              <span title={`현재 목록 기준 상대 순위 (1%=최저·100%=최고)\nML 모델 원본값: ${fmt.prob(rec.success_prob)}`} className="cursor-help">
                 <Info size={10} className="text-[var(--muted)]/60" />
               </span>
             </span>
-            <span className={clsx('font-bold text-base tabular', probColor(rec.success_prob))}>
-              {fmt.prob(rec.success_prob)}
-            </span>
+            <div className="flex items-baseline gap-1.5">
+              <span className={clsx('font-bold text-base tabular', probColor(rec.success_prob))}>
+                {normProb}%
+              </span>
+              <span className="text-xs text-[var(--muted)] tabular">({fmt.prob(rec.success_prob)})</span>
+            </div>
           </div>
           <div className="h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
             <div
               className={clsx('h-full rounded-full transition-all',
-                rec.success_prob >= 0.7 ? 'bg-green-400' : rec.success_prob >= 0.55 ? 'bg-yellow-400' : 'bg-[var(--muted)]'
+                normProb >= 70 ? 'bg-green-400' : normProb >= 40 ? 'bg-yellow-400' : 'bg-[var(--muted)]'
               )}
-              style={{ width: `${rec.success_prob * 100}%` }}
+              style={{ width: `${normProb}%` }}
             />
           </div>
         </div>
@@ -576,6 +581,15 @@ export function Recommendations() {
 
   const buys = recs?.filter((r) => r.action === 'BUY') ?? []
 
+  // 현재 결과셋 기준 min-max 정규화 (1%~100%)
+  const _probs   = recs?.map((r) => r.success_prob) ?? []
+  const _probMin = _probs.length > 0 ? Math.min(..._probs) : 0
+  const _probMax = _probs.length > 0 ? Math.max(..._probs) : 1
+  const toNorm = (p: number): number =>
+    _probMax > _probMin
+      ? Math.round(((p - _probMin) / (_probMax - _probMin)) * 99 + 1)
+      : 100
+
   return (
     <div className="p-5 space-y-5 max-w-[1600px]">
 
@@ -647,6 +661,19 @@ export function Recommendations() {
         >
           {dedupe ? '종목 통합' : '전체 신호'}
         </button>
+        {recs && recs.length > 0 && (() => {
+          const probs = recs.map((r) => r.success_prob)
+          const minP  = Math.min(...probs)
+          const maxP  = Math.max(...probs)
+          return (
+            <span className="text-xs text-[var(--muted)] tabular whitespace-nowrap">
+              성공확률&nbsp;
+              <span className={clsx('font-semibold', probColor(minP))}>{(minP * 100).toFixed(1)}%</span>
+              <span className="text-[var(--border)] mx-0.5">~</span>
+              <span className={clsx('font-semibold', probColor(maxP))}>{(maxP * 100).toFixed(1)}%</span>
+            </span>
+          )
+        })()}
         <button
           onClick={() => { setFilter('BUY'); setMinProb(0.15); setDedupe(true) }}
           className="ml-auto text-xs text-[var(--muted)] hover:text-[var(--fg)] transition-colors px-2 py-1 rounded hover:bg-[var(--border)]"
@@ -697,6 +724,7 @@ export function Recommendations() {
               key={rec.id}
               rec={rec}
               crDelta={crDelta}
+              normProb={toNorm(rec.success_prob)}
               onOpen={() => setSelectedRec(rec)}
               onSignalModal={() => setSignalModal({ code: rec.code, name: rec.name })}
               onNav={(code) => nav(`/search?code=${code}`)}
