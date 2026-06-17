@@ -192,17 +192,21 @@ class AnalyzerService:
         title   = data.get("title", "")
         content = data.get("content", "")
 
-        # disclosed_at: DART는 'YYYYMMDD', KIND는 isoformat — datetime으로 정규화
+        # disclosed_at: DART는 'YYYYMMDD' 혹은 KST isoformat, KIND는 KST isoformat
+        # naive datetime은 모두 KST로 해석 (UTC로 해석하면 +9h 오차 발생)
+        _KST_LOC = timezone(timedelta(hours=9))
         raw_dt = data.get("disclosed_at", "")
         try:
             if raw_dt and len(raw_dt) == 8 and raw_dt.isdigit():
-                disclosed_dt = datetime.strptime(raw_dt, "%Y%m%d")
+                # DART 날짜 전용 포맷 fallback (disclosure_poller가 collected_at으로 덮어쓰지 못한 경우)
+                disclosed_dt = datetime.strptime(raw_dt, "%Y%m%d").replace(tzinfo=_KST_LOC)
             elif raw_dt:
-                disclosed_dt = datetime.fromisoformat(raw_dt[:19])
+                dt = datetime.fromisoformat(raw_dt)
+                disclosed_dt = dt if dt.tzinfo else dt.replace(tzinfo=_KST_LOC)
             else:
-                disclosed_dt = datetime.now()
+                disclosed_dt = datetime.now(_KST_LOC)
         except Exception:
-            disclosed_dt = datetime.now()
+            disclosed_dt = datetime.now(_KST_LOC)
 
         clf     = self.bert_classifier.classify(title, content, data.get("disclosure_type", ""))
         amount, amount_text = self.classifier.extract_amount(f"{title} {content}")

@@ -6,7 +6,9 @@ DART와 중복 제출되는 공시를 제외하고 거래소 고유 공시만 �
 import asyncio
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+_KST = timezone(timedelta(hours=9))
 
 import httpx
 from bs4 import BeautifulSoup
@@ -172,7 +174,7 @@ class KINDPoller:
     @staticmethod
     def _parse_time(text: str) -> str:
         text = text.strip()
-        now  = datetime.now()
+        now  = datetime.now(_KST)
         # HH:MM 형태
         m = re.match(r"^(\d{1,2}):(\d{2})$", text)
         if m:

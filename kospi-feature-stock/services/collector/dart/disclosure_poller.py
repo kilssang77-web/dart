@@ -122,6 +122,8 @@ class DARTPoller:
             self._seen.add(rcept_no)
             parsed     = self._parse(item)
             parsed["_collected_at"] = collected_at
+            # DART rcept_dt는 날짜(YYYYMMDD)만 제공 → 실제 수집 시각(KST)으로 덮어씀
+            parsed["disclosed_at"]  = collected_at.isoformat()
             is_flagged = self._check_flagged(parsed)
             parsed["is_flagged"] = is_flagged
 
