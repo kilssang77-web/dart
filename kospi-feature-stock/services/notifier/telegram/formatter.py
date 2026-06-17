@@ -59,6 +59,9 @@ def format_buy_signal(msg: dict) -> str:
     )
 
 
+_CAT_KO = {"favorable": "호재", "unfavorable": "악재", "neutral": "중립"}
+
+
 def format_disclosure(msg: dict) -> str:
     corp_name       = msg.get("corp_name", "")
     code            = msg.get("code", "")
@@ -67,17 +70,21 @@ def format_disclosure(msg: dict) -> str:
     sentiment_score = msg.get("sentiment_score", 0.0)
     disclosed_at    = _fmt_dt(msg.get("disclosed_at", ""))
     keywords        = msg.get("keywords", [])
+    sent_at         = datetime.now(_KST).strftime("%m/%d %H:%M")
 
+    cat_ko          = _CAT_KO.get(category, category)
     sentiment_label = "&#128994;" if sentiment_score >= 0.3 else ("&#128308;" if sentiment_score <= -0.3 else "&#128992;")
-    kw_text = "  ".join(f"#{k}" for k in keywords[:5]) if keywords else ""
+    score_str       = f"  <code>{sentiment_score:+.2f}</code>" if abs(sentiment_score) >= 0.05 else ""
+    kw_text         = "  ".join(f"#{k}" for k in keywords[:5]) if keywords else ""
 
     return (
         f"<b>&#128226; 공시 알림</b>\n"
         f"\n"
         f"&#127970; 법인: <b>{corp_name}</b>  (<code>{code}</code>)\n"
         f"&#128203; 제목: {title}\n"
-        f"&#128202; 분류: {category}  {sentiment_label} <code>{sentiment_score:+.2f}</code>\n"
+        f"&#128202; 분류: {cat_ko}  {sentiment_label}{score_str}\n"
         f"{('&#128273; ' + kw_text + chr(10)) if kw_text else ''}"
         f"\n"
-        f"&#128336; {disclosed_at}"
+        f"&#128336; 공시일시: {disclosed_at}\n"
+        f"&#128228; 발송: {sent_at}"
     )
