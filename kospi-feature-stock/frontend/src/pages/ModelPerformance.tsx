@@ -1,7 +1,7 @@
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useState, useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { Activity, Radio, TrendingUp, BarChart2, Clock, CheckCircle2 } from 'lucide-react'
+import { Activity, Radio, TrendingUp, BarChart2, Clock, CheckCircle2, RefreshCw, Loader2, XCircle } from 'lucide-react'
 import { StatCard, Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -11,25 +11,60 @@ import {
   marketApi,
   type ModelMetrics, type KafkaLag, type ShapExplain,
   type PerformanceTrendPoint, type EventPerformance, type ModelHistoryItem,
+  type RetrainStatus,
 } from '@/api/market'
 import { fmt } from '@/lib/utils'
+import { EVENT_LABELS } from '@/components/ui/Badge'
 
 const LAG_WARN  = 500
 const LAG_ERROR = 2000
 
-const EVENT_LABELS: Record<string, string> = {
-  VOLUME_SURGE:        '거래량급증',
-  AMOUNT_SURGE:        '거래대금급증',
-  BREAKOUT_52W:        '52주신고가',
-  BREAKOUT_26W:        '26주신고가',
-  BREAKOUT_13W:        '13주신고가',
-  BREAKOUT_20D:        '20일신고가',
-  VI_TRIGGERED:        'VI발동',
-  SUPPLY_ANOMALY:      '수급이상',
-  POST_DISCLOSURE_SURGE: '공시급등',
-  LONG_WHITE_CANDLE:   '장대양봉',
-  HAMMER_CANDLE:       '해머캔들',
-  MORNING_STAR:        '모닝스타',
+function RetrainButton({
+  status, loading, isRetraining, onRetrain,
+}: {
+  status:       RetrainStatus | undefined
+  loading:      boolean
+  isRetraining: boolean
+  onRetrain:    () => void
+}) {
+  const disabled = loading || isRetraining
+  const s = status?.status
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {s === 'done' && (
+        <span className="flex items-center gap-1 text-xs text-green-400">
+          <CheckCircle2 size={12} /> 완료
+        </span>
+      )}
+      {s === 'failed' && (
+        <span className="flex items-center gap-1 text-xs text-red-400">
+          <XCircle size={12} /> 실패
+        </span>
+      )}
+      {isRetraining && (
+        <span className="flex items-center gap-1 text-xs text-yellow-400">
+          <Loader2 size={12} className="animate-spin" />
+          {s === 'pending' ? '대기 중...' : '학습 중...'}
+        </span>
+      )}
+      <button
+        onClick={onRetrain}
+        disabled={disabled}
+        className={clsx(
+          'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border',
+          disabled
+            ? 'opacity-50 cursor-not-allowed bg-[var(--card)] text-[var(--muted)] border-[var(--border)]'
+            : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/20',
+        )}
+      >
+        {isRetraining
+          ? <Loader2 size={12} className="animate-spin" />
+          : <RefreshCw size={12} />}
+        재학습
+      </button>
+    </div>
+  )
 }
 
 function LagBar({ label, lag, max }: { label: string; lag: number; max: number }) {
@@ -57,8 +92,40 @@ type TrendDays = 7 | 30 | 90
 type EventDays = 30 | 90 | 180
 
 export function ModelPerformance() {
-  const [trendDays, setTrendDays]   = useState<TrendDays>(30)
-  const [eventDays, setEventDays]   = useState<EventDays>(90)
+  const [trendDays, setTrendDays]         = useState<TrendDays>(30)
+  const [eventDays, setEventDays]         = useState<EventDays>(90)
+  const [retrainLoading, setRetrainLoading] = useState(false)
+  const queryClient = useQueryClient()
+
+  const { data: retrainStatus } = useQuery<RetrainStatus>({
+    queryKey:        ['retrain-status'],
+    queryFn:         marketApi.getRetrainStatus,
+    staleTime:       0,
+    refetchInterval: (query) => {
+      const s = query.state.data?.status
+      return s === 'running' || s === 'pending' ? 3000 : false
+    },
+  })
+
+  const isRetraining = retrainStatus?.status === 'running' || retrainStatus?.status === 'pending'
+
+  useEffect(() => {
+    if (retrainStatus?.status === 'done' || retrainStatus?.status === 'failed') {
+      setRetrainLoading(false)
+      queryClient.invalidateQueries({ queryKey: ['model-metrics'] })
+      queryClient.invalidateQueries({ queryKey: ['model-history'] })
+    }
+  }, [retrainStatus?.status, queryClient])
+
+  const handleRetrain = async () => {
+    setRetrainLoading(true)
+    try {
+      await marketApi.triggerRetrain()
+      queryClient.invalidateQueries({ queryKey: ['retrain-status'] })
+    } catch {
+      setRetrainLoading(false)
+    }
+  }
 
   const { data: metrics, isLoading } = useQuery<ModelMetrics | null>({
     queryKey:  ['model-metrics'],
@@ -317,11 +384,17 @@ export function ModelPerformance() {
         <div className="space-y-3">
           <div className="flex items-center gap-2.5 p-3 bg-amber-500/10 border border-amber-500/25 rounded-xl text-amber-300 text-xs">
             <span className="font-semibold text-amber-400">⚠ ML 모델 미학습</span>
-            현재 규칙 기반(fallback) 모드로 운영 중입니다. 성능 향상을 위해 Bootstrap &gt; ML 모델 학습을 실행하세요.
+            현재 규칙 기반(fallback) 모드로 운영 중입니다.
           </div>
-          <div className="flex flex-col items-center justify-center py-12 gap-3 text-[var(--muted)]">
+          <div className="flex flex-col items-center justify-center py-10 gap-4 text-[var(--muted)]">
             <Activity size={28} className="opacity-30" />
-            <p className="text-sm">학습된 모델이 없습니다. Bootstrap에서 ML 모델 학습을 실행하세요.</p>
+            <p className="text-sm">학습된 모델이 없습니다.</p>
+            <RetrainButton
+              status={retrainStatus}
+              loading={retrainLoading}
+              isRetraining={isRetraining}
+              onRetrain={handleRetrain}
+            />
           </div>
         </div>
       ) : (
@@ -336,7 +409,13 @@ export function ModelPerformance() {
                 학습일: {fmt.dateTime(metrics.trained_at)} · 피처 {metrics.n_features}개
               </div>
             </div>
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-2">
+              <RetrainButton
+                status={retrainStatus}
+                loading={retrainLoading}
+                isRetraining={isRetraining}
+                onRetrain={handleRetrain}
+              />
               <div className={clsx(
                 'px-3 py-1 rounded-full text-xs font-semibold border',
                 metrics.auc >= 0.7

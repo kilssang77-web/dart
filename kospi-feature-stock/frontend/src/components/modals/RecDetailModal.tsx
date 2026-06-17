@@ -4,22 +4,7 @@ import { X, Target, Shield, Zap, TrendingUp, BrainCircuit, BarChart2, Clock, His
 import { clsx } from 'clsx'
 import { fmt, probColor, pctColor } from '@/lib/utils'
 import type { Recommendation, SimilarCase } from '@/types'
-import { ActionBadge, Badge } from '@/components/ui/Badge'
-
-const EVT_LABEL: Record<string, string> = {
-  VOLUME_SURGE:          '거래량 급증',
-  AMOUNT_SURGE:          '거래대금 급증',
-  BREAKOUT_52W:          '52주 신고가',
-  BREAKOUT_26W:          '26주 신고가',
-  BREAKOUT_13W:          '13주 신고가',
-  BREAKOUT_20D:          '20일 신고가',
-  VI_TRIGGERED:          'VI 발동',
-  LONG_WHITE_CANDLE:     '장대양봉',
-  HAMMER_CANDLE:         '망치형',
-  MORNING_STAR:          '아침별 패턴',
-  SUPPLY_ANOMALY:        '수급 이상',
-  POST_DISCLOSURE_SURGE: '공시 후 급등',
-}
+import { ActionBadge, Badge, EVENT_LABELS, EVENT_NAMES } from '@/components/ui/Badge'
 
 function SimilarCaseCard({ sc, rank }: { sc: SimilarCase; rank: number }) {
   const best = sc.return_5d ?? sc.return_3d ?? sc.return_1d
@@ -33,9 +18,7 @@ function SimilarCaseCard({ sc, rank }: { sc: SimilarCase; rank: number }) {
           <span className="font-semibold text-sm text-[var(--fg)]">{sc.name ?? sc.code}</span>
           <code className="text-xs text-[var(--muted)] font-mono">{sc.code}</code>
           {sc.event_type && (
-            <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--border)] text-[var(--muted)]">
-              {EVT_LABEL[sc.event_type] ?? sc.event_type}
-            </span>
+            <Badge eventType={sc.event_type} size="sm" />
           )}
         </div>
         <div className="text-xs text-[var(--muted)] mt-0.5">{sc.date?.slice(0, 10)}</div>
@@ -55,30 +38,6 @@ function SimilarCaseCard({ sc, rank }: { sc: SimilarCase; rank: number }) {
   )
 }
 
-const EVT_NAMES: Record<string, string> = {
-  VOLUME_SURGE:          '거래량 급증',
-  AMOUNT_SURGE:          '거래대금 급증',
-  PRICE_SURGE:           '가격 급등',
-  BREAKOUT:              '박스권 돌파',
-  BREAKOUT_52W:          '52주(1년) 최고가 돌파',
-  BREAKOUT_26W:          '26주(6개월) 최고가 돌파',
-  BREAKOUT_13W:          '13주(분기) 최고가 돌파',
-  BREAKOUT_20D:          '20일(1개월) 최고가 돌파',
-  VI_TRIGGERED:          '변동성 완화장치(VI) 발동',
-  LONG_WHITE_CANDLE:     '장대 양봉 발생',
-  HAMMER_CANDLE:         '망치형 반전 신호',
-  MORNING_STAR:          '아침별 반전 패턴',
-  SUPPLY_ANOMALY:        '수급 이상 포착',
-  POST_DISCLOSURE_SURGE: '공시 이후 주가 급등',
-  DISCLOSURE_POSITIVE:   '호재성 공시 발표',
-  NEWS_POSITIVE:         '긍정적 뉴스 유입',
-  FOREIGN_BUY:           '외국인 순매수',
-  INST_BUY:              '기관 순매수',
-  OVERSOLD_REVERSAL:     '과매도 구간 반전',
-  GOLDEN_CROSS:          '골든크로스(단기 상향 돌파)',
-  LOW_PBR:               '저평가 가치주(PBR 기준)',
-  SECTOR_ROTATION:       '섹터 자금 이동',
-}
 
 function RecNarrative({ rec }: { rec: Recommendation }) {
   const evtType   = rec.rationale?.event_type
@@ -87,7 +46,7 @@ function RecNarrative({ rec }: { rec: Recommendation }) {
   const simReturn = rec.rationale?.avg_sim_return
   const atrBased  = rec.rationale?.atr_based ?? false
   const risks     = rec.rationale?.risk_factors ?? []
-  const evtName   = evtType ? (EVT_NAMES[evtType] || evtType) : null
+  const evtName   = evtType ? (EVENT_NAMES[evtType] || evtType) : null
   const B = ({ children }: { children: ReactNode }) => <strong className="font-bold text-[var(--fg)]">{children}</strong>
 
   const sentences: ReactNode[] = []
@@ -103,7 +62,14 @@ function RecNarrative({ rec }: { rec: Recommendation }) {
   }
   if (mlProb != null) {
     const pStr = (mlProb * 100).toFixed(1)
-    sentences.push(<span key="ml"> ML 모델의 원시 예측 확률은 <B>{pStr}%</B>{mlProb >= 0.35 ? '로, 학습 패턴 기반으로 상당히 높은 상승 신뢰도를 의미합니다.' : '입니다.'}</span>)
+    const mlDesc = mlProb >= 0.55
+      ? '로, 학습 패턴 기반으로 매우 높은 상승 신뢰도를 의미합니다.'
+      : mlProb >= 0.35
+        ? '로, 학습 패턴 기반으로 상승 가능성이 충분합니다.'
+        : mlProb >= 0.22
+          ? '로, 추천 최소 기준을 충족합니다.'
+          : '입니다.'
+    sentences.push(<span key="ml"> ML 모델의 원시 예측 확률은 <B>{pStr}%</B>{mlDesc}</span>)
   }
   if (simCount > 0 && simReturn != null) {
     const retSign = simReturn >= 0 ? '+' : ''
@@ -133,8 +99,9 @@ export function RecDetailModal({ rec, onClose, onGoDetail, compact = false }: Re
     : null
 
   const barColor =
-    rec.success_prob >= 0.7  ? 'bg-green-400' :
-    rec.success_prob >= 0.55 ? 'bg-orange-400' : 'bg-zinc-500'
+    rec.success_prob >= 0.55 ? 'bg-green-400' :
+    rec.success_prob >= 0.35 ? 'bg-orange-400' :
+    rec.success_prob >= 0.22 ? 'bg-yellow-500' : 'bg-zinc-500'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4" data-v="2" onClick={onClose}>
@@ -187,8 +154,9 @@ export function RecDetailModal({ rec, onClose, onGoDetail, compact = false }: Re
             </div>
             <div className={`flex justify-between text-[var(--muted)] ${compact ? 'mt-1.5 text-xs' : 'mt-2 text-sm'}`}>
               <span>0%</span>
-              <span className="text-orange-400 font-semibold">55%</span>
-              <span className="text-green-400 font-semibold">70%</span>
+              <span className="text-yellow-400 font-semibold">22%</span>
+              <span className="text-orange-400 font-semibold">35%</span>
+              <span className="text-green-400 font-semibold">55%</span>
               <span>100%</span>
             </div>
           </div>

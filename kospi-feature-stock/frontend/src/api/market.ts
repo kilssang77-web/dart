@@ -113,6 +113,46 @@ export interface EventPerformance {
   avg_pred_prob: number
 }
 
+export interface FeedbackStats {
+  total:          number
+  with_1d:        number
+  with_5d:        number
+  complete:       number
+  successes:      number
+  failures:       number
+  win_rate:       number | null
+  avg_r5d:        number | null
+  avg_r1d:        number | null
+  oldest:         string | null
+  newest:         string | null
+  feedback_ready: boolean
+}
+
+export interface RecJourneyItem {
+  id:               number
+  rec_id:           number | null
+  code:             string
+  name:             string
+  event_type:       string | null
+  signal_time:      string
+  entry_price:      number | null
+  target_price:     number | null
+  stop_loss_price:  number | null
+  success_prob:     number | null
+  r_close:  number | null
+  r_1h:     number | null
+  r_3h:     number | null
+  r_1d:     number | null
+  r_3d:     number | null
+  r_5d:     number | null
+  r_10d:    number | null
+  hit_target:        boolean
+  hit_stop:          boolean
+  is_success:        boolean | null
+  tracking_complete: boolean
+  max_return:        number | null
+}
+
 export interface ModelHistoryItem {
   id:         number
   model_type: string
@@ -183,6 +223,12 @@ export const marketApi = {
 
   getEventPerformance: (days = 90) =>
     http.get<EventPerformance[]>('/ml/event-performance', { params: { days } }).then((r) => r.data),
+
+  getRecommendationJourney: (params: { days?: number; event_type?: string; limit?: number } = {}) =>
+    http.get<RecJourneyItem[]>('/ml/recommendation-journey', { params }).then((r) => r.data),
+
+  getFeedbackStats: () =>
+    http.get<FeedbackStats>('/ml/feedback-stats').then((r) => r.data),
 
   getModelHistory: () =>
     http.get<ModelHistoryItem[]>('/ml/model-history').then((r) => r.data),

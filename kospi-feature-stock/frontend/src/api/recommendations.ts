@@ -64,6 +64,9 @@ export interface PerformanceSummary {
 }
 
 export const recommendationsApi = {
+  getById: (recId: number) =>
+    http.get<Recommendation>(`/recommendations/by-id/${recId}`).then((r) => r.data),
+
   list: (params?: { action?: string; market?: string; code?: string; min_prob?: number; hours?: number; limit?: number; dedupe?: boolean }) =>
     http.get<Recommendation[]>('/recommendations', { params }).then((r) => r.data),
 

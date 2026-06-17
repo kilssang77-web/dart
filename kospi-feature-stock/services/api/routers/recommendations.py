@@ -202,6 +202,32 @@ async def performance_summary(
     }
 
 
+@router.get("/by-id/{rec_id}", response_model=RecommendationResponse)
+async def get_by_id(rec_id: int, db: asyncpg.Pool = Depends(get_db)):
+    """rec_id(recommendations.id) 기준 단건 조회 — 추천 성과 추적 팝업용."""
+    from services.recommendation_service import _parse_json_fields
+    row = await db.fetchrow(
+        """
+        SELECT
+            r.id, (r.created_at AT TIME ZONE 'Asia/Seoul')::TEXT AS created_at, r.code,
+            COALESCE(s.name, r.code)                              AS name,
+            COALESCE(NULLIF(s.market, 'UNKNOWN'), '-')            AS market,
+            r.action,
+            r.entry_price, r.target_price, r.stop_loss_price,
+            r.success_prob, r.expected_return, r.risk_score,
+            r.risk_reward_ratio, r.expected_hold_days,
+            r.rationale, r.similar_cases
+        FROM recommendations r
+        LEFT JOIN stocks s ON s.code = r.code
+        WHERE r.id = $1
+        """,
+        rec_id,
+    )
+    if not row:
+        raise HTTPException(404, "No recommendation found")
+    return RecommendationResponse(**_parse_json_fields(dict(row)))
+
+
 @router.get("/{code}/signals", response_model=CodeSignalsResponse)
 async def code_signals(
     code:  str,

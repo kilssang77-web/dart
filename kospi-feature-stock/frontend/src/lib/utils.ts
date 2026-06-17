@@ -93,7 +93,8 @@ export function pctColor(v?: number | null) {
 
 export function probColor(v?: number | null) {
   if (v == null) return 'text-[var(--muted)]'
-  if (v >= 0.7)  return 'text-green-400'
-  if (v >= 0.55) return 'text-orange-400'
+  if (v >= 0.55) return 'text-green-400'
+  if (v >= 0.35) return 'text-orange-400'
+  if (v >= 0.22) return 'text-yellow-400'
   return 'text-[var(--muted)]'
 }

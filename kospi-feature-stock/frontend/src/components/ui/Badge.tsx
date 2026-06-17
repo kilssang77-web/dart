@@ -50,6 +50,38 @@ export const EVENT_LABELS: Record<string, string> = {
   OVERSOLD_REVERSAL:      '과매도 반전',
   FOREIGN_BUY:            '외국인 매수',
   INST_BUY:               '기관 매수',
+  DISCLOSURE_POSITIVE:    '호재 공시',
+  NEWS_POSITIVE:          '긍정 뉴스',
+  LOW_PBR:                '저PBR 가치주',
+  SECTOR_ROTATION:        '섹터 자금 이동',
+}
+
+// 서술형 이벤트 명칭 — AI 분석 해설, 내러티브 문장용
+export const EVENT_NAMES: Record<string, string> = {
+  VOLUME_SURGE:           '거래량 급증',
+  AMOUNT_SURGE:           '거래대금 급증',
+  PRICE_SURGE:            '가격 급등',
+  BREAKOUT:               '박스권 돌파',
+  BREAKOUT_52W:           '52주 신고가 돌파',
+  BREAKOUT_26W:           '26주 신고가 돌파',
+  BREAKOUT_13W:           '분기(13주) 신고가 돌파',
+  BREAKOUT_20D:           '20일 신고가 돌파',
+  VI_TRIGGERED:           '변동성 완화장치(VI) 발동',
+  LONG_WHITE_CANDLE:      '장대 양봉',
+  HAMMER_CANDLE:          '망치형 반전 신호',
+  MORNING_STAR:           '모닝스타(아침별) 패턴',
+  SUPPLY_ANOMALY:         '수급 이상 징후',
+  POST_DISCLOSURE_SURGE:  '공시 이후 주가 급등',
+  DISCLOSURE_POSITIVE:    '호재성 공시 발표',
+  NEWS_POSITIVE:          '긍정적 뉴스 유입',
+  FOREIGN_BUY:            '외국인 순매수',
+  INST_BUY:               '기관 순매수',
+  OVERSOLD_REVERSAL:      '과매도 구간 반전',
+  GOLDEN_CROSS:           '골든크로스(단기 상향 돌파)',
+  LOW_PBR:                '저평가 가치주(PBR 기준)',
+  SECTOR_ROTATION:        '섹터 자금 이동',
+  SHORT_SURGE:            '공매도 급증',
+  DUAL_BUY_STREAK:        '외인+기관 연속 매수',
 }
 
 interface BadgeProps {

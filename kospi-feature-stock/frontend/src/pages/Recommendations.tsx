@@ -5,7 +5,7 @@ import { clsx } from 'clsx'
 import { TrendingUp, Shield, Zap, Target, X, ChevronRight, AlertTriangle, BrainCircuit, ExternalLink, Info, AlertCircle, ChevronDown } from 'lucide-react'
 import { recommendationsApi } from '@/api/recommendations'
 import type { SignalItem } from '@/api/recommendations'
-import { Badge, ActionBadge, MarketBadge } from '@/components/ui/Badge'
+import { Badge, ActionBadge, MarketBadge, EVENT_NAMES } from '@/components/ui/Badge'
 import { StatCard, Card, CardBody } from '@/components/ui/Card'
 import { fmt, pctColor, probColor } from '@/lib/utils'
 import type { Recommendation } from '@/types'
@@ -20,32 +20,6 @@ function fmtSec(iso: string | null | undefined): string {
     const pad = (n: number) => String(n).padStart(2, '0')
     return `${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
   } catch { return iso.slice(0, 19).replace('T', ' ') }
-}
-
-// ── 이벤트 타입 한글명 ────────────────────────────────────────────────────────
-const EVT_NAMES: Record<string, string> = {
-  VOLUME_SURGE:          '거래량 급증',
-  AMOUNT_SURGE:          '거래대금 급증',
-  PRICE_SURGE:           '가격 급등',
-  BREAKOUT:              '박스권 돌파',
-  BREAKOUT_52W:          '52주 최고가 돌파',
-  BREAKOUT_26W:          '26주 최고가 돌파',
-  BREAKOUT_13W:          '분기(13주) 최고가 돌파',
-  BREAKOUT_20D:          '20일 최고가 돌파',
-  VI_TRIGGERED:          '변동성 완화장치(VI) 발동',
-  LONG_WHITE_CANDLE:     '장대 양봉 발생',
-  HAMMER_CANDLE:         '망치형 반전 신호',
-  MORNING_STAR:          '아침별(모닝스타) 패턴',
-  SUPPLY_ANOMALY:        '수급 이상 포착',
-  POST_DISCLOSURE_SURGE: '공시 이후 주가 급등',
-  DISCLOSURE_POSITIVE:   '호재성 공시 발표',
-  NEWS_POSITIVE:         '긍정적 뉴스 유입',
-  FOREIGN_BUY:           '외국인 순매수',
-  INST_BUY:              '기관 순매수',
-  OVERSOLD_REVERSAL:     '과매도 구간 반전',
-  GOLDEN_CROSS:          '골든크로스',
-  LOW_PBR:               '저평가 가치주',
-  SECTOR_ROTATION:       '섹터 자금 이동',
 }
 
 // ── 종합 추천 요약 섹션 ──────────────────────────────────────────────────────
@@ -228,11 +202,11 @@ function RecommendationNarrative({ signals }: { signals: SignalItem[] }) {
 
   // 2. 이벤트 원인 설명
   if (domEvt) {
-    const name = EVT_NAMES[domEvt] || domEvt
+    const name = EVENT_NAMES[domEvt] || domEvt
     if (topEvts.length === 1) {
       parts.push(`신호의 핵심 원인은 <b>${name}</b> 이벤트입니다.`)
     } else {
-      const others = topEvts.slice(1, 3).map(([et]) => EVT_NAMES[et] || et).join(', ')
+      const others = topEvts.slice(1, 3).map(([et]) => EVENT_NAMES[et] || et).join(', ')
       parts.push(`신호의 주요 원인은 <b>${name}</b>이며, ${others} 등 복합 요인이 동시에 감지되어 신뢰도를 높이고 있습니다.`)
     }
   }
@@ -367,7 +341,12 @@ function RecCard({
         <div className="flex items-start justify-between mb-3">
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-bold text-[0.9375rem] text-[var(--fg)]">{rec.name}</span>
+              <button
+                onClick={(e) => { e.stopPropagation(); onNav(rec.code) }}
+                className="font-bold text-[0.9375rem] text-[var(--fg)] hover:text-cyan-400 transition-colors text-left"
+              >
+                {rec.name}
+              </button>
               <MarketBadge market={rec.market} />
               {/* 신뢰도 등급 배지 */}
               {rec.rationale?.confidence_grade && (

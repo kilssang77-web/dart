@@ -18,23 +18,6 @@ import { Badge } from '@/components/ui/Badge'
 import { fmt, pctColor } from '@/lib/utils'
 import type { DailyBar } from '@/types'
 
-// ── 이벤트 타입 한글명 ──────────────────────────────────────────────────────────
-const EVT_LABEL: Record<string, string> = {
-  VOLUME_SURGE:          '거래량 급증',
-  AMOUNT_SURGE:          '거래대금 급증',
-  PRICE_SURGE:           '가격 급등',
-  BREAKOUT_52W:          '52주 신고가',
-  BREAKOUT_26W:          '26주 신고가',
-  BREAKOUT_13W:          '13주 신고가',
-  BREAKOUT_20D:          '20일 신고가',
-  VI_TRIGGERED:          'VI 발동',
-  LONG_WHITE_CANDLE:     '장대양봉',
-  HAMMER_CANDLE:         '망치형',
-  MORNING_STAR:          '아침별 패턴',
-  SUPPLY_ANOMALY:        '수급 이상',
-  POST_DISCLOSURE_SURGE: '공시 후 급등',
-}
-
 // ── 색상 팔레트 (유사사례 라인 구분) ──────────────────────────────────────────
 const COLORS = ['#22d3ee', '#a78bfa', '#fb923c', '#4ade80', '#f472b6', '#facc15']
 

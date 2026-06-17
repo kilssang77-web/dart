@@ -198,11 +198,14 @@ class AnalyzerService:
         raw_dt = data.get("disclosed_at", "")
         try:
             if raw_dt and len(raw_dt) == 8 and raw_dt.isdigit():
-                # DART 날짜 전용 포맷 fallback (disclosure_poller가 collected_at으로 덮어쓰지 못한 경우)
-                disclosed_dt = datetime.strptime(raw_dt, "%Y%m%d").replace(tzinfo=_KST_LOC)
+                # DART 날짜만 제공 — 정확한 시각 미상이므로 처리 시각 사용
+                disclosed_dt = datetime.now(_KST_LOC)
             elif raw_dt:
                 dt = datetime.fromisoformat(raw_dt)
                 disclosed_dt = dt if dt.tzinfo else dt.replace(tzinfo=_KST_LOC)
+                # 자정(00:00) 수집 시각: DART 시스템 공시 자정 게시 아티팩트 → 처리 시각 사용
+                if disclosed_dt.hour == 0 and disclosed_dt.minute == 0:
+                    disclosed_dt = datetime.now(_KST_LOC)
             else:
                 disclosed_dt = datetime.now(_KST_LOC)
         except Exception:
