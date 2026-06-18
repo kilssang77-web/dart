@@ -106,7 +106,7 @@ export default function StatisticsPage() {
   })
   const trendData = (overview?.monthly_trend ?? []).map((d) => ({
     label: `${d.year}-${String(d.month).padStart(2,'0')}`, 입찰수: d.bid_count,
-    낙찰율: d.avg_rate ? +(d.avg_rate * 100).toFixed(2) : null,
+    낙찰률: d.avg_rate ? +(d.avg_rate * 100).toFixed(2) : null,
   }))
   const regionChartData = regions.filter((r) => r.avg_rate !== null)
     .map((r) => ({ name: r.region_name, rate: +((r.avg_rate! * 100)).toFixed(2), count: r.bid_count })).slice(0, 12)
@@ -123,14 +123,14 @@ export default function StatisticsPage() {
 
   function handleCsvDownload() {
     if (tab === 'overview') {
-      const headers = ['발주처', '입찰건수', '평균낙찰률(%)', '평균경쟁사수']
+      const headers = ['발주기관', '입찰건수', '평균낙찰률(%)', '평균경쟁사수']
       const rows = [headers, ...(agencies as AgencyStatItem[]).map((a) => [
         a.agency_name,
         String(a.bid_count),
         a.avg_rate ? (a.avg_rate * 100).toFixed(2) : '',
         a.avg_competitor_count ? a.avg_competitor_count.toFixed(1) : '',
       ])]
-      downloadCsv(`발주처통계_${months}개월.csv`, rows)
+      downloadCsv(`발주기관통계_${months}개월.csv`, rows)
     } else if (tab === 'level1') {
       const headers = ['공종명', '입찰건수', '평균낙찰률(%)', '평균경쟁사수', '총금액']
       const rows = [headers, ...industries.map((ind) => [
@@ -266,7 +266,7 @@ export default function StatisticsPage() {
                         <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                           <TrendingUp className="h-4 w-4 text-blue-500" />월별 입찰 추이
                         </CardTitle>
-                        <span className="text-xs text-slate-500">입찰수 / 낙찰율(%)</span>
+                        <span className="text-xs text-slate-500">입찰수 / 낙찰률(%)</span>
                       </CardHeader>
                       <CardContent className="pt-4">
                         <ResponsiveContainer width="100%" height={220}>
@@ -277,7 +277,7 @@ export default function StatisticsPage() {
                             <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 12, fill: '#475569' }} unit="%" />
                             <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                             <Line yAxisId="l" type="monotone" dataKey="입찰수" stroke="#94a3b8" strokeWidth={1.5} dot={false} />
-                            <Line yAxisId="r" type="monotone" dataKey="낙찰율" stroke="#2563eb" strokeWidth={2} dot={false} />
+                            <Line yAxisId="r" type="monotone" dataKey="낙찰률" stroke="#2563eb" strokeWidth={2} dot={false} />
                           </LineChart>
                         </ResponsiveContainer>
                       </CardContent>

@@ -61,7 +61,7 @@ export default function AgenciesPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-slate-900 flex items-center gap-2">
-              <Building2 className="h-5 w-5 text-blue-600" />발주처 분석
+              <Building2 className="h-5 w-5 text-blue-600" />발주기관 분석
             </h1>
             <p className="text-sm text-slate-500 mt-0.5">발주기관별 입찰 패턴 · 사정율 분포 · 낙찰률 분석</p>
           </div>
@@ -121,11 +121,11 @@ export default function AgenciesPage() {
           ))}
         </div>
 
-        {/* 입찰공고 상위 발주처 TOP 10 */}
+        {/* 입찰공고 상위 발주기관 TOP 10 */}
         <Card className="bg-white border-slate-200 shadow-sm">
           <CardHeader className="border-b border-slate-100 pb-3 flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-              <BarChart3 className="h-4 w-4 text-blue-500" />입찰공고 상위 발주처
+              <BarChart3 className="h-4 w-4 text-blue-500" />입찰공고 상위 발주기관
             </CardTitle>
             <span className="text-xs text-slate-500">최근 24개월 기준 TOP 10</span>
           </CardHeader>

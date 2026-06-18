@@ -329,7 +329,7 @@ function AgencyPatternPanel({ pattern }: { pattern: AgencyYegaPattern }) {
     return (
       <Card className="border-amber-200 bg-amber-50/40 shadow-sm">
         <CardContent className="p-4 text-sm text-amber-700">
-          이 발주처의 최근 낙찰 데이터가 없습니다. 전체 분포를 참고하세요.
+          이 발주기관의 최근 낙찰 데이터가 없습니다. 전체 분포를 참고하세요.
         </CardContent>
       </Card>
     )
@@ -343,7 +343,7 @@ function AgencyPatternPanel({ pattern }: { pattern: AgencyYegaPattern }) {
       <CardHeader className="border-b border-indigo-100 pb-3">
         <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
           <Building2 className="h-4 w-4 text-indigo-600" />
-          발주처 특화 패턴 — 상위 번호 하이라이트
+          발주기관 특화 패턴 — 상위 번호 하이라이트
         </CardTitle>
         <div className="flex items-center gap-2 flex-wrap mt-1">
           <span className="text-xs text-slate-500">
@@ -501,15 +501,15 @@ export default function YegaPage() {
             <div className="space-y-1.5">
               <Label className="text-sm font-medium text-slate-700 flex items-center gap-1">
                 <Building2 className="h-3.5 w-3.5 text-slate-500" />
-                발주처
-                <span className="ml-1 text-xs text-slate-500 font-normal">(선택 — 발주처 특화 패턴 분석)</span>
+                발주기관
+                <span className="ml-1 text-xs text-slate-500 font-normal">(선택 — 발주기관 특화 패턴 분석)</span>
               </Label>
               <select
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 transition-colors"
                 value={agencyId ?? ''}
                 onChange={(e) => { setAgencyId(e.target.value ? Number(e.target.value) : undefined); setEnabled(false) }}
               >
-                <option value="">전체 (발주처 미선택)</option>
+                <option value="">전체 (발주기관 미선택)</option>
                 {agencyOptions.map((ag) => (
                   <option key={ag.id} value={ag.id}>{ag.name}</option>
                 ))}

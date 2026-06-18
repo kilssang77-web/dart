@@ -17,30 +17,37 @@ export interface Bid {
   industry_name: string | null
   region_name: string | null
   base_amount: number
+  estimated_price: number | null
   notice_date: string | null
   bid_open_date: string | null
+  bid_close_date: string | null
   status: string
   source: string | null
   winner_rate: number | null
   competitor_count: number
+  min_bid_rate: number | null
+  yega_method: string | null
+  contract_method: string | null
 }
 
 export interface BidDetail extends Bid {
   min_bid_rate: number | null
-  estimated_price: number | null
   a_value: number | null
   construction_period: number | null
   region_restriction: boolean
   ntce_url: string | null
-  // new fields
   construction_site: string | null
   contract_method: string | null
   bid_method: string | null
   eligible_regions: string | null
   industry_limit: string | null
-  bid_close_date: string | null
   contact_name: string | null
   contact_tel: string | null
+  yega_method: string | null
+  registration_deadline: string | null
+  preset_amount: number | null
+  yega_ratio: number | null
+  net_cost: number | null
   results: BidResultItem[]
 }
 
@@ -959,11 +966,24 @@ export interface SekihaiInfo {
   participants?: { rank: number; company_name: string; bid_rate: number | null; is_winner: boolean }[]
 }
 
+export interface InpoYegaItem {
+  yega_no: number
+  amount: number | null
+  base_ratio: number | null
+  base_ratio_pct: number | null
+  is_selected: boolean
+}
+
+export interface InpoYegaResponse {
+  items: InpoYegaItem[]
+}
+
 export interface RivalItem {
   company_name: string
   co_bid_count: number
   avg_bid_rate: number | null
   win_count: number
+  competitor_id: number | null
 }
 
 export interface RivalRadarResponse {
@@ -1502,5 +1522,108 @@ export interface CollusionScanResponse {
   days:          number
   flagged_count: number
   results:       CollusionResult[]
+}
+
+export interface ValidationResult {
+  id:                 number
+  run_at:             string | null
+  total:              number
+  wins:               number
+  actual_win_rate:    number | null
+  srate_mae:          number | null
+  calibration:        Record<string, number | null> | null
+  strategy_win_rates: Record<string, number> | null
+}
+
+export interface ValidationResultsResponse {
+  results:  ValidationResult[]
+  message?: string
+}
+
+export interface DefeatCauseStat {
+  cause:        string
+  count:        number
+  pct:          number
+  avg_gap_pct:  number | null
+  avg_rate_adj: number | null
+}
+
+export interface DefeatSummaryRecentItem {
+  id:             number
+  title:          string
+  bid_open_date:  string | null
+  submitted_rate: number | null
+  winner_rate:    number | null
+  gap_pct:        number | null
+}
+
+export interface DefeatSummaryResponse {
+  total_defeats:      number
+  by_cause:           DefeatCauseStat[]
+  avg_winner_gap_pct: number | null
+  avg_rate_adj:       number | null
+  recent:             DefeatSummaryRecentItem[]
+}
+
+export interface UpcomingOpening {
+  id: number
+  announcement_no: string
+  title: string
+  agency_name: string
+  industry_name: string
+  base_amount: number
+  bid_open_date: string
+  days_left: number
+  hours_left: number
+  urgency: 'today' | 'tomorrow' | 'soon' | 'normal' | 'past'
+  source: string
+}
+
+export interface UpcomingOpeningsResponse {
+  items: UpcomingOpening[]
+  total: number
+  days: number
+}
+
+export interface CompetitorPrediction {
+  company_name: string
+  biz_reg_no: string | null
+  total_bids: number
+  wins: number
+  win_rate: number
+  avg_rate_pct: number
+  std_pct: number | null
+  p10_pct: number | null
+  p25_pct: number | null
+  p50_pct: number | null
+  p75_pct: number | null
+  p90_pct: number | null
+  typical_range: [number, number] | null
+  aggression: 'aggressive' | 'conservative' | 'volatile' | 'balanced'
+  last_seen: string | null
+}
+
+export interface CompetitorPredictionResponse {
+  competitors: CompetitorPrediction[]
+  match_type: 'agency' | 'industry' | 'national' | 'none'
+  agency_name: string
+  industry_name: string
+  data_points: number
+}
+
+export interface JournalGapAnalysis {
+  summary: {
+    total: number
+    wins: number
+    win_rate: number
+    avg_abs_gap_pct: number | null
+    avg_signed_gap_pct: number | null
+    within_0_5pct: number
+    within_1pct: number
+    within_2pct: number
+  }
+  monthly: { month: string; total: number; wins: number; avg_gap: number | null }[]
+  histogram: { bucket_pct: number; count: number }[]
+  by_strategy: { strategy: string; total: number; wins: number; avg_gap: number | null }[]
 }
 

@@ -9,7 +9,7 @@ import {
   Sparkles, AlertCircle, Clock, Trophy, Target,
   TrendingUp, TrendingDown, ChevronRight, CheckCircle2,
   Building2, Calendar, Zap, BarChart2, Search, ListChecks, Plus,
-  BookOpen, ClipboardCheck,
+  BookOpen, ClipboardCheck, Crosshair,
 } from 'lucide-react'
 import { bidsApi, statsApi, selectionApi, kpiApi, executionsApi, journalApi } from '@/api'
 import type { BidRecommendItem, OverviewStatsWithChange, ExecutionSummary, JournalStats } from '@/types'
@@ -385,6 +385,14 @@ export default function TodayPage() {
                           <div className="flex flex-col gap-1 shrink-0">
                             <Button
                               size="sm"
+                              className="h-7 px-2.5 text-xs gap-1 bg-blue-600 hover:bg-blue-700 text-white"
+                              onClick={(e) => { e.stopPropagation(); navigate(`/decision?bid=${b.bid_id}`) }}
+                            >
+                              <Crosshair className="h-3 w-3" />
+                              AI 투찰 결정
+                            </Button>
+                            <Button
+                              size="sm"
                               variant="ghost"
                               className="h-7 px-2.5 text-xs gap-1 text-slate-500 hover:text-blue-600 hover:bg-blue-50"
                               onClick={(e) => { e.stopPropagation(); navigate(`/bids/${b.bid_id}?tab=strategy`) }}
@@ -660,7 +668,7 @@ export default function TodayPage() {
               </CardHeader>
               <CardContent className="px-3 pb-3 space-y-0.5">
                 {[
-                  { label: '오늘의 투찰 결정', path: '/decision',       icon: Target,     color: 'text-blue-600',   bg: 'bg-blue-50'    },
+                  { label: 'AI 투찰 결정',    path: '/decision',       icon: Crosshair,  color: 'text-blue-600',   bg: 'bg-blue-50'    },
                   { label: '투찰 이력 분석',   path: '/journal-history',icon: BookOpen,   color: 'text-amber-600',  bg: 'bg-amber-50'   },
                   { label: '투찰 관리',        path: '/executions',     icon: ListChecks, color: 'text-violet-500', bg: 'bg-violet-50'  },
                   { label: '경쟁사 분석',      path: '/competitors',    icon: Building2,  color: 'text-purple-500', bg: 'bg-purple-50'  },

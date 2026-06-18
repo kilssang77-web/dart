@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueries } from '@tanstack/react-query'
 import { Search, ChevronLeft, ChevronRight, Trophy, CheckSquare, Square, Target, Loader2, Users, ShieldAlert } from 'lucide-react'
 import {
@@ -33,10 +34,14 @@ interface WinRecord {
 }
 
 export default function CompetitorPage() {
+  const [searchParams] = useSearchParams()
   const [keyword, setKeyword] = useState('')
   const [search, setSearch]   = useState('')
   const [page, setPage]       = useState(1)
-  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [selectedId, setSelectedId] = useState<number | null>(() => {
+    const id = searchParams.get('id')
+    return id ? parseInt(id, 10) : null
+  })
   const [riskFilter, setRiskFilter] = useState('all')
   const [winnerOnly, setWinnerOnly] = useState(false)
   const [winsModalOpen, setWinsModalOpen] = useState(false)

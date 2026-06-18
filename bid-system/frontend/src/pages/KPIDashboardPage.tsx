@@ -231,7 +231,7 @@ export default function KPIDashboardPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-slate-900 flex items-center gap-2">
-              <BarChart2 className="h-5 w-5 text-blue-600" />수주율 KPI 대시보드
+              <BarChart2 className="h-5 w-5 text-blue-600" />KPI 대시보드
             </h1>
             <p className="text-sm text-slate-500 mt-0.5">
               {data?.snapshot_date || '—'} 기준 | 목표함수: Maximize(수주건수, 수주금액, 이익, 적격통과율)

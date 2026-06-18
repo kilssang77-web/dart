@@ -25,6 +25,10 @@ export const bidsApi = {
     region_id?: number
     date_from?: string
     date_to?: string
+    yega_method?: string
+    contract_method?: string
+    base_amount_min?: number
+    base_amount_max?: number
   }) =>
     api.get('/bids', { params }).then((r) => r.data),
   detail: (id: number) =>
@@ -65,6 +69,11 @@ export const bidsApi = {
     api.get(`/bids/${bidId}/best-rate`, { params: { period } }).then((r) => r.data),
   hotZones: (bidId: number, period: '12M' | '24M' | '48M' = '24M'): Promise<import('../types').HotZoneResponse> =>
     api.get(`/bids/${bidId}/hot-zones`, { params: { period } }).then((r) => r.data),
+
+  upcomingOpenings: (days = 7): Promise<import('../types').UpcomingOpeningsResponse> =>
+    api.get('/bids/upcoming-openings', { params: { days } }).then((r) => r.data),
+  yega: (bidId: number): Promise<import('../types').InpoYegaResponse> =>
+    api.get(`/bids/${bidId}/yega`).then((r) => r.data),
 }
 
 // -- 시장 인텔리전스 --------------------------------------------------
@@ -416,6 +425,9 @@ export const executionsApi = {
   defeatAnalysis: (id: number): Promise<import('../types').DefeatAnalysis | null> =>
     api.get(`/executions/${id}/defeat-analysis`).then((r) => r.data),
 
+  defeatSummary: (): Promise<import('../types').DefeatSummaryResponse> =>
+    api.get('/executions/defeat-summary').then((r) => r.data),
+
   importSucview: (file: File): Promise<import('../types').SucviewImportResult> => {
     const fd = new FormData()
     fd.append('file', file)
@@ -464,8 +476,11 @@ export const decisionApi = {
   winProbCurve: (bidId: number): Promise<import('../types').WinProbCurve> =>
     api.get(`/bids/${bidId}/win-prob-curve`).then((r) => r.data),
 
+  competitorPrediction: (bidId: number, topN = 15): Promise<import('../types').CompetitorPredictionResponse> =>
+    api.get(`/bids/${bidId}/competitor-prediction`, { params: { top_n: topN } }).then((r) => r.data),
+
   searchBids: (keyword: string, limit = 10) =>
-    api.get('/bids', { params: { keyword, page: 1, size: limit, sort_by: 'notice_date' } }).then((r) => r.data?.items ?? r.data),
+    api.get('/bids/search', { params: { q: keyword, limit } }).then((r) => r.data),
 }
 
 export const journalApi = {
@@ -483,4 +498,7 @@ export const journalApi = {
 
   pending: () =>
     api.get('/journal/pending').then((r) => r.data as { count: number; items: Record<string, unknown>[] }),
+
+  gapAnalysis: () =>
+    api.get('/journal/gap-analysis').then((r) => r.data as import('../types').JournalGapAnalysis),
 }

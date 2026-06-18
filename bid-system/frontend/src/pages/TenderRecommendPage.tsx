@@ -367,7 +367,7 @@ export default function TenderRecommendPage() {
                   (rec.evidence.personal_bias.rate_diff_mean * 100).toFixed(2) + '%p'
                 : '미적용'}
               sub={rec.evidence.personal_bias.applied
-                ? '투찰이력 기반 보정 반영됨'
+                ? '투찰 이력 기반 보정 반영됨'
                 : '이력 부족 (투찰 기록 쌓이면 정확도 향상)'}
               match={null}
             />

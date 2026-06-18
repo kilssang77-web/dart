@@ -230,6 +230,12 @@ export default function JournalHistoryPage() {
     staleTime: 60_000,
   })
 
+  const { data: gapData } = useQuery({
+    queryKey: ['journal-gap-analysis'],
+    queryFn: () => journalApi.gapAnalysis(),
+    staleTime: 60_000,
+  })
+
   const journals: JournalOut[] = (listData as { items?: JournalOut[] } | null)?.items ?? []
   const total: number = (listData as { total?: number } | null)?.total ?? 0
   const totalPages = Math.ceil(total / 20)
@@ -332,6 +338,122 @@ export default function JournalHistoryPage() {
             </div>
           )}
 
+          {/* 투찰 패턴 분석 — gap analysis */}
+          {gapData && gapData.summary.total > 0 && (
+            <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+              <div className="px-5 py-3 border-b bg-blue-50 flex items-center gap-2">
+                <BarChart2 className="w-4 h-4 text-blue-600" />
+                <span className="font-semibold text-sm text-blue-800">투찰 패턴 분석</span>
+                <span className="text-xs text-blue-600">— 우리 투찰 vs 낙찰자 거리</span>
+              </div>
+              <div className="p-5 space-y-5">
+                {/* 4대 지표 */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div className="text-center bg-gray-50 rounded-lg p-3">
+                    <div className="text-xs text-gray-400 mb-1">분석 건수</div>
+                    <div className="text-xl font-bold text-gray-800">{gapData.summary.total}건</div>
+                  </div>
+                  <div className="text-center bg-gray-50 rounded-lg p-3">
+                    <div className="text-xs text-gray-400 mb-1">낙찰자와 평균 거리</div>
+                    <div className={cn('text-xl font-bold font-mono', (gapData.summary.avg_abs_gap_pct ?? 0) > 5 ? 'text-red-600' : 'text-amber-600')}>
+                      {gapData.summary.avg_abs_gap_pct?.toFixed(1) ?? '-'}%
+                    </div>
+                  </div>
+                  <div className="text-center bg-gray-50 rounded-lg p-3">
+                    <div className="text-xs text-gray-400 mb-1">방향성 (낙찰자 대비)</div>
+                    <div className={cn('text-xl font-bold font-mono', (gapData.summary.avg_signed_gap_pct ?? 0) > 0 ? 'text-blue-600' : 'text-red-600')}>
+                      {gapData.summary.avg_signed_gap_pct != null ? (gapData.summary.avg_signed_gap_pct > 0 ? '+' : '') + gapData.summary.avg_signed_gap_pct.toFixed(1) + '%' : '-'}
+                    </div>
+                    <div className="text-xs text-gray-400 mt-0.5">
+                      {(gapData.summary.avg_signed_gap_pct ?? 0) > 0 ? '낙찰자 위에서 패찰' : '낙찰자 아래서 패찰'}
+                    </div>
+                  </div>
+                  <div className="text-center bg-gray-50 rounded-lg p-3">
+                    <div className="text-xs text-gray-400 mb-1">1% 이내 근접 투찰</div>
+                    <div className={cn('text-xl font-bold', gapData.summary.within_1pct > 0 ? 'text-emerald-600' : 'text-gray-400')}>
+                      {gapData.summary.within_1pct}건
+                    </div>
+                    <div className="text-xs text-gray-400 mt-0.5">아깝게 패찰</div>
+                  </div>
+                </div>
+
+                {/* Gap 분포 히스토그램 */}
+                <div>
+                  <div className="text-xs font-semibold text-gray-600 mb-2">낙찰자와의 거리 분포 (버킷: 1% 단위)</div>
+                  <div className="flex items-end gap-0.5 h-16 bg-gray-50 rounded-lg p-2">
+                    {gapData.histogram.map((b, i) => {
+                      const maxCnt = Math.max(...gapData.histogram.map(x => x.count), 1)
+                      const h = (b.count / maxCnt) * 100
+                      const isClose = i <= 1
+                      return (
+                        <div
+                          key={i}
+                          className="relative flex-1 group cursor-default"
+                          title={`${i}~${i+1}%: ${b.count}건`}
+                        >
+                          <div
+                            className={cn('w-full rounded-t transition-all', isClose ? 'bg-emerald-400' : i <= 4 ? 'bg-amber-300' : 'bg-red-300')}
+                            style={{ height: `${Math.max(h, b.count > 0 ? 4 : 0)}%` }}
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-400 mt-1">
+                    <span className="text-emerald-600">← 근접 (낙찰 가능)</span>
+                    <span>낙찰자와의 거리</span>
+                    <span className="text-red-500">멀수록 개선 필요 →</span>
+                  </div>
+                </div>
+
+                {/* 월별 추세 */}
+                {gapData.monthly.length > 1 && (
+                  <div>
+                    <div className="text-xs font-semibold text-gray-600 mb-2">월별 평균 gap 추세 (낮을수록 개선)</div>
+                    <div className="flex items-end gap-1 h-12">
+                      {gapData.monthly.map((m, i) => {
+                        const maxGap = Math.max(...gapData.monthly.map(x => x.avg_gap ?? 0), 1)
+                        const h = ((m.avg_gap ?? 0) / maxGap) * 100
+                        const isLatest = i === gapData.monthly.length - 1
+                        return (
+                          <div key={m.month} className="flex-1 flex flex-col items-center gap-0.5" title={`${m.month}: ${m.avg_gap?.toFixed(1)}% (${m.total}건)`}>
+                            <div
+                              className={cn('w-full rounded-t', isLatest ? 'bg-blue-500' : 'bg-gray-300')}
+                              style={{ height: `${Math.max(h, 4)}%` }}
+                            />
+                            <span className="text-xs text-gray-400 truncate w-full text-center" style={{ fontSize: '10px' }}>
+                              {m.month.slice(5)}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* 인사이트 메시지 */}
+                <div className={cn(
+                  'text-xs p-3 rounded-lg flex items-start gap-2',
+                  (gapData.summary.avg_abs_gap_pct ?? 0) > 10
+                    ? 'bg-red-50 text-red-700 border border-red-100'
+                    : (gapData.summary.avg_abs_gap_pct ?? 0) > 3
+                      ? 'bg-amber-50 text-amber-700 border border-amber-100'
+                      : 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                )}>
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    {(gapData.summary.avg_signed_gap_pct ?? 0) > 0
+                      ? `우리가 낙찰자보다 평균 ${gapData.summary.avg_abs_gap_pct?.toFixed(1)}% 높게 투찰 중. `
+                      : `우리가 낙찰자보다 평균 ${gapData.summary.avg_abs_gap_pct?.toFixed(1)}% 낮게 투찰 중. `}
+                    {(gapData.summary.avg_abs_gap_pct ?? 0) > 5
+                      ? 'AI 추천 투찰률 적극 활용으로 격차를 줄이세요.'
+                      : '현재 투찰 패턴이 안정적입니다. AI 추천을 참고해 정밀도를 높이세요.'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 목록 필터 */}
           <div className="flex items-center gap-3">
             <Filter className="w-4 h-4 text-gray-400" />
@@ -364,7 +486,7 @@ export default function JournalHistoryPage() {
           ) : journals.length === 0 ? (
             <div className="bg-white rounded-xl border p-16 text-center">
               <BookOpen className="w-10 h-10 text-gray-200 mx-auto mb-3" />
-              <div className="text-gray-400 text-sm">투찰 기록이 없습니다.<br />오늘의 투찰 결정 화면에서 투찰률을 기록해보세요.</div>
+              <div className="text-gray-400 text-sm">투찰 기록이 없습니다.<br />AI 투찰 결정 화면에서 투찰률을 기록해보세요.</div>
             </div>
           ) : (
             <div className="space-y-3">

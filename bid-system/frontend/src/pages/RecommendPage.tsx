@@ -785,7 +785,7 @@ export default function RecommendPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 border-t border-slate-100 pt-3 text-xs">
                     {srateDist.agency_stats && (
                       <div className="bg-blue-50 rounded-lg p-3 border border-blue-100">
-                        <p className="font-semibold text-blue-700 mb-1">이 발주처 기준</p>
+                        <p className="font-semibold text-blue-700 mb-1">이 발주기관 기준</p>
                         <p className="text-slate-700">평균 {(srateDist.agency_stats.mean * 100).toFixed(3)}%</p>
                         <p className="text-slate-500">편차 ±{(srateDist.agency_stats.std * 100).toFixed(3)}%</p>
                         <p className="text-slate-500">{srateDist.agency_stats.sample_count}건</p>
@@ -954,7 +954,7 @@ export default function RecommendPage() {
                       </CardTitle>
                       <span className="text-xs text-slate-500">
                         {srateDist?.agency_stats
-                          ? `이 발주처 기준 (${srateDist.agency_stats.sample_count}건)`
+                          ? `이 발주기관 기준 (${srateDist.agency_stats.sample_count}건)`
                           : srateDist?.global_stats
                           ? `전체 기준 (${srateDist.global_stats.sample_count}건)`
                           : ''}
@@ -1192,9 +1192,9 @@ export default function RecommendPage() {
               <CardContent className="p-5">
                 {savedBidId ? (
                   <div className="flex items-center justify-between">
-                    <p className="text-sm text-emerald-700">이력이 저장되었습니다. 결과 확인 후 투찰이력에서 낙찰 여부를 업데이트해 주세요.</p>
+                    <p className="text-sm text-emerald-700">이력이 저장되었습니다. 결과 확인 후 투찰 이력에서 낙찰 여부를 업데이트해 주세요.</p>
                     <Button size="sm" variant="outline" className="border-slate-200" onClick={() => navigate('/my-bids')}>
-                      투찰이력 보기
+                      투찰 이력 보기
                     </Button>
                   </div>
                 ) : (
@@ -1268,7 +1268,7 @@ export default function RecommendPage() {
             <div style={{ background: '#f8fafc', borderRadius: '5px', padding: '9px', marginBottom: '10px' }}>
               <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>공고 정보</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px', fontSize: '10px' }}>
-                <div>발주처: {agencySearch || '-'}</div>
+                <div>발주기관: {agencySearch || '-'}</div>
                 <div>기초금액: {Number(form.base_amount).toLocaleString('ko-KR')}원</div>
                 <div>공종: {meta?.industries.find(i => i.id === Number(form.industry_id))?.name || '-'}</div>
                 <div>지역: {meta?.regions.find(r => r.id === Number(form.region_id))?.name || '-'}</div>

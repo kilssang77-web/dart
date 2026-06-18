@@ -13,7 +13,7 @@ import type {
   BidDetail, FinalRecommendResult, RivalRadarResponse,
   SrateHistogramResponse, AgencyRecentResultsResponse,
   YegaFrequencyResult, OpportunityScore, ActualWinZonesResponse,
-  BidRangeResponse, MetaData, FinalRecommendStrategy,
+  BidRangeResponse, MetaData, FinalRecommendStrategy, InpoYegaResponse,
 } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -37,7 +37,7 @@ const fmtDate = (s: string | null) => (s ? s.slice(0, 10) : '-')
 
 const SCORE_LABELS: Record<string, string> = {
   competition:    '경쟁강도',
-  personal_track: '발주처 이력',
+  personal_track: '발주기관 이력',
   market_trend:   '시장 추세',
   amount_fit:     '금액 적합도',
 }
@@ -50,6 +50,12 @@ const SCORE_BAR_COLORS: Record<string, string> = {
 }
 
 function TabInfo({ bid, score }: { bid: BidDetail; score: OpportunityScore | undefined }) {
+  const { data: yegaData } = useQuery<InpoYegaResponse>({
+    queryKey: ['inpo-yega', bid.id],
+    queryFn: () => bidsApi.yega(bid.id),
+    enabled: bid.status === 'closed',
+  })
+
   const grade = score?.grade
   const gradeColor =
     grade === 'A' ? 'bg-emerald-500' :
@@ -71,7 +77,7 @@ function TabInfo({ bid, score }: { bid: BidDetail; score: OpportunityScore | und
               <dd className="font-mono text-xs text-slate-700 bg-slate-50 rounded px-2 py-1 inline-block">{bid.announcement_no}</dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-500 mb-0.5">발주처</dt>
+              <dt className="text-xs text-slate-500 mb-0.5">발주기관</dt>
               <dd className="font-medium text-slate-800">{bid.agency_name}</dd>
             </div>
             <div>
@@ -87,16 +93,46 @@ function TabInfo({ bid, score }: { bid: BidDetail; score: OpportunityScore | und
               <dd className="font-semibold text-slate-900">₩{fmt(bid.base_amount)}원</dd>
             </div>
             <div>
+              <dt className="text-xs text-slate-500 mb-0.5">추정가격</dt>
+              <dd className="font-medium text-slate-800">
+                {bid.estimated_price ? `₩${fmt(bid.estimated_price)}원` : '-'}
+              </dd>
+            </div>
+            {bid.a_value && (
+              <div>
+                <dt className="text-xs text-slate-500 mb-0.5">A값</dt>
+                <dd className="font-medium text-emerald-700">₩{fmt(bid.a_value)}원</dd>
+              </div>
+            )}
+            {bid.min_bid_rate && (
+              <div>
+                <dt className="text-xs text-slate-500 mb-0.5">낙찰하한율</dt>
+                <dd className="font-medium text-slate-800">{(bid.min_bid_rate * 100).toFixed(3)}%</dd>
+              </div>
+            )}
+            {bid.yega_method && (
+              <div>
+                <dt className="text-xs text-slate-500 mb-0.5">예가방법</dt>
+                <dd className="text-slate-700 text-xs">{bid.yega_method}</dd>
+              </div>
+            )}
+            <div>
               <dt className="text-xs text-slate-500 mb-0.5">공고일</dt>
               <dd className="text-slate-700">{fmtDate(bid.notice_date)}</dd>
+            </div>
+            {bid.registration_deadline && (
+              <div>
+                <dt className="text-xs text-slate-500 mb-0.5">참가등록마감</dt>
+                <dd className="text-slate-700">{fmtDate(bid.registration_deadline)}</dd>
+              </div>
+            )}
+            <div>
+              <dt className="text-xs text-slate-500 mb-0.5">투찰마감</dt>
+              <dd className="font-medium text-amber-700">{fmtDate(bid.bid_close_date)}</dd>
             </div>
             <div>
               <dt className="text-xs text-slate-500 mb-0.5">개찰일</dt>
               <dd className="font-medium text-slate-800">{fmtDate(bid.bid_open_date)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-slate-500 mb-0.5">마감일</dt>
-              <dd className="text-slate-700">{fmtDate(bid.bid_close_date)}</dd>
             </div>
             <div>
               <dt className="text-xs text-slate-500 mb-0.5">입찰방법</dt>
@@ -120,6 +156,24 @@ function TabInfo({ bid, score }: { bid: BidDetail; score: OpportunityScore | und
                 <dd className="text-slate-700">{bid.contact_name}{bid.contact_tel ? ` (${bid.contact_tel})` : ''}</dd>
               </div>
             )}
+            {bid.preset_amount != null && (
+              <div>
+                <dt className="text-xs text-slate-500 mb-0.5">낙찰예정가격</dt>
+                <dd className="font-semibold text-emerald-700">₩{fmt(bid.preset_amount)}원</dd>
+              </div>
+            )}
+            {bid.yega_ratio != null && (
+              <div>
+                <dt className="text-xs text-slate-500 mb-0.5">예가/기초비율</dt>
+                <dd className="font-medium text-slate-800">{bid.yega_ratio.toFixed(4)}%</dd>
+              </div>
+            )}
+            {bid.net_cost != null && (
+              <div>
+                <dt className="text-xs text-slate-500 mb-0.5">순공사원가</dt>
+                <dd className="font-medium text-slate-800">₩{fmt(bid.net_cost)}원</dd>
+              </div>
+            )}
           </dl>
           {bid.ntce_url && (
             <div className="mt-4 pt-3 border-t border-slate-100">
@@ -136,6 +190,49 @@ function TabInfo({ bid, score }: { bid: BidDetail; score: OpportunityScore | und
           )}
         </CardContent>
       </Card>
+
+      {yegaData && yegaData.items.length > 0 && (
+        <Card className="bg-white border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-slate-100 pb-3">
+            <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
+              <BarChart2 className="h-4 w-4 text-blue-600" />복수예가 목록
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-slate-50 hover:bg-slate-50 border-b border-slate-200">
+                  <TableHead className="text-sm text-slate-600 font-semibold">예가번호</TableHead>
+                  <TableHead className="text-sm text-right text-slate-600 font-semibold">예가금액</TableHead>
+                  <TableHead className="text-sm text-right text-slate-600 font-semibold">예가율</TableHead>
+                  <TableHead className="text-sm text-center text-slate-600 font-semibold">선택</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {yegaData.items.map((y) => (
+                  <TableRow key={y.yega_no} className={cn(
+                    'border-b border-slate-100 last:border-0',
+                    y.is_selected ? 'bg-blue-50' : 'hover:bg-slate-50'
+                  )}>
+                    <TableCell className="text-sm text-slate-700">{y.yega_no}</TableCell>
+                    <TableCell className="text-xs text-right font-mono text-slate-700">
+                      {y.amount != null ? `₩${fmt(y.amount)}원` : '-'}
+                    </TableCell>
+                    <TableCell className="text-xs text-right font-mono font-medium text-slate-900">
+                      {y.base_ratio_pct != null ? `${y.base_ratio_pct.toFixed(3)}%` : '-'}
+                    </TableCell>
+                    <TableCell className="text-center text-xs">
+                      {y.is_selected && (
+                        <Badge className="bg-blue-500 text-white text-xs px-1.5 py-0">선택</Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
       {score && score.grade && score.breakdown && (
         <Card className="bg-white border-slate-200 shadow-sm">
@@ -410,7 +507,7 @@ function TabStrategy({ bidId, bid }: { bidId: number; bid: BidDetail }) {
           <CardContent className="pt-4">
             <div className="flex gap-4 text-xs text-slate-500 mb-3">
               <span>표본 <strong className="text-slate-700">{winZones.sample_count}건</strong></span>
-              <span>평균 낙찰율 <strong className="text-slate-700">{fmtRate(winZones.mean_winner_rate)}</strong></span>
+              <span>평균 낙찰률 <strong className="text-slate-700">{fmtRate(winZones.mean_winner_rate)}</strong></span>
               {winZones.agency_name && <span className="text-slate-500">{winZones.agency_name}</span>}
             </div>
             <ResponsiveContainer width="100%" height={200}>
@@ -530,6 +627,7 @@ function TabQualification({ bid }: { bid: BidDetail }) {
 // ── TabCompetitors ───────────────────────────────────────────────────────
 
 function TabCompetitors({ bidId }: { bidId: number }) {
+  const navigate = useNavigate()
   const { data: radar, isLoading } = useQuery<RivalRadarResponse>({
     queryKey: ['rival-radar', bidId],
     queryFn: () => bidsApi.rivalRadar(bidId, 15),
@@ -545,7 +643,7 @@ function TabCompetitors({ bidId }: { bidId: number }) {
           <div className="absolute top-0 left-0 right-0 h-0.5 bg-blue-500" />
           <CardContent className="pt-4 pb-4 text-center">
             <p className="text-xs text-slate-500 mb-1">총 참여업체</p>
-            <p className="text-2xl font-bold text-slate-900 tabular-nums">{radar.total_participants}</p>
+            <p className="text-2xl font-bold text-slate-900 tabular-nums">{radar.total_participants ?? 0}</p>
           </CardContent>
         </Card>
         <Card className="relative overflow-hidden bg-white border-slate-200 shadow-sm">
@@ -558,7 +656,7 @@ function TabCompetitors({ bidId }: { bidId: number }) {
         <Card className="relative overflow-hidden bg-white border-slate-200 shadow-sm">
           <div className="absolute top-0 left-0 right-0 h-0.5 bg-amber-500" />
           <CardContent className="pt-4 pb-4 text-center">
-            <p className="text-xs text-slate-500 mb-1">낙찰율</p>
+            <p className="text-xs text-slate-500 mb-1">낙찰률</p>
             <p className="text-xl font-bold text-slate-900 tabular-nums">
               {radar.winner_rate != null ? fmtRate(radar.winner_rate) : '-'}
             </p>
@@ -589,7 +687,11 @@ function TabCompetitors({ bidId }: { bidId: number }) {
                   const winRate = r.co_bid_count > 0 ? r.win_count / r.co_bid_count : 0
                   const risk = winRate > 0.3 ? 'HIGH' : winRate > 0.15 ? 'MEDIUM' : 'LOW'
                   return (
-                    <TableRow key={r.company_name} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
+                    <TableRow
+                      key={r.company_name}
+                      className={cn('border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors', r.competitor_id ? 'cursor-pointer' : '')}
+                      onClick={() => r.competitor_id && navigate(`/competitors?id=${r.competitor_id}`)}
+                    >
                       <TableCell className="text-sm font-medium text-slate-800">{r.company_name}</TableCell>
                       <TableCell className="text-xs text-right text-slate-600">{r.co_bid_count}건</TableCell>
                       <TableCell className="text-xs text-right font-mono text-slate-700">
@@ -617,7 +719,7 @@ function TabCompetitors({ bidId }: { bidId: number }) {
         </Card>
       )}
 
-      {radar.current_participants.length > 0 && (
+      {(radar.current_participants ?? []).length > 0 && (
         <Card className="bg-white border-slate-200 shadow-sm">
           <CardHeader className="border-b border-slate-100 pb-3">
             <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
@@ -635,7 +737,7 @@ function TabCompetitors({ bidId }: { bidId: number }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {radar.current_participants.map((p, i) => (
+                {(radar.current_participants ?? []).map((p, i) => (
                   <TableRow key={i} className={cn(
                     'border-b border-slate-100 last:border-0',
                     p.is_winner ? 'bg-emerald-50' : 'hover:bg-slate-50'
@@ -674,7 +776,7 @@ function TabAgency({ agencyId, agencyName }: { agencyId: number | undefined; age
   })
 
   if (agencyId == null) {
-    return <div className="text-sm text-slate-500 p-4">발주처 ID를 찾을 수 없습니다.</div>
+    return <div className="text-sm text-slate-500 p-4">발주기관 ID를 찾을 수 없습니다.</div>
   }
 
   return (
@@ -1009,7 +1111,7 @@ export default function BidDetailPage() {
                 경쟁사
               </TabsTrigger>
               <TabsTrigger value="agency" className="text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-blue-600">
-                발주처분석
+                발주기관분석
               </TabsTrigger>
               <TabsTrigger value="yega" className="text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-blue-600">
                 예가분석

@@ -96,7 +96,7 @@ export default function RivalRadarPage() {
             color="amber"
           />
           <StatCard
-            label="낙찰율"
+            label="낙찰률"
             value={data.winner_rate ? (data.winner_rate * 100).toFixed(3) + '%' : '-'}
             sub="낙찰 투찰률"
             icon={TrendingUp}

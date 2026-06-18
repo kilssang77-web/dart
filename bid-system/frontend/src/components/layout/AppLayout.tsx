@@ -7,7 +7,7 @@ import {
   ShieldAlert, LogOut, Bell, PanelLeftClose, PanelLeftOpen,
   Activity, Target, Briefcase, LayoutDashboard, PieChart,
   ChevronRight, ChevronDown, ListChecks, FlaskConical,
-  BookOpen, Crosshair, ClipboardCheck, BarChart3,
+  BookOpen, ClipboardCheck, BarChart3,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { authApi, notificationsApi } from '@/api'
@@ -22,25 +22,24 @@ const NAV_GROUPS = [
   {
     label: '핵심 업무',
     items: [
-      { to: '/decision',  label: '투찰 결정 (AI)', icon: Crosshair },
       { to: '/dashboard', label: '대시보드',        icon: LayoutDashboard },
-      { to: '/kpi-dashboard', label: 'KPI 분석',     icon: Activity },
+      { to: '/kpi-dashboard', label: 'KPI 대시보드',  icon: Activity },
     ],
   },
   {
     label: '공고 관리',
     items: [
-      { to: '/bids',          label: '입찰공고 검색', icon: Search },
+      { to: '/bids',          label: '공고센터',       icon: Search },
       { to: '/bid-selection', label: '공고 선별',     icon: Target },
-      { to: '/executions',    label: '투찰 관리',     icon: ListChecks },
+      { to: '/executions',    label: '투찰 실행 관리', icon: ListChecks },
     ],
   },
   {
     label: 'AI 분석',
     items: [
       { to: '/competitors', label: '경쟁사 분석', icon: Users },
-      { to: '/yega',        label: '예가 분석',   icon: TrendingUp },
-      { to: '/backtest',    label: '백테스트',    icon: FlaskConical },
+      { to: '/yega',        label: '예가 빈도 분석', icon: TrendingUp },
+      { to: '/backtest',    label: '백테스트 엔진', icon: FlaskConical },
     ],
   },
   {
@@ -48,13 +47,13 @@ const NAV_GROUPS = [
     items: [
       { to: '/journal-history', label: '투찰 이력 분석', icon: ClipboardCheck },
       { to: '/statistics',      label: '통계 분석',      icon: PieChart },
-      { to: '/performance',     label: '수주 현황',      icon: BarChart3 },
+      { to: '/performance',     label: '성과센터',       icon: BarChart3 },
     ],
   },
 ]
 
 const ADMIN_ITEMS = [
-  { to: '/keywords',        label: '키워드 설정',   icon: KeyRound },
+  { to: '/keywords',        label: '키워드 관리',   icon: KeyRound },
   { to: '/company-profile', label: '회사 프로파일', icon: Briefcase },
 ]
 

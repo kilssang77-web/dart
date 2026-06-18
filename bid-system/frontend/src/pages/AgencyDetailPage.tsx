@@ -225,7 +225,7 @@ export default function AgencyDetailPage() {
               <h1 className="text-base font-semibold text-slate-900 leading-tight">
                 {agency?.name ?? `기관 #${agencyId}`}
               </h1>
-              <p className="text-xs text-slate-500">발주처 심층 분석</p>
+              <p className="text-xs text-slate-500">발주기관 심층 분석</p>
             </div>
           </div>
           {agencyStat && agencyStat.bid_count >= 100 && (
@@ -1031,7 +1031,7 @@ export default function AgencyDetailPage() {
                         <Tooltip
                           contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: 12 }}
                           formatter={(v: number, name: string) =>
-                            name === 'win_rate' ? [`${v}%`, '낙찰율'] : [v.toLocaleString() + '건', name === 'count' ? '전체' : '낙찰']
+                            name === 'win_rate' ? [`${v}%`, '낙찰률'] : [v.toLocaleString() + '건', name === 'count' ? '전체' : '낙찰']
                           }
                           labelFormatter={(l) => `${l}%~`}
                         />
@@ -1064,7 +1064,7 @@ export default function AgencyDetailPage() {
                               </div>
                               <div className="text-xs text-slate-500">{b.count}건 / 낙찰 {b.win_count}건</div>
                               {b.win_rate > 0 && (
-                                <div className="text-xs text-blue-600 font-medium">{(b.win_rate * 100).toFixed(0)}% 낙찰율</div>
+                                <div className="text-xs text-blue-600 font-medium">{(b.win_rate * 100).toFixed(0)}% 낙찰률</div>
                               )}
                             </div>
                           ))}

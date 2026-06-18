@@ -181,7 +181,7 @@ export default function JointSimPage() {
                       </span>
                     </span>
                     <span className="text-xs text-slate-500">
-                      발주처 <span className="font-semibold text-slate-700">{bid.agency_name}</span>
+                      발주기관 <span className="font-semibold text-slate-700">{bid.agency_name}</span>
                     </span>
                   </div>
                 </div>

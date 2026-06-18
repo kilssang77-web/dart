@@ -336,7 +336,7 @@ function TabHistory({ navigate }: { navigate: ReturnType<typeof useNavigate> }) 
       {/* 자세히 보기 링크 */}
       <div className="flex justify-end">
         <Button variant="outline" size="sm" className="border-slate-200 text-slate-600" onClick={() => navigate('/my-bids')}>
-          전체 투찰이력 보기
+          전체 투찰 이력 보기
         </Button>
       </div>
 
@@ -525,17 +525,17 @@ function TabDefeat({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
         </Card>
       )}
 
-      {/* 발주처별 패찰 */}
+      {/* 발주기관별 패찰 */}
       {agency_breakdown && agency_breakdown.length > 0 && (
         <Card className="bg-white border-slate-200 shadow-sm">
           <CardHeader className="pb-2 pt-4 px-5">
-            <CardTitle className="text-sm font-semibold text-slate-800">발주처별 패찰 현황</CardTitle>
+            <CardTitle className="text-sm font-semibold text-slate-800">발주기관별 패찰 현황</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50">
-                  <TableHead className="text-sm text-slate-500">발주처</TableHead>
+                  <TableHead className="text-sm text-slate-500">발주기관</TableHead>
                   <TableHead className="text-center text-sm text-slate-500">패찰건</TableHead>
                   <TableHead className="text-right text-sm text-slate-500">평균 이탈</TableHead>
                   <TableHead className="text-right text-sm text-slate-500">이탈 방향</TableHead>

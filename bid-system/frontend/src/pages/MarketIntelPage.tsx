@@ -78,11 +78,11 @@ export default function MarketIntelPage() {
       </div>
 
       <div className="flex-1 p-6 max-w-[1440px] mx-auto w-full space-y-5">
-        {/* 발주처 낙찰율 분포 차트 카드 */}
+        {/* 발주기관 낙찰률 분포 차트 카드 */}
         <Card className="bg-white border-slate-200 shadow-sm">
           <CardHeader className="border-b border-slate-100 pb-3 flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-              <Building2 className="h-4 w-4 text-blue-500" />발주처별 낙찰율 분포
+              <Building2 className="h-4 w-4 text-blue-500" />발주기관별 낙찰률 분포
               <span className="text-xs font-normal text-slate-500">상위 20사</span>
             </CardTitle>
             <span className="text-xs text-slate-500">최근 {months}개월</span>
@@ -103,22 +103,22 @@ export default function MarketIntelPage() {
                   <YAxis tick={{ fontSize: 12, fill: '#475569' }} unit="%" domain={['auto', 'auto']} />
                   <Tooltip
                     contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                    formatter={(v: number) => [v + '%', '평균 낙찰율']}
-                    labelFormatter={(l: string) => `발주처: ${l}`}
+                    formatter={(v: number) => [v + '%', '평균 낙찰률']}
+                    labelFormatter={(l: string) => `발주기관: ${l}`}
                   />
-                  <Bar dataKey="avg" fill="#2563eb" fillOpacity={0.8} radius={[4, 4, 0, 0]} name="평균 낙찰율" />
+                  <Bar dataKey="avg" fill="#2563eb" fillOpacity={0.8} radius={[4, 4, 0, 0]} name="평균 낙찰률" />
                 </BarChart>
               </ResponsiveContainer>
             )}
           </CardContent>
         </Card>
 
-        {/* 발주처 상세 테이블 */}
+        {/* 발주기관 상세 테이블 */}
         {!loadingHeatmap && heatmap && heatmap.agencies.length > 0 && (
           <Card className="bg-white border-slate-200 shadow-sm">
             <CardHeader className="border-b border-slate-100 pb-3 flex flex-row items-center justify-between">
               <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                <Building2 className="h-4 w-4 text-blue-500" />발주처 낙찰 상세
+                <Building2 className="h-4 w-4 text-blue-500" />발주기관 낙찰 상세
               </CardTitle>
               <span className="text-xs text-slate-500">
                 {selectedAgency ? (
@@ -135,9 +135,9 @@ export default function MarketIntelPage() {
                   <TableHeader className="bg-slate-50">
                     <TableRow>
                       <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide w-8">#</TableHead>
-                      <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide">발주처</TableHead>
+                      <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide">발주기관</TableHead>
                       <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">낙찰건수</TableHead>
-                      <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">평균 낙찰율</TableHead>
+                      <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">평균 낙찰률</TableHead>
                       <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">Q1 (25%)</TableHead>
                       <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">Q3 (75%)</TableHead>
                       <TableHead className="font-semibold text-slate-600 text-sm uppercase tracking-wide text-right">범위</TableHead>
@@ -184,11 +184,11 @@ export default function MarketIntelPage() {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {/* 월별 낙찰율 추세 */}
+          {/* 월별 낙찰률 추세 */}
           <Card className="bg-white border-slate-200 shadow-sm">
             <CardHeader className="border-b border-slate-100 pb-3 flex flex-row items-center justify-between">
               <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-blue-500" />월별 낙찰율 추세
+                <TrendingUp className="h-4 w-4 text-blue-500" />월별 낙찰률 추세
                 {selectedAgency && (
                   <Badge variant="secondary" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
                     {selectedAgency.slice(0, 10)}
@@ -213,7 +213,7 @@ export default function MarketIntelPage() {
                     <YAxis tick={{ fontSize: 12, fill: '#475569' }} unit="%" domain={['auto', 'auto']} />
                     <Tooltip
                       contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
-                      formatter={(v: number) => [v + '%', '평균 낙찰율']}
+                      formatter={(v: number) => [v + '%', '평균 낙찰률']}
                     />
                     <Line
                       type="monotone"
@@ -310,7 +310,7 @@ export default function MarketIntelPage() {
           <Card className="bg-white border-slate-200 shadow-sm">
             <CardHeader className="border-b border-slate-100 pb-3 flex flex-row items-center justify-between">
               <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                <BarChart3 className="h-4 w-4 text-blue-500" />발주처 낙찰율 범위 분포
+                <BarChart3 className="h-4 w-4 text-blue-500" />발주기관 낙찰률 범위 분포
                 <span className="text-xs font-normal text-slate-500">Q1 ~ Q3 박스플롯</span>
               </CardTitle>
               <span className="text-xs text-slate-500">최근 {months}개월</span>

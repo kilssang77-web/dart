@@ -56,7 +56,7 @@ export default function App() {
             </PrivateRoute>
           }
         >
-          <Route index element={<Navigate to="/decision" replace />} />
+          <Route index element={<Navigate to="/bids" replace />} />
           <Route path="dashboard"    element={<DashboardPage />} />
           <Route path="today"        element={<TodayPage />} />
           <Route path="performance"  element={<PerformancePage />} />

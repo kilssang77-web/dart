@@ -1,12 +1,13 @@
 import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import {
   ClipboardList, Plus, Upload, CheckCircle2, XCircle, Clock, Trophy,
   AlertTriangle, SkipForward, Loader2, ChevronDown, ChevronUp, RefreshCw,
-  Search, Filter, X, FileText, LayoutList, LayoutGrid,
+  Search, Filter, X, FileText, LayoutList, LayoutGrid, Bell, Zap, ChevronRight,
 } from 'lucide-react'
-import { executionsApi } from '../api'
-import type { BidExecution, ExecutionStatus } from '../types'
+import { executionsApi, bidsApi } from '../api'
+import type { BidExecution, ExecutionStatus, DefeatCauseStat, DefeatSummaryRecentItem, UpcomingOpening } from '../types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -97,6 +98,149 @@ function SummaryBar() {
   )
 }
 
+// ── 개찰 임박 공고 패널 ──────────────────────────────────────
+
+const URGENCY_META = {
+  today:    { label: 'D-Day', bg: 'bg-red-50',    border: 'border-red-300',    badge: 'bg-red-500 text-white',       dot: 'bg-red-500',    pulse: true  },
+  tomorrow: { label: 'D-1',   bg: 'bg-orange-50', border: 'border-orange-300', badge: 'bg-orange-400 text-white',    dot: 'bg-orange-400', pulse: false },
+  soon:     { label: 'D-2~3', bg: 'bg-yellow-50', border: 'border-yellow-300', badge: 'bg-yellow-400 text-white',    dot: 'bg-yellow-400', pulse: false },
+  normal:   { label: '',      bg: 'bg-gray-50',   border: 'border-gray-200',   badge: 'bg-gray-300 text-gray-700',   dot: 'bg-gray-300',   pulse: false },
+  past:     { label: '지남',  bg: 'bg-gray-50',   border: 'border-gray-200',   badge: 'bg-gray-300 text-gray-500',   dot: 'bg-gray-300',   pulse: false },
+}
+
+function UpcomingOpeningsPanel() {
+  const navigate = useNavigate()
+  const [days, setDays] = useState(7)
+  const [collapsed, setCollapsed] = useState(false)
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['upcoming-openings', days],
+    queryFn: () => bidsApi.upcomingOpenings(days),
+    staleTime: 3 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+  })
+
+  const items = data?.items ?? []
+  const todayCount  = items.filter((i) => i.urgency === 'today').length
+  const urgentCount = items.filter((i) => ['today', 'tomorrow'].includes(i.urgency)).length
+
+  const fmtAmt = (n: number) => n > 0 ? Math.round(n / 10000).toLocaleString() + '만' : '-'
+  const dLabel = (item: UpcomingOpening) => {
+    if (item.urgency === 'today') return item.hours_left > 0 ? `${item.hours_left}시간 후` : 'D-Day'
+    if (item.urgency === 'tomorrow') return 'D-1'
+    return `D-${item.days_left}`
+  }
+
+  return (
+    <Card className={cn('border-2 transition-colors', urgentCount > 0 ? 'border-red-200' : 'border-gray-200')}>
+      <CardHeader className="py-3 px-4">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Bell className={cn('h-4 w-4', urgentCount > 0 ? 'text-red-500' : 'text-gray-400')} />
+            개찰 임박 공고
+            {urgentCount > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-red-500 text-white">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
+                </span>
+                {urgentCount}건 긴급
+              </span>
+            )}
+            {todayCount > 0 && (
+              <span className="text-xs text-red-600 font-normal">오늘 개찰 {todayCount}건!</span>
+            )}
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            <select
+              value={days}
+              onChange={(e) => setDays(Number(e.target.value))}
+              className="text-xs border rounded px-2 py-1 text-gray-600 bg-white"
+            >
+              {[3, 5, 7, 14].map((d) => (
+                <option key={d} value={d}>D+{d}까지</option>
+              ))}
+            </select>
+            <button
+              onClick={() => setCollapsed((c) => !c)}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
+      </CardHeader>
+
+      {!collapsed && (
+        <CardContent className="pt-0 px-4 pb-4">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
+            </div>
+          ) : items.length === 0 ? (
+            <div className="text-center py-6 text-sm text-gray-400">
+              향후 {days}일 내 개찰 공고 없음
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {items.map((item) => {
+                const meta = URGENCY_META[item.urgency] ?? URGENCY_META.normal
+                return (
+                  <div
+                    key={item.id}
+                    className={cn(
+                      'flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-shadow hover:shadow-sm',
+                      meta.bg, meta.border
+                    )}
+                  >
+                    {/* D-day 뱃지 */}
+                    <div className={cn('shrink-0 w-14 text-center py-1 rounded-md text-xs font-bold', meta.badge)}>
+                      {dLabel(item)}
+                    </div>
+
+                    {/* 공고 정보 */}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-gray-800 truncate">{item.title}</div>
+                      <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5 flex-wrap">
+                        <span className="truncate max-w-[160px]">{item.agency_name}</span>
+                        {item.industry_name && <span className="text-gray-400">· {item.industry_name}</span>}
+                        {item.base_amount > 0 && <span className="text-blue-600 font-medium">{fmtAmt(item.base_amount)}</span>}
+                        <span className="text-gray-400 font-mono">{item.bid_open_date.slice(0, 16).replace('T', ' ')}</span>
+                      </div>
+                    </div>
+
+                    {/* AI 투찰 결정 버튼 */}
+                    <button
+                      onClick={() => navigate(`/decision?bid=${item.id}`)}
+                      className={cn(
+                        'shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all',
+                        item.urgency === 'today'
+                          ? 'bg-red-600 text-white hover:bg-red-700'
+                          : item.urgency === 'tomorrow'
+                          ? 'bg-orange-500 text-white hover:bg-orange-600'
+                          : 'bg-blue-600 text-white hover:bg-blue-700'
+                      )}
+                    >
+                      <Zap className="h-3 w-3" />
+                      AI 투찰 결정
+                    </button>
+                  </div>
+                )
+              })}
+
+              {items.length >= 50 && (
+                <div className="text-center text-xs text-gray-400 pt-1">
+                  상위 50건 표시. 기간을 줄이면 더 정밀하게 확인할 수 있습니다.
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      )}
+    </Card>
+  )
+}
+
 // ── 업로드 버튼 ──────────────────────────────────────────────
 
 function UploadButton({
@@ -174,7 +318,7 @@ function KanbanCard({
           <div className="text-blue-600 font-medium">투찰 {fmtRate(exec.submitted_rate)}</div>
         )}
         {exec.status === '낙찰' && exec.winner_rate != null && (
-          <div className="text-green-600 font-medium">낙찰율 {fmtRate(exec.winner_rate)}</div>
+          <div className="text-green-600 font-medium">낙찰률 {fmtRate(exec.winner_rate)}</div>
         )}
         {exec.status === '패찰' && exec.winner_rate != null && (
           <div className="text-red-500">낙찰자 {fmtRate(exec.winner_rate)}</div>
@@ -371,7 +515,7 @@ function ExecutionRow({
                   <div className="truncate">{exec.winner_name ?? '-'}</div>
                 </div>
                 <div>
-                  <div className="text-sm text-muted-foreground">낙찰율</div>
+                  <div className="text-sm text-muted-foreground">낙찰률</div>
                   <div>{fmtRate(exec.winner_rate)}</div>
                 </div>
                 <div>
@@ -544,6 +688,7 @@ export default function ExecutionsPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [showNew, setShowNew] = useState(false)
   const [importMsg, setImportMsg] = useState<string | null>(null)
+  const [showDefeat, setShowDefeat] = useState(false)
 
   // 칸반 모드는 항상 전체 조회, 목록 모드는 필터 적용
   const { data, isLoading } = useQuery({
@@ -582,6 +727,12 @@ export default function ExecutionsPage() {
       qc.invalidateQueries({ queryKey: ['executions-summary'] })
     },
     onError: () => setImportMsg('업로드 실패. xlsx/xls 파일을 확인해주세요.'),
+  })
+
+  const { data: defeatData } = useQuery({
+    queryKey: ['defeat-summary'],
+    queryFn: () => executionsApi.defeatSummary(),
+    staleTime: 5 * 60 * 1000,
   })
 
   const items = data?.items ?? []
@@ -647,6 +798,87 @@ export default function ExecutionsPage() {
 
       {/* 요약 */}
       <SummaryBar />
+
+      {/* 개찰 임박 공고 */}
+      <UpcomingOpeningsPanel />
+
+      {/* 패찰 분석 리포트 (P4-1) */}
+      {defeatData && defeatData.total_defeats > 0 && (
+        <Card className="border-red-100 bg-red-50/40">
+          <CardHeader className="pb-2 pt-3 px-4">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-semibold text-red-700 flex items-center gap-2">
+                <XCircle className="h-4 w-4" />
+                패찰 원인 분석 ({defeatData.total_defeats}건)
+                {defeatData.avg_winner_gap_pct !== null && (
+                  <span className="text-xs font-normal text-red-500 ml-1">
+                    평균 gap {defeatData.avg_winner_gap_pct > 0 ? '+' : ''}{defeatData.avg_winner_gap_pct.toFixed(2)}%p
+                  </span>
+                )}
+              </CardTitle>
+              <button
+                onClick={() => setShowDefeat(!showDefeat)}
+                className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
+              >
+                {showDefeat ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                {showDefeat ? '접기' : '펼치기'}
+              </button>
+            </div>
+            {/* 원인별 bar */}
+            <div className="flex gap-2 mt-2 flex-wrap">
+              {defeatData.by_cause.map((c: DefeatCauseStat) => (
+                <span key={c.cause} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200">
+                  {c.cause} <span className="font-semibold">{c.count}건 ({c.pct}%)</span>
+                </span>
+              ))}
+            </div>
+          </CardHeader>
+
+          {showDefeat && (
+            <CardContent className="px-4 pb-3 pt-0 space-y-3">
+              {/* 원인별 상세 */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {defeatData.by_cause.map((c: DefeatCauseStat) => (
+                  <div key={c.cause} className="rounded-lg border border-red-200 bg-white p-3">
+                    <div className="font-semibold text-red-700 text-sm">{c.cause}</div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      {c.count}건 · {c.pct}%
+                      {c.avg_gap_pct !== null && ` · 평균 gap ${c.avg_gap_pct > 0 ? '+' : ''}${c.avg_gap_pct.toFixed(2)}%p`}
+                    </div>
+                    {c.avg_rate_adj !== null && c.avg_rate_adj !== 0 && (
+                      <div className={cn('text-xs mt-1 font-medium', c.avg_rate_adj < 0 ? 'text-blue-600' : 'text-slate-500')}>
+                        권장 조정: {c.avg_rate_adj > 0 ? '+' : ''}{(c.avg_rate_adj * 100).toFixed(2)}%p
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* 최근 패찰 이력 */}
+              <div>
+                <div className="text-xs font-semibold text-slate-600 mb-2">최근 패찰 이력</div>
+                <div className="space-y-1">
+                  {defeatData.recent.map((r: DefeatSummaryRecentItem) => (
+                    <div key={r.id} className="flex items-center justify-between text-xs bg-white rounded border border-slate-100 px-3 py-2">
+                      <div className="truncate max-w-[50%] text-slate-700">{r.title}</div>
+                      <div className="flex items-center gap-3 shrink-0 text-slate-500">
+                        {r.bid_open_date && <span>{new Date(r.bid_open_date).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}</span>}
+                        {r.submitted_rate !== null && <span>투찰 {(r.submitted_rate * 100).toFixed(2)}%</span>}
+                        {r.winner_rate !== null && <span>낙찰 {(r.winner_rate * 100).toFixed(2)}%</span>}
+                        {r.gap_pct !== null && (
+                          <span className={cn('font-semibold', r.gap_pct > 0 ? 'text-red-500' : 'text-blue-500')}>
+                            {r.gap_pct > 0 ? '+' : ''}{r.gap_pct.toFixed(2)}%p
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          )}
+        </Card>
+      )}
 
       {/* 목록 뷰 전용 필터 */}
       {viewMode === 'list' && (

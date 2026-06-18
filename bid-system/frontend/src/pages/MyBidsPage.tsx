@@ -156,7 +156,7 @@ function ExcelUploadModal({ onDone }: { onDone: () => void }) {
     }
   }
 
-  const COLS = ['공고번호', '공고제목*', '발주처', '입찰일', '기초금액', '제출투찰률*', '추천투찰률', '결과', '실제낙찰률', '비고']
+  const COLS = ['공고번호', '공고제목*', '발주기관', '입찰일', '기초금액', '제출투찰률*', '추천투찰률', '결과', '실제낙찰률', '비고']
 
   return (
     <>
@@ -167,7 +167,7 @@ function ExcelUploadModal({ onDone }: { onDone: () => void }) {
         <DialogContent className="max-w-lg bg-white">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base font-semibold text-slate-800">
-              <Upload className="h-4 w-4 text-blue-600" />투찰이력 엑셀 업로드
+              <Upload className="h-4 w-4 text-blue-600" />투찰 이력 엑셀 업로드
             </DialogTitle>
           </DialogHeader>
 
@@ -917,14 +917,14 @@ export default function MyBidsPage() {
                   <Card className="bg-white border-slate-200 shadow-sm overflow-hidden">
                     <CardHeader className="border-b border-slate-100 pb-4">
                       <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
-                        <TrendingUp className="h-4 w-4 text-blue-600" />발주처별 승률 (10건 이상 참여)
+                        <TrendingUp className="h-4 w-4 text-blue-600" />발주기관별 승률 (10건 이상 참여)
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-0">
                       <Table>
                         <TableHeader>
                           <TableRow className="bg-slate-50 border-b border-slate-200">
-                            <TableHead className="text-slate-600 font-semibold">발주처</TableHead>
+                            <TableHead className="text-slate-600 font-semibold">발주기관</TableHead>
                             <TableHead className="text-right text-slate-600 font-semibold">참여</TableHead>
                             <TableHead className="text-right text-slate-600 font-semibold">낙찰</TableHead>
                             <TableHead className="text-right text-slate-600 font-semibold">승률</TableHead>

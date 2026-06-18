@@ -70,7 +70,7 @@ export default function PrismHistogram({ bidId, baseAmount, agencyName }: Props)
               ? 'bg-blue-50 text-blue-700 border-blue-200'
               : 'bg-slate-100 text-slate-500 border-slate-200'
           )}>
-            {data.data_source === 'agency' ? `${agencyName ?? '발주처'} 전용` : '전국 평균'}
+            {data.data_source === 'agency' ? `${agencyName ?? '발주기관'} 전용` : '전국 평균'}
           </span>
           <span className="text-xs text-slate-500">{data.total_bids.toLocaleString()}건 / 낙찰 {data.total_wins}건</span>
         </div>
@@ -117,7 +117,7 @@ export default function PrismHistogram({ bidId, baseAmount, agencyName }: Props)
       {/* 히스토그램 */}
       {hist.length === 0 ? (
         <div className="text-center py-8 text-slate-500 text-sm">
-          해당 발주처의 빈도 데이터가 없습니다. 관리자 메뉴에서 빈도 테이블을 재구축하세요.
+          해당 발주기관의 빈도 데이터가 없습니다. 관리자 메뉴에서 빈도 테이블을 재구축하세요.
         </div>
       ) : (
         <div>

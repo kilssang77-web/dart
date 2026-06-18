@@ -7,9 +7,9 @@ import {
 } from 'recharts'
 import {
   FileText, Users, TrendingUp, TrendingDown, Activity, ArrowUp, ArrowDown,
-  Trophy, Building2, Zap, Star, Info, LayoutDashboard,
+  Trophy, Building2, Zap, Star, Info, LayoutDashboard, Target, Bell, ChevronRight,
 } from 'lucide-react'
-import { statsApi, bidsApi } from '@/api'
+import { statsApi, bidsApi, journalApi } from '@/api'
 import type { OverviewStatsWithChange, Bid, TopSrateTrend, BidRecommendItem } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -105,7 +105,7 @@ function breakdownTooltip(b: BidRecommendItem['score_breakdown']): string {
   if (!b) return ''
   return [
     `경쟁강도: ${b.competition.pts}/${b.competition.max}pt — ${b.competition.note}`,
-    `발주처이력: ${b.personal_track.pts}/${b.personal_track.max}pt — ${b.personal_track.note}`,
+    `발주기관이력: ${b.personal_track.pts}/${b.personal_track.max}pt — ${b.personal_track.note}`,
     `시장추세: ${b.market_trend.pts}/${b.market_trend.max}pt — ${b.market_trend.note}`,
     `금액적합: ${b.amount_fit.pts}/${b.amount_fit.max}pt — ${b.amount_fit.note}`,
   ].join('\n')
@@ -155,6 +155,12 @@ export default function DashboardPage() {
     staleTime: 300_000,
   })
 
+  const { data: pendingJournals } = useQuery({
+    queryKey: ['journal-pending'],
+    queryFn: () => journalApi.pending(),
+    staleTime: 60_000,
+  })
+
   const trend = (overview?.monthly_trend ?? []).map((d) => ({
     label:  `${d.year}-${String(d.month).padStart(2, '0')}`,
     건수:   d.bid_count,
@@ -200,6 +206,70 @@ export default function DashboardPage() {
 
       {/* 콘텐츠 */}
       <div className="flex-1 p-6 space-y-5 max-w-[1440px] mx-auto w-full">
+
+        {/* 지금 할 일 — 액션 바 */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {/* AI 투찰 결정 */}
+          <button
+            onClick={() => navigate('/decision')}
+            className="flex items-center gap-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl px-5 py-4 shadow-sm transition-colors text-left"
+          >
+            <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center shrink-0">
+              <Target className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-sm">AI 투찰 결정</div>
+              <div className="text-xs text-blue-200 mt-0.5">공고 선택 → 자동 분석 → 즉시 추천</div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-blue-300 shrink-0" />
+          </button>
+
+          {/* 결과 입력 대기 */}
+          <button
+            onClick={() => navigate('/journal-history')}
+            className={cn(
+              'flex items-center gap-3 rounded-xl px-5 py-4 shadow-sm transition-colors text-left',
+              (pendingJournals?.count ?? 0) > 0
+                ? 'bg-amber-50 hover:bg-amber-100 border border-amber-200'
+                : 'bg-white hover:bg-gray-50 border border-gray-200'
+            )}
+          >
+            <div className={cn(
+              'w-10 h-10 rounded-lg flex items-center justify-center shrink-0',
+              (pendingJournals?.count ?? 0) > 0 ? 'bg-amber-100' : 'bg-gray-100'
+            )}>
+              <Bell className={cn('w-5 h-5', (pendingJournals?.count ?? 0) > 0 ? 'text-amber-600' : 'text-gray-400')} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className={cn('font-semibold text-sm', (pendingJournals?.count ?? 0) > 0 ? 'text-amber-800' : 'text-gray-700')}>
+                개찰 결과 입력 대기
+              </div>
+              <div className={cn('text-xs mt-0.5', (pendingJournals?.count ?? 0) > 0 ? 'text-amber-600' : 'text-gray-400')}>
+                {(pendingJournals?.count ?? 0) > 0
+                  ? `${pendingJournals!.count}건 — AI 피드백 루프에 필요합니다`
+                  : '결과 입력 대기 없음'}
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-300 shrink-0" />
+          </button>
+
+          {/* 추천 공고 */}
+          <button
+            onClick={() => navigate('/bids?tab=recommend')}
+            className="flex items-center gap-3 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl px-5 py-4 shadow-sm transition-colors text-left"
+          >
+            <div className="w-10 h-10 bg-emerald-50 rounded-lg flex items-center justify-center shrink-0">
+              <Star className="w-5 h-5 text-emerald-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-sm text-gray-700">AI 추천 공고</div>
+              <div className="text-xs text-gray-400 mt-0.5">
+                {isLoadingRecommended ? '로딩 중...' : `${recommendedBids?.length ?? 0}건 추천 대기`}
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-300 shrink-0" />
+          </button>
+        </div>
 
         {/* KPI 카드 4개 */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

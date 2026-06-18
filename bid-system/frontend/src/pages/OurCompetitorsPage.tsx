@@ -133,7 +133,7 @@ export default function OurCompetitorsPage() {
           <div className={cn('text-2xl font-bold', avgWinRate != null && avgWinRate >= 20 ? 'text-red-500' : 'text-green-600')}>
             {avgWinRate != null ? `${avgWinRate}%` : '-'}
           </div>
-          <div className="text-sm text-muted-foreground mt-0.5">평균 낙찰율 (상대)</div>
+          <div className="text-sm text-muted-foreground mt-0.5">평균 낙찰률 (상대)</div>
         </Card>
       </div>
 

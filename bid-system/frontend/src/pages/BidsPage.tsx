@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Search, ChevronLeft, ChevronRight, X, Building2, Star, CalendarDays, List,
-  Sparkles, BookMarked,
+  Sparkles, MapPin, Crosshair,
 } from 'lucide-react'
 import { bidsApi, selectionApi } from '@/api'
 import type { Bid, MetaData, BidRecommendItem } from '@/types'
@@ -23,7 +23,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 const SIZE_OPTIONS = [20, 50, 100]
 
-type ActiveMode = 'recommend' | 'all' | 'bookmark'
+type ActiveMode = 'recommend' | 'all' | 'region'
 
 function VerdictBadge({ verdict }: { verdict: string }) {
   if (verdict === 'GO')
@@ -68,7 +68,7 @@ export default function BidsPage() {
 
   const activeMode: ActiveMode =
     searchParams.get('tab') === 'recommend' ? 'recommend'
-    : searchParams.get('bookmark') === '1' ? 'bookmark'
+    : searchParams.get('tab') === 'region' ? 'region'
     : 'all'
 
   const initKeyword = searchParams.get('keyword') ?? ''
@@ -85,6 +85,10 @@ export default function BidsPage() {
   const [calYear, setCalYear]               = useState(() => new Date().getFullYear())
   const [calMonth, setCalMonth]             = useState(() => new Date().getMonth() + 1)
   const [regionId, setRegionId]             = useState<number | null>(null)
+  const [yegaMethodFilter, setYegaMethodFilter]       = useState('')
+  const [contractMethodFilter, setContractMethodFilter] = useState('')
+  const [baseAmountMin, setBaseAmountMin]             = useState('')
+  const [baseAmountMax, setBaseAmountMax]             = useState('')
   const agencyRef = useRef<HTMLDivElement>(null)
 
   const { data: meta } = useQuery<MetaData>({
@@ -99,17 +103,23 @@ export default function BidsPage() {
   })
   const bookmarkedIds = new Set((bookmarkData?.items ?? []).map((b) => b.bid_id))
 
-  // Main list (all + bookmark modes)
+  const effectiveRegionId = activeMode === 'region' ? 6 : regionId
+
+  // Main list (all + region modes)
   const { data, isLoading } = useQuery<{ items: Bid[]; total: number; page: number; size: number }>({
-    queryKey: ['bids', search, page, statusFilter, sortBy, agencyId, regionId, pageSize],
+    queryKey: ['bids', search, page, statusFilter, sortBy, agencyId, effectiveRegionId, pageSize, yegaMethodFilter, contractMethodFilter, baseAmountMin, baseAmountMax],
     queryFn: () => bidsApi.list({
-      keyword:   search || undefined,
+      keyword:          search || undefined,
       page,
-      size:      pageSize,
-      status:    statusFilter === 'all' ? undefined : statusFilter,
-      sort_by:   sortBy,
-      agency_id: agencyId ?? undefined,
-      region_id: regionId ?? undefined,
+      size:             pageSize,
+      status:           statusFilter === 'all' ? undefined : statusFilter,
+      sort_by:          sortBy,
+      agency_id:        agencyId ?? undefined,
+      region_id:        effectiveRegionId ?? undefined,
+      yega_method:      yegaMethodFilter || undefined,
+      contract_method:  contractMethodFilter || undefined,
+      base_amount_min:  baseAmountMin ? Math.round(parseFloat(baseAmountMin) * 1e8) : undefined,
+      base_amount_max:  baseAmountMax ? Math.round(parseFloat(baseAmountMax) * 1e8) : undefined,
     }),
     enabled: activeMode !== 'recommend',
   })
@@ -217,9 +227,7 @@ export default function BidsPage() {
     setAgencyId(null); setAgencyInput(''); setPage(1)
   }
 
-  const displayItems = (data?.items ?? []).filter((bid) =>
-    activeMode !== 'bookmark' || bookmarkedIds.has(bid.id)
-  )
+  const displayItems = data?.items ?? []
 
   return (
     <div className="min-h-full bg-slate-50">
@@ -233,11 +241,11 @@ export default function BidsPage() {
             </h1>
             <p className="text-sm text-slate-500 mt-0.5">
               {activeMode === 'recommend' ? 'AI가 선별한 추천 공고'
-                : activeMode === 'bookmark' ? `관심 등록 ${bookmarkedIds.size}건`
+                : activeMode === 'region' ? `대전 지역 ${data?.total?.toLocaleString() ?? 0}건`
                 : `전체 ${data?.total?.toLocaleString() ?? 0}건`}
             </p>
           </div>
-          {activeMode !== 'recommend' && (
+          {activeMode === 'all' && (
             <div className="flex items-center gap-1.5">
               <Button
                 variant={viewMode === 'list' ? 'default' : 'outline'}
@@ -287,16 +295,11 @@ export default function BidsPage() {
               <Search className="h-3.5 w-3.5" />전체공고
             </TabsTrigger>
             <TabsTrigger
-              value="bookmark"
+              value="region"
               className="gap-1.5 text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-blue-600"
-              onClick={() => navigate('/bids?bookmark=1')}
+              onClick={() => navigate('/bids?tab=region')}
             >
-              <BookMarked className="h-3.5 w-3.5" />
-              관심공고{bookmarkedIds.size > 0 && (
-                <span className="ml-0.5 bg-blue-100 text-blue-700 rounded-full px-1.5 py-px text-xs font-semibold">
-                  {bookmarkedIds.size}
-                </span>
-              )}
+              <MapPin className="h-3.5 w-3.5" />지역공고
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -346,7 +349,7 @@ export default function BidsPage() {
                               {(
                                 [
                                   { key: 'competition',    label: '경쟁강도' },
-                                  { key: 'personal_track', label: '발주처이력' },
+                                  { key: 'personal_track', label: '발주기관이력' },
                                   { key: 'market_trend',   label: '시장추세' },
                                   { key: 'amount_fit',     label: '금액적합' },
                                 ] as { key: keyof typeof rec.score_breakdown; label: string }[]
@@ -372,7 +375,7 @@ export default function BidsPage() {
                           {rec.score !== null && rec.score !== undefined && (
                             <div className="bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1.5 text-center">
                               <p className="text-lg font-bold text-blue-600 tabular-nums leading-none">{Math.round(rec.score)}</p>
-                              <p className="text-xs text-blue-400 mt-0.5">AI점수</p>
+                              <p className="text-xs text-blue-400 mt-0.5">AI 점수</p>
                             </div>
                           )}
                           <Button
@@ -385,6 +388,16 @@ export default function BidsPage() {
                             }}
                           >
                             전략 보기
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="h-7 px-2.5 text-xs bg-blue-600 hover:bg-blue-700 text-white gap-1"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              navigate(`/decision?bid=${rec.bid_id}`)
+                            }}
+                          >
+                            <Crosshair className="h-3 w-3" />AI 투찰 결정
                           </Button>
                         </div>
                       </div>
@@ -504,19 +517,25 @@ export default function BidsPage() {
                     </SelectContent>
                   </Select>
 
-                  <Select value={regionId != null ? regionId.toString() : 'all'}
-                    onValueChange={(v) => { setRegionId(v === 'all' ? null : parseInt(v)); setPage(1) }}>
-                    <SelectTrigger className="w-24 h-8 text-xs border-slate-200 bg-slate-50">
-                      <SelectValue placeholder="지역" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">전체지역</SelectItem>
-                      {[['1','서울'],['2','부산'],['3','대구'],['4','인천'],['5','광주'],['6','대전'],
-                        ['7','울산'],['8','세종'],['9','경기'],['10','강원'],['11','충북'],['12','충남'],
-                        ['13','전북'],['14','전남'],['15','경북'],['16','경남'],['17','제주']
-                      ].map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  {activeMode === 'region' ? (
+                    <div className="flex items-center gap-1.5 h-8 px-3 rounded-md border border-blue-200 bg-blue-50 text-xs text-blue-700 font-semibold">
+                      <MapPin className="h-3.5 w-3.5 shrink-0" />대전
+                    </div>
+                  ) : (
+                    <Select value={regionId != null ? regionId.toString() : 'all'}
+                      onValueChange={(v) => { setRegionId(v === 'all' ? null : parseInt(v)); setPage(1) }}>
+                      <SelectTrigger className="w-24 h-8 text-xs border-slate-200 bg-slate-50">
+                        <SelectValue placeholder="지역" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">전체지역</SelectItem>
+                        {[['1','서울'],['2','부산'],['3','대구'],['4','인천'],['5','광주'],['6','대전'],
+                          ['7','울산'],['8','세종'],['9','경기'],['10','강원'],['11','충북'],['12','충남'],
+                          ['13','전북'],['14','전남'],['15','경북'],['16','경남'],['17','제주']
+                        ].map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  )}
 
                   {/* 발주기관 자동완성 */}
                   <div className="relative" ref={agencyRef}>
@@ -578,6 +597,53 @@ export default function BidsPage() {
                     검색
                   </Button>
                 </div>
+
+                {/* 2번째 필터 행 */}
+                <div className="flex flex-wrap gap-2 items-center mt-2 pt-2 border-t border-slate-100">
+                  <Select value={yegaMethodFilter || 'all'} onValueChange={(v) => { setYegaMethodFilter(v === 'all' ? '' : v); setPage(1) }}>
+                    <SelectTrigger className="w-32 h-8 text-xs border-slate-200 bg-slate-50">
+                      <SelectValue placeholder="예가방법" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">전체예가</SelectItem>
+                      <SelectItem value="복수예가">복수예가</SelectItem>
+                      <SelectItem value="표준시장단가">표준시장단가</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={contractMethodFilter || 'all'} onValueChange={(v) => { setContractMethodFilter(v === 'all' ? '' : v); setPage(1) }}>
+                    <SelectTrigger className="w-32 h-8 text-xs border-slate-200 bg-slate-50">
+                      <SelectValue placeholder="계약방법" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">전체계약</SelectItem>
+                      <SelectItem value="일반경쟁">일반경쟁</SelectItem>
+                      <SelectItem value="제한경쟁">제한경쟁</SelectItem>
+                      <SelectItem value="지명경쟁">지명경쟁</SelectItem>
+                      <SelectItem value="수의계약">수의계약</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-slate-500">기초금액</span>
+                    <Input
+                      type="number"
+                      value={baseAmountMin}
+                      onChange={(e) => { setBaseAmountMin(e.target.value); setPage(1) }}
+                      placeholder="최소"
+                      className="w-20 h-8 text-xs border-slate-200 bg-slate-50"
+                    />
+                    <span className="text-xs text-slate-400">~</span>
+                    <Input
+                      type="number"
+                      value={baseAmountMax}
+                      onChange={(e) => { setBaseAmountMax(e.target.value); setPage(1) }}
+                      placeholder="최대"
+                      className="w-20 h-8 text-xs border-slate-200 bg-slate-50"
+                    />
+                    <span className="text-xs text-slate-500">억원</span>
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
@@ -591,23 +657,27 @@ export default function BidsPage() {
                     <TableHead className="text-slate-600 font-semibold text-sm">발주기관</TableHead>
                     <TableHead className="text-slate-600 font-semibold text-sm">지역</TableHead>
                     <TableHead className="text-right text-slate-600 font-semibold text-sm">기초금액</TableHead>
+                    <TableHead className="text-right text-slate-600 font-semibold text-sm">추정가격</TableHead>
+                    <TableHead className="text-slate-600 font-semibold text-sm">투찰마감</TableHead>
                     <TableHead className="text-slate-600 font-semibold text-sm">개찰일</TableHead>
                     <TableHead className="text-center text-slate-600 font-semibold text-sm">경쟁사</TableHead>
+                    <TableHead className="text-right text-slate-600 font-semibold text-sm">낙찰하한율</TableHead>
                     <TableHead className="text-right text-slate-600 font-semibold text-sm">낙찰률</TableHead>
+                    <TableHead className="w-20 text-center text-slate-600 font-semibold text-sm">투찰결정</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
                     Array.from({ length: 5 }).map((_, i) => (
                       <TableRow key={i} className="border-b border-slate-100">
-                        {Array.from({ length: 8 }).map((_, j) => (
+                        {Array.from({ length: 12 }).map((_, j) => (
                           <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                         ))}
                       </TableRow>
                     ))
                   ) : !displayItems.length ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center text-slate-500 py-16">
+                      <TableCell colSpan={12} className="text-center text-slate-500 py-16">
                         <Search className="h-8 w-8 text-slate-200 mx-auto mb-2" />
                         <p className="text-sm">데이터가 없습니다.</p>
                       </TableCell>
@@ -658,6 +728,16 @@ export default function BidsPage() {
                           <TableCell className="text-right whitespace-nowrap font-medium text-slate-900 text-sm py-3">
                             {bid.base_amount > 0 ? (bid.base_amount / 1e8).toFixed(1) + '억' : '-'}
                           </TableCell>
+                          <TableCell className="text-right whitespace-nowrap text-slate-500 text-sm py-3">
+                            {bid.estimated_price && bid.estimated_price > 0
+                              ? (bid.estimated_price / 1e8).toFixed(1) + '억'
+                              : '-'}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-slate-500 text-sm py-3">
+                            {bid.bid_close_date
+                              ? new Date(bid.bid_close_date).toLocaleDateString('ko-KR')
+                              : '-'}
+                          </TableCell>
                           <TableCell className="whitespace-nowrap text-slate-500 text-sm py-3">
                             {bid.bid_open_date
                               ? new Date(bid.bid_open_date).toLocaleDateString('ko-KR')
@@ -666,8 +746,22 @@ export default function BidsPage() {
                           <TableCell className="text-center text-slate-600 text-sm py-3">
                             {bid.competitor_count}
                           </TableCell>
+                          <TableCell className="text-right font-mono text-slate-600 text-sm py-3">
+                            {bid.min_bid_rate ? (bid.min_bid_rate * 100).toFixed(3) + '%' : '-'}
+                          </TableCell>
                           <TableCell className="text-right font-mono font-semibold text-slate-900 text-sm py-3">
                             {bid.winner_rate ? (bid.winner_rate * 100).toFixed(2) + '%' : '-'}
+                          </TableCell>
+                          <TableCell className="text-center py-3">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                navigate(`/decision?bid=${bid.id}`)
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white border border-blue-200 hover:border-blue-600 transition-all"
+                            >
+                              <Crosshair className="h-3 w-3" />AI
+                            </button>
                           </TableCell>
                         </TableRow>
                       )
