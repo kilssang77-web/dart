@@ -706,26 +706,49 @@ export function Recommendations() {
             </div>
           </div>
         ))}
-        {recs?.map((rec) => {
-          const crDelta = rec.current_price != null
-            ? ((rec.current_price - rec.entry_price) / rec.entry_price * 100)
-            : null
+        {(() => {
+          if (!recs || recs.length === 0) return null
           const todayKST = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10)
-          const detectedAt = rec.fe_detected_at ?? rec.created_at
-          const isToday = !!detectedAt && detectedAt.slice(0, 10) === todayKST
-          return (
-            <RecCard
-              key={rec.id}
-              rec={rec}
-              crDelta={crDelta}
-              normProb={toNorm(rec.success_prob)}
-              isToday={isToday}
-              onOpen={() => setSelectedRec(rec)}
-              onSignalModal={() => setSignalModal({ code: rec.code, name: rec.name })}
-              onNav={(code) => nav(`/search?code=${code}`)}
-            />
-          )
-        })}
+          const isToday = (rec: typeof recs[0]) => {
+            const d = rec.fe_detected_at ?? rec.created_at
+            return !!d && d.slice(0, 10) === todayKST
+          }
+          // 오늘 카드를 앞으로, 각 그룹 내에서는 API 순서 유지
+          const todayRecs = recs.filter(isToday)
+          const olderRecs = recs.filter((r) => !isToday(r))
+          const todayCount = todayRecs.length
+
+          return [...todayRecs, ...olderRecs].map((rec, idx) => {
+            const crDelta = rec.current_price != null
+              ? ((rec.current_price - rec.entry_price) / rec.entry_price * 100)
+              : null
+            const today = isToday(rec)
+
+            // 오늘→이전 경계에 구분선 삽입
+            const showDivider = todayCount > 0 && idx === todayCount
+
+            return (
+              <React.Fragment key={rec.id}>
+                {showDivider && (
+                  <div className="col-span-full flex items-center gap-3 py-1">
+                    <div className="flex-1 border-t border-dashed border-[var(--border)]" />
+                    <span className="text-xs text-[var(--muted)] whitespace-nowrap px-1">이전 추천</span>
+                    <div className="flex-1 border-t border-dashed border-[var(--border)]" />
+                  </div>
+                )}
+                <RecCard
+                  rec={rec}
+                  crDelta={crDelta}
+                  normProb={toNorm(rec.success_prob)}
+                  isToday={today}
+                  onOpen={() => setSelectedRec(rec)}
+                  onSignalModal={() => setSignalModal({ code: rec.code, name: rec.name })}
+                  onNav={(code) => nav(`/search?code=${code}`)}
+                />
+              </React.Fragment>
+            )
+          })
+        })()}
         {!isLoading && !isError && (!recs || recs.length === 0) && (
           <div className="col-span-full py-16 text-center text-[var(--muted)] text-sm">조건에 맞는 신호가 없습니다</div>
         )}
