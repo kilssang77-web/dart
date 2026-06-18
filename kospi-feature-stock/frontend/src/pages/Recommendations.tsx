@@ -318,6 +318,7 @@ function RecCard({
   rec,
   crDelta,
   normProb,
+  isToday,
   onOpen,
   onSignalModal,
   onNav,
@@ -325,6 +326,7 @@ function RecCard({
   rec:          Recommendation
   crDelta:      number | null
   normProb:     number
+  isToday:      boolean
   onOpen:       () => void
   onSignalModal: () => void
   onNav:        (code: string) => void
@@ -333,7 +335,10 @@ function RecCard({
 
   return (
     <Card
-      className="hover:border-cyan-500/40 transition-colors cursor-pointer"
+      className={isToday
+        ? 'border-amber-500/50 bg-amber-500/5 hover:border-amber-400/70 transition-colors cursor-pointer'
+        : 'hover:border-cyan-500/40 transition-colors cursor-pointer'
+      }
       onClick={onOpen}
     >
       <CardBody>
@@ -371,7 +376,14 @@ function RecCard({
             </div>
             <div className="text-sm text-[var(--muted)] mt-0.5">{rec.code} · 감지 {fmt.dateTime(rec.fe_detected_at ?? rec.created_at)}</div>
           </div>
-          <ActionBadge action={rec.action} />
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <ActionBadge action={rec.action} />
+            {isToday && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold bg-amber-500/20 text-amber-400 border border-amber-500/40 whitespace-nowrap">
+                오늘
+              </span>
+            )}
+          </div>
         </div>
 
         {/* 확률 바 */}
@@ -698,12 +710,16 @@ export function Recommendations() {
           const crDelta = rec.current_price != null
             ? ((rec.current_price - rec.entry_price) / rec.entry_price * 100)
             : null
+          const todayKST = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10)
+          const detectedAt = rec.fe_detected_at ?? rec.created_at
+          const isToday = !!detectedAt && detectedAt.slice(0, 10) === todayKST
           return (
             <RecCard
               key={rec.id}
               rec={rec}
               crDelta={crDelta}
               normProb={toNorm(rec.success_prob)}
+              isToday={isToday}
               onOpen={() => setSelectedRec(rec)}
               onSignalModal={() => setSignalModal({ code: rec.code, name: rec.name })}
               onNav={(code) => nav(`/search?code=${code}`)}
