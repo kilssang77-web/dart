@@ -29,6 +29,11 @@ class BidNotice:
     bid_type: str  # construction / service / goods
     industry_code: str | None = None
     region_code: str | None = None
+    bid_close_date: str | None = None    # 투찰마감일시 (bidClseDt)
+    estimated_price: int | None = None   # 추정가격 (presmptPrce)
+    min_bid_rate: float | None = None    # 낙찰하한율 (sucsfbidLwltRate)
+    contract_method: str | None = None   # 계약방법 (cntrctMthNm)
+    bid_method: str | None = None        # 입찰방식 (bidMethdNm)
 
 
 @dataclass
@@ -230,11 +235,22 @@ class NarajangterClient:
             except (TypeError, ValueError):
                 return None
 
-        # 기초금액: asignBdgtAmt(배정예산금액) → presmptPrce(추정가격) 순으로 시도
-        base_amount = (
-            _safe_int(item.get("asignBdgtAmt"))
-            or _safe_int(item.get("presmptPrce"))
-        )
+        def _safe_float(val: object) -> float | None:
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                return None
+
+        def _normalize_rate(val: object) -> float | None:
+            r = _safe_float(val)
+            if r is None:
+                return None
+            return r / 100 if r > 1.5 else r
+
+        # 기초금액: asignBdgtAmt(배정예산금액) 우선, 없으면 presmptPrce(추정가격)
+        base_amount = _safe_int(item.get("asignBdgtAmt")) or _safe_int(item.get("presmptPrce"))
+        estimated_price = _safe_int(item.get("presmptPrce"))
+
         return BidNotice(
             announcement_no=item.get("bidNtceNo", ""),
             title=item.get("bidNtceNm", ""),
@@ -242,6 +258,11 @@ class NarajangterClient:
             base_amount=base_amount,
             notice_date=item.get("bidNtceDt"),
             bid_open_date=item.get("opengDt"),
+            bid_close_date=item.get("bidClseDt"),
+            estimated_price=estimated_price,
+            min_bid_rate=_normalize_rate(item.get("sucsfbidLwltRate")),
+            contract_method=item.get("cntrctMthNm"),
+            bid_method=item.get("bidMethdNm"),
             bid_type=bid_type,
             industry_code=item.get("indutyNm") or item.get("prcureThgNm"),
             region_code=item.get("rgstTyNm"),

@@ -86,6 +86,8 @@ class BidService:
         status=None, date_from=None, date_to=None,
         keyword=None, page=1, size=20,
         sort_by='notice_date',
+        yega_method=None, contract_method=None,
+        base_amount_min=None, base_amount_max=None,
     ) -> dict:
         q = db.query(Bid)
         if agency_id:   q = q.filter(Bid.agency_id == agency_id)
@@ -96,14 +98,21 @@ class BidService:
         if date_to:     q = q.filter(Bid.bid_open_date < datetime.combine(date_to + timedelta(days=1), datetime.min.time()))
         if keyword:
             q = q.filter(Bid.title.ilike(f"%{keyword}%"))
+        if yega_method:     q = q.filter(Bid.yega_method.ilike(f"%{yega_method}%"))
+        if contract_method: q = q.filter(Bid.contract_method.ilike(f"%{contract_method}%"))
+        if base_amount_min is not None: q = q.filter(Bid.base_amount >= base_amount_min)
+        if base_amount_max is not None: q = q.filter(Bid.base_amount <= base_amount_max)
 
         # 활성 공종 필터 — 사용자가 특정 공종을 지정하지 않은 경우에만 전역 필터 적용
+        # industry_id=NULL 공고(공종 미분류)는 항상 포함 (제외 시 수의계약 등 소규모 공고 누락)
         if not industry_id:
             active_ids = get_active_industry_ids(db)
             if active_ids is not None:
                 if not active_ids:
                     return {"items": [], "total": 0, "page": page, "size": size}
-                q = q.filter(Bid.industry_id.in_(active_ids))
+                q = q.filter(
+                    (Bid.industry_id.in_(active_ids)) | (Bid.industry_id.is_(None))
+                )
 
         total = q.count()
 
@@ -120,15 +129,20 @@ class BidService:
             items.append({
                 "id": b.id, "announcement_no": b.announcement_no,
                 "title": b.title,
-                "agency_name":   b.agency.name if b.agency else "",
-                "industry_name": b.industry.name if b.industry else "",
-                "region_name":   b.region.name if b.region else "",
-                "base_amount":   b.base_amount,
-                "notice_date":   b.notice_date,
-                "bid_open_date": b.bid_open_date,
-                "status":        b.status,
-                "source":        b.source,
-                "winner_rate":   float(winner.bid_rate) if winner else None,
+                "agency_name":      b.agency.name if b.agency else "",
+                "industry_name":    b.industry.name if b.industry else "",
+                "region_name":      b.region.name if b.region else "",
+                "base_amount":      b.base_amount,
+                "estimated_price":  b.estimated_price,
+                "notice_date":      b.notice_date,
+                "bid_open_date":    b.bid_open_date,
+                "bid_close_date":   b.bid_close_date,
+                "status":           b.status,
+                "source":           b.source,
+                "winner_rate":      float(winner.bid_rate) if winner else None,
+                "min_bid_rate":    float(b.min_bid_rate) if b.min_bid_rate else None,
+                "yega_method":     b.yega_method,
+                "contract_method": b.contract_method,
                 "competitor_count": len(b.results),
             })
         return {"items": items, "total": total, "page": page, "size": size}
@@ -138,6 +152,16 @@ class BidService:
         if not b:
             return None
         winner = next((r for r in b.results if r.is_winner), None)
+        inpo_row = db.execute(text("""
+            SELECT preset_amount, yega_ratio, net_cost
+            FROM inpo21c_bids
+            WHERE announcement_no LIKE :ano
+            ORDER BY open_datetime DESC NULLS LAST
+            LIMIT 1
+        """), {"ano": b.announcement_no + "%"}).fetchone() if b.announcement_no else None
+        preset_amount = int(inpo_row[0]) if inpo_row and inpo_row[0] else None
+        yega_ratio    = float(inpo_row[1]) if inpo_row and inpo_row[1] else None
+        net_cost      = int(inpo_row[2]) if inpo_row and inpo_row[2] else None
         results = [
             {
                 "id": r.id,
@@ -170,15 +194,20 @@ class BidService:
             "ntce_url":            b.ntce_url,
             "winner_rate":         float(winner.bid_rate) if winner else None,
             "competitor_count":    len(b.results),
-            "construction_site":   b.construction_site,
-            "contract_method":     b.contract_method,
-            "bid_method":          b.bid_method,
-            "eligible_regions":    b.eligible_regions,
-            "industry_limit":      b.industry_limit,
-            "bid_close_date":      b.bid_close_date,
-            "contact_name":        b.contact_name,
-            "contact_tel":         b.contact_tel,
-            "results":             results,
+            "construction_site":       b.construction_site,
+            "contract_method":         b.contract_method,
+            "bid_method":              b.bid_method,
+            "eligible_regions":        b.eligible_regions,
+            "industry_limit":          b.industry_limit,
+            "bid_close_date":          b.bid_close_date,
+            "contact_name":            b.contact_name,
+            "contact_tel":             b.contact_tel,
+            "yega_method":             b.yega_method,
+            "registration_deadline":   b.registration_deadline,
+            "preset_amount":       preset_amount,
+            "yega_ratio":          yega_ratio,
+            "net_cost":            net_cost,
+            "results":                 results,
         }
 
     def create_bid(self, db: Session, data: BidCreate, results: List[BidResultCreate] = None) -> Bid:
@@ -2873,7 +2902,7 @@ class BookmarkService:
 class MyBidFeedbackService:
     """MyBidRecord → ActualBidOutcome 동기화 + 임계치 도달 시 자동 재학습."""
 
-    RETRAIN_LOCK = False  # 동시 재학습 방지 (프로세스 내 단순 플래그)
+    _RETRAIN_LOCK = __import__("threading").Lock()  # 동시 재학습 방지 (atomic)
 
     def __init__(self, db: Session):
         self.db = db
@@ -2941,7 +2970,7 @@ class MyBidFeedbackService:
             )
             .scalar() or 0
         )
-        if new_count >= RETRAIN_THRESHOLD and not MyBidFeedbackService.RETRAIN_LOCK:
+        if new_count >= RETRAIN_THRESHOLD and not MyBidFeedbackService._RETRAIN_LOCK.locked():
             logger.info("자동 재학습 트리거: 신규 결과 %d건 누적", new_count)
             import threading
             threading.Thread(target=self._run_retrain, daemon=True).start()
@@ -2949,9 +2978,9 @@ class MyBidFeedbackService:
     @classmethod
     def _run_retrain(cls):
         """백그라운드 재학습 — Engine A(사정율) + Engine B(낙찰률)."""
-        if cls.RETRAIN_LOCK:
+        if not cls._RETRAIN_LOCK.acquire(blocking=False):
+            logger.info("재학습 이미 실행 중 — 중복 실행 차단")
             return
-        cls.RETRAIN_LOCK = True
         from .database import SessionLocal
         from .ml.engine import train_models, train_models_temporal, build_features, FEATURE_COLS, get_engine
         from .ml.assessment import compute_and_store_stats, train_srate_model
@@ -3052,7 +3081,7 @@ class MyBidFeedbackService:
         except Exception as exc:
             logger.error("자동 재학습 실패: %s", exc)
         finally:
-            cls.RETRAIN_LOCK = False
+            cls._RETRAIN_LOCK.release()
             db.close()
 
 
@@ -3675,7 +3704,9 @@ class OpportunityScoreService:
         if active_ids is not None:
             if not active_ids:
                 return []
-            q = q.filter(Bid.industry_id.in_(active_ids))
+            q = q.filter(
+                (Bid.industry_id.in_(active_ids)) | (Bid.industry_id.is_(None))
+            )
 
         bids = q.all()
 
@@ -4824,12 +4855,21 @@ class RivalRadarService:
                 "k": top_k,
             }).fetchall()
 
+        rival_names = [r[0] for r in freq_rows if r[0]]
+        comp_id_lookup: dict = {}
+        if rival_names:
+            comp_id_rows = db.execute(text(
+                "SELECT name, id FROM competitors WHERE name = ANY(:names)"
+            ), {"names": rival_names}).fetchall()
+            comp_id_lookup = {r[0]: r[1] for r in comp_id_rows}
+
         rivals = [
             {
-                "company_name": r[0],
-                "co_bid_count": int(r[1]),
-                "avg_bid_rate": float(r[2]) if r[2] else None,
-                "win_count":    int(r[3]),
+                "company_name":  r[0],
+                "co_bid_count":  int(r[1]),
+                "avg_bid_rate":  float(r[2]) if r[2] else None,
+                "win_count":     int(r[3]),
+                "competitor_id": comp_id_lookup.get(r[0]),
             }
             for r in freq_rows
         ]

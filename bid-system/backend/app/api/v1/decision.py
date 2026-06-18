@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from ...database import get_db
@@ -45,6 +45,17 @@ def get_win_prob_curve(
 ):
     """bid_rate 구간별 낙찰확률 곡선 — LightGBM 모델 기반."""
     return svc.get_win_prob_curve(db, bid_id)
+
+
+@router.get("/{bid_id}/competitor-prediction")
+def get_competitor_prediction(
+    bid_id: int,
+    top_n: int = Query(15, ge=5, le=30),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """경쟁사 투찰 구간 예측 — inpo21c 이력 기반 P25-P75 구간."""
+    return svc.get_competitor_prediction(db, bid_id, top_n=top_n)
 
 
 @router.post("/{bid_id}/simulate-bid", response_model=SimulateBidResponse)

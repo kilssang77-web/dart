@@ -206,6 +206,7 @@ def _ensure_tables(db: Session) -> None:
         CREATE TABLE IF NOT EXISTS inpo21c_bids (
             inpo21c_bid_id   VARCHAR(30)  PRIMARY KEY,
             announcement_no  VARCHAR(50),
+            title            VARCHAR(500),
             industry         VARCHAR(200),
             region           VARCHAR(200),
             agency_name      VARCHAR(200),
@@ -219,6 +220,7 @@ def _ensure_tables(db: Session) -> None:
             created_at       TIMESTAMP DEFAULT now()
         )
     """))
+    db.execute(text("ALTER TABLE inpo21c_bids ADD COLUMN IF NOT EXISTS title VARCHAR(500)"))
     db.execute(text("CREATE INDEX IF NOT EXISTS idx_inpo21c_bids_announcement ON inpo21c_bids(announcement_no)"))
     db.execute(text("""
         CREATE TABLE IF NOT EXISTS inpo21c_yega (
@@ -252,17 +254,29 @@ def _ensure_tables(db: Session) -> None:
             open_datetime    TIMESTAMP,
             base_amount      BIGINT,
             estimated_amount BIGINT,
+            a_value          BIGINT,
             created_at       TIMESTAMP DEFAULT now(),
             updated_at       TIMESTAMP DEFAULT now()
         )
     """))
+    db.execute(text("ALTER TABLE inpo21c_bid_notices ADD COLUMN IF NOT EXISTS a_value BIGINT"))
+    db.execute(text("ALTER TABLE inpo21c_bids ADD COLUMN IF NOT EXISTS a_value BIGINT"))
     db.execute(text("CREATE INDEX IF NOT EXISTS idx_inpo21c_notices_announcement ON inpo21c_bid_notices(announcement_no)"))
     db.commit()
 
 
-def _get_bid_ids(page: int, cookie: str, division: int = 1) -> list:
+def _get_bid_ids(page: int, cookie: str, division: int = 1) -> list[tuple[str, str]]:
+    """낙찰 목록에서 (bid_id, title) 수집."""
     html = _fetch(f"{BASE}/suc/con?division={division}&page={page}", cookie)
-    return [m.group(1) for m in re.finditer(r'/suc/view/con/([^"]+)"', html)]
+    results = []
+    for m in re.finditer(
+        r'/suc/view/con/([^"]+)"[^>]*class="list_link constnm_link">([^<]*)',
+        html,
+    ):
+        results.append((m.group(1).strip(), m.group(2).strip()))
+    if not results:
+        results = [(m.group(1), "") for m in re.finditer(r'/suc/view/con/([^"]+)"', html)]
+    return results
 
 
 def _txt(s: str) -> str:
@@ -365,6 +379,7 @@ def _parse_bid_header(html: str) -> dict | None:
 
     return {
         "announcement_no":  re.sub(r"-\d+$", "", pairs.get("공고번호", "").strip()),
+        "title":            (pairs.get("공고명", "") or pairs.get("입찰공고명", "") or pairs.get("공사명", "")).strip(),
         "industry":         pairs.get("공고업종", "").strip(),
         "region":           pairs.get("지역", "").strip(),
         "agency_name":      pairs.get("발주기관", "").strip(),
@@ -375,6 +390,7 @@ def _parse_bid_header(html: str) -> dict | None:
         "preset_amount":    _parse_amount(pairs.get("예정가격", "")),
         "yega_ratio":       yega_ratio,
         "net_cost":         _parse_amount(pairs.get("순공사원가", "")),
+        "a_value":          _parse_amount(pairs.get("A값", "")),
     }
 
 
@@ -453,6 +469,7 @@ def _parse_bid_notice(html: str) -> dict | None:
         "open_datetime":    _parse_dt(pairs.get("개찰일시", "")),
         "base_amount":      _parse_amount(pairs.get("기초금액", "")),
         "estimated_amount": _parse_amount(pairs.get("추정가격", "")),
+        "a_value":          _parse_amount(pairs.get("A값", "")),
     }
 
 
@@ -485,15 +502,16 @@ def _upsert_bid_header(db: Session, bid_id: str, data: dict) -> None:
     try:
         db.execute(text("""
             INSERT INTO inpo21c_bids
-                (inpo21c_bid_id, announcement_no, industry, region, agency_name,
+                (inpo21c_bid_id, announcement_no, title, industry, region, agency_name,
                  open_datetime, base_amount, estimated_amount, min_bid_rate,
-                 preset_amount, yega_ratio, net_cost)
+                 preset_amount, yega_ratio, net_cost, a_value)
             VALUES
-                (:bid_id, :announcement_no, :industry, :region, :agency_name,
+                (:bid_id, :announcement_no, :title, :industry, :region, :agency_name,
                  :open_datetime, :base_amount, :estimated_amount, :min_bid_rate,
-                 :preset_amount, :yega_ratio, :net_cost)
+                 :preset_amount, :yega_ratio, :net_cost, :a_value)
             ON CONFLICT (inpo21c_bid_id) DO UPDATE SET
                 announcement_no  = EXCLUDED.announcement_no,
+                title            = COALESCE(EXCLUDED.title, inpo21c_bids.title),
                 industry         = EXCLUDED.industry,
                 region           = EXCLUDED.region,
                 agency_name      = EXCLUDED.agency_name,
@@ -503,7 +521,8 @@ def _upsert_bid_header(db: Session, bid_id: str, data: dict) -> None:
                 min_bid_rate     = EXCLUDED.min_bid_rate,
                 preset_amount    = EXCLUDED.preset_amount,
                 yega_ratio       = EXCLUDED.yega_ratio,
-                net_cost         = EXCLUDED.net_cost
+                net_cost         = EXCLUDED.net_cost,
+                a_value          = COALESCE(EXCLUDED.a_value, inpo21c_bids.a_value)
         """), {"bid_id": bid_id, **data})
         db.commit()
     except Exception as e:
@@ -541,13 +560,13 @@ def _upsert_bid_notice(db: Session, bid_id: str, data: dict) -> None:
                  yega_method, yega_draw_count, yega_total_count,
                  yega_range_min, yega_range_max, min_bid_rate, contract_method,
                  reg_deadline, bid_deadline, open_datetime, base_amount, estimated_amount,
-                 updated_at)
+                 a_value, updated_at)
             VALUES
                 (:bid_id, :announcement_no, :industry, :region, :agency_name,
                  :yega_method, :yega_draw_count, :yega_total_count,
                  :yega_range_min, :yega_range_max, :min_bid_rate, :contract_method,
                  :reg_deadline, :bid_deadline, :open_datetime, :base_amount, :estimated_amount,
-                 now())
+                 :a_value, now())
             ON CONFLICT (inpo21c_bid_id) DO UPDATE SET
                 announcement_no  = EXCLUDED.announcement_no,
                 yega_method      = EXCLUDED.yega_method,
@@ -557,6 +576,9 @@ def _upsert_bid_notice(db: Session, bid_id: str, data: dict) -> None:
                 yega_range_max   = EXCLUDED.yega_range_max,
                 min_bid_rate     = EXCLUDED.min_bid_rate,
                 open_datetime    = EXCLUDED.open_datetime,
+                base_amount      = COALESCE(EXCLUDED.base_amount, inpo21c_bid_notices.base_amount),
+                estimated_amount = COALESCE(EXCLUDED.estimated_amount, inpo21c_bid_notices.estimated_amount),
+                a_value          = COALESCE(EXCLUDED.a_value, inpo21c_bid_notices.a_value),
                 updated_at       = now()
         """), {"bid_id": bid_id, **data})
         db.commit()
@@ -629,11 +651,11 @@ def collect_inpo21c(db: Session, max_pages: int = 100) -> dict:
                 _step = (di - 1) * max_pages + page
                 _prog_page(page, _step / _total_steps * 98)
 
-                bid_ids = list(dict.fromkeys(_get_bid_ids(page, cookie, division)))
-                if not bid_ids:
+                page_items = list(dict.fromkeys(_get_bid_ids(page, cookie, division)))
+                if not page_items:
                     break
 
-                for bid_id in bid_ids:
+                for bid_id, list_title in page_items:
                     needs_parts  = bid_id not in existing_parts
                     needs_header = bid_id not in existing_bids
                     needs_yega   = bid_id not in existing_yega
@@ -661,6 +683,8 @@ def collect_inpo21c(db: Session, max_pages: int = 100) -> dict:
                     if needs_header:
                         header = _parse_bid_header(detail_html)
                         if header:
+                            if not header.get("title") and list_title:
+                                header["title"] = list_title
                             _upsert_bid_header(db, bid_id, header)
                             existing_bids.add(bid_id)
 
@@ -705,10 +729,21 @@ def collect_inpo21c(db: Session, max_pages: int = 100) -> dict:
     }
 
 
-def _get_bid_ids_national(page: int, cookie: str) -> list:
-    """division 없이 전체 낙찰 목록에서 bid_id 수집 (전국 범위)."""
+def _get_bid_ids_national(page: int, cookie: str) -> list[tuple[str, str]]:
+    """division 없이 전체 낙찰 목록에서 (bid_id, title) 수집 (전국 범위)."""
     html = _fetch(f"{BASE}/suc/con?page={page}", cookie)
-    return [m.group(1) for m in re.finditer(r'/suc/view/con/([^"]+)"', html)]
+    results = []
+    for m in re.finditer(
+        r'/suc/view/con/([^"]+)"[^>]*class="list_link constnm_link">([^<]*)',
+        html,
+    ):
+        bid_id = m.group(1).strip()
+        title  = m.group(2).strip()
+        results.append((bid_id, title))
+    # fallback: 타이틀 없이 ID만 있는 경우
+    if not results:
+        results = [(m.group(1), "") for m in re.finditer(r'/suc/view/con/([^"]+)"', html)]
+    return results
 
 
 def collect_inpo21c_national(db: Session, max_pages: int = 50) -> dict:
@@ -748,15 +783,15 @@ def collect_inpo21c_national(db: Session, max_pages: int = 50) -> dict:
         for page in range(1, max_pages + 1):
             _prog_page(page, page / max_pages * 98)
 
-            bid_ids = list(dict.fromkeys(_get_bid_ids_national(page, cookie)))
-            if not bid_ids:
+            page_items = list(dict.fromkeys(_get_bid_ids_national(page, cookie)))
+            if not page_items:
                 empty_pages += 1
                 if empty_pages >= 3:
                     break
                 continue
             empty_pages = 0
 
-            for bid_id in bid_ids:
+            for bid_id, list_title in page_items:
                 needs_parts  = bid_id not in existing_parts
                 needs_header = bid_id not in existing_bids
                 needs_yega   = bid_id not in existing_yega
@@ -782,6 +817,9 @@ def collect_inpo21c_national(db: Session, max_pages: int = 50) -> dict:
                 if needs_header:
                     header = _parse_bid_header(detail_html)
                     if header:
+                        # 상세 페이지에 공고명 없으면 목록 페이지 타이틀 사용
+                        if not header.get("title") and list_title:
+                            header["title"] = list_title
                         _upsert_bid_header(db, bid_id, header)
                         existing_bids.add(bid_id)
 
@@ -828,9 +866,12 @@ def collect_inpo21c_national(db: Session, max_pages: int = 50) -> dict:
 
 def collect_bid_notices_inpo21c(db: Session, max_pages: int = 5) -> dict:
     """
-    입산공고 중 목록(/bid/con)에서 개찰 전 사전정보를 수집.
-    예가방법(추첨예가 개수), 예가변동폭, 낙찰하한율, 개찰일시 등.
-    ML 모델이 복수예가 추첨 범위를 실측값으로 사용할 수 있도록 한다.
+    입찰공고 중 목록(/bid/con)에서 개찰 전 사전정보 수집.
+
+    개선 사항:
+      - division=1,2,3 전체 수집 (기존: division=1만)
+      - A값 없는 기존 공고 재수집 (A값 발표 지연 대응)
+      - 수집 완료 후 bids 테이블 자동 동기화
     """
     from app.config import get_settings
     settings = get_settings()
@@ -846,37 +887,146 @@ def collect_bid_notices_inpo21c(db: Session, max_pages: int = 5) -> dict:
 
     _ensure_tables(db)
 
-    existing = {r[0] for r in db.execute(
-        text("SELECT DISTINCT inpo21c_bid_id FROM inpo21c_bid_notices")
+    # a_value가 있는 건 = 완전 수집 완료 → 스킵
+    # a_value가 없는 건 = 재수집 대상 (A값 발표 대기 중일 수 있음)
+    existing_complete = {r[0] for r in db.execute(
+        text("SELECT inpo21c_bid_id FROM inpo21c_bid_notices WHERE a_value IS NOT NULL")
     ).fetchall()}
 
-    total_notices = skipped = 0
+    total_notices = skipped = rescrape = 0
+    processed_this_run: set[str] = set()
 
-    for page in range(1, max_pages + 1):
-        html    = _fetch(f"{BASE}/bid/con?division=1&page={page}", cookie)
-        bid_ids = list(dict.fromkeys(re.findall(r"/bid/view/con/([^\"]+)\"", html)))
-        if not bid_ids:
-            break
+    for division in (1, 2, 3):
+        for page in range(1, max_pages + 1):
+            html    = _fetch(f"{BASE}/bid/con?division={division}&page={page}", cookie)
+            bid_ids = list(dict.fromkeys(re.findall(r"/bid/view/con/([^\"]+)\"", html)))
+            if not bid_ids:
+                break
 
-        for bid_id in bid_ids:
-            if bid_id in existing:
-                skipped += 1
-                continue
+            for bid_id in bid_ids:
+                # 이미 완전 수집됐거나 이번 실행에서 처리한 건 스킵
+                if bid_id in existing_complete or bid_id in processed_this_run:
+                    skipped += 1
+                    continue
 
-            detail_url  = f"{BASE}/bid/view/con/{bid_id}"
-            detail_html = _fetch(detail_url, cookie, referer=f"{BASE}/bid/con?division=1")
-            notice_data = _parse_bid_notice(detail_html)
-            if notice_data:
-                _upsert_bid_notice(db, bid_id, notice_data)
-                total_notices += 1
-                existing.add(bid_id)
+                detail_url  = f"{BASE}/bid/view/con/{bid_id}"
+                detail_html = _fetch(detail_url, cookie,
+                                     referer=f"{BASE}/bid/con?division={division}")
+                notice_data = _parse_bid_notice(detail_html)
+                if notice_data:
+                    is_rescrape = db.execute(
+                        text("SELECT 1 FROM inpo21c_bid_notices WHERE inpo21c_bid_id=:id"),
+                        {"id": bid_id},
+                    ).fetchone() is not None
+                    _upsert_bid_notice(db, bid_id, notice_data)
+                    total_notices += 1
+                    if is_rescrape:
+                        rescrape += 1
+                    if notice_data.get("a_value"):
+                        existing_complete.add(bid_id)
 
-            time.sleep(0.3)
+                processed_this_run.add(bid_id)
+                time.sleep(0.3)
 
-    logger.info("inpo21c 입산공고 수집 완료: %d건 신규, %d건 스킵", total_notices, skipped)
+    # 수집 완료 후 bids 테이블 자동 동기화
+    sync_stats: dict = {}
+    try:
+        from app.collector.service import sync_inpo21c_notices_to_bids
+        sync_stats = sync_inpo21c_notices_to_bids(db)
+    except Exception as e:
+        logger.warning("notices→bids 자동 동기화 실패: %s", e)
+
+    logger.info(
+        "inpo21c 입찰공고 수집 완료: %d건 신규/재수집(%d재수집), %d건 스킵, 동기화=%s",
+        total_notices, rescrape, skipped, sync_stats,
+    )
     _record_log(db, "inpo21c_notices", total_notices, 0,
                 time.time() - _started,
                 detail={"source": "inpo21c.net/bid", "label": "입찰공고 사전정보",
-                        "endpoint": "/bid/con", "api_base": "https://infose.info21c.net",
-                        "max_pages": max_pages, "notices": total_notices, "skipped": skipped})
-    return {"notices": total_notices, "skipped": skipped, "cookie_valid": True}
+                        "endpoint": "/bid/con", "divisions": "1,2,3",
+                        "max_pages": max_pages, "notices": total_notices,
+                        "rescrape": rescrape, "skipped": skipped,
+                        "sync": sync_stats})
+    return {
+        "notices":      total_notices,
+        "rescrape":     rescrape,
+        "skipped":      skipped,
+        "sync":         sync_stats,
+        "cookie_valid": True,
+    }
+
+
+def rescrape_inpo21c_titles(db: Session, max_pages: int = 100) -> dict:
+    """
+    title이 없는 inpo21c_bids 레코드를 목록 페이지 순회로 보완.
+
+    상세 페이지에는 공고명 필드가 없으므로, 목록 페이지의
+    <a class="list_link constnm_link"> 텍스트에서 타이틀을 추출한다.
+    타이틀 확보 후 sync_inpo21c_to_bids로 bids 테이블 신규 등록까지 연계.
+    """
+    from app.config import get_settings
+    settings = get_settings()
+    _started = time.time()
+
+    cookie = _get_valid_cookie(settings)
+    if not cookie:
+        return {"updated": 0, "inserted": 0, "error": "로그인 실패", "cookie_valid": False}
+
+    _ensure_tables(db)
+
+    # title이 없는 bid_id 세트 로드
+    no_title_ids = {
+        r[0] for r in db.execute(text("""
+            SELECT inpo21c_bid_id FROM inpo21c_bids
+            WHERE title IS NULL OR title = ''
+        """)).fetchall()
+    }
+
+    if not no_title_ids:
+        return {"updated": 0, "inserted": 0, "duration_sec": 0.1, "cookie_valid": True}
+
+    updated = 0
+    empty_pages = 0
+
+    for page in range(1, max_pages + 1):
+        page_items = _get_bid_ids_national(page, cookie)
+        if not page_items:
+            empty_pages += 1
+            if empty_pages >= 3:
+                break
+            continue
+        empty_pages = 0
+
+        for bid_id, title in page_items:
+            if bid_id in no_title_ids and title:
+                try:
+                    db.execute(text("""
+                        UPDATE inpo21c_bids SET title = :title
+                        WHERE inpo21c_bid_id = :bid_id
+                    """), {"title": title, "bid_id": bid_id})
+                    db.commit()
+                    no_title_ids.discard(bid_id)
+                    updated += 1
+                except Exception as e:
+                    db.rollback()
+                    logger.warning("title 업데이트 실패 [%s]: %s", bid_id, e)
+
+        if not no_title_ids:
+            break  # 모두 채워짐
+
+    # 타이틀 확보 후 bids INSERT 시도
+    inserted = 0
+    if updated > 0:
+        from app.collector.service import sync_inpo21c_to_bids
+        result = sync_inpo21c_to_bids(db)
+        inserted = result.get("inserted_new_from_inpo21c", 0)
+
+    logger.info("inpo21c title 재스크래핑(목록): updated=%d, inserted=%d, remaining=%d",
+                updated, inserted, len(no_title_ids))
+    return {
+        "updated": updated,
+        "inserted": inserted,
+        "remaining_no_title": len(no_title_ids),
+        "duration_sec": round(time.time() - _started, 1),
+        "cookie_valid": True,
+    }

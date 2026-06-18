@@ -966,6 +966,17 @@ def sync_inpo21c_to_bids_endpoint(
     return result
 
 
+@router.post("/sync-inpo21c-notices-to-bids")
+def sync_inpo21c_notices_to_bids_endpoint(
+    _: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """inpo21c_bid_notices → bids 동기화 (bid_close_date, estimated_price, min_bid_rate, yega_method, registration_deadline)."""
+    from ...collector.service import sync_inpo21c_notices_to_bids
+    result = sync_inpo21c_notices_to_bids(db)
+    return result
+
+
 # ------------------------------------------------------------------ #
 # G2B 백필                                                            #
 # ------------------------------------------------------------------ #
@@ -1078,6 +1089,27 @@ def trigger_inpo21c_bid_notices(
 
     background_tasks.add_task(_run)
     return {"message": f"inpo21c 입찰공고 수집 + bids 동기화 시작됨 (최대 {max_pages}페이지)"}
+
+
+@router.post("/inpo21c/rescrape-titles")
+def trigger_inpo21c_rescrape_titles(
+    background_tasks: BackgroundTasks,
+    max_pages: int = 100,
+    _: User = Depends(require_role("admin")),
+):
+    """inpo21c_bids 중 title이 없는 건을 목록 페이지 순회로 보완 + bids 신규 등록 (백그라운드)."""
+    def _run():
+        from ...database import SessionLocal
+        from ...collector.inpo21c import rescrape_inpo21c_titles
+        _db = SessionLocal()
+        try:
+            result = rescrape_inpo21c_titles(_db, max_pages=max_pages)
+            logger.info("inpo21c title 재스크래핑 완료: %s", result)
+        finally:
+            _db.close()
+
+    background_tasks.add_task(_run)
+    return {"message": f"inpo21c title 재스크래핑 시작됨 (최대 {max_pages}페이지, 백그라운드)"}
 
 
 @router.post("/inpo21c/sync-to-bids")
@@ -1231,3 +1263,48 @@ def collusion_scan_one(
     ).fetchall()
     rates = [float(r[0]) for r in rows]
     return detect_collusion(rates, announcement_no=announcement_no)
+
+
+@router.get("/ml/validation-results")
+def get_validation_results(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin")),
+):
+    """Walk-forward 검증 결과 최근 12회 조회."""
+    try:
+        rows = db.execute(text("""
+            SELECT id, run_at, total, wins, actual_win_rate, srate_mae,
+                   calibration, strategy_win_rates
+            FROM ml_validation_results
+            ORDER BY run_at DESC
+            LIMIT 12
+        """)).fetchall()
+    except Exception:
+        return {"results": [], "message": "검증 데이터 없음 (아직 실행 전)"}
+
+    return {
+        "results": [
+            {
+                "id":               r[0],
+                "run_at":           r[1].isoformat() if r[1] else None,
+                "total":            r[2],
+                "wins":             r[3],
+                "actual_win_rate":  float(r[4]) if r[4] is not None else None,
+                "srate_mae":        float(r[5]) if r[5] is not None else None,
+                "calibration":      r[6],
+                "strategy_win_rates": r[7],
+            }
+            for r in rows
+        ]
+    }
+
+
+@router.post("/ml/run-validation")
+def run_validation_now(
+    background_tasks: BackgroundTasks,
+    _: User = Depends(require_role("admin")),
+):
+    """Walk-forward 검증 즉시 실행 (백그라운드)."""
+    from ...collector.scheduler import run_validation_job
+    background_tasks.add_task(run_validation_job)
+    return {"status": "started", "message": "Walk-forward 검증 시작됨 (백그라운드 — 수초 소요)"}

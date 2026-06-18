@@ -70,8 +70,10 @@ class BidSummary(BaseModel):
     industry_name: Optional[str]
     region_name: Optional[str]
     base_amount: int
+    estimated_price: Optional[int] = None
     notice_date: Optional[date] = None
     bid_open_date: Optional[datetime]
+    bid_close_date: Optional[datetime] = None
     status: str
     winner_rate: Optional[float] = None
     competitor_count: Optional[int] = None
@@ -83,20 +85,19 @@ class BidSummary(BaseModel):
 
 class BidDetail(BidSummary):
     min_bid_rate: Optional[float]
-    estimated_price: Optional[int] = None
     a_value: Optional[int]
     construction_period: Optional[int]
     region_restriction: bool
     ntce_url: Optional[str] = None
-    # ?? ??
     construction_site: Optional[str] = None
     contract_method: Optional[str] = None
     bid_method: Optional[str] = None
     eligible_regions: Optional[str] = None
     industry_limit: Optional[str] = None
-    bid_close_date: Optional[datetime] = None
     contact_name: Optional[str] = None
     contact_tel: Optional[str] = None
+    yega_method: Optional[str] = None
+    registration_deadline: Optional[datetime] = None
     results: List[BidResultOut] = []
 
     class Config:

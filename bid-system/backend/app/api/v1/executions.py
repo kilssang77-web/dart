@@ -47,6 +47,16 @@ def execution_summary(
     return svc.get_summary(user_id=current_user.id)
 
 
+@router.get("/defeat-summary", response_model=dict)
+def defeat_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """패찰 원인 집계 분석 — 원인별 건수/비율/평균 gap"""
+    svc = ExecutionService(db)
+    return svc.defeat_summary(user_id=current_user.id)
+
+
 # ── 발주기관 빈도표 (static path — must be before /{exec_id}) ──
 
 @router.get("/agency-freq/{agency_id}", response_model=dict)

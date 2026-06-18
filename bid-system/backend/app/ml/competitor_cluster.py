@@ -98,12 +98,9 @@ def sample_competitor_rates(
     n_comps = len(weights)
     total = n_sim * n_competitors
 
-    # 클러스터 배정
+    # 클러스터 배정 (벡터화)
     cluster_ids = rng.choice(n_comps, size=total, p=weights)
-    samples = np.array([
-        rng.normal(means[c], stds[c])
-        for c in cluster_ids
-    ])
+    samples = means[cluster_ids] + stds[cluster_ids] * rng.standard_normal(size=total)
     samples = np.clip(samples, 0.840, 0.980)
     return samples.reshape(n_sim, n_competitors)
 

@@ -63,15 +63,43 @@ async def lifespan(app: FastAPI):
     finally:
         _db_warm.close()
 
-    # APScheduler — 나라장터 수집 스케줄
-    from .collector.scheduler import create_scheduler
-    scheduler = create_scheduler()
-    scheduler.start()
-    logger.info("Scheduler started")
+    # APScheduler — 멀티워커 환경에서 한 프로세스만 스케줄러 실행
+    _sched_lock_fd = None
+    _is_scheduler_master = False
+    try:
+        import fcntl as _fcntl
+        _sched_lock_fd = open("/tmp/bid_scheduler.lock", "w")
+        _fcntl.flock(_sched_lock_fd, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+        _is_scheduler_master = True
+    except (IOError, OSError, ImportError):
+        if _sched_lock_fd:
+            try:
+                _sched_lock_fd.close()
+            except Exception:
+                pass
+            _sched_lock_fd = None
+
+    if _is_scheduler_master:
+        from .collector.scheduler import create_scheduler
+        scheduler = create_scheduler()
+        scheduler.start()
+        logger.info("Scheduler started (master worker)")
+    else:
+        scheduler = None
+        logger.info("Scheduler skipped (secondary worker)")
 
     logger.info("서버 준비 완료")
     yield
-    scheduler.shutdown(wait=False)
+
+    if scheduler:
+        scheduler.shutdown(wait=False)
+    if _sched_lock_fd:
+        try:
+            import fcntl as _fcntl
+            _fcntl.flock(_sched_lock_fd, _fcntl.LOCK_UN)
+            _sched_lock_fd.close()
+        except Exception:
+            pass
     logger.info("서버 종료")
 
 

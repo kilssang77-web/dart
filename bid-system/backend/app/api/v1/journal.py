@@ -62,6 +62,98 @@ def journal_stats(
     return _svc.get_stats(db, user.id)
 
 
+@router.get("/gap-analysis")
+def gap_analysis(
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """투찰 패턴 분석 — 우리 투찰률 vs 낙찰자 거리 분포 + 월별 추세"""
+    from sqlalchemy import text
+
+    # 전체 요약
+    summary = db.execute(text("""
+        SELECT
+            COUNT(*) as total,
+            COUNT(CASE WHEN result='낙찰' THEN 1 END) as wins,
+            ROUND(AVG(ABS(winner_rate - submitted_rate)::numeric) * 100, 3) as avg_abs_gap,
+            ROUND(AVG((winner_rate - submitted_rate)::numeric) * 100, 3) as avg_signed_gap,
+            COUNT(CASE WHEN ABS(winner_rate - submitted_rate) <= 0.005 THEN 1 END) as within_0_5pct,
+            COUNT(CASE WHEN ABS(winner_rate - submitted_rate) <= 0.01 THEN 1 END) as within_1pct,
+            COUNT(CASE WHEN ABS(winner_rate - submitted_rate) <= 0.02 THEN 1 END) as within_2pct
+        FROM bid_journal
+        WHERE winner_rate IS NOT NULL AND submitted_rate IS NOT NULL
+          AND user_id = :uid
+    """), {"uid": user.id}).fetchone()
+
+    # 월별 추세 (최근 12개월)
+    monthly = db.execute(text("""
+        SELECT
+            TO_CHAR(submitted_at, 'YYYY-MM') as month,
+            COUNT(*) as total,
+            COUNT(CASE WHEN result='낙찰' THEN 1 END) as wins,
+            ROUND(AVG(ABS(winner_rate - submitted_rate)::numeric) * 100, 3) as avg_gap
+        FROM bid_journal
+        WHERE winner_rate IS NOT NULL AND submitted_rate IS NOT NULL
+          AND submitted_at IS NOT NULL AND user_id = :uid
+          AND submitted_at >= NOW() - INTERVAL '12 months'
+        GROUP BY 1
+        ORDER BY 1
+    """), {"uid": user.id}).fetchall()
+
+    # gap 분포 히스토그램 (0~20%, 1% 버킷)
+    hist = db.execute(text("""
+        SELECT
+            LEAST(FLOOR(ABS(winner_rate - submitted_rate) * 100)::int, 19) as bucket,
+            COUNT(*) as cnt
+        FROM bid_journal
+        WHERE winner_rate IS NOT NULL AND submitted_rate IS NOT NULL
+          AND user_id = :uid
+        GROUP BY 1
+        ORDER BY 1
+    """), {"uid": user.id}).fetchall()
+
+    hist_dict = {int(r[0]): int(r[1]) for r in hist}
+    histogram = [{"bucket_pct": i, "count": hist_dict.get(i, 0)} for i in range(20)]
+
+    # 전략별 성과
+    by_strategy = db.execute(text("""
+        SELECT
+            COALESCE(strategy_chosen, 'unknown') as strategy,
+            COUNT(*) as total,
+            COUNT(CASE WHEN result='낙찰' THEN 1 END) as wins,
+            ROUND(AVG(ABS(winner_rate - submitted_rate)::numeric) * 100, 3) as avg_gap
+        FROM bid_journal
+        WHERE submitted_rate IS NOT NULL AND user_id = :uid
+        GROUP BY 1
+        ORDER BY 3 DESC
+    """), {"uid": user.id}).fetchall()
+
+    total = int(summary[0]) if summary[0] else 0
+    wins = int(summary[1]) if summary[1] else 0
+
+    return {
+        "summary": {
+            "total": total,
+            "wins": wins,
+            "win_rate": round(wins / total, 4) if total > 0 else 0,
+            "avg_abs_gap_pct": float(summary[2]) if summary[2] else None,
+            "avg_signed_gap_pct": float(summary[3]) if summary[3] else None,
+            "within_0_5pct": int(summary[4]) if summary[4] else 0,
+            "within_1pct": int(summary[5]) if summary[5] else 0,
+            "within_2pct": int(summary[6]) if summary[6] else 0,
+        },
+        "monthly": [
+            {"month": r[0], "total": int(r[1]), "wins": int(r[2]), "avg_gap": float(r[3]) if r[3] else None}
+            for r in monthly
+        ],
+        "histogram": histogram,
+        "by_strategy": [
+            {"strategy": r[0], "total": int(r[1]), "wins": int(r[2]), "avg_gap": float(r[3]) if r[3] else None}
+            for r in by_strategy
+        ],
+    }
+
+
 @router.get("/pending")
 def pending_results(
     db: Session = Depends(get_db),

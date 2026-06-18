@@ -2,9 +2,13 @@
 프리즘 2.0 — 구간별 낙찰확률 스캔 (0.860~0.930 × 0.001 = 70구간)
 inpo21c 실증 분포 기반 Monte Carlo win_prob 계산, 상위 10개 추출.
 """
+import time
 import numpy as np
 from typing import Optional
 from sqlalchemy.orm import Session
+
+_prism_cache: dict = {}
+_PRISM_TTL = 3600  # 1시간 캐시
 
 from .simulation import simulate_yejung, monte_carlo_win_prob_empirical, monte_carlo_win_prob
 from .a_value import calc_floor_rate
@@ -35,6 +39,27 @@ def scan_prism_zones(
     Returns:
         (all_zones, top10): 전체 71구간 목록(0.860~0.930 포함), 낙찰확률 상위 10개
     """
+    cache_key = (base_amount, industry_name, agency_id, industry_id)
+    now = time.monotonic()
+    cached = _prism_cache.get(cache_key)
+    if cached is not None:
+        result, ts = cached
+        if now - ts < _PRISM_TTL:
+            return result
+
+    result = _compute_prism_zones(base_amount, industry_name, agency_id, industry_id, db, n_sim)
+    _prism_cache[cache_key] = (result, now)
+    return result
+
+
+def _compute_prism_zones(
+    base_amount: int,
+    industry_name: str,
+    agency_id: int,
+    industry_id: int,
+    db: Session,
+    n_sim: int = 20_000,
+) -> tuple[list[dict], list[dict]]:
     rng = np.random.default_rng(42)
     floor_rate_pct = calc_floor_rate(industry_name)
 

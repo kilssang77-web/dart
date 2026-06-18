@@ -1,6 +1,6 @@
 ﻿from sqlalchemy import (
     Column, Integer, BigInteger, SmallInteger, String, Text,
-    Boolean, Numeric, Float, Date, DateTime, ARRAY, JSON, ForeignKey, UniqueConstraint
+    Boolean, Numeric, Float, Date, DateTime, ARRAY, JSON, ForeignKey, UniqueConstraint, Index
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
@@ -50,6 +50,14 @@ class Competitor(Base):
 
 class Bid(Base):
     __tablename__ = "bids"
+    __table_args__ = (
+        Index("ix_bids_status",        "status"),
+        Index("ix_bids_agency_id",     "agency_id"),
+        Index("ix_bids_industry_id",   "industry_id"),
+        Index("ix_bids_region_id",     "region_id"),
+        Index("ix_bids_notice_date",   "notice_date"),
+        Index("ix_bids_bid_open_date", "bid_open_date"),
+    )
     id                  = Column(BigInteger, primary_key=True)
     announcement_no     = Column(String(60), unique=True, nullable=False)
     title               = Column(String(500), nullable=False)
@@ -78,6 +86,8 @@ class Bid(Base):
     contact_name        = Column(String(100))
     contact_tel         = Column(String(50))
     participant_count   = Column(Integer, default=0)   # inpo21c 실증 참여자 수
+    yega_method         = Column(String(100))           # 예가방법 (inpo21c)
+    registration_deadline = Column(DateTime(timezone=True))  # 참가등록마감 (inpo21c)
     created_at          = Column(DateTime(timezone=True), server_default=func.now())
     updated_at          = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -90,7 +100,12 @@ class Bid(Base):
 
 class BidResult(Base):
     __tablename__ = "bid_results"
-    __table_args__ = (UniqueConstraint("bid_id", "competitor_id"),)
+    __table_args__ = (
+        UniqueConstraint("bid_id", "competitor_id"),
+        Index("ix_bid_results_bid_id",      "bid_id"),
+        Index("ix_bid_results_competitor_id", "competitor_id"),
+        Index("ix_bid_results_bid_winner",   "bid_id", "is_winner"),
+    )
     id              = Column(BigInteger, primary_key=True)
     bid_id          = Column(BigInteger, ForeignKey("bids.id", ondelete="CASCADE"), nullable=False)
     competitor_id   = Column(Integer, ForeignKey("competitors.id"), nullable=False)
@@ -347,6 +362,9 @@ class Notification(Base):
 class BidParticipant(Base):
     """inpo21c_participants ORM 매핑 — 읽기 전용 (기존 테이블 참조, 마이그레이션 없음)."""
     __tablename__ = "inpo21c_participants"
+    __table_args__ = (
+        Index("ix_inpo21c_part_bid_winner", "inpo21c_bid_id", "is_winner"),
+    )
 
     id              = Column(Integer, primary_key=True)
     inpo21c_bid_id  = Column(String(60), nullable=False, index=True)

@@ -232,7 +232,7 @@ class DecisionService:
 
         all_zones, top_zones = scan_zones_from_dist(
             srate_dist, floor_rate, base_amount,
-            inpo_rates, expected_n, n_sim=min(n_sim, 20_000),
+            inpo_rates, expected_n, n_sim=min(n_sim // 10, 3_000),
             gmm_params=_gmm_params,
         )
 
@@ -496,4 +496,162 @@ class DecisionService:
             "agency_id":   agency_id,
             "agency_name": b.agency.name if b.agency else "",
             "inpo21c_n":   total_bids,
+        }
+
+    def get_competitor_prediction(self, db: Session, bid_id: int, top_n: int = 15) -> dict:
+        """
+        경쟁사 투찰 구간 예측 — inpo21c 이력 기반.
+        기관 우선 매칭 → 부족 시 공종 전국 fallback.
+        각 경쟁사의 P25-P75 구간 = "이 회사가 이 기관에서 주로 투찰하는 구간"
+        """
+        from sqlalchemy import text as _text
+        from .models import Bid
+
+        b = db.query(Bid).filter(Bid.id == bid_id).first()
+        if not b:
+            return {"competitors": [], "match_type": "none", "agency_name": "", "data_points": 0}
+
+        agency_name = b.agency.name if b.agency else ""
+        industry_name = b.industry.name if b.industry else ""
+
+        # ── 1) 기관별 경쟁사 패턴 ──────────────────────────────
+        AGENCY_SQL = _text("""
+            SELECT
+                ip.company_name,
+                ip.biz_reg_no,
+                COUNT(*)                                                    AS total_bids,
+                COUNT(CASE WHEN ip.is_winner THEN 1 END)                   AS wins,
+                ROUND(AVG(ip.bid_rate)::numeric * 100, 3)                  AS avg_rate_pct,
+                ROUND(STDDEV(ip.bid_rate)::numeric * 100, 4)               AS std_pct,
+                ROUND(PERCENTILE_CONT(0.10) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p10,
+                ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p25,
+                ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p50,
+                ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p75,
+                ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p90,
+                MAX(ib.open_datetime)::date                                 AS last_seen
+            FROM inpo21c_participants ip
+            JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = ip.inpo21c_bid_id
+            WHERE (
+                TRIM(ib.agency_name) = TRIM(:agency)
+                OR TRIM(ib.agency_name) LIKE '%%' || TRIM(:agency) || '%%'
+                OR TRIM(:agency) LIKE '%%' || TRIM(ib.agency_name) || '%%'
+            )
+              AND ip.bid_rate IS NOT NULL AND ip.bid_rate > 0.5
+              AND ip.bid_rate < 1.5
+            GROUP BY ip.company_name, ip.biz_reg_no
+            HAVING COUNT(*) >= 2
+            ORDER BY total_bids DESC
+            LIMIT :top_n
+        """)
+
+        rows = db.execute(AGENCY_SQL, {"agency": agency_name, "top_n": top_n}).fetchall()
+        match_type = "agency"
+        data_points = len(rows)
+
+        # ── 2) 기관 데이터 부족 → 공종 전국 fallback ─────────
+        if len(rows) < 5 and industry_name:
+            INDUSTRY_SQL = _text("""
+                SELECT
+                    ip.company_name,
+                    ip.biz_reg_no,
+                    COUNT(*)                                                    AS total_bids,
+                    COUNT(CASE WHEN ip.is_winner THEN 1 END)                   AS wins,
+                    ROUND(AVG(ip.bid_rate)::numeric * 100, 3)                  AS avg_rate_pct,
+                    ROUND(STDDEV(ip.bid_rate)::numeric * 100, 4)               AS std_pct,
+                    ROUND(PERCENTILE_CONT(0.10) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p10,
+                    ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p25,
+                    ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p50,
+                    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p75,
+                    ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p90,
+                    MAX(ib.open_datetime)::date                                 AS last_seen
+                FROM inpo21c_participants ip
+                JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = ip.inpo21c_bid_id
+                WHERE (
+                    TRIM(ib.industry) LIKE '%%' || TRIM(:industry) || '%%'
+                    OR TRIM(:industry) LIKE '%%' || TRIM(ib.industry) || '%%'
+                )
+                  AND ip.bid_rate IS NOT NULL AND ip.bid_rate > 0.5
+                  AND ip.bid_rate < 1.5
+                GROUP BY ip.company_name, ip.biz_reg_no
+                HAVING COUNT(*) >= 5
+                ORDER BY total_bids DESC
+                LIMIT :top_n
+            """)
+            rows = db.execute(INDUSTRY_SQL, {"industry": industry_name, "top_n": top_n}).fetchall()
+            match_type = "industry"
+            data_points = len(rows)
+
+        # ── 3) 전국 fallback ───────────────────────────────────
+        if len(rows) < 3:
+            NATIONAL_SQL = _text("""
+                SELECT
+                    ip.company_name,
+                    ip.biz_reg_no,
+                    COUNT(*)                                                    AS total_bids,
+                    COUNT(CASE WHEN ip.is_winner THEN 1 END)                   AS wins,
+                    ROUND(AVG(ip.bid_rate)::numeric * 100, 3)                  AS avg_rate_pct,
+                    ROUND(STDDEV(ip.bid_rate)::numeric * 100, 4)               AS std_pct,
+                    ROUND(PERCENTILE_CONT(0.10) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p10,
+                    ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p25,
+                    ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p50,
+                    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p75,
+                    ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p90,
+                    MAX(ib.open_datetime)::date                                 AS last_seen
+                FROM inpo21c_participants ip
+                JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = ip.inpo21c_bid_id
+                WHERE ip.bid_rate IS NOT NULL AND ip.bid_rate > 0.5 AND ip.bid_rate < 1.5
+                GROUP BY ip.company_name, ip.biz_reg_no
+                HAVING COUNT(*) >= 20
+                ORDER BY total_bids DESC
+                LIMIT :top_n
+            """)
+            rows = db.execute(NATIONAL_SQL, {"top_n": top_n}).fetchall()
+            match_type = "national"
+            data_points = len(rows)
+
+        # ── 공격성 분류 ────────────────────────────────────────
+        def _aggression(avg: float, p25: float, p75: float, std: float) -> str:
+            # 평균이 높을수록 공격적 (높게 투찰), 분산이 클수록 불안정
+            if avg >= 91.0:
+                return "aggressive"
+            elif avg <= 89.5:
+                return "conservative"
+            elif std is not None and float(std) >= 3.0:
+                return "volatile"
+            else:
+                return "balanced"
+
+        competitors = []
+        for r in rows:
+            avg = float(r[4]) if r[4] is not None else None
+            std = float(r[5]) if r[5] is not None else None
+            p25 = float(r[7]) if r[7] is not None else None
+            p50 = float(r[8]) if r[8] is not None else None
+            p75 = float(r[9]) if r[9] is not None else None
+            win_rate = round(int(r[3]) / int(r[2]), 4) if int(r[2]) > 0 else 0.0
+
+            competitors.append({
+                "company_name":   r[0],
+                "biz_reg_no":     r[1] or "",
+                "total_bids":     int(r[2]),
+                "wins":           int(r[3]),
+                "win_rate":       win_rate,
+                "avg_rate_pct":   avg,
+                "std_pct":        std,
+                "p10_pct":        float(r[6]) if r[6] is not None else None,
+                "p25_pct":        p25,
+                "p50_pct":        p50,
+                "p75_pct":        p75,
+                "p90_pct":        float(r[10]) if r[10] is not None else None,
+                "typical_range":  [p25, p75] if p25 and p75 else None,
+                "aggression":     _aggression(avg or 90.0, p25 or 90.0, p75 or 90.0, std or 1.0),
+                "last_seen":      str(r[11]) if r[11] else None,
+            })
+
+        return {
+            "competitors":  competitors,
+            "match_type":   match_type,
+            "agency_name":  agency_name,
+            "industry_name": industry_name,
+            "data_points":  data_points,
         }

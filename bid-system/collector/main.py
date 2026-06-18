@@ -625,9 +625,9 @@ if __name__ == "__main__":
                 logger.info("최근 7일 G2B 데이터 없음 — 180일 과거 데이터 수집 시작...")
                 collect_history(180)
 
-        scheduler = BlockingScheduler()
-        scheduler.add_job(collect_today,   CronTrigger(hour="9,15",  minute=0))
-        scheduler.add_job(collect_results, CronTrigger(hour=18,      minute=30))
+        scheduler = BlockingScheduler(misfire_grace_time=300)
+        scheduler.add_job(collect_today,   CronTrigger(hour="9,15",  minute=0,  timezone="Asia/Seoul"))
+        scheduler.add_job(collect_results, CronTrigger(hour=18,      minute=30, timezone="Asia/Seoul"))
         scheduler.start()
     else:
         logger.info("수집기 대기 모드")

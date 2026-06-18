@@ -1,7 +1,7 @@
 ﻿from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
-from datetime import date
+from datetime import date, datetime, timezone, timedelta
 
 from ...database import get_db
 from ...models import User, Agency, Industry, Region, Bid
@@ -23,6 +23,10 @@ def list_bids(
     date_to:     Optional[date] = Query(None),
     keyword:     Optional[str]  = Query(None),
     sort_by:     str            = Query('notice_date'),
+    yega_method:     Optional[str]  = Query(None),
+    contract_method: Optional[str]  = Query(None),
+    base_amount_min: Optional[int]  = Query(None),
+    base_amount_max: Optional[int]  = Query(None),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=500),
     db: Session = Depends(get_db),
@@ -32,6 +36,8 @@ def list_bids(
         db, agency_id=agency_id, industry_id=industry_id, region_id=region_id,
         status=status, date_from=date_from, date_to=date_to,
         keyword=keyword, page=page, size=size, sort_by=sort_by,
+        yega_method=yega_method, contract_method=contract_method,
+        base_amount_min=base_amount_min, base_amount_max=base_amount_max,
     )
 
 
@@ -52,21 +58,89 @@ def get_meta(db: Session = Depends(get_db), _: User = Depends(get_current_user))
     }
 
 
+@router.get("/upcoming-openings")
+def upcoming_openings(
+    days: int = Query(7, ge=1, le=30),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """개찰 임박 공고 목록 — bid_open_date 기준 D-0 ~ D+days."""
+    now = datetime.now(timezone.utc)
+    deadline = now + timedelta(days=days)
+
+    rows = (
+        db.query(Bid, Agency.name.label("agency_name"), Industry.name.label("industry_name"))
+        .join(Agency, Bid.agency_id == Agency.id, isouter=True)
+        .join(Industry, Bid.industry_id == Industry.id, isouter=True)
+        .filter(
+            Bid.bid_open_date.isnot(None),
+            Bid.bid_open_date >= now,
+            Bid.bid_open_date <= deadline,
+            Bid.status == "open",
+        )
+        .order_by(Bid.bid_open_date.asc())
+        .limit(50)
+        .all()
+    )
+
+    results = []
+    for bid, agency_name, industry_name in rows:
+        open_dt = bid.bid_open_date
+        if open_dt.tzinfo is None:
+            open_dt = open_dt.replace(tzinfo=timezone.utc)
+        delta = open_dt - now
+        days_left = int(delta.total_seconds() // 86400)
+        hours_left = int(delta.total_seconds() % 86400 // 3600)
+
+        if delta.total_seconds() < 0:
+            urgency = "past"
+        elif days_left == 0:
+            urgency = "today"
+        elif days_left == 1:
+            urgency = "tomorrow"
+        elif days_left <= 3:
+            urgency = "soon"
+        else:
+            urgency = "normal"
+
+        results.append({
+            "id":              bid.id,
+            "announcement_no": bid.announcement_no,
+            "title":           bid.title,
+            "agency_name":     agency_name or bid.agency_name or "",
+            "industry_name":   industry_name or "",
+            "base_amount":     bid.base_amount or 0,
+            "bid_open_date":   bid.bid_open_date.isoformat() if bid.bid_open_date else None,
+            "days_left":       days_left,
+            "hours_left":      hours_left,
+            "urgency":         urgency,
+            "source":          bid.source or "",
+        })
+
+    return {"items": results, "total": len(results), "days": days}
+
+
 @router.get("/search")
 def search_bids(
-    announcement_no: str = Query("", min_length=1),
+    announcement_no: str = Query("", min_length=0),
+    q: Optional[str] = Query(None),
     limit: int = Query(10, ge=1, le=20),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    """공고번호 자동완성 검색 (경량)."""
-    rows = (
+    """공고번호 또는 공고명 검색 (활성 공종 필터 미적용)."""
+    base_q = (
         db.query(Bid, Agency.name.label("agency_name"))
         .join(Agency, Bid.agency_id == Agency.id, isouter=True)
-        .filter(Bid.announcement_no.ilike(f"%{announcement_no}%"))
-        .limit(limit)
-        .all()
     )
+    if q:
+        from sqlalchemy import or_
+        base_q = base_q.filter(
+            or_(Bid.title.ilike(f"%{q}%"), Bid.announcement_no.ilike(f"%{q}%"))
+        )
+    elif announcement_no:
+        base_q = base_q.filter(Bid.announcement_no.ilike(f"%{announcement_no}%"))
+    rows = base_q.limit(limit).all()
     return [
         {
             "id": bid.id,
@@ -249,6 +323,39 @@ def best_rate(
         return BestRateService().get(db, bid_id, period_type=period)
     except ValueError as e:
         raise HTTPException(404, str(e))
+
+
+@router.get("/{bid_id}/yega")
+def bid_yega(
+    bid_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """복수예가 목록 (inpo21c_yega)."""
+    from ...models import Bid as BidModel
+    from sqlalchemy import text as sa_text
+    bid = db.query(BidModel).filter(BidModel.id == bid_id).first()
+    if not bid or not bid.announcement_no:
+        return {"items": []}
+    rows = db.execute(sa_text("""
+        SELECT y.yega_no, y.amount, y.base_ratio, y.base_ratio_pct, y.is_selected
+        FROM inpo21c_yega y
+        JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = y.inpo21c_bid_id
+        WHERE ib.announcement_no LIKE :ano
+        ORDER BY y.yega_no
+    """), {"ano": bid.announcement_no + "%"}).fetchall()
+    return {
+        "items": [
+            {
+                "yega_no":       r[0],
+                "amount":        r[1],
+                "base_ratio":    float(r[2]) if r[2] else None,
+                "base_ratio_pct":float(r[3]) if r[3] else None,
+                "is_selected":   bool(r[4]),
+            }
+            for r in rows
+        ]
+    }
 
 
 @router.get("/{bid_id}/prism-histogram")

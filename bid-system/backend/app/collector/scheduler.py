@@ -33,7 +33,9 @@ def run_collection_job(collect_type: str) -> None:
             run_full_collection(db)
             _trigger_ml_retrain("전체 수집(all) 완료")
         elif collect_type == "notices":
+            # 공사 + 용역 동시 수집 (G2B API coverage 확대)
             collect_notices(db, client, "notice_cnstwk")
+            collect_notices(db, client, "notice_servc")
         elif collect_type == "results":
             collect_results(db, client)
             _trigger_ml_retrain("G2B 결과 수집 완료")
@@ -446,6 +448,50 @@ def run_journal_auto_fill_job() -> None:
         db.close()
 
 
+def run_pre_open_alert_job() -> None:
+    """개찰 3시간 전 사전 알림 (매 정시 실행)."""
+    from datetime import datetime, timezone, timedelta
+    from app.database import SessionLocal
+    from app.models import BidExecution
+    from app.services import NotificationService
+
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        window_start = now + timedelta(hours=2)
+        window_end   = now + timedelta(hours=4)
+        executions = db.query(BidExecution).filter(
+            BidExecution.status.in_(["참여결정", "투찰완료"]),
+            BidExecution.bid_open_date >= window_start,
+            BidExecution.bid_open_date <= window_end,
+        ).all()
+        svc = NotificationService(db)
+        created = 0
+        for ex in executions:
+            svc.create_pre_open_alert(ex.user_id, ex.title, execution_id=ex.id)
+            created += 1
+        logger.info("3시간 전 알림: %d건", created)
+    except Exception as exc:
+        logger.error("3시간 전 알림 실패: %s", exc)
+    finally:
+        db.close()
+
+
+def run_validation_job() -> None:
+    """Walk-forward 모델 검증 — 전월 예측 vs 실제 낙찰률 캘리브레이션 (매월 1일 03:00 KST)."""
+    from app.database import SessionLocal
+    from app.ml.validation import WalkForwardValidator
+
+    db = SessionLocal()
+    try:
+        result = WalkForwardValidator().run(db)
+        logger.info("Walk-forward 검증: %s", result)
+    except Exception as e:
+        logger.error("Walk-forward 검증 실패: %s", e)
+    finally:
+        db.close()
+
+
 def create_scheduler() -> BackgroundScheduler:
     """BackgroundScheduler 생성 및 작업 등록."""
     scheduler = BackgroundScheduler(timezone="Asia/Seoul")
@@ -457,6 +503,7 @@ def create_scheduler() -> BackgroundScheduler:
         id="collect_notices_daily",
         name="공고 수집 (매일 06:30 KST)",
         replace_existing=True,
+        max_instances=1,
     )
     scheduler.add_job(
         run_results_and_sync,
@@ -464,6 +511,7 @@ def create_scheduler() -> BackgroundScheduler:
         id="collect_results_and_sync_daily",
         name="개찰결과 수집 + 투찰이력 연계 (매일 18:30 KST)",
         replace_existing=True,
+        max_instances=1,
     )
     scheduler.add_job(
         run_scsbid_job,
@@ -471,6 +519,7 @@ def create_scheduler() -> BackgroundScheduler:
         id="collect_scsbid_daily",
         name="낙찰정보서비스 참여자수 보강 (매일 19:30 KST)",
         replace_existing=True,
+        max_instances=1,
     )
     scheduler.add_job(
         run_bid_notices_inpo21c_job,
@@ -478,6 +527,7 @@ def create_scheduler() -> BackgroundScheduler:
         id="collect_bid_notices_inpo21c_daily",
         name="inpo21c 입찰공고 사전정보 (매일 09:30 KST)",
         replace_existing=True,
+        max_instances=1,
     )
     scheduler.add_job(
         run_inpo21c_job,
@@ -485,6 +535,7 @@ def create_scheduler() -> BackgroundScheduler:
         id="collect_inpo21c_daily",
         name="inpo21c 전참여자+예가 수집 (매일 20:00 KST)",
         replace_existing=True,
+        max_instances=1,
     )
     scheduler.add_job(
         run_srate_spike_check_job,
@@ -492,6 +543,7 @@ def create_scheduler() -> BackgroundScheduler:
         id="srate_spike_check_daily",
         name="사정율 급변 알림 탐지 (매일 07:30 KST)",
         replace_existing=True,
+        max_instances=1,
     )
     scheduler.add_job(
         run_execution_deadline_job,
@@ -499,6 +551,7 @@ def create_scheduler() -> BackgroundScheduler:
         id="execution_deadline_notify_daily",
         name="투찰 마감 임박 알림 D-0/D-1 (매일 08:30 KST)",
         replace_existing=True,
+        max_instances=1,
     )
     for hr, mi in ((10, 30), (16, 30), (22, 30)):
         scheduler.add_job(
@@ -507,6 +560,7 @@ def create_scheduler() -> BackgroundScheduler:
             id=f"post_open_collect_{hr}",
             name=f"개찰 후 결과 수집 ({hr:02d}:{mi:02d} KST)",
             replace_existing=True,
+            max_instances=1,
         )
 
     scheduler.add_job(
@@ -515,14 +569,18 @@ def create_scheduler() -> BackgroundScheduler:
         id="freq_rebuild_weekly",
         name="발주기관 빈도표+전략 재계산 (매주 일 04:00 KST)",
         replace_existing=True,
+        max_instances=1,
     )
-    scheduler.add_job(
-        run_inpo21c_national_job,
-        trigger=CronTrigger(day_of_week="sun", hour=4, minute=30, timezone="Asia/Seoul"),
-        id="collect_inpo21c_national_weekly",
-        name="inpo21c 전국 낙찰 수집 (매주 일 04:30 KST)",
-        replace_existing=True,
-    )
+    # 전국 낙찰 수집: 화·목·일 03:30 KST (주 3회 — 커버리지 갭 최소화)
+    for dow, hh, mm in (("tue", 3, 30), ("thu", 3, 30), ("sun", 4, 30)):
+        scheduler.add_job(
+            run_inpo21c_national_job,
+            trigger=CronTrigger(day_of_week=dow, hour=hh, minute=mm, timezone="Asia/Seoul"),
+            id=f"collect_inpo21c_national_{dow}",
+            name=f"inpo21c 전국 낙찰 수집 ({dow} {hh:02d}:{mm:02d} KST)",
+            replace_existing=True,
+            max_instances=1,
+        )
     # 투찰 저널 자동 결과 수집 (매일 21:00 — 개찰 완료 후 inpo21c 데이터 안정화 후)
     scheduler.add_job(
         run_journal_auto_fill_job,
@@ -530,6 +588,25 @@ def create_scheduler() -> BackgroundScheduler:
         id="journal_auto_fill_daily",
         name="투찰저널 개찰결과 자동 수집 (매일 21:00 KST)",
         replace_existing=True,
+        max_instances=1,
+    )
+    # 개찰 3시간 전 사전 알림 (매 정시)
+    scheduler.add_job(
+        run_pre_open_alert_job,
+        trigger=CronTrigger(minute=0, timezone="Asia/Seoul"),
+        id="pre_open_alert_hourly",
+        name="개찰 3시간 전 사전 알림 (매 정시 KST)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    # Walk-forward 모델 검증 (매월 1일 03:00 KST)
+    scheduler.add_job(
+        run_validation_job,
+        trigger=CronTrigger(day=1, hour=3, minute=0, timezone="Asia/Seoul"),
+        id="walkforward_monthly",
+        name="Walk-forward 모델 검증 (매월 1일 03:00 KST)",
+        replace_existing=True,
+        max_instances=1,
     )
 
     return scheduler
