@@ -144,7 +144,7 @@ class FeatureStockDetector:
                 logger.debug(f"[Kafka Lag] monitor error: {e}")
 
     async def _process_ticks(self):
-        async for batch in self.consumer.consume(["tick-data"], batch_size=200):
+        async for batch in self.consumer.consume(["tick-data"], batch_size=500):
             for tick in batch:
                 if not tick:
                     continue

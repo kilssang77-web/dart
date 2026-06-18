@@ -110,8 +110,17 @@ async def foreign_flow(
     redis: redis_lib.Redis = Depends(get_redis),
 ):
     """외국인/기관 순매수 상위 종목 (UNKNOWN 제외)."""
+    _ff_key = f"cache:foreign_flow:{market or 'all'}:{limit}"
+    try:
+        _cached = await redis.get(_ff_key)
+        if _cached:
+            import orjson as _orjson
+            return _orjson.loads(_cached)
+    except Exception:
+        pass
+
     mkt_filter = "AND s.market = $2" if market else "AND s.market IN ('KOSPI','KOSDAQ')"
-    params = [limit * 4] + ([market.upper()] if market else [])
+    params = [limit * 2] + ([market.upper()] if market else [])
 
     rows = await db.fetch(f"""
         WITH sd_ld AS (
@@ -168,7 +177,13 @@ async def foreign_flow(
         key=lambda x: -(x.get("inst_net") or 0)
     )[:limit]
 
-    return {"foreign_buy": foreign_buy, "inst_buy": inst_buy}
+    result = {"foreign_buy": foreign_buy, "inst_buy": inst_buy}
+    try:
+        import orjson as _orjson
+        await redis.set(_ff_key, _orjson.dumps(result), ex=60)
+    except Exception:
+        pass
+    return result
 
 
 _KIS_BASE = "https://openapi.koreainvestment.com:9443"

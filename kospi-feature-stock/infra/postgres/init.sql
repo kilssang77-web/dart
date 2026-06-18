@@ -208,7 +208,7 @@ CREATE INDEX IF NOT EXISTS idx_disc_code       ON disclosures(code, disclosed_at
 CREATE INDEX IF NOT EXISTS idx_disc_type       ON disclosures(disclosure_type);
 CREATE INDEX IF NOT EXISTS idx_disc_category   ON disclosures(category);
 CREATE INDEX IF NOT EXISTS idx_disc_embedding  ON disclosures
-    USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+    USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
 
 -- ────────────────────────────────────────────────────────────
 -- 뉴스 데이터
@@ -236,7 +236,7 @@ CREATE TABLE IF NOT EXISTS news_stock_links (
 
 CREATE INDEX IF NOT EXISTS idx_news_published  ON news(published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_news_embedding  ON news
-    USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+    USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
 
 -- ────────────────────────────────────────────────────────────
 -- 특징주 이벤트 (탐지 결과)
@@ -414,6 +414,42 @@ JOIN stocks s ON s.code = r.code
 WHERE r.created_at >= NOW() - INTERVAL '8 hours'
   AND r.action = 'BUY'
 ORDER BY r.success_prob DESC;
+
+-- ────────────────────────────────────────────────────────────
+-- Materialized View: 시장 등락 캐시 (market movers 쿼리 가속)
+-- REFRESH MATERIALIZED VIEW CONCURRENTLY mv_daily_change_rate; 로 갱신
+-- ────────────────────────────────────────────────────────────
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_daily_change_rate AS
+WITH
+latest_dt AS (SELECT MAX(date) AS d FROM daily_bars),
+prev_dt   AS (SELECT MAX(date) AS d FROM daily_bars
+               WHERE date < (SELECT d FROM latest_dt))
+SELECT
+    c.code,
+    s.name,
+    s.market,
+    s.sector,
+    c.close AS price,
+    c.volume,
+    c.amount,
+    CASE
+        WHEN c.change_rate IS NOT NULL AND c.change_rate <> 0 THEN c.change_rate
+        WHEN p.close IS NOT NULL AND p.close > 0 AND c.close IS NOT NULL
+            THEN ROUND(((c.close - p.close)::NUMERIC / p.close * 100), 2)
+        ELSE 0
+    END AS change_rate,
+    c.date AS data_date
+FROM daily_bars c
+CROSS JOIN latest_dt
+LEFT JOIN daily_bars p ON p.code = c.code
+                       AND p.date = (SELECT d FROM prev_dt)
+JOIN stocks s ON s.code = c.code
+WHERE c.date = latest_dt.d AND c.close > 0
+  AND s.market IN ('KOSPI', 'KOSDAQ');
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_dcr_code ON mv_daily_change_rate(code);
+CREATE INDEX IF NOT EXISTS idx_mv_dcr_change ON mv_daily_change_rate(change_rate DESC);
+CREATE INDEX IF NOT EXISTS idx_mv_dcr_market_change ON mv_daily_change_rate(market, change_rate DESC);
 
 -- 완료 메시지
 DO $$ BEGIN

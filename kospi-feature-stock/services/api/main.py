@@ -38,12 +38,26 @@ logger = logging.getLogger("api")
 async def lifespan(app: FastAPI):
     dsn = os.environ["POSTGRES_DSN"].replace("+asyncpg", "")
     app.state.db = await asyncpg.create_pool(
-        dsn=dsn, min_size=5, max_size=20,
-        command_timeout=30,
+        dsn=dsn, min_size=10, max_size=50,
+        command_timeout=20,
     )
     app.state.redis = redis_lib.from_url(
         os.environ["REDIS_URL"], decode_responses=False
     )
+    # 성능 인덱스 — 누락 인덱스 보강 (idempotent)
+    for _idx in [
+        "CREATE INDEX IF NOT EXISTS idx_rec_perf_rec_id      ON recommendation_performance(rec_id)",
+        "CREATE INDEX IF NOT EXISTS idx_rec_perf_signal_time ON recommendation_performance(signal_time DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_rec_perf_tracking    ON recommendation_performance(tracking_complete, signal_time DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_nsl_code             ON news_stock_links(code, news_id DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_rec_feat_event_id    ON recommendations(feature_event_id)",
+        "CREATE INDEX IF NOT EXISTS idx_rec_created_at       ON recommendations(created_at DESC)",
+    ]:
+        try:
+            await app.state.db.execute(_idx)
+        except Exception:
+            pass
+
     # 스키마 확장 마이그레이션 (idempotent)
     for _alter in [
         "ALTER TABLE disclosures ADD COLUMN IF NOT EXISTS contract_amount BIGINT",

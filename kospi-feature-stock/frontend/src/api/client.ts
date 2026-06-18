@@ -8,7 +8,7 @@ if (API_KEY) headers['X-API-Key'] = API_KEY
 
 export const http = axios.create({
   baseURL: `${BASE}/api/v1`,
-  timeout: 15_000,
+  timeout: 30_000,
   headers,
 })
 

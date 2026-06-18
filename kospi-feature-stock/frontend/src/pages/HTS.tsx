@@ -50,8 +50,9 @@ export function HTS() {
     queryKey:  ['orderbook', selectedCode],
     queryFn:   () => stocksApi.getOrderbook(selectedCode!),
     enabled:   !!selectedCode,
-    staleTime: 15_000,
-    refetchInterval: selectedCode ? 15_000 : false,
+    staleTime: 10_000,
+    refetchInterval: selectedCode ? 10_000 : false,
+    refetchIntervalInBackground: false,
   })
 
   const { data: watchResults } = useQuery({

@@ -17,8 +17,8 @@ logger = logging.getLogger("recommender")
 
 # 기동 시 재처리할 최대 과거 범위 (기본 24시간)
 _RECOVERY_HOURS   = int(os.environ.get("REC_RECOVERY_HOURS",   "24"))
-# 동일 종목+이벤트타입 재추천 억제 쿨다운 (분, 0=비활성)
-_COOLDOWN_MINUTES = int(os.environ.get("REC_COOLDOWN_MINUTES", "30"))
+# 동일 종목 재추천 억제 쿨다운 (분, 0=비활성) — 이벤트 타입과 무관하게 종목 단위로 적용
+_COOLDOWN_MINUTES = int(os.environ.get("REC_COOLDOWN_MINUTES", "60"))
 # 당일 세션 진입가 앵커 유효 시간 (시간)
 _ANCHOR_HOURS     = int(os.environ.get("REC_ANCHOR_HOURS",     "8"))
 # 앵커 가격과 현재가 허용 괴리율 (초과 시 앵커 무시)
@@ -71,8 +71,8 @@ class RecommenderService:
                     continue
                 try:
                     event_id = await self._save_feature_event(event)
-                    # 쿨다운 체크: feature_event는 저장하되 중복 추천 억제
-                    if await self._on_cooldown(event.get("code", ""), event.get("event_type", "UNKNOWN")):
+                    # 쿨다운 체크: feature_event는 저장하되 종목 단위 1시간 이내 중복 추천 억제
+                    if await self._on_cooldown(event.get("code", "")):
                         logger.debug(f"Cooldown skip: {event.get('code')} {event.get('event_type')}")
                         continue
                     rec = await self._generate(event, recommender)
@@ -99,11 +99,9 @@ class RecommenderService:
                        fe.volume, fe.volume_ratio, fe.amount,
                        fe.signal_score, fe.risk_score, fe.signal_data
                 FROM feature_events fe
+                LEFT JOIN recommendations r ON r.feature_event_id = fe.id
                 WHERE fe.detected_at >= $1
-                  AND NOT EXISTS (
-                      SELECT 1 FROM recommendations r
-                      WHERE r.feature_event_id = fe.id
-                  )
+                  AND r.id IS NULL
                 ORDER BY fe.detected_at ASC
                 LIMIT 500
                 """,
@@ -118,6 +116,11 @@ class RecommenderService:
         processed = 0
         for row in rows:
             try:
+                # 복구 시에도 종목 단위 쿨다운 적용 (동일 종목 이벤트 중 최초 1건만 추천)
+                if await self._on_cooldown(row["code"]):
+                    logger.debug(f"Recovery cooldown skip: {row['code']} {row['event_type']}")
+                    continue
+
                 def _f(v, default=0.0):
                     return float(v) if v is not None else default
 
@@ -171,11 +174,12 @@ class RecommenderService:
                 f"target={rec['target_price']} prob={rec['success_prob']:.2f}"
             )
 
-    async def _on_cooldown(self, code: str, event_type: str) -> bool:
-        """쿨다운 원자적 확인+설정. 이미 쿨다운 중이면 True 반환."""
+    async def _on_cooldown(self, code: str) -> bool:
+        """종목 단위 쿨다운 원자적 확인+설정. 이미 쿨다운 중이면 True 반환.
+        이벤트 타입과 무관하게 동일 종목의 1시간 이내 재추천을 억제한다."""
         if not _COOLDOWN_MINUTES or not code:
             return False
-        key = f"rec:cd:{code}:{event_type}"
+        key = f"rec:cd:{code}"
         try:
             # SET NX EX: 키가 없으면 설정(False 반환), 있으면 None 반환(쿨다운 중)
             result = await self._redis.set(key, "1", nx=True, ex=_COOLDOWN_MINUTES * 60)

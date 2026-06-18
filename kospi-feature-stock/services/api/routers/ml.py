@@ -191,9 +191,12 @@ async def recommendation_journey(
         FROM recommendation_performance rp
         JOIN recommendations rec ON rec.id = rp.rec_id
         JOIN stocks s ON s.code = rp.code
-        LEFT JOIN daily_bars db_c
-               ON db_c.code = rp.code
-              AND db_c.date = (rp.signal_time AT TIME ZONE 'Asia/Seoul')::DATE
+        LEFT JOIN LATERAL (
+            SELECT close FROM daily_bars
+            WHERE code = rp.code
+              AND date = (rp.signal_time AT TIME ZONE 'Asia/Seoul')::DATE
+            LIMIT 1
+        ) db_c ON TRUE
         WHERE rp.signal_time >= NOW() - ($1 * INTERVAL '1 day')
           {evt_filter}
         ORDER BY rp.signal_time DESC

@@ -363,6 +363,18 @@ async def get_stock_analysis(
     redis: redis_lib.Redis = Depends(get_redis),
 ):
     code = code.upper()
+
+    # purchase_price 없는 기본 조회는 30초 캐싱
+    _cache_key = f"cache:analysis:{code}"
+    if purchase_price is None:
+        try:
+            _cached = await redis.get(_cache_key)
+            if _cached:
+                import orjson as _orjson
+                return _orjson.loads(_cached)
+        except Exception:
+            pass
+
     stock = await db.fetchrow("SELECT * FROM stocks WHERE code = $1", code)
     if not stock:
         raise HTTPException(404, "Stock not found")
@@ -696,7 +708,7 @@ async def get_stock_analysis(
         purchase_analysis,
     )
 
-    return {
+    result = {
         "code":     code,
         "name":     stock["name"],
         "market":   stock.get("market"),
@@ -736,6 +748,16 @@ async def get_stock_analysis(
         "disclosures_recent": disc_recent,
         "opinion":            opinion,
     }
+
+    # purchase_price 없는 경우 결과 캐싱 (30초)
+    if purchase_price is None:
+        try:
+            import orjson as _orjson
+            await redis.set(_cache_key, _orjson.dumps(result), ex=30)
+        except Exception:
+            pass
+
+    return result
 
 
 @router.post("/{code}/watch", status_code=200)
