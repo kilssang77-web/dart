@@ -138,3 +138,52 @@ htmlcov/
 # =============================================================================
 # docker-compose.override.yml
 .harness/phases/*/*/step*-stdout.log
+
+# =============================================================================
+# BID-SYSTEM: Python 임시/디버그 스크립트 (루트)
+# =============================================================================
+check_cols.py
+check_defeat.py
+check_dup.py
+check_personal.py
+check_srate.py
+classify_ann.py
+create_manual.py
+data_audit.py
+data_audit2.py
+data_audit3.py
+dryrun_check.py
+excel_map.json
+fix_my_bids_data.py
+get_ann.py
+insert_wins.py
+insert_wins2.py
+manual_content.json
+q.py
+scrape_inpo21c.py
+verify_fix.py
+verify_insert.py
+capture_screens.py
+data/
+manual_screenshots/
+verify_shots/
+transfer_to_new_pc/
+
+# =============================================================================
+# BID-SYSTEM: 개인 데이터 / 백업 파일
+# =============================================================================
+*.xlsx
+my_bids_backup_*.json
+"화면 캡처*.png"
+
+# =============================================================================
+# BID-SYSTEM: 민감 토큰 파일
+# =============================================================================
+bid-system/C:*token.json
+
+# =============================================================================
+# BID-SYSTEM: Python __pycache__ / pyc
+# =============================================================================
+bid-system/**/__pycache__/
+bid-system/**/*.pyc
+bid-system/**/*.pyo
