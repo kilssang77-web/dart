@@ -5,7 +5,6 @@ import traceback
 import orjson
 import asyncpg
 import redis.asyncio as redis_lib
-from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from datetime import datetime, timedelta, timezone
 from pattern_vector import update_pattern_vector
 
@@ -44,52 +43,39 @@ class RecommenderService:
         from entry_recommender import EntryRecommender
         recommender = EntryRecommender()
 
-        producer = AIOKafkaProducer(
-            bootstrap_servers=os.environ["KAFKA_BOOTSTRAP_SERVERS"],
-            value_serializer=lambda v: orjson.dumps(v),
-            key_serializer=lambda k: k.encode() if k else None,
-        )
-        await producer.start()
+        # 기동 시 미처리 이벤트 복구
+        await self._recover_missed_events(recommender)
 
-        # 기동 시 미처리 이벤트 복구 (Kafka 재시작으로 놓친 신호 처리)
-        await self._recover_missed_events(recommender, producer)
-
-        consumer = AIOKafkaConsumer(
-            "feature-detected",
-            bootstrap_servers=os.environ["KAFKA_BOOTSTRAP_SERVERS"],
-            group_id="recommender-group",
-            value_deserializer=lambda v: orjson.loads(v),
-            auto_offset_reset="latest",
-        )
-        await consumer.start()
+        pubsub = self._redis.pubsub()
+        await pubsub.subscribe("ch:feature-detected")
         logger.info("Recommender service started")
 
         try:
-            async for msg in consumer:
-                event = msg.value
+            async for msg in pubsub.listen():
+                if msg["type"] != "message":
+                    continue
+                event = orjson.loads(msg["data"])
                 if not event or not event.get("code"):
                     continue
                 try:
                     event_id = await self._save_feature_event(event)
-                    # 쿨다운 체크: feature_event는 저장하되 종목 단위 1시간 이내 중복 추천 억제
                     if await self._on_cooldown(event.get("code", "")):
                         logger.debug(f"Cooldown skip: {event.get('code')} {event.get('event_type')}")
                         continue
                     rec = await self._generate(event, recommender)
                     if rec:
-                        await self._emit(rec, event, producer, feature_event_id=event_id)
+                        await self._emit(rec, event, feature_event_id=event_id)
                 except Exception as e:
                     logger.error(f"Recommend error {event.get('code')}: {e}")
         finally:
-            await consumer.stop()
-            await producer.stop()
+            try:
+                await pubsub.unsubscribe()
+                await pubsub.aclose()
+            except Exception:
+                pass
 
-    async def _recover_missed_events(self, recommender, producer):
-        """
-        기동 시 추천이 없는 feature_events를 재처리한다.
-        recommender-group이 latest 오프셋을 사용하므로, 재시작 중 놓친
-        이벤트를 DB에서 직접 조회해 추천을 생성한다.
-        """
+    async def _recover_missed_events(self, recommender):
+        """기동 시 추천이 없는 feature_events를 재처리한다."""
         since = datetime.now(timezone.utc) - timedelta(hours=_RECOVERY_HOURS)
         async with self._db.acquire() as conn:
             rows = await conn.fetch(
@@ -139,7 +125,7 @@ class RecommenderService:
                 }
                 rec = await self._generate(event, recommender, use_anchor=False)
                 if rec:
-                    await self._emit(rec, event, producer, feature_event_id=row["id"])
+                    await self._emit(rec, event, feature_event_id=row["id"])
                     processed += 1
                 await update_pattern_vector(self._db, row["id"], row["code"])
             except Exception as e:
@@ -147,28 +133,25 @@ class RecommenderService:
 
         logger.info(f"Recovery: completed {processed}/{len(rows)} events")
 
-    async def _emit(self, rec: dict, event: dict, producer, feature_event_id: int | None = None):
-        await producer.send("recommendation", value=rec, key=rec["code"])
+    async def _emit(self, rec: dict, event: dict, feature_event_id: int | None = None):
+        await self._redis.publish("ch:recommendation", orjson.dumps(rec).decode())
         await self._save(rec, feature_event_id=feature_event_id)
         await self._publish_redis(rec)
         await self._redis.publish("channel:features", orjson.dumps(event).decode())
 
         if rec["action"] == "BUY":
-            await producer.send(
-                "signal-generated",
-                value={
-                    "code":            rec["code"],
-                    "name":            rec.get("name", rec["code"]),
-                    "created_at":      rec["created_at"],
-                    "action":          rec["action"],
-                    "entry_price":     rec["entry_price"],
-                    "target_price":    rec["target_price"],
-                    "stop_loss_price": rec["stop_loss_price"],
-                    "success_prob":    rec["success_prob"],
-                    "risk_score":      rec["risk_score"],
-                },
-                key=rec["code"],
-            )
+            signal = {
+                "code":            rec["code"],
+                "name":            rec.get("name", rec["code"]),
+                "created_at":      rec["created_at"],
+                "action":          rec["action"],
+                "entry_price":     rec["entry_price"],
+                "target_price":    rec["target_price"],
+                "stop_loss_price": rec["stop_loss_price"],
+                "success_prob":    rec["success_prob"],
+                "risk_score":      rec["risk_score"],
+            }
+            await self._redis.publish("ch:signal-generated", orjson.dumps(signal).decode())
             logger.info(
                 f"[BUY] {rec['code']} entry={rec['entry_price']} "
                 f"target={rec['target_price']} prob={rec['success_prob']:.2f}"

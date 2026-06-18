@@ -44,11 +44,8 @@ class FeatureStockDetector:
 
     def __init__(self):
         self.redis   = redis_lib.from_url(os.environ["REDIS_URL"])
-        self.consumer = KafkaConsumerWrapper(
-            os.environ["KAFKA_BOOTSTRAP_SERVERS"],
-            group_id="detector-group",
-        )
-        self.producer = KafkaProducerWrapper(os.environ["KAFKA_BOOTSTRAP_SERVERS"])
+        self.consumer = KafkaConsumerWrapper(self.redis)
+        self.producer = KafkaProducerWrapper(self.redis)
 
         self.vol_det   = VolumeSurgeDetector(self.redis)
         self.amt_det   = AmountSurgeDetector(self.redis)
@@ -86,62 +83,20 @@ class FeatureStockDetector:
                 self._process_minute_bars(),
                 self._process_supply_demand(),
                 self._process_disclosures(),
-                self._kafka_lag_monitor(db_pool),
+                self._health_loop(),
             )
         finally:
             await db_pool.close()
 
-    async def _kafka_lag_monitor(self, db=None):
-        """30초마다 Kafka 컨슈머 오프셋 lag를 Redis에 기록, 10분마다 DB에도 기록."""
-        import orjson
-        from aiokafka import AIOKafkaConsumer
-        topics = ["tick-data", "minute-bar", "feature-detected", "disclosure", "news"]
-        _db_log_interval = 20  # 20 × 30s = 10분마다 DB 기록
-        _tick = 0
+    async def _health_loop(self):
+        """30초마다 서비스 생존 신호를 Redis에 기록."""
         while True:
             await asyncio.sleep(30)
-            _tick += 1
             try:
-                admin_consumer = AIOKafkaConsumer(
-                    bootstrap_servers=os.environ["KAFKA_BOOTSTRAP_SERVERS"],
-                    group_id="detector-lag-probe",
-                )
-                await admin_consumer.start()
-                total_lag = 0
-                lags: dict[str, int] = {}
-                for topic in topics:
-                    try:
-                        partitions = admin_consumer.partitions_for_topic(topic)
-                        if partitions:
-                            for p in partitions:
-                                from aiokafka import TopicPartition
-                                tp = TopicPartition(topic, p)
-                                await admin_consumer.seek_to_end(tp)
-                                hw = admin_consumer.highwater(tp)
-                                pos = await admin_consumer.position(tp)
-                                lag = max(0, (hw or 0) - (pos or 0))
-                                total_lag += lag
-                            lags[topic] = lag
-                    except Exception:
-                        pass
-                await admin_consumer.stop()
-                if self.redis:
-                    await self.redis.set("kafka:lag:total", total_lag)
-                    for topic, lag in lags.items():
-                        await self.redis.set(f"kafka:lag:{topic}", lag)
-                logger.debug(f"[Kafka Lag] total={total_lag} {lags}")
-                # 10분마다 DB 기록 (장기 추세 분석용)
-                if db and _tick % _db_log_interval == 0:
-                    try:
-                        await db.execute(
-                            "INSERT INTO system_logs (service, level, message, extra) VALUES ($1,$2,$3,$4::jsonb)",
-                            "detector", "INFO", "kafka_lag",
-                            orjson.dumps({"total": total_lag, **lags}).decode(),
-                        )
-                    except Exception as db_err:
-                        logger.debug(f"[Kafka Lag] DB 기록 실패: {db_err}")
+                await self.redis.set("detector:heartbeat", "1", ex=60)
+                logger.debug("[Health] detector heartbeat ok")
             except Exception as e:
-                logger.debug(f"[Kafka Lag] monitor error: {e}")
+                logger.debug(f"[Health] heartbeat error: {e}")
 
     async def _process_ticks(self):
         async for batch in self.consumer.consume(["tick-data"], batch_size=500):

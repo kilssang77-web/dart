@@ -2,7 +2,6 @@ import asyncio
 import logging
 import os
 import orjson
-from aiokafka import AIOKafkaConsumer
 import redis.asyncio as redis_lib
 from telegram.sender import TelegramSender
 from telegram.formatter import format_buy_signal, format_disclosure
@@ -31,12 +30,10 @@ async def _load_config(redis: redis_lib.Redis) -> dict:
 
 
 async def _is_dup(redis: redis_lib.Redis, key: str) -> bool:
-    """중복 여부 확인만 (키 설정 안 함)"""
     return bool(await redis.exists(key))
 
 
 async def _mark_sent(redis: redis_lib.Redis, key: str, ttl: int) -> None:
-    """전송 성공 후 중복 방지 키 등록"""
     await redis.set(key, "1", ex=ttl)
 
 
@@ -48,20 +45,19 @@ class NotifierConsumer:
 
     async def run(self):
         self._redis = redis_lib.from_url(os.environ["REDIS_URL"])
-        consumer = AIOKafkaConsumer(
-            "signal-generated", "disclosure-analyzed",
-            bootstrap_servers=os.environ["KAFKA_BOOTSTRAP_SERVERS"],
-            group_id="notifier-group",
-            value_deserializer=lambda v: orjson.loads(v),
-            auto_offset_reset="latest",
-        )
-        await consumer.start()
-        logger.info("Notifier consumer started — listening on signal-generated, disclosure-analyzed")
+        pubsub = self._redis.pubsub()
+        await pubsub.subscribe("ch:signal-generated", "ch:disclosure-analyzed")
+        logger.info("Notifier consumer started — listening on ch:signal-generated, ch:disclosure-analyzed")
         try:
-            async for msg in consumer:
-                data  = msg.value
-                topic = msg.topic
+            async for msg in pubsub.listen():
+                if msg["type"] != "message":
+                    continue
+                channel = msg["channel"]
+                if isinstance(channel, bytes):
+                    channel = channel.decode()
+                topic = channel[3:]  # strip "ch:" prefix
                 try:
+                    data = orjson.loads(msg["data"])
                     if topic == "signal-generated":
                         await self._on_signal(data)
                     elif topic == "disclosure-analyzed":
@@ -69,7 +65,11 @@ class NotifierConsumer:
                 except Exception as e:
                     logger.error(f"Handler error [{topic}]: {e}")
         finally:
-            await consumer.stop()
+            try:
+                await pubsub.unsubscribe()
+                await pubsub.aclose()
+            except Exception:
+                pass
             if self._redis:
                 await self._redis.aclose()
 

@@ -1,7 +1,5 @@
 ﻿import asyncio, os, sys, logging
 logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s: %(message)s")
-for n in ["aiokafka","kafka"]:
-    logging.getLogger(n).setLevel(logging.WARNING)
 sys.path.insert(0, "/app")
 import redis.asyncio as redis_lib
 from rules.breakout import BreakoutDetector

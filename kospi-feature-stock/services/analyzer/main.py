@@ -5,7 +5,6 @@ import asyncpg
 import orjson
 import redis.asyncio as redis_lib
 from datetime import datetime, timedelta, timezone
-from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from disclosure.classifier import DisclosureClassifier, DisclosureBERTClassifier
 from embedding.embedder import LocalEmbedder
 from news.sentiment import analyze as news_sentiment
@@ -43,7 +42,6 @@ class AnalyzerService:
     def __init__(self):
         self._db: asyncpg.Pool | None = None
         self._redis: redis_lib.Redis | None = None
-        self._producer: AIOKafkaProducer | None = None
         self.classifier      = DisclosureClassifier()
         self.bert_classifier = DisclosureBERTClassifier()
         self.embedder   = LocalEmbedder(
@@ -52,62 +50,49 @@ class AnalyzerService:
         )
 
     async def run(self):
-        _required = ["POSTGRES_DSN", "KAFKA_BOOTSTRAP_SERVERS"]
-        missing = [k for k in _required if not os.environ.get(k)]
-        if missing:
-            raise RuntimeError(f"Missing required env vars: {missing}")
+        if not os.environ.get("POSTGRES_DSN"):
+            raise RuntimeError("Missing required env var: POSTGRES_DSN")
+        if not os.environ.get("REDIS_URL"):
+            raise RuntimeError("Missing required env var: REDIS_URL")
 
         self._db = await asyncpg.create_pool(
             dsn=os.environ["POSTGRES_DSN"].replace("+asyncpg", ""),
             min_size=3, max_size=10,
         )
-        if os.environ.get("REDIS_URL"):
-            self._redis = redis_lib.from_url(os.environ["REDIS_URL"])
-        self._producer = AIOKafkaProducer(
-            bootstrap_servers=os.environ["KAFKA_BOOTSTRAP_SERVERS"],
-            value_serializer=lambda v: orjson.dumps(v),
-            key_serializer=lambda k: k.encode() if k else b"",
-            compression_type="lz4",
-        )
-        await self._producer.start()
+        self._redis = redis_lib.from_url(os.environ["REDIS_URL"])
         logger.info("Analyzer service started")
 
-        try:
-            await asyncio.gather(
-                self._consume_topic("disclosure", self._process_disclosure),
-                self._consume_topic("news",       self._process_news),
-                self._theme_cluster_loop(),
-                self._theme_snapshot_loop(),
-                self._post_change_updater_loop(),
-            )
-        finally:
-            if self._producer:
-                await self._producer.stop()
+        await asyncio.gather(
+            self._consume_topic("disclosure", self._process_disclosure),
+            self._consume_topic("news",       self._process_news),
+            self._theme_cluster_loop(),
+            self._theme_snapshot_loop(),
+            self._post_change_updater_loop(),
+        )
 
     async def _consume_topic(self, topic: str, handler):
-        """단일 토픽 독립 컨슈머 — 오류 시 5초 후 재연결."""
+        """단일 토픽 Redis 구독 — 오류 시 5초 후 재연결."""
         while True:
-            consumer = AIOKafkaConsumer(
-                topic,
-                bootstrap_servers=os.environ["KAFKA_BOOTSTRAP_SERVERS"],
-                group_id=f"analyzer-{topic}-group",
-                value_deserializer=lambda v: orjson.loads(v),
-                auto_offset_reset="latest",
-            )
+            pubsub = self._redis.pubsub()
             try:
-                await consumer.start()
-                logger.info(f"[Analyzer] '{topic}' consumer started")
-                async for msg in consumer:
+                await pubsub.subscribe(f"ch:{topic}")
+                logger.info(f"[Analyzer] '{topic}' Redis subscriber started")
+                async for msg in pubsub.listen():
+                    if msg["type"] != "message":
+                        continue
                     try:
-                        await handler(msg.value)
+                        await handler(orjson.loads(msg["data"]))
                     except Exception as e:
                         logger.error(f"[Analyzer] Process error [{topic}]: {e}")
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
-                logger.error(f"[Analyzer] '{topic}' consumer failed: {e} — reconnecting in 5s")
+                logger.error(f"[Analyzer] '{topic}' subscriber failed: {e} — reconnecting in 5s")
                 await asyncio.sleep(5)
             finally:
                 try:
-                    await consumer.stop()
+                    await pubsub.unsubscribe()
+                    await pubsub.aclose()
                 except Exception:
                     pass
 
@@ -255,24 +240,19 @@ class AnalyzerService:
             )
         logger.info(f"Disclosure saved: {rcept_no} [{clf['category']}]")
 
-        # disclosure-analyzed 토픽에 발행: notifier가 소비
-        if self._producer:
-            analyzed = {
-                "rcept_no":        rcept_no,
-                "code":            data.get("code"),
-                "corp_name":       data.get("corp_name"),
-                "title":           title,
-                "report_type":     data.get("report_type"),
-                "category":        clf["category"],
-                "sentiment_score": sentiment_score,
-                "keywords":        clf["keywords"],
-                "disclosed_at":    disclosed_dt.isoformat(),
-            }
-            await self._producer.send(
-                "disclosure-analyzed",
-                analyzed,
-                key=data.get("code") or "UNKNOWN",
-            )
+        # disclosure-analyzed 채널에 발행: notifier가 소비
+        analyzed = {
+            "rcept_no":        rcept_no,
+            "code":            data.get("code"),
+            "corp_name":       data.get("corp_name"),
+            "title":           title,
+            "report_type":     data.get("report_type"),
+            "category":        clf["category"],
+            "sentiment_score": sentiment_score,
+            "keywords":        clf["keywords"],
+            "disclosed_at":    disclosed_dt.isoformat(),
+        }
+        await self._redis.publish("ch:disclosure-analyzed", orjson.dumps(analyzed).decode())
 
     async def _process_news(self, data: dict):
         title   = data.get("title", "")

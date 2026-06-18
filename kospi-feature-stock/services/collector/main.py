@@ -168,7 +168,7 @@ class StockCollector:
 
     def __init__(self):
         self.redis = redis_lib.from_url(os.environ["REDIS_URL"])
-        self.kafka = KafkaProducerWrapper(os.environ["KAFKA_BOOTSTRAP_SERVERS"])
+        self.kafka = KafkaProducerWrapper(self.redis)
         self.db: asyncpg.Pool | None = None
 
         config = KISConfig(

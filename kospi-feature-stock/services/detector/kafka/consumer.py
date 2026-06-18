@@ -1,17 +1,17 @@
 import asyncio
 import logging
 import orjson
-from aiokafka import AIOKafkaConsumer
+import redis.asyncio as redis_lib
 from typing import AsyncGenerator
 
 logger = logging.getLogger(__name__)
 
 
 class KafkaConsumerWrapper:
+    """Redis Pub/Sub 기반 배치 컨슈머 — Kafka 인터페이스 호환."""
 
-    def __init__(self, bootstrap_servers: str, group_id: str):
-        self._servers  = bootstrap_servers
-        self._group_id = group_id
+    def __init__(self, redis: redis_lib.Redis, group_id: str = ""):
+        self._redis = redis
 
     async def consume(
         self,
@@ -19,27 +19,29 @@ class KafkaConsumerWrapper:
         batch_size: int = 100,
         timeout_ms: int = 500,
     ) -> AsyncGenerator[list[dict], None]:
-        consumer = AIOKafkaConsumer(
-            *topics,
-            bootstrap_servers=self._servers,
-            group_id=self._group_id,
-            value_deserializer=lambda v: orjson.loads(v),
-            auto_offset_reset="latest",
-            enable_auto_commit=True,
-            max_poll_records=batch_size,
-            fetch_max_wait_ms=timeout_ms,
-            max_poll_interval_ms=600_000,   # 10분 — 탐지 처리 지연 시 rebalance 방지
-            session_timeout_ms=30_000,
-            heartbeat_interval_ms=10_000,
-        )
-        await consumer.start()
-        logger.info(f"Kafka consumer started: {topics}")
+        pubsub = self._redis.pubsub()
+        channels = [f"ch:{t}" for t in topics]
+        await pubsub.subscribe(*channels)
+        logger.info(f"Redis subscriber started: {channels}")
         try:
             while True:
-                result = await consumer.getmany(
-                    timeout_ms=timeout_ms, max_records=batch_size
-                )
-                batch = [msg.value for msgs in result.values() for msg in msgs]
+                batch: list[dict] = []
+                end = asyncio.get_event_loop().time() + timeout_ms / 1000
+                while len(batch) < batch_size:
+                    remaining = end - asyncio.get_event_loop().time()
+                    if remaining <= 0:
+                        break
+                    msg = await pubsub.get_message(
+                        ignore_subscribe_messages=True,
+                        timeout=min(remaining, 0.1),
+                    )
+                    if msg is None:
+                        break
+                    if msg.get("type") == "message":
+                        try:
+                            batch.append(orjson.loads(msg["data"]))
+                        except Exception:
+                            pass
                 if batch:
                     yield batch
                 else:
@@ -47,4 +49,8 @@ class KafkaConsumerWrapper:
         except asyncio.CancelledError:
             pass
         finally:
-            await consumer.stop()
+            try:
+                await pubsub.unsubscribe()
+                await pubsub.aclose()
+            except Exception:
+                pass
