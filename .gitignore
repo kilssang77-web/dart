@@ -180,9 +180,10 @@ my_bids_backup_*.json
 # BID-SYSTEM: 민감 토큰 파일 및 로컬 설정
 # =============================================================================
 bid-system/C:*token.json
+bid-system/C:*
 bid-system/.claude/
 BidAI_*.docx
-"화면 캡처*.png"
+화면 캡처*.png
 
 # =============================================================================
 # BID-SYSTEM: Python __pycache__ / pyc
