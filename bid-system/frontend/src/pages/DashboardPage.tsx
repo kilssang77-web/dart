@@ -8,9 +8,10 @@ import {
 import {
   FileText, Users, TrendingUp, TrendingDown, Activity, ArrowUp, ArrowDown,
   Trophy, Building2, Zap, Star, Info, LayoutDashboard, Target, Bell, ChevronRight,
+  Clock, AlertTriangle, CheckCircle2,
 } from 'lucide-react'
 import { statsApi, bidsApi, journalApi } from '@/api'
-import type { OverviewStatsWithChange, Bid, TopSrateTrend, BidRecommendItem } from '@/types'
+import type { OverviewStatsWithChange, Bid, TopSrateTrend, BidRecommendItem, UpcomingOpening, JournalStats } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
@@ -161,6 +162,18 @@ export default function DashboardPage() {
     staleTime: 60_000,
   })
 
+  const { data: upcomingData } = useQuery({
+    queryKey: ['upcoming-openings', 7],
+    queryFn: () => bidsApi.upcomingOpenings(7),
+    staleTime: 120_000,
+  })
+
+  const { data: journalStats } = useQuery<JournalStats>({
+    queryKey: ['journal-stats-dash'],
+    queryFn: () => journalApi.stats(),
+    staleTime: 120_000,
+  })
+
   const trend = (overview?.monthly_trend ?? []).map((d) => ({
     label:  `${d.year}-${String(d.month).padStart(2, '0')}`,
     건수:   d.bid_count,
@@ -271,6 +284,155 @@ export default function DashboardPage() {
           </button>
         </div>
 
+        {/* ── 개찰 임박 공고 + 최근 투찰 성과 ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* 개찰 임박 공고 */}
+          <Card className="bg-white border-slate-200 shadow-sm">
+            <CardHeader className="px-5 pt-4 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-red-500" />
+                <CardTitle className="text-sm font-semibold text-slate-800">개찰 임박 공고</CardTitle>
+                <span className="bg-slate-100 text-slate-500 border border-slate-200 text-xs font-semibold px-2 py-0.5 rounded-md ml-auto">
+                  7일 이내
+                </span>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {!upcomingData || upcomingData.items.length === 0 ? (
+                <p className="text-center text-slate-400 text-sm py-6">개찰 임박 공고 없음</p>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {upcomingData.items.slice(0, 6).map((item: UpcomingOpening) => {
+                    const urgencyStyle =
+                      item.urgency === 'today'    ? 'bg-red-50 border-red-200' :
+                      item.urgency === 'tomorrow' ? 'bg-orange-50 border-orange-200' :
+                      item.urgency === 'soon'     ? 'bg-amber-50 border-amber-200' :
+                                                    'bg-white'
+                    const badgeStyle =
+                      item.urgency === 'today'    ? 'bg-red-500 text-white' :
+                      item.urgency === 'tomorrow' ? 'bg-orange-400 text-white' :
+                      item.urgency === 'soon'     ? 'bg-amber-400 text-white' :
+                                                    'bg-slate-200 text-slate-600'
+                    const urgencyLabel =
+                      item.urgency === 'today'    ? 'D-Day' :
+                      item.urgency === 'tomorrow' ? 'D-1' :
+                      item.urgency === 'soon'     ? `D-${item.days_left}` :
+                                                    `D-${item.days_left}`
+                    return (
+                      <div
+                        key={item.id}
+                        className={cn('flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-blue-50 transition-colors', urgencyStyle)}
+                        onClick={() => navigate(`/decision?bid=${item.id}`)}
+                      >
+                        <span className={cn('text-xs font-bold px-2 py-0.5 rounded shrink-0', badgeStyle)}>
+                          {urgencyLabel}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-slate-800 truncate">{item.title}</p>
+                          <p className="text-[10px] text-slate-500 mt-0.5">{item.agency_name} · {fmtAmt(item.base_amount)}</p>
+                        </div>
+                        <ChevronRight className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* 최근 투찰 성과 요약 */}
+          <Card className="bg-white border-slate-200 shadow-sm">
+            <CardHeader className="px-5 pt-4 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Trophy className="h-4 w-4 text-amber-500" />
+                <CardTitle className="text-sm font-semibold text-slate-800">최근 투찰 성과</CardTitle>
+                <button
+                  onClick={() => navigate('/kpi-dashboard')}
+                  className="ml-auto text-xs text-blue-500 hover:text-blue-700 flex items-center gap-1"
+                >
+                  상세 KPI <ChevronRight className="w-3 h-3" />
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4">
+              {!journalStats || journalStats.total === 0 ? (
+                <div className="text-center py-6">
+                  <p className="text-slate-400 text-sm">투찰 이력이 없습니다.</p>
+                  <button
+                    onClick={() => navigate('/decision')}
+                    className="mt-2 text-xs text-blue-500 hover:text-blue-700"
+                  >
+                    AI 투찰 결정 시작 →
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="text-center p-3 bg-slate-50 rounded-lg">
+                      <div className={cn('text-xl font-bold tabular-nums',
+                        journalStats.win_rate != null && journalStats.win_rate >= 0.35 ? 'text-emerald-600' :
+                        journalStats.win_rate != null && journalStats.win_rate >= 0.20 ? 'text-blue-600' : 'text-amber-600'
+                      )}>
+                        {journalStats.win_rate != null ? `${(journalStats.win_rate * 100).toFixed(1)}%` : '—'}
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">저널 낙찰률</div>
+                    </div>
+                    <div className="text-center p-3 bg-slate-50 rounded-lg">
+                      <div className="text-xl font-bold text-slate-800 tabular-nums">
+                        {journalStats.wins}/{journalStats.total}
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">낙찰/전체</div>
+                    </div>
+                    <div className="text-center p-3 bg-slate-50 rounded-lg">
+                      <div className={cn('text-xl font-bold tabular-nums',
+                        journalStats.avg_rate_gap_loss != null && Math.abs(journalStats.avg_rate_gap_loss) <= 0.002
+                          ? 'text-emerald-600' : 'text-amber-600'
+                      )}>
+                        {journalStats.avg_rate_gap_loss != null
+                          ? `${(journalStats.avg_rate_gap_loss * 100).toFixed(2)}%`
+                          : '—'}
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">패찰 rate gap</div>
+                    </div>
+                  </div>
+
+                  {/* 전략별 최고 성과 */}
+                  {journalStats.strategy_stats.length > 0 && (() => {
+                    const best = journalStats.strategy_stats
+                      .filter(s => s.total >= 3)
+                      .sort((a, b) => (b.win_rate ?? 0) - (a.win_rate ?? 0))[0]
+                    return best ? (
+                      <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                        <span className="text-xs text-emerald-700">
+                          최고 성과 전략: <strong>{best.strategy}</strong> — 낙찰률 {best.win_rate != null ? `${(best.win_rate * 100).toFixed(1)}%` : '—'} ({best.wins}/{best.total}건)
+                        </span>
+                      </div>
+                    ) : null
+                  })()}
+
+                  {/* 개선 필요 알림 */}
+                  {journalStats.win_rate != null && journalStats.win_rate < 0.20 && journalStats.total >= 5 && (
+                    <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                      <span className="text-xs text-amber-700">
+                        낙찰률 20% 미만 — <button onClick={() => navigate('/kpi-dashboard')} className="underline font-medium">KPI 분석</button>에서 개선 전략을 확인하세요.
+                      </span>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => navigate('/journal-history')}
+                    className="w-full text-xs text-blue-500 hover:text-blue-700 text-center py-1 border border-blue-100 rounded-lg hover:bg-blue-50 transition-colors"
+                  >
+                    전체 투찰 이력 보기 →
+                  </button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
         {/* ── 오늘 할 일 패널 ── */}
         {(pendingJournals?.count ?? 0) > 0 && (
           <Card className="bg-amber-50 border-amber-200 shadow-sm">
@@ -371,11 +533,10 @@ export default function DashboardPage() {
                 {recommendedBids.map((b) => (
                   <div
                     key={b.bid_id}
-                    className="flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 cursor-pointer transition-colors group"
-                    onClick={() => navigate(`/bids/${b.bid_id}`)}
+                    className="flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 transition-colors group"
                   >
                     <GradeBadge grade={b.grade} />
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 cursor-pointer" onClick={() => navigate(`/bids/${b.bid_id}`)}>
                       <p className="text-sm font-semibold text-slate-800 truncate group-hover:text-blue-700 transition-colors">
                         {b.title}
                       </p>
@@ -405,8 +566,14 @@ export default function DashboardPage() {
                         )}
                       </div>
                     </div>
-                    <div className="text-right shrink-0">
+                    <div className="flex flex-col items-end gap-1.5 shrink-0">
                       <p className="text-xs font-semibold text-slate-500 font-mono">{fmtAmt(b.base_amount)}</p>
+                      <button
+                        onClick={() => navigate(`/decision?bid=${b.bid_id}`)}
+                        className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-full transition-colors"
+                      >
+                        AI 분석 <ChevronRight className="w-3 h-3" />
+                      </button>
                     </div>
                   </div>
                 ))}

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { BarChart2, Target, TrendingUp, Award, AlertTriangle, RefreshCw, Loader2, CheckCircle2, XCircle, Activity, Users, ChevronDown, BookOpen, Gauge, Zap } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { BarChart2, Target, TrendingUp, Award, AlertTriangle, RefreshCw, Loader2, CheckCircle2, XCircle, Activity, Users, ChevronDown, BookOpen, Gauge, Zap, Lightbulb, ChevronRight, ArrowRight } from 'lucide-react'
 import { kpiApi, outcomesApi, journalApi, adminApi } from '../api'
 import type { JournalStats, MlCalibration, RecommendationEffect } from '../types'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -189,7 +190,101 @@ function RecordOutcomeForm() {
   )
 }
 
+interface Insight {
+  level: 'critical' | 'warn' | 'info' | 'good'
+  title: string
+  body: string
+  action?: { label: string; path: string }
+}
+
+function generateInsights(
+  data: KPIData | undefined,
+  journal: JournalStats | undefined,
+  recEffect: RecommendationEffect | undefined,
+): Insight[] {
+  const items: Insight[] = []
+  if (!data && !journal) return items
+
+  const wr = journal?.win_rate ?? data?.win_rate ?? null
+  const n  = journal?.total ?? data?.total_bids ?? 0
+
+  if (wr !== null && n >= 5) {
+    if (wr < 0.15) {
+      items.push({
+        level: 'critical',
+        title: '낙찰률 위기 — 즉각 전략 전환 필요',
+        body: `현재 낙찰률 ${(wr * 100).toFixed(1)}%는 목표(35%)의 절반 이하입니다. 공격 전략 사용 비율을 높이고, 패찰 데이터를 분석하세요.`,
+        action: { label: '투찰 이력 분석', path: '/journal-history' },
+      })
+    } else if (wr < 0.25) {
+      items.push({
+        level: 'warn',
+        title: '낙찰률 개선 필요',
+        body: `낙찰률 ${(wr * 100).toFixed(1)}% — 목표 35%까지 ${((0.35 - wr) * 100).toFixed(1)}%p 차이. 아래 전략별 성과에서 가장 효과적인 전략을 확인하세요.`,
+        action: { label: 'AI 투찰 결정', path: '/decision' },
+      })
+    } else if (wr >= 0.35) {
+      items.push({
+        level: 'good',
+        title: '낙찰률 목표 달성',
+        body: `낙찰률 ${(wr * 100).toFixed(1)}%로 목표를 달성했습니다. 현재 전략을 유지하세요.`,
+      })
+    }
+  }
+
+  if (journal?.avg_rate_gap_loss != null && Math.abs(journal.avg_rate_gap_loss) > 0.004 && (journal.losses ?? 0) >= 3) {
+    const gap = journal.avg_rate_gap_loss
+    items.push({
+      level: 'warn',
+      title: `패찰 시 낙찰자와 투찰률 차이 ${(Math.abs(gap) * 100).toFixed(2)}%p`,
+      body: gap > 0
+        ? `낙찰자보다 ${(gap * 100).toFixed(2)}%p 높게 투찰하고 있습니다. 투찰율을 조금 낮추는 전략을 고려하세요.`
+        : `낙찰자보다 ${(Math.abs(gap) * 100).toFixed(2)}%p 낮게 투찰하고 있습니다. AI 추천값보다 높게 조정해보세요.`,
+      action: { label: 'AI 투찰 결정', path: '/decision' },
+    })
+  }
+
+  if (journal?.feedback_completeness != null && journal.feedback_completeness < 0.5 && journal.total >= 3) {
+    items.push({
+      level: 'warn',
+      title: `결과 입력 완결률 ${(journal.feedback_completeness * 100).toFixed(0)}% — AI 정확도 저하`,
+      body: `${journal.total}건 중 ${journal.with_result}건만 결과가 입력됐습니다. 결과를 입력할수록 AI 예측 정확도가 향상됩니다.`,
+      action: { label: '결과 입력하기', path: '/journal-history' },
+    })
+  }
+
+  if (recEffect && recEffect.followed.n >= 3 && recEffect.deviated.n >= 3 && recEffect.lift_pct !== null) {
+    if (recEffect.lift_pct > 5) {
+      items.push({
+        level: 'info',
+        title: `AI 추천 추종 시 낙찰률 +${recEffect.lift_pct.toFixed(1)}% 향상`,
+        body: `AI 추천 범위 내 투찰(${recEffect.followed.n}건): ${recEffect.followed.win_rate != null ? (recEffect.followed.win_rate * 100).toFixed(1) : '—'}% vs 이탈(${recEffect.deviated.n}건): ${recEffect.deviated.win_rate != null ? (recEffect.deviated.win_rate * 100).toFixed(1) : '—'}%. 추천값을 적극 활용하세요.`,
+        action: { label: 'AI 투찰 결정', path: '/decision' },
+      })
+    }
+  }
+
+  if (journal?.strategy_stats && journal.strategy_stats.length > 0) {
+    const sorted = [...journal.strategy_stats].filter(s => s.total >= 3).sort((a, b) => (b.win_rate ?? 0) - (a.win_rate ?? 0))
+    if (sorted.length >= 2) {
+      const best  = sorted[0]
+      const worst = sorted[sorted.length - 1]
+      if ((best.win_rate ?? 0) - (worst.win_rate ?? 0) > 0.1) {
+        items.push({
+          level: 'info',
+          title: `전략별 낙찰률 격차 — '${best.strategy}' 전략이 가장 효과적`,
+          body: `'${best.strategy}' ${best.win_rate != null ? (best.win_rate * 100).toFixed(1) : '—'}% vs '${worst.strategy}' ${worst.win_rate != null ? (worst.win_rate * 100).toFixed(1) : '—'}%. '${worst.strategy}' 전략 사용을 줄이세요.`,
+          action: { label: 'AI 투찰 결정', path: '/decision' },
+        })
+      }
+    }
+  }
+
+  return items
+}
+
 export default function KPIDashboardPage() {
+  const navigate = useNavigate()
   const [period, setPeriod] = useState<'MONTHLY' | 'WEEKLY' | 'DAILY'>('MONTHLY')
 
   const { data, isLoading, refetch } = useQuery<KPIData>({
@@ -272,6 +367,59 @@ export default function KPIDashboardPage() {
             ))}
           </div>
         )}
+
+        {/* ── AI 개선 제안 ── */}
+        {(() => {
+          const insights = generateInsights(data, journal, recEffect)
+          if (insights.length === 0) return null
+          const levelStyle: Record<string, string> = {
+            critical: 'border-red-300 bg-red-50',
+            warn:     'border-amber-300 bg-amber-50',
+            info:     'border-blue-200 bg-blue-50',
+            good:     'border-emerald-200 bg-emerald-50',
+          }
+          const iconStyle: Record<string, string> = {
+            critical: 'text-red-500',
+            warn:     'text-amber-500',
+            info:     'text-blue-500',
+            good:     'text-emerald-500',
+          }
+          const titleStyle: Record<string, string> = {
+            critical: 'text-red-700',
+            warn:     'text-amber-700',
+            info:     'text-blue-700',
+            good:     'text-emerald-700',
+          }
+          return (
+            <Card className="bg-white border-slate-200 shadow-sm">
+              <CardHeader className="border-b border-slate-100 pb-3">
+                <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                  <Lightbulb className="h-4 w-4 text-amber-500" />AI 개선 제안
+                  <span className="ml-auto text-xs font-normal text-slate-500">데이터 기반 자동 분석</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-4 space-y-3">
+                {insights.map((ins, i) => (
+                  <div key={i} className={cn('rounded-lg border p-4 flex items-start gap-3', levelStyle[ins.level])}>
+                    <AlertTriangle className={cn('h-4 w-4 mt-0.5 shrink-0', iconStyle[ins.level])} />
+                    <div className="flex-1 min-w-0">
+                      <div className={cn('font-semibold text-sm', titleStyle[ins.level])}>{ins.title}</div>
+                      <div className="text-xs text-slate-600 mt-1 leading-relaxed">{ins.body}</div>
+                      {ins.action && (
+                        <button
+                          onClick={() => navigate(ins.action!.path)}
+                          className="mt-2 flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800"
+                        >
+                          {ins.action.label} <ArrowRight className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )
+        })()}
 
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-24 text-slate-500">

@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { decisionApi, journalApi } from '@/api'
-import type { BidContext, SimulateBidResponse, ZoneItem, JournalOut, AgencyWinHistogram, CompetitorPredictionResponse, HotZoneResponse } from '@/types'
+import type { BidContext, SimulateBidResponse, ZoneItem, JournalOut, AgencyWinHistogram, CompetitorPredictionResponse, HotZoneResponse, BestRateResponse } from '@/types'
 import { bidsApi } from '@/api'
 import BestRateCard from '@/components/BestRateCard'
 import {
@@ -494,6 +494,13 @@ export default function TenderDecisionPage() {
     staleTime: 10 * 60 * 1000,
   })
 
+  const { data: bestRateData } = useQuery<BestRateResponse>({
+    queryKey: ['best-rate-td', bidId],
+    queryFn: () => bidsApi.bestRate(bidId!),
+    enabled: bidId !== null,
+    staleTime: 10 * 60 * 1000,
+  })
+
   const parsedCompetitorRates = (): number[] | null => {
     if (!competitorRateText.trim()) return null
     const raw = competitorRateText
@@ -747,6 +754,59 @@ export default function TenderDecisionPage() {
                       </div>
                     )}
                     <div className="text-xs text-gray-400 mt-1">신뢰도 {Math.round(ctx.personal_bias.confidence * 100)}% ({ctx.personal_bias.sample_count}건 분석)</div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── 지금 넣어야 할 금액 — 시뮬레이션 전부터 보여주는 단일 결론 ── */}
+              {!result && bestRateData && bestRateData.recommended_srate && ctx && (
+                <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-5 shadow-lg text-white border border-slate-600">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Target className="w-4 h-4 text-blue-400" />
+                    <span className="text-xs font-semibold text-slate-300 uppercase tracking-wide">
+                      지금 넣어야 할 금액 — AI 사전 추천
+                    </span>
+                    <span className={cn(
+                      'ml-auto text-[10px] px-2 py-0.5 rounded-full font-medium',
+                      bestRateData.confidence >= 0.7 ? 'bg-emerald-700 text-emerald-200' :
+                      bestRateData.confidence >= 0.4 ? 'bg-amber-700 text-amber-200' :
+                                                        'bg-slate-600 text-slate-300'
+                    )}>
+                      신뢰도 {Math.round(bestRateData.confidence * 100)}%
+                    </span>
+                  </div>
+                  <div className="flex items-end justify-between gap-4 flex-wrap">
+                    <div>
+                      <div className="text-4xl font-bold tracking-tight tabular-nums">
+                        {bestRateData.recommended_price != null ? fmt(bestRateData.recommended_price) : '—'}
+                        <span className="text-xl font-normal text-slate-300 ml-1">원</span>
+                      </div>
+                      <div className="flex items-center gap-3 mt-2 text-sm">
+                        <span className="text-slate-300">사정율</span>
+                        <span className="font-mono font-bold text-blue-300 text-base">
+                          {(bestRateData.recommended_srate * 100).toFixed(4)}%
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-right space-y-1">
+                      <div className="text-xs text-slate-400">
+                        근거: {
+                          bestRateData.source === 'winner+hotzone' ? '실낙찰+Hot Zone' :
+                          bestRateData.source === 'winner'         ? '실낙찰 분포' :
+                          bestRateData.source === 'hotzone+prism'  ? 'Hot Zone+프리즘' :
+                          bestRateData.source === 'hotzone'        ? 'Hot Zone' :
+                          bestRateData.source === 'prism'          ? '프리즘 통계' :
+                                                                     '통계 추정'
+                        }
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        경쟁 {bestRateData.competition_intensity === 'high' ? '🔴 치열' : bestRateData.competition_intensity === 'low' ? '🟢 여유' : '🟡 보통'}
+                        {bestRateData.avg_competitors > 0 && ` · 평균 ${bestRateData.avg_competitors.toFixed(0)}개사`}
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        ↓ 시뮬레이션 완료 후 정밀 보정됩니다
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
