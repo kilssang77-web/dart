@@ -864,6 +864,57 @@ def collect_inpo21c_national(db: Session, max_pages: int = 50) -> dict:
     }
 
 
+def collect_incomplete_participants(db: Session, min_parts: int = 3, max_bids: int = 500) -> dict:
+    """
+    참가자가 min_parts 미만인 입찰(낙찰자만 수집된 상태)의 전참여자를 강제 재수집.
+    win_prob_model 학습 시 COUNT >= 3 필터를 통과할 수 있도록 데이터 보강.
+    """
+    from app.config import get_settings
+    settings = get_settings()
+    _started = time.time()
+
+    cookie = _get_valid_cookie(settings)
+    if not cookie:
+        return {"error": "자동 로그인 실패", "filled": 0, "failed": 0}
+
+    # 참가자 3명 미만인 inpo21c_bid_id 조회 (낙찰자 있는 것만)
+    rows = db.execute(text("""
+        SELECT p.inpo21c_bid_id
+        FROM inpo21c_participants p
+        WHERE p.is_winner = true
+        GROUP BY p.inpo21c_bid_id
+        HAVING COUNT(*) < :min_parts
+        ORDER BY p.inpo21c_bid_id
+        LIMIT :max_bids
+    """), {"min_parts": min_parts, "max_bids": max_bids}).fetchall()
+
+    target_ids = [r[0] for r in rows]
+    logger.info("incomplete 재수집 대상: %d건 (참가자 < %d명)", len(target_ids), min_parts)
+
+    filled = failed = 0
+    for bid_id in target_ids:
+        try:
+            detail_url = f"{BASE}/suc/view/con/{bid_id}"
+            html = _fetch(detail_url, cookie, referer=f"{BASE}/suc/con")
+            if not html:
+                failed += 1
+                continue
+            participant_rows = _parse_participants(html)
+            if len(participant_rows) >= min_parts:
+                _upsert_participants(db, bid_id, participant_rows)
+                filled += 1
+            else:
+                failed += 1
+            time.sleep(0.5)
+        except Exception as e:
+            logger.debug("incomplete 재수집 실패 [%s]: %s", bid_id, e)
+            failed += 1
+
+    logger.info("incomplete 재수집 완료: filled=%d failed=%d (%.1fs)",
+                filled, failed, time.time() - _started)
+    return {"filled": filled, "failed": failed, "total": len(target_ids)}
+
+
 def collect_bid_notices_inpo21c(db: Session, max_pages: int = 5) -> dict:
     """
     입찰공고 중 목록(/bid/con)에서 개찰 전 사전정보 수집.

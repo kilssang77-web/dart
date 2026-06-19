@@ -1178,6 +1178,31 @@ def sync_inpo21c_notices_to_bids(
     return result
 
 
+@router.post("/inpo21c/fill-incomplete")
+def fill_incomplete_participants(
+    background_tasks: BackgroundTasks,
+    min_parts: int = 3,
+    max_bids: int = 500,
+    _: User = Depends(require_role("admin")),
+):
+    """참가자 min_parts 미만인 입찰(낙찰자만 수집)의 전참여자 강제 재수집 — win_prob_model 학습 데이터 보강."""
+    def _run():
+        from ...database import SessionLocal
+        from ...collector.inpo21c import collect_incomplete_participants
+        from ...collector.scheduler import _trigger_ml_retrain
+        _db = SessionLocal()
+        try:
+            result = collect_incomplete_participants(_db, min_parts=min_parts, max_bids=max_bids)
+            logger.info("fill-incomplete 완료: %s", result)
+            if result.get("filled", 0) > 0:
+                _trigger_ml_retrain("incomplete 참가자 재수집 완료")
+        finally:
+            _db.close()
+
+    background_tasks.add_task(_run)
+    return {"message": f"참가자 재수집 시작됨 (대상최대 {max_bids}건, 최소참가자 {min_parts}명)"}
+
+
 @router.get("/inpo21c/stats")
 def inpo21c_stats(
     db: Session = Depends(get_db),
