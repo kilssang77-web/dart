@@ -323,6 +323,9 @@ export default function AdminPage() {
       setTimeout(() => setTriggerMsg(null), 5000)
     },
   })
+  const migrateJournalMutation = useMutation({
+    mutationFn: () => adminApi.migrateJournalToExecutions(),
+  })
 
   function resetForm() { setShowForm(false); setEditId(null); setForm(EMPTY_FORM) }
   function handleEdit(u: AdminUser) {
@@ -1250,6 +1253,44 @@ export default function AdminPage() {
                         })}
                       </TableBody>
                     </Table>
+                  </CardContent>
+                </Card>
+
+                {/* 저널 → 실행 이관 */}
+                <Card className="bg-white border-slate-200 shadow-sm">
+                  <CardHeader className="border-b border-slate-100 pb-4">
+                    <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                      <Database className="h-4 w-4 text-indigo-600" />
+                      투찰 이력 → 실행 관리 이관
+                    </CardTitle>
+                    <CardDescription className="text-slate-500 text-sm mt-1">
+                      bid_journal 이력을 투찰 실행 관리(bid_executions)로 일괄 변환합니다.
+                      공고번호 기준 중복 방지 적용.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="pt-4 flex items-center gap-4">
+                    <Button
+                      variant="outline"
+                      className="gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                      onClick={() => migrateJournalMutation.mutate()}
+                      disabled={migrateJournalMutation.isPending}
+                    >
+                      {migrateJournalMutation.isPending
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <Layers className="h-3.5 w-3.5" />}
+                      이관 실행
+                    </Button>
+                    {migrateJournalMutation.isSuccess && (
+                      <span className="text-sm text-emerald-700 flex items-center gap-1">
+                        <CheckCircle2 className="h-4 w-4" />
+                        생성 {migrateJournalMutation.data?.created}건 / 스킵 {migrateJournalMutation.data?.skipped}건
+                      </span>
+                    )}
+                    {migrateJournalMutation.isError && (
+                      <span className="text-sm text-red-600 flex items-center gap-1">
+                        <AlertCircle className="h-4 w-4" />이관 실패
+                      </span>
+                    )}
                   </CardContent>
                 </Card>
               </>

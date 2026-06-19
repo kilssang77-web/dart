@@ -1363,3 +1363,86 @@ def run_validation_now(
     from ...collector.scheduler import run_validation_job
     background_tasks.add_task(run_validation_job)
     return {"status": "started", "message": "Walk-forward 검증 시작됨 (백그라운드 — 수초 소요)"}
+
+
+@router.post("/journal/migrate-to-executions")
+def migrate_journal_to_executions(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin")),
+):
+    """
+    bid_journal 이력 → bid_executions 일괄 변환.
+    announcement_no 기준 중복 방지. source='journal' 태깅.
+    """
+    from ...models import BidExecution, BidJournal
+
+    rows = db.execute(text("""
+        SELECT j.id, j.bid_id, j.user_id, j.announcement_no,
+               j.submitted_rate, j.floor_rate, j.submitted_at,
+               j.result, j.total_bidders, j.winner_rate, j.our_rank,
+               j.opened_at, j.actual_srate,
+               b.title, b.agency_id, b.base_amount, b.bid_open_date,
+               a.name AS agency_name, b.industry_id
+        FROM bid_journal j
+        JOIN bids b ON b.id = j.bid_id
+        LEFT JOIN agencies a ON a.id = b.agency_id
+        WHERE j.submitted_rate IS NOT NULL
+        ORDER BY j.id
+    """)).fetchall()
+
+    created = 0
+    skipped = 0
+
+    for row in rows:
+        (jid, bid_id, user_id, anno_no, sub_rate, floor_rate, sub_at,
+         result, total_bidders, winner_rate, our_rank, opened_at, actual_srate,
+         title, agency_id, base_amount, bid_open_date, agency_name, industry_id) = row
+
+        # 중복 확인 (같은 announcement_no, user_id)
+        exists = db.execute(text("""
+            SELECT id FROM bid_executions
+            WHERE user_id = :uid
+              AND announcement_no = :ano
+              AND source = 'journal'
+        """), {"uid": user_id, "ano": anno_no}).fetchone()
+
+        if exists:
+            skipped += 1
+            continue
+
+        status_map = {"낙찰": "낙찰", "패찰": "패찰", "무효": "포기", "취소": "포기"}
+        ex_status = status_map.get(result, "패찰") if result else "패찰"
+
+        # winner_rate 0.97 초과는 사정율(assessment_rate) 오인 — 낙찰율 범위 0.80~0.97만 허용
+        clean_winner_rate = float(winner_rate) if winner_rate and 0.80 <= float(winner_rate) <= 0.97 else None
+        winner_gap = (
+            round(clean_winner_rate - float(sub_rate), 6)
+            if clean_winner_rate and sub_rate else None
+        )
+
+        ex = BidExecution(
+            bid_id=bid_id,
+            user_id=user_id,
+            announcement_no=anno_no,
+            title=title or f"공고 {anno_no}",
+            agency_name=agency_name,
+            base_amount=int(base_amount) if base_amount else 0,
+            bid_open_date=bid_open_date,
+            status=ex_status,
+            submitted_rate=sub_rate,
+            floor_rate=floor_rate,
+            submitted_at=sub_at or opened_at,
+            result_rank=int(our_rank) if our_rank else None,
+            total_bidders=int(total_bidders) if total_bidders else None,
+            winner_rate=clean_winner_rate,
+            winner_gap=winner_gap,
+            opened_at=opened_at,
+            source="journal",
+            note=f"bid_journal #{jid} 자동 이관",
+        )
+        db.add(ex)
+        created += 1
+
+    db.commit()
+    logger.info("journal→executions 이관: created=%d skipped=%d", created, skipped)
+    return {"status": "ok", "created": created, "skipped": skipped}

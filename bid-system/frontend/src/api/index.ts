@@ -239,6 +239,8 @@ export const adminApi = {
     api.post('/admin/ml/retrain').then((r) => r.data),
   syncInpo21cToBids: (): Promise<{ updated_base_amount: number; updated_open_date: number; updated_participants: number }> =>
     api.post('/admin/sync-inpo21c-to-bids').then((r) => r.data),
+  migrateJournalToExecutions: (): Promise<{ status: string; created: number; skipped: number }> =>
+    api.post('/admin/journal/migrate-to-executions').then((r) => r.data),
 }
 
 // -- 투찰 이력 --------------------------------------------------

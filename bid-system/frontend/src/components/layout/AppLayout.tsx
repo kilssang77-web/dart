@@ -7,7 +7,7 @@ import {
   ShieldAlert, LogOut, Bell, PanelLeftClose, PanelLeftOpen,
   Activity, Target, Briefcase, LayoutDashboard, PieChart,
   ChevronRight, ChevronDown, ListChecks, FlaskConical,
-  BookOpen, ClipboardCheck, BarChart3,
+  ClipboardCheck, BarChart3, Sparkles, BookOpen,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { authApi, notificationsApi } from '@/api'
@@ -22,7 +22,8 @@ const NAV_GROUPS = [
   {
     label: '핵심 업무',
     items: [
-      { to: '/dashboard', label: '대시보드',        icon: LayoutDashboard },
+      { to: '/today',        label: '오늘의 업무',     icon: Sparkles },
+      { to: '/dashboard',    label: '대시보드',        icon: LayoutDashboard },
       { to: '/kpi-dashboard', label: 'KPI 대시보드',  icon: Activity },
     ],
   },
