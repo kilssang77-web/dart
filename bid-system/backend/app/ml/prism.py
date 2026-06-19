@@ -132,8 +132,8 @@ def _compute_prism_zones(
     # 동적 스캔 범위 — srate_dist 분포 기반 (복수예가/고정방식 자동 대응)
     srate_p5  = float(np.percentile(srate_dist, 5))
     srate_p97 = float(np.percentile(srate_dist, 97))
-    dyn_start = round(max(0.840, floor_rate_pct * srate_p5 * 0.997), 3)
-    dyn_end   = round(min(1.010, srate_p97 * 1.003), 3)
+    dyn_start = round(max(0.840, floor_rate_pct * srate_p5 * 0.997), 4)
+    dyn_end   = round(min(1.010, srate_p97 * 1.003), 4)
     n_steps   = int((dyn_end - dyn_start) / SCAN_STEP) + 1
     dyn_step  = SCAN_STEP if n_steps <= 300 else round((dyn_end - dyn_start) / 200, 4)
     rates = np.round(np.arange(dyn_start, dyn_end + dyn_step / 2, dyn_step), 4)

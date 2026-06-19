@@ -43,9 +43,11 @@ def _query_bid_rate_dist(
 
     if agency_id:
         rows = db.execute(text(f"""
-            SELECT ROUND(ip.bid_rate::numeric, 3)                 AS bucket,
-                   COUNT(*)                                        AS total,
-                   SUM(CASE WHEN ip.is_winner THEN 1 ELSE 0 END) AS winners
+            SELECT ROUND(ip.bid_rate::numeric, 3)                                       AS bucket,
+                   COUNT(*)                                                              AS total,
+                   SUM(CASE WHEN ip.is_winner THEN 1 ELSE 0 END)                       AS winners,
+                   AVG(ip.bid_rate::float)                                              AS centroid,
+                   AVG(CASE WHEN ip.is_winner THEN ip.bid_rate::float ELSE NULL END)   AS winner_centroid
             FROM inpo21c_participants ip
             JOIN inpo21c_bids ib USING (inpo21c_bid_id)
             JOIN agencies a ON (
@@ -65,9 +67,11 @@ def _query_bid_rate_dist(
             return rows, source
 
     rows = db.execute(text(f"""
-        SELECT ROUND(ip.bid_rate::numeric, 3)                 AS bucket,
-               COUNT(*)                                        AS total,
-               SUM(CASE WHEN ip.is_winner THEN 1 ELSE 0 END) AS winners
+        SELECT ROUND(ip.bid_rate::numeric, 3)                                       AS bucket,
+               COUNT(*)                                                              AS total,
+               SUM(CASE WHEN ip.is_winner THEN 1 ELSE 0 END)                       AS winners,
+               AVG(ip.bid_rate::float)                                              AS centroid,
+               AVG(CASE WHEN ip.is_winner THEN ip.bid_rate::float ELSE NULL END)   AS winner_centroid
         FROM inpo21c_participants ip
         JOIN inpo21c_bids ib USING (inpo21c_bid_id)
         WHERE ip.bid_rate BETWEEN :rmin AND :rmax
@@ -110,10 +114,13 @@ def get_hot_zones(
     if not rows:
         return _empty_result(source)
 
-    srates    = np.array([float(r[0]) for r in rows])
-    totals    = np.array([max(int(r[1]), 0) for r in rows])
-    win_counts = np.array([max(int(r[2]), 0) for r in rows])
-    win_rates  = np.where(totals > 0, win_counts / totals, 0.0)
+    srates         = np.array([float(r[0]) for r in rows])
+    totals         = np.array([max(int(r[1]), 0) for r in rows])
+    win_counts     = np.array([max(int(r[2]), 0) for r in rows])
+    win_rates      = np.where(totals > 0, win_counts / totals, 0.0)
+    # 버킷 중심 대신 실제 낙찰자 평균 투찰율 사용 → 소수점 4자리 자연수 값
+    centroids      = np.array([float(r[3]) if r[3] is not None else float(r[0]) for r in rows])
+    win_centroids  = np.array([float(r[4]) if r[4] is not None else float(r[0]) for r in rows])
 
     # KDE: gaussian smoothing on win_rate × log(total+1) signal
     signal = win_rates * np.log1p(win_counts)
@@ -135,13 +142,15 @@ def get_hot_zones(
     for idx in peak_idxs:
         if int(win_counts[idx]) < min_win_count:
             continue
-        sr  = float(srates[idx])
+        # 버킷 그리드값(srates[idx]) 대신 실제 낙찰자 평균 투찰율 사용 → 비율 6자리 = 퍼센트 4자리
+        raw_sr = float(win_centroids[idx]) if win_counts[idx] >= 1 else float(centroids[idx])
+        sr  = round(raw_sr, 6)
         wr  = float(win_rates[idx])
         wc  = int(win_counts[idx])
         tc  = int(totals[idx])
         score = wr * math.log1p(wc)
         peaks.append({
-            "srate":     round(sr, 4),
+            "srate":     sr,
             "win_rate":  round(wr, 4),
             "win_count": wc,
             "total":     tc,
@@ -221,7 +230,7 @@ def get_best_rate(
     intensity    = winner.get("competition_intensity", "normal")
 
     # ── 1/2: 승자분포 기반 ────────────────────────────────
-    if target_rate and winner_count >= 10:
+    if target_rate and winner_count >= 5:
         if hot["best_rate"]:
             hot_bucket    = round(hot["best_rate"], 3)
             target_bucket = round(target_rate, 3)
@@ -293,7 +302,7 @@ def get_best_rate(
         recommended_price = int(base_amount * recommended_srate)
 
     return {
-        "recommended_srate":     round(float(recommended_srate), 4) if recommended_srate else None,
+        "recommended_srate":     round(float(recommended_srate), 6) if recommended_srate else None,
         "recommended_price":     recommended_price,
         "confidence":            round(confidence, 3),
         "source":                source,

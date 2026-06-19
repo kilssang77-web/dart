@@ -39,7 +39,7 @@ def get_winner_percentiles(
     industry_id: Optional[int],
     base_amount: int,
     period_type: str = "24M",
-    amount_range_pct: float = 0.35,
+    amount_range_pct: float = 0.50,
 ) -> dict:
     """
     유사 공고 실제 낙찰자 bid_rate 분포에서 백분위 기반 추천값 계산.
@@ -120,13 +120,14 @@ def get_winner_percentiles(
         intensity   = "normal"
         target_pct  = 65
 
-    p25  = round(float(np.percentile(rates, 25)),  4)
-    p50  = round(float(np.percentile(rates, 50)),  4)
-    p65  = round(float(np.percentile(rates, 65)),  4)
-    p70  = round(float(np.percentile(rates, 70)),  4)
-    p75  = round(float(np.percentile(rates, 75)),  4)
-    p85  = round(float(np.percentile(rates, 85)),  4)
-    target_rate = round(float(np.percentile(rates, target_pct)), 4)
+    # 비율 6자리 = 퍼센트 4자리 정밀도 (0.897773 → 89.7773%)
+    p25  = round(float(np.percentile(rates, 25)),  6)
+    p50  = round(float(np.percentile(rates, 50)),  6)
+    p65  = round(float(np.percentile(rates, 65)),  6)
+    p70  = round(float(np.percentile(rates, 70)),  6)
+    p75  = round(float(np.percentile(rates, 75)),  6)
+    p85  = round(float(np.percentile(rates, 85)),  6)
+    target_rate = round(float(np.percentile(rates, target_pct)), 6)
 
     logger.debug(
         "winner_dist [%s] n=%d src=%s p50=%.4f p65=%.4f p75=%.4f",
@@ -212,11 +213,11 @@ def get_assessment_rate_dist(
     arates = np.array([float(r[0]) for r in rows if r[0]])
 
     return {
-        "p25":    round(float(np.percentile(arates, 25)), 4),
-        "p50":    round(float(np.percentile(arates, 50)), 4),
-        "p75":    round(float(np.percentile(arates, 75)), 4),
-        "mean":   round(float(arates.mean()),             4),
-        "std":    round(float(arates.std()),              4),
+        "p25":    round(float(np.percentile(arates, 25)), 6),
+        "p50":    round(float(np.percentile(arates, 50)), 6),
+        "p75":    round(float(np.percentile(arates, 75)), 6),
+        "mean":   round(float(arates.mean()),             6),
+        "std":    round(float(arates.std()),              6),
         "count":  len(arates),
         "source": source,
     }
@@ -303,12 +304,12 @@ def get_relative_rate_dist(
                 "mean": None, "std": None, "count": 0, "source": "none"}
 
     return {
-        "p50":    round(float(np.percentile(rel, 50)), 4),
-        "p65":    round(float(np.percentile(rel, 65)), 4),
-        "p70":    round(float(np.percentile(rel, 70)), 4),
-        "p75":    round(float(np.percentile(rel, 75)), 4),
-        "mean":   round(float(rel.mean()),             4),
-        "std":    round(float(rel.std()),              4),
+        "p50":    round(float(np.percentile(rel, 50)), 6),
+        "p65":    round(float(np.percentile(rel, 65)), 6),
+        "p70":    round(float(np.percentile(rel, 70)), 6),
+        "p75":    round(float(np.percentile(rel, 75)), 6),
+        "mean":   round(float(rel.mean()),             6),
+        "std":    round(float(rel.std()),              6),
         "count":  len(rel),
         "source": source,
     }

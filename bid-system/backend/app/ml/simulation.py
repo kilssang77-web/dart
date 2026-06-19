@@ -495,9 +495,9 @@ def scan_zones_from_dist(
     eff_floor_abs = floor_rate_pct * srate_med
 
     if scan_start is None:
-        scan_start = round(floor_rate_pct * srate_p10 * 0.995, 3)
+        scan_start = round(floor_rate_pct * srate_p10 * 0.995, 4)
     if scan_end is None:
-        scan_end = round(srate_p95 * 1.005, 3)
+        scan_end = round(srate_p95 * 1.005, 4)
 
     # 스텝 수가 너무 많으면 step 조정
     n_steps = int((scan_end - scan_start) / scan_step) + 2
