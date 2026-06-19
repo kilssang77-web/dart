@@ -732,51 +732,73 @@ class StockCollector:
             await self.redis.set(f"daily_bars:ready:{today}", "1", ex=86400)
             logger.info(f"[DailyBar] stats updated — batch scan signal sent (daily_bars:ready:{today})")
 
-    async def _backfill_supply_demand(self, codes: list[str]):
-        """시작 시 최근 5 영업일 수급 데이터 백필 (누락된 날짜만 대상)."""
+    async def _backfill_supply_demand(self, codes: list[str], backfill_days: int | None = None):
+        """시작 시 수급 데이터 백필 (누락된 날짜만 대상).
+        backfill_days 기본값: SUPPLY_BACKFILL_DAYS 환경변수 (기본 130 = 약 6개월).
+        날짜 범위 API 호출로 최대 30일씩 묶어 처리 → API 호출 수 감소.
+        """
         await asyncio.sleep(30)
-        from datetime import date as date_cls
+        if backfill_days is None:
+            backfill_days = int(os.environ.get("SUPPLY_BACKFILL_DAYS", "130"))
+
         today = datetime.now(_KST).date()
-        # 최근 10 달력일에서 평일만 추출 → 최대 5 영업일
+        # 달력일 기준으로 역산 → 평일만 수집 (최대 backfill_days 영업일)
         biz_days: list[str] = []
-        for offset in range(1, 11):
-            d = today - timedelta(days=offset)
+        cal_offset = 1
+        while len(biz_days) < backfill_days and cal_offset <= backfill_days * 2:
+            d = today - timedelta(days=cal_offset)
             if d.weekday() < 5:
                 biz_days.append(d.strftime("%Y%m%d"))
-            if len(biz_days) >= 5:
-                break
+            cal_offset += 1
 
+        since = today - timedelta(days=backfill_days * 2)
         try:
             async with self.db.acquire() as conn:
                 existing = await conn.fetch(
                     "SELECT DISTINCT code, date::text AS date FROM supply_demand "
                     "WHERE code = ANY($1::text[]) AND date >= $2",
-                    codes, today - timedelta(days=10),
+                    codes, since,
                 )
             existing_set = {(r["code"], r["date"][:10].replace("-", "")) for r in existing}
         except Exception as e:
             logger.error(f"[SD-Backfill] check error: {e}")
             return
 
-        missing = [(c, d) for c in codes for d in biz_days if (c, d) not in existing_set]
-        if not missing:
-            logger.info("[SD-Backfill] All recent supply_demand data present")
+        missing_days_per_code: dict[str, list[str]] = {}
+        for code in codes:
+            days = [d for d in biz_days if (code, d) not in existing_set]
+            if days:
+                missing_days_per_code[code] = days
+
+        if not missing_days_per_code:
+            logger.info("[SD-Backfill] All supply_demand data present")
             return
 
-        logger.info(f"[SD-Backfill] Backfilling {len(missing)} (code, date) combinations")
+        total_missing = sum(len(v) for v in missing_days_per_code.values())
+        logger.info(
+            f"[SD-Backfill] Backfilling {total_missing} (code, date) pairs "
+            f"across {len(missing_days_per_code)} stocks ({backfill_days}d window)"
+        )
         success, empty, fail = 0, 0, 0
-        for code, date_str in missing:
-            try:
-                sd = await self.rest.get_supply_demand(code, date_str)
-                if sd:
-                    await write_supply_demand(self.db, sd)
-                    success += 1
-                else:
-                    empty += 1
-            except Exception as e:
-                logger.debug(f"[SD-Backfill] {code}/{date_str}: {e}")
-                fail += 1
-            await asyncio.sleep(0.3)
+        CHUNK = 30  # KIS API 최대 반환 행 수 (약 30일)
+
+        for code, days in missing_days_per_code.items():
+            # 30일씩 묶어 범위 요청
+            for i in range(0, len(days), CHUNK):
+                chunk = days[i:i + CHUNK]
+                start_d, end_d = chunk[-1], chunk[0]  # days는 역순(최근→과거)
+                try:
+                    records = await self.rest.get_supply_demand_range(code, start_d, end_d)
+                    for rec in records:
+                        await write_supply_demand(self.db, rec)
+                    if records:
+                        success += len(records)
+                    else:
+                        empty += len(chunk)
+                except Exception as e:
+                    logger.debug(f"[SD-Backfill] {code}/{start_d}~{end_d}: {e}")
+                    fail += len(chunk)
+                await asyncio.sleep(0.35)
 
         logger.info(f"[SD-Backfill] Done: success={success}, empty={empty}, error={fail}")
 

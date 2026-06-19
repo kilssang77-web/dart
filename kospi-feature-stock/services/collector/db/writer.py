@@ -168,7 +168,7 @@ async def write_minute_bars(pool: asyncpg.Pool, code: str, bars: list[dict]) -> 
                 """
                 INSERT INTO minute_bars (time, code, interval_min, open, high, low, close, volume, amount)
                 VALUES (
-                    TO_TIMESTAMP($1, 'YYYYMMDDHH24MISS'),
+                    TO_TIMESTAMP($1, 'YYYYMMDDHH24MISS') AT TIME ZONE 'Asia/Seoul',
                     $2, $3, $4, $5, $6, $7, $8, $9
                 )
                 ON CONFLICT (code, interval_min, time) DO UPDATE SET

@@ -199,8 +199,12 @@ class KISWebSocketClient:
         if len(f) < 22:
             return {}
         try:
-            price  = int(f[2])
-            change = int(f[4]) if f[4] else 0
+            price     = int(f[2])
+            abs_chg   = int(f[4]) if f[4] else 0
+            # f[3]: 전일대비부호 — 1:상한 2:상승 3:보합 4:하한 5:하락
+            sign      = -1 if f[3] in ("4", "5") else 1
+            change    = sign * abs_chg
+            vol       = int(f[12]) if f[12] else 0
             return {
                 "code":         f[0],
                 "time":         f[1],
@@ -211,7 +215,8 @@ class KISWebSocketClient:
                 "open":         int(f[7]) if f[7] else 0,
                 "high":         int(f[8]) if f[8] else 0,
                 "low":          int(f[9]) if f[9] else 0,
-                "volume":       int(f[12]) if f[12] else 0,
+                "volume":       vol,
+                "amount":       price * vol,
                 "cum_volume":   int(f[13]) if f[13] else 0,
                 "cum_amount":   int(f[14]) if f[14] else 0,
                 "bid_ask_ratio":float(f[19]) if f[19] else 0.0,

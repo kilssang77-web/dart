@@ -255,9 +255,10 @@ class ThemeClusterer:
         prev_map: dict[str, int] = {r["theme_name"]: r["stock_count"] for r in prev_rows}
 
         for t in themes:
-            name  = ",".join(t.keywords[:3])  # 키워드 조합을 테마 이름으로 사용
-            prev  = prev_map.get(name, t.stock_count)
-            vel   = t.stock_count - prev        # 당일 변화량
+            name        = ",".join(t.keywords[:3])  # 키워드 조합을 테마 이름으로 사용
+            stock_count = len(t.stock_codes)
+            prev        = prev_map.get(name, stock_count)
+            vel         = stock_count - prev        # 당일 변화량
 
             # momentum_score: 뉴스 수 + trend + velocity 종합
             trend_boost = 0.2 if t.trend == "rising" else (-0.1 if t.trend == "falling" else 0.0)
@@ -279,7 +280,7 @@ class ThemeClusterer:
                           velocity       = EXCLUDED.velocity,
                           lead_codes     = EXCLUDED.lead_codes
                     """,
-                    name, today, t.stock_count,
+                    name, today, stock_count,
                     ",".join(t.stock_codes),
                     mom, vel, lead,
                 )

@@ -285,11 +285,21 @@ def _load_bert_pipeline():
     if not _USE_BERT:
         return None
     try:
-        from transformers import pipeline as hf_pipeline
+        from transformers import (
+            AutoModelForSequenceClassification,
+            AutoTokenizer,
+            pipeline as hf_pipeline,
+        )
+        # transformers>=4.50 에서 cache_dir를 pipeline()에 직접 넘기면
+        # _batch_encode_plus()로 잘못 전달되는 버그 → 분리 로딩으로 우회
+        tokenizer = AutoTokenizer.from_pretrained(_BERT_MODEL, cache_dir=_BERT_CACHE)
+        model     = AutoModelForSequenceClassification.from_pretrained(
+            _BERT_MODEL, cache_dir=_BERT_CACHE
+        )
         pipe = hf_pipeline(
             "text-classification",
-            model=_BERT_MODEL,
-            cache_dir=_BERT_CACHE,
+            model=model,
+            tokenizer=tokenizer,
             device=-1,
             truncation=True,
             max_length=128,

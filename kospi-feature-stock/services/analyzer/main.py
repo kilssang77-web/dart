@@ -37,6 +37,50 @@ def _calc_relevance(title: str, content: str, code: str, name: str) -> float:
     return 0.20
 
 
+_STOCK_NAME_MAP: dict[str, str] = {}  # {종목명: code} 인메모리 캐시
+_STOCK_NAME_MAP_LOADED_AT: datetime | None = None
+_STOCK_NAME_MAP_TTL = 3600  # 1시간마다 갱신
+
+
+async def _get_stock_name_map(db: asyncpg.Pool) -> dict[str, str]:
+    """종목명 → 코드 매핑 (1시간 캐시). 1:N 뉴스-종목 링크에 사용."""
+    global _STOCK_NAME_MAP, _STOCK_NAME_MAP_LOADED_AT
+    now = datetime.now(timezone.utc)
+    if _STOCK_NAME_MAP and _STOCK_NAME_MAP_LOADED_AT:
+        age = (now - _STOCK_NAME_MAP_LOADED_AT).total_seconds()
+        if age < _STOCK_NAME_MAP_TTL:
+            return _STOCK_NAME_MAP
+    try:
+        rows = await db.fetch("SELECT code, name FROM stocks WHERE is_active = TRUE AND LENGTH(name) >= 2")
+        _STOCK_NAME_MAP = {r["name"]: r["code"] for r in rows if r["name"]}
+        _STOCK_NAME_MAP_LOADED_AT = now
+    except Exception as e:
+        logger.warning(f"[StockNameMap] load error: {e}")
+    return _STOCK_NAME_MAP
+
+
+def _extract_mentioned_codes(
+    title: str, content: str, primary_code: str, name_map: dict[str, str]
+) -> list[tuple[str, float]]:
+    """뉴스 본문에서 언급된 종목 코드를 추출해 (code, relevance) 목록 반환.
+    최대 5개, primary_code를 제외한 추가 종목만 포함.
+    """
+    text = title + " " + content[:2000]
+    results: list[tuple[str, float]] = []
+    seen: set[str] = {primary_code}
+    for name, code in name_map.items():
+        if code in seen:
+            continue
+        if name not in text:
+            continue
+        seen.add(code)
+        rel = _calc_relevance(title, content, code, name)
+        results.append((code, rel))
+        if len(results) >= 4:  # primary 포함 최대 5개
+            break
+    return results
+
+
 class AnalyzerService:
 
     def __init__(self):
@@ -175,7 +219,8 @@ class AnalyzerService:
             return
 
         title   = data.get("title", "")
-        content = data.get("content", "")
+        # DART 폴러는 'content' 대신 'body_preview'로 본문 일부를 전달함
+        content = data.get("content", "") or data.get("body_preview", "")
 
         # disclosed_at: DART는 'YYYYMMDD' 혹은 KST isoformat, KIND는 KST isoformat
         # naive datetime은 모두 KST로 해석 (UTC로 해석하면 +9h 오차 발생)
@@ -216,10 +261,14 @@ class AnalyzerService:
                     embedding, raw_json
                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::vector,$16)
                 ON CONFLICT (rcept_no) DO UPDATE SET
-                    category       = EXCLUDED.category,
-                    sentiment_score= EXCLUDED.sentiment_score,
-                    keywords       = EXCLUDED.keywords,
-                    embedding      = EXCLUDED.embedding
+                    category        = EXCLUDED.category,
+                    sentiment_score = EXCLUDED.sentiment_score,
+                    keywords        = EXCLUDED.keywords,
+                    embedding       = EXCLUDED.embedding,
+                    amount          = COALESCE(EXCLUDED.amount,          disclosures.amount),
+                    amount_text     = COALESCE(EXCLUDED.amount_text,     disclosures.amount_text),
+                    counterparty    = COALESCE(EXCLUDED.counterparty,    disclosures.counterparty),
+                    contract_period = COALESCE(EXCLUDED.contract_period, disclosures.contract_period)
                 """,
                 rcept_no,
                 data.get("code"),
@@ -297,14 +346,27 @@ class AnalyzerService:
                 vec_str,
             )
             if news_id and data.get("code"):
-                relevance = _calc_relevance(title, content, data.get("code", ""), data.get("name", ""))
+                primary_code = data["code"]
+                relevance = _calc_relevance(title, content, primary_code, data.get("name", ""))
                 await conn.execute(
                     """
                     INSERT INTO news_stock_links (news_id, code, relevance)
                     VALUES ($1, $2, $3) ON CONFLICT DO NOTHING
                     """,
-                    news_id, data["code"], relevance,
+                    news_id, primary_code, relevance,
                 )
+                # 1:N — 본문 내 추가 종목 자동 링크
+                try:
+                    name_map = await _get_stock_name_map(self._db)
+                    extra = _extract_mentioned_codes(title, content, primary_code, name_map)
+                    for ex_code, ex_rel in extra:
+                        await conn.execute(
+                            "INSERT INTO news_stock_links (news_id, code, relevance) "
+                            "VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+                            news_id, ex_code, ex_rel,
+                        )
+                except Exception as e:
+                    logger.debug(f"[NewsLink 1:N] {e}")
         logger.debug(f"News saved: {title[:40]} sentiment={sentiment['sentiment_score']}")
 
         # 종목별 뉴스 감성 집계를 Redis에 저장 (ML 피처용)

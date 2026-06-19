@@ -2,8 +2,11 @@ import asyncio
 import logging
 import httpx
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from .auth import KISAuthManager, KISConfig
+
+_KST = ZoneInfo("Asia/Seoul")
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +47,8 @@ class KISRestClient:
             return data
 
     async def get_minute_bars(self, code: str) -> list[dict]:
+        # 현재 KST 시각 기준으로 최신 분봉 조회 (고정 090000은 09:00 이전 bars만 반환)
+        now_kst = datetime.now(_KST).strftime("%H%M%S")
         data = await self._get(
             "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice",
             "FHKST03010200",
@@ -51,7 +56,7 @@ class KISRestClient:
                 "FID_ETC_CLS_CODE": "",
                 "FID_COND_MRKT_DIV_CODE": "J",
                 "FID_INPUT_ISCD": code,
-                "FID_INPUT_HOUR_1": "090000",
+                "FID_INPUT_HOUR_1": now_kst,
                 "FID_PW_DATA_INCU_YN": "Y",
             },
         )
@@ -128,6 +133,38 @@ class KISRestClient:
             "prog_arbitrage_net":   int(r.get("pgtr_ntby_qty", 0) or 0),
             "pension_net":          int(r.get("cnfn_ntby_qty", 0) or 0),
         }
+
+    async def get_supply_demand_range(self, code: str, start: str, end: str) -> list[dict]:
+        """날짜 범위 수급 데이터 일괄 조회. start/end = 'YYYYMMDD'."""
+        try:
+            data = await self._get(
+                "/uapi/domestic-stock/v1/quotations/inquire-investor",
+                "FHKST01010900",
+                {
+                    "FID_COND_MRKT_DIV_CODE": "J",
+                    "FID_INPUT_ISCD": code,
+                    "FID_INPUT_DATE_1": start,
+                    "FID_INPUT_DATE_2": end,
+                    "FID_PERIOD_DIV_CODE": "D",
+                },
+            )
+        except KISAPIError:
+            return []
+        results = []
+        for r in data.get("output", []):
+            date_val = r.get("stck_bsop_date", "")
+            if not date_val:
+                continue
+            results.append({
+                "code":               code,
+                "date":               date_val,
+                "foreign_net":        int(r.get("frgn_ntby_qty", 0) or 0),
+                "inst_net":           int(r.get("orgn_ntby_qty", 0) or 0),
+                "indiv_net":          int(r.get("indv_ntby_qty", 0) or 0),
+                "prog_arbitrage_net": int(r.get("pgtr_ntby_qty", 0) or 0),
+                "pension_net":        int(r.get("cnfn_ntby_qty", 0) or 0),
+            })
+        return results
 
     async def get_stock_list(self, market: str = "J") -> list[dict]:
         """전체 종목 리스트 조회 (J=KOSPI, Q=KOSDAQ)"""
