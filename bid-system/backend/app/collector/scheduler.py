@@ -345,6 +345,17 @@ def run_journal_auto_fill_job() -> None:
 
     db = SessionLocal()
     try:
+        # sucsfbidRate 오인으로 winner_rate > 0.97 저장된 레코드 초기화
+        reset_cnt = db.execute(text("""
+            UPDATE bid_journal
+            SET winner_rate = NULL, rate_gap = NULL, result = NULL,
+                our_rank = NULL, total_bidders = NULL, updated_at = NOW()
+            WHERE winner_rate > 0.97
+        """)).rowcount
+        if reset_cnt:
+            db.commit()
+            logger.info("journal_auto_fill: winner_rate 오인 %d건 초기화", reset_cnt)
+
         rows = db.execute(text("""
             SELECT j.id, j.bid_id, j.announcement_no, j.submitted_rate,
                    j.pred_srate_center, b.agency_id,
@@ -355,7 +366,7 @@ def run_journal_auto_fill_job() -> None:
               AND j.submitted_rate IS NOT NULL
               AND (b.bid_open_date IS NULL OR b.bid_open_date <= NOW() - INTERVAL '2 hours')
             ORDER BY b.bid_open_date DESC NULLS LAST
-            LIMIT 50
+            LIMIT 100
         """)).fetchall()
 
         if not rows:
@@ -372,11 +383,14 @@ def run_journal_auto_fill_job() -> None:
                 inpo_row, match_type = _fetch_inpo_row(db, announcement_no, agency_id, bid_open_date, base_amount)
 
                 # bid_results 직접 조회 (fallback)
+                # sucsfbidRate는 낙찰금액/예정가격 비율이라 1.0 초과 가능 — 기초금액 기준 범위(0.80~0.97)만 사용
                 br_row = db.execute(text("""
                     SELECT
-                        COUNT(*)                                    AS total,
-                        MIN(CASE WHEN is_winner THEN bid_rate END)  AS winner_rate,
-                        SUM(CASE WHEN bid_rate <= :srate THEN 1 ELSE 0 END) AS rank_approx
+                        COUNT(*)                                                          AS total,
+                        MIN(CASE WHEN is_winner AND bid_rate BETWEEN 0.80 AND 0.97
+                                 THEN bid_rate END)                                       AS winner_rate,
+                        SUM(CASE WHEN bid_rate BETWEEN 0.80 AND 0.97
+                                  AND bid_rate <= :srate THEN 1 ELSE 0 END)              AS rank_approx
                     FROM bid_results
                     WHERE bid_id = :bid_id
                 """), {"bid_id": bid_id, "srate": float(submitted_rate)}).fetchone()
