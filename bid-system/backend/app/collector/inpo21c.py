@@ -637,8 +637,11 @@ def collect_inpo21c(db: Session, max_pages: int = 100) -> dict:
     _ensure_tables(db)
     _prog_start("division", max_pages)
 
-    # 각 테이블별 기존 수집 여부를 독립적으로 추적
-    existing_parts  = {r[0] for r in db.execute(text("SELECT DISTINCT inpo21c_bid_id FROM inpo21c_participants")).fetchall()}
+    # 전참여자 수집 완료(n≥3)인 입찰만 스킵 — 낙찰자만 있는 건은 재수집 허용
+    existing_parts  = {r[0] for r in db.execute(text("""
+        SELECT inpo21c_bid_id FROM inpo21c_participants
+        GROUP BY inpo21c_bid_id HAVING COUNT(*) >= 3
+    """)).fetchall()}
     existing_bids   = {r[0] for r in db.execute(text("SELECT inpo21c_bid_id FROM inpo21c_bids")).fetchall()}
     existing_yega   = {r[0] for r in db.execute(text("SELECT DISTINCT inpo21c_bid_id FROM inpo21c_yega")).fetchall()}
 
@@ -773,7 +776,11 @@ def collect_inpo21c_national(db: Session, max_pages: int = 50) -> dict:
     _ensure_tables(db)
     _prog_start("national", max_pages)
 
-    existing_parts = {r[0] for r in db.execute(text("SELECT DISTINCT inpo21c_bid_id FROM inpo21c_participants")).fetchall()}
+    # 전참여자 수집 완료: n >= 3명 이상 수집된 입찰만 스킵 (낙찰자만 있는 건은 재수집 허용)
+    existing_full  = {r[0] for r in db.execute(text("""
+        SELECT inpo21c_bid_id FROM inpo21c_participants
+        GROUP BY inpo21c_bid_id HAVING COUNT(*) >= 3
+    """)).fetchall()}
     existing_bids  = {r[0] for r in db.execute(text("SELECT inpo21c_bid_id FROM inpo21c_bids")).fetchall()}
     existing_yega  = {r[0] for r in db.execute(text("SELECT DISTINCT inpo21c_bid_id FROM inpo21c_yega")).fetchall()}
 
@@ -792,7 +799,7 @@ def collect_inpo21c_national(db: Session, max_pages: int = 50) -> dict:
             empty_pages = 0
 
             for bid_id, list_title in page_items:
-                needs_parts  = bid_id not in existing_parts
+                needs_parts  = bid_id not in existing_full   # 전참여자 미수집(낙찰자만 포함) → 재수집
                 needs_header = bid_id not in existing_bids
                 needs_yega   = bid_id not in existing_yega
 
@@ -861,6 +868,138 @@ def collect_inpo21c_national(db: Session, max_pages: int = 50) -> dict:
         "yega":         total_yega,
         "skipped":      skipped,
         "cookie_valid": True,
+    }
+
+
+_REGION_CODES = {
+    "전국": 0, "서울": 1, "부산": 2, "광주": 3, "대전": 4,
+    "인천": 5, "대구": 6, "울산": 7, "경기": 8, "강원": 9,
+    "충북": 10, "충남": 11, "경북": 12, "경남": 13,
+}
+
+_INDUSTRY_CODES = {
+    "건축": "C002", "토건": "C003", "토목": "C001",
+    "실내건축": "C009", "조경": "C004", "전기": "C006",
+    "통신": "C011", "기계": "C007", "소방": "C016",
+}
+
+
+def _get_bid_ids_by_region(page: int, cookie: str, region_code: int,
+                            industry_code: str = "") -> list[tuple[str, str]]:
+    """지역코드/업종코드 필터로 낙찰 목록 수집 (수동 검색 모드)."""
+    params = f"search_type=manual&search_loc={region_code}&page={page}"
+    if industry_code:
+        params += f"&search_code={industry_code}"
+    html = _fetch(f"{BASE}/suc/con?{params}", cookie)
+    results = []
+    for m in re.finditer(
+        r'/suc/view/con/([^"]+)"[^>]*class="list_link constnm_link">([^<]*)', html
+    ):
+        results.append((m.group(1).strip(), m.group(2).strip()))
+    if not results:
+        results = [(m.group(1), "") for m in re.finditer(r'/suc/view/con/([^"]+)"', html)]
+    return results
+
+
+def collect_inpo21c_by_region(
+    db: Session,
+    region: str = "전국",
+    industry: str = "",
+    max_pages: int = 30,
+    region_code: int | None = None,
+) -> dict:
+    """
+    지역/업종 필터로 전참여자 + 복수예가 수집.
+
+    region_code : 0=전국 1=서울 2=부산 3=광주 4=대전 5=인천 6=대구 7=울산
+                  8=경기 9=강원 10=충북 11=충남 12=경북 13=경남
+    industry    : 업종명('건축') 또는 업종코드('C002'), 빈값=전체
+    """
+    from app.config import get_settings
+    settings = get_settings()
+    _started = time.time()
+
+    # region_code 우선, 없으면 region 이름으로 조회
+    if region_code is None:
+        region_code = _REGION_CODES.get(region, 0)
+    industry_code = _INDUSTRY_CODES.get(industry, industry)  # 코드 직접 전달도 허용
+
+    cookie = _get_valid_cookie(settings)
+    if not cookie:
+        return {"error": "자동 로그인 실패", "bids": 0, "participants": 0}
+
+    _ensure_tables(db)
+
+    # 전참여자 완료 기준(n≥3)으로만 스킵
+    existing_full = {r[0] for r in db.execute(text("""
+        SELECT inpo21c_bid_id FROM inpo21c_participants
+        GROUP BY inpo21c_bid_id HAVING COUNT(*) >= 3
+    """)).fetchall()}
+    existing_bids  = {r[0] for r in db.execute(text("SELECT inpo21c_bid_id FROM inpo21c_bids")).fetchall()}
+    existing_yega  = {r[0] for r in db.execute(text("SELECT DISTINCT inpo21c_bid_id FROM inpo21c_yega")).fetchall()}
+
+    total_bids = total_participants = total_yega = skipped = 0
+
+    for page in range(1, max_pages + 1):
+        page_items = list(dict.fromkeys(
+            _get_bid_ids_by_region(page, cookie, region_code, industry_code)
+        ))
+        if not page_items:
+            break
+
+        for bid_id, list_title in page_items:
+            needs_parts  = bid_id not in existing_full
+            needs_header = bid_id not in existing_bids
+            needs_yega   = bid_id not in existing_yega
+
+            if not needs_parts and not needs_header and not needs_yega:
+                skipped += 1
+                continue
+
+            detail_html = _fetch(f"{BASE}/suc/view/con/{bid_id}", cookie,
+                                 referer=f"{BASE}/suc/con?search_type=manual&search_loc={region_code}")
+            if not detail_html:
+                continue
+
+            if needs_parts:
+                rows = _parse_participants(detail_html)
+                if rows:
+                    cnt = _upsert_participants(db, bid_id, rows)
+                    total_participants += cnt
+                    total_bids += 1
+                existing_full.add(bid_id)
+
+            if needs_header:
+                header = _parse_bid_header(detail_html)
+                if header:
+                    if not header.get("title") and list_title:
+                        header["title"] = list_title
+                    _upsert_bid_header(db, bid_id, header)
+                existing_bids.add(bid_id)
+
+            if needs_yega:
+                yega_rows = _parse_yega(detail_html)
+                if yega_rows:
+                    yc = _upsert_yega(db, bid_id, yega_rows)
+                    total_yega += yc
+                existing_yega.add(bid_id)
+
+            time.sleep(0.4)
+
+    logger.info(
+        "inpo21c 지역수집 완료 [%s/%s]: bids=%d parts=%d yega=%d skip=%d (%.1fs)",
+        region, industry or "전업종", total_bids, total_participants,
+        total_yega, skipped, time.time() - _started,
+    )
+    _record_log(db, "inpo21c_region", total_bids, 0,
+                time.time() - _started,
+                detail={"region": region, "industry": industry,
+                        "max_pages": max_pages, "bids": total_bids,
+                        "participants": total_participants, "yega": total_yega,
+                        "skipped": skipped})
+    return {
+        "bids": total_bids, "participants": total_participants,
+        "yega": total_yega, "skipped": skipped, "region": region,
     }
 
 

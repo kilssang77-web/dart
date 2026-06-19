@@ -1203,6 +1203,44 @@ def fill_incomplete_participants(
     return {"message": f"참가자 재수집 시작됨 (대상최대 {max_bids}건, 최소참가자 {min_parts}명)"}
 
 
+@router.post("/inpo21c/collect-by-region")
+def collect_inpo21c_by_region(
+    background_tasks: BackgroundTasks,
+    region_code: int = 0,
+    industry_code: str = "C002",
+    max_pages: int = 30,
+    _: User = Depends(require_role("admin")),
+):
+    """
+    지역/업종 필터로 전참여자+복수예가 수집 (한글 인코딩 문제 회피를 위해 코드 사용).
+    region_code: 0=전국 1=서울 2=부산 3=광주 4=대전 5=인천 6=대구 7=울산
+                 8=경기 9=강원 10=충북 11=충남 12=경북 13=경남
+    industry_code: C002=건축 C003=토건 C001=토목 C009=실내건축 C006=전기 (빈값=전체)
+    """
+    _REGION_NAMES = {
+        0: "전국", 1: "서울", 2: "부산", 3: "광주", 4: "대전",
+        5: "인천", 6: "대구", 7: "울산", 8: "경기", 9: "강원",
+        10: "충북", 11: "충남", 12: "경북", 13: "경남",
+    }
+    region_name = _REGION_NAMES.get(region_code, "전국")
+
+    def _run():
+        from ...database import SessionLocal
+        from ...collector.inpo21c import collect_inpo21c_by_region as _collect
+        from ...collector.scheduler import _trigger_ml_retrain
+        _db = SessionLocal()
+        try:
+            result = _collect(_db, region=region_name, industry=industry_code, max_pages=max_pages)
+            logger.info("지역수집 완료 [%s/%s]: %s", region_name, industry_code or "전업종", result)
+            if result.get("bids", 0) > 0:
+                _trigger_ml_retrain(f"inpo21c 지역수집 완료 [{region_name}]")
+        finally:
+            _db.close()
+
+    background_tasks.add_task(_run)
+    return {"message": f"지역수집 시작됨 — {region_name}/{industry_code or '전업종'} 최대 {max_pages}페이지"}
+
+
 @router.get("/inpo21c/stats")
 def inpo21c_stats(
     db: Session = Depends(get_db),

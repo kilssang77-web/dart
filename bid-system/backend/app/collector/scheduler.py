@@ -114,7 +114,7 @@ def run_inpo21c_job() -> None:
 
     db = SessionLocal()
     try:
-        result = collect_inpo21c(db, max_pages=10)
+        result = collect_inpo21c(db, max_pages=30)
         logger.info("inpo21c 수집 완료: %s", result)
         sync_result = sync_inpo21c_to_bids(db)
         logger.info("inpo21c→bids 동기화: %s", sync_result)
@@ -142,6 +142,25 @@ def run_inpo21c_national_job() -> None:
             _trigger_ml_retrain("inpo21c 전국 수집 완료")
     except Exception as exc:
         logger.error("inpo21c 전국 수집 실패: %s", exc)
+    finally:
+        db.close()
+
+
+def run_inpo21c_region_job(region: str, industry: str = "") -> None:
+    """inpo21c 지역/업종 필터 수집 — 맞춤설정 비의존 전국 커버리지 확대."""
+    from app.database import SessionLocal
+    from app.collector.inpo21c import collect_inpo21c_by_region
+    from app.collector.service import sync_inpo21c_to_bids
+
+    db = SessionLocal()
+    try:
+        result = collect_inpo21c_by_region(db, region=region, industry=industry, max_pages=30)
+        logger.info("inpo21c 지역수집 완료 [%s/%s]: %s", region, industry or "전업종", result)
+        if result.get("bids", 0) > 0:
+            sync_inpo21c_to_bids(db)
+            _trigger_ml_retrain(f"inpo21c 지역수집 [{region}] 완료")
+    except Exception as exc:
+        logger.error("inpo21c 지역수집 실패 [%s]: %s", region, exc)
     finally:
         db.close()
 
@@ -595,6 +614,23 @@ def create_scheduler() -> BackgroundScheduler:
             replace_existing=True,
             max_instances=1,
         )
+    # 지역별 수집: 미수집 지역(전남·경남·충남·충북·전북·경기·서울) 순환 — 주 2회
+    # 수·토 22:00 KST, 지역 7개 × 건축 건 중심 전참여자 확보
+    for i, (dow, hh, region) in enumerate((
+        ("wed", 22, "경기"),   ("sat", 22, "서울"),
+        ("wed", 23, "경남"),   ("sat", 23, "충남"),
+        ("thu", 22, "전남"),   ("sun", 22, "충북"),
+    )):
+        scheduler.add_job(
+            run_inpo21c_region_job,
+            trigger=CronTrigger(day_of_week=dow, hour=hh, minute=0, timezone="Asia/Seoul"),
+            args=[region, "건축"],
+            id=f"inpo21c_region_{region}",
+            name=f"inpo21c 지역수집 [{region}/건축] ({dow} {hh:02d}:00 KST)",
+            replace_existing=True,
+            max_instances=1,
+        )
+
     # 투찰 저널 자동 결과 수집 (매일 21:00 — 개찰 완료 후 inpo21c 데이터 안정화 후)
     scheduler.add_job(
         run_journal_auto_fill_job,
