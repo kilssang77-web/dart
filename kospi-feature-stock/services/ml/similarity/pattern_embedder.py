@@ -1,3 +1,10 @@
+"""
+패턴 임베더 — 256차원 벡터.
+
+정식 구현체는 services/recommender/pattern_vector.py (v3).
+이 파일은 ml 서비스 내부에서 동일한 인터페이스를 제공하는 래퍼입니다.
+벡터 구조 변경 시 두 파일을 함께 업데이트해야 합니다.
+"""
 import numpy as np
 import pandas as pd
 

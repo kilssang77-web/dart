@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 _MIN_RR        = float(os.environ.get("REC_MIN_RISK_REWARD", "2.0"))
 _MAX_RISK      = float(os.environ.get("REC_MAX_RISK", "0.60"))
-_MIN_PROB      = float(os.environ.get("REC_MIN_PROB", "0.30"))
+_MIN_PROB      = float(os.environ.get("REC_MIN_PROB", "0.28"))
 _ENTRY_BAND    = float(os.environ.get("REC_ENTRY_BAND", "0.015"))
 _VOL_HEAT_H    = float(os.environ.get("REC_VOL_HEAT_HIGH", "20.0"))
 _VOL_HEAT_M    = float(os.environ.get("REC_VOL_HEAT_MED", "10.0"))
@@ -90,7 +90,9 @@ class EntryRecommender:
 
         ml_prob  = min(0.95, ml_result.success_prob if ml_result else 0.5)
         # 유사 사례 1~2건의 success_rate는 신뢰도 낮음 → 최대 93% cap
-        sim_prob = min(0.93, sim_stats.get("success_rate", ml_prob))
+        # 하한 0.20 보장: 유사 사례가 ML 확률을 과도하게 하향 조정하지 않도록 방지
+        raw_sim  = sim_stats.get("success_rate", ml_prob)
+        sim_prob = max(0.20, min(0.93, raw_sim))
         n_cases  = sim_stats.get("count", 0)
         # 최소 2건 이상 유사 사례가 있어야 sim_weight 적용
         sim_w    = 0.0 if n_cases < 2 else min(_SIM_MAX_W, n_cases / _SIM_SCALE_N * _SIM_MAX_W)

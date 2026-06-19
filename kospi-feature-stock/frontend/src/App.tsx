@@ -28,8 +28,8 @@ const META: Record<string, { title: string; subtitle?: string }> = {
   '/':               { title: '대시보드',    subtitle: '실시간 특징주 현황 요약' },
   '/features':       { title: '특징주 탐지', subtitle: '이벤트 기반 특징주 목록' },
   '/recommendations':{ title: '매매 추천',   subtitle: 'ML 기반 매수 신호 및 목표가' },
-  '/intel':          { title: '정보 센터',   subtitle: '공시 · 뉴스 · 테마 통합 분석' },
-  '/search':         { title: '종목 분석',   subtitle: '종목 상세 정보 · 차트 · 추천 · 유사사례' },
+  '/intel':          { title: '공시/뉴스',   subtitle: '공시 · 뉴스 · 테마 통합 분석' },
+  '/search':         { title: '종목 검색',   subtitle: '종목 상세 정보 · 차트 · 추천 · 유사사례' },
   '/watchlist':      { title: '관심종목',    subtitle: '즐겨찾기 종목 모니터링' },
   '/backtest':       { title: '백테스트',    subtitle: '이벤트 전략 기간별 성과 검증' },
   '/performance':    { title: '모델 성능',   subtitle: 'LightGBM AUC · F1 · 피처 중요도' },
@@ -37,7 +37,7 @@ const META: Record<string, { title: string; subtitle?: string }> = {
   '/analysis':       { title: '종목 분석',   subtitle: '주가 예측 · 매수/매도 전략 추천' },
   '/system-health':  { title: '시스템 헬스',  subtitle: 'ML 모델 · DB · Kafka · 데이터 신선도 전체 현황' },
   '/notifications':  { title: '발송 이력',   subtitle: '텔레그램 발송 내역 · 매수신호 · 공시' },
-  '/rec-journey':    { title: '추천 성과 추적', subtitle: '매수 추천 시점 이후 시간대별 주가 여정 · ML 재학습 피드백' },
+  '/rec-journey':    { title: '성과 추적',    subtitle: '매수 추천 시점 이후 시간대별 주가 여정 · ML 재학습 피드백' },
 }
 
 function Spinner() {

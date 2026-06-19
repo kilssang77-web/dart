@@ -354,9 +354,10 @@ class AnalyzerService:
             FROM disclosures d
             WHERE d.code IS NOT NULL
               AND d.disclosed_at >= NOW() - INTERVAL '90 days'
+              AND d.disclosed_at < NOW() - INTERVAL '2 days'
               AND (d.post_1d_change IS NULL OR d.post_3d_change IS NULL)
-            ORDER BY d.disclosed_at DESC
-            LIMIT 200
+            ORDER BY d.disclosed_at ASC
+            LIMIT 500
             """,
         )
         if not rows:

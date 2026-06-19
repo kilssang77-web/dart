@@ -6,8 +6,8 @@ import redis.asyncio as redis_lib
 logger = logging.getLogger(__name__)
 
 
-class KafkaProducerWrapper:
-    """Redis Pub/Sub 기반 이벤트 버스 — Kafka 인터페이스 호환."""
+class RedisEventBus:
+    """Redis Pub/Sub 기반 이벤트 버스."""
 
     def __init__(self, redis: redis_lib.Redis):
         self._redis = redis
@@ -21,3 +21,7 @@ class KafkaProducerWrapper:
 
     async def close(self):
         pass
+
+
+# backward compatibility alias
+KafkaProducerWrapper = RedisEventBus

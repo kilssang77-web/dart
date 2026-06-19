@@ -1,10 +1,10 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { clsx } from 'clsx'
 import {
-  LayoutDashboard, Zap, TrendingUp, Search, Newspaper, Star,
-  FlaskConical, BarChart3, Settings2, Send, Activity,
-  ChevronLeft, ChevronRight, ChevronDown, X,
+  LayoutDashboard, TrendingUp, Search, Newspaper,
+  FlaskConical, Settings2, Activity,
+  ChevronLeft, ChevronRight, X,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { featuresApi } from '@/api/features'
@@ -19,39 +19,25 @@ interface NavItem {
 }
 
 interface NavGroup {
-  title:       string
-  items:       NavItem[]
-  collapsible?: boolean
+  items: NavItem[]
 }
 
-// ── 메뉴 정의 (3그룹 9항목) ─────────────────────────────────────────────────
+// ── 메뉴 정의 (7항목) ──────────────────────────────────────────────────────
 function buildNavGroups(badge?: string): NavGroup[] {
   return [
     {
-      title: '실시간',
       items: [
         { to: '/',                icon: <LayoutDashboard size={15} />, label: '대시보드' },
-        { to: '/features',        icon: <Zap size={15} />,            label: '특징주 탐지', badge },
-        { to: '/recommendations', icon: <TrendingUp size={15} />,     label: '매매 추천' },
-        { to: '/rec-journey',    icon: <Activity   size={15} />,     label: '추천 성과 추적' },
+        { to: '/recommendations', icon: <TrendingUp size={15} />,     label: '매매 추천', badge },
+        { to: '/intel',           icon: <Newspaper size={15} />,      label: '공시/뉴스' },
+        { to: '/search',          icon: <Search size={15} />,         label: '종목 검색' },
+        { to: '/rec-journey',     icon: <Activity size={15} />,       label: '성과 추적' },
       ],
     },
     {
-      title: '분석',
       items: [
-        { to: '/search',    icon: <Search size={15} />,    label: '종목 분석' },
-        { to: '/intel',     icon: <Newspaper size={15} />, label: '정보 센터' },
-        { to: '/watchlist', icon: <Star size={15} />,      label: '관심종목' },
-      ],
-    },
-    {
-      title: '시스템',
-      collapsible: true,
-      items: [
-        { to: '/backtest',       icon: <FlaskConical size={15} />, label: '백테스트' },
-        { to: '/performance',    icon: <BarChart3 size={15} />,    label: '모델 성능' },
-        { to: '/notifications',  icon: <Send size={15} />,         label: '발송 이력' },
-        { to: '/settings',       icon: <Settings2 size={15} />,    label: '설정' },
+        { to: '/backtest', icon: <FlaskConical size={15} />, label: '백테스트' },
+        { to: '/settings', icon: <Settings2 size={15} />,    label: '설정' },
       ],
     },
   ]
@@ -115,8 +101,6 @@ function SidebarContent({
   navGroups: NavGroup[]
   isCloseMobile?: boolean
 }) {
-  const [sysOpen, setSysOpen] = useState(false)
-
   return (
     <>
       {/* 로고 */}
@@ -148,36 +132,14 @@ function SidebarContent({
 
       {/* 내비게이션 */}
       <nav className="flex-1 py-2 overflow-y-auto overflow-x-hidden">
-        {navGroups.map((group) => {
-          const isSystem = group.collapsible === true
-          const showItems = !isSystem || sysOpen || collapsed
-
-          return (
-            <div key={group.title} className="mb-1">
-              {!collapsed && (
-                <div
-                  className={clsx(
-                    'px-3 pt-3 pb-1 text-[10px] font-semibold text-[var(--muted)] uppercase tracking-widest',
-                    isSystem && 'flex items-center justify-between cursor-pointer hover:text-[var(--fg)] select-none',
-                  )}
-                  onClick={isSystem ? () => setSysOpen((v) => !v) : undefined}
-                >
-                  <span>{group.title}</span>
-                  {isSystem && (
-                    <ChevronDown
-                      size={10}
-                      className={clsx('transition-transform duration-150', sysOpen && 'rotate-180')}
-                    />
-                  )}
-                </div>
-              )}
-              {collapsed && <div className="mx-2 my-1 border-t border-[var(--border)]/50" />}
-              {showItems && group.items.map((item) => (
-                <SidebarNavItem key={item.to} item={item} collapsed={collapsed} />
-              ))}
-            </div>
-          )
-        })}
+        {navGroups.map((group, idx) => (
+          <div key={idx} className="mb-1">
+            {idx > 0 && <div className="mx-2 my-2 border-t border-[var(--border)]/50" />}
+            {group.items.map((item) => (
+              <SidebarNavItem key={item.to} item={item} collapsed={collapsed} />
+            ))}
+          </div>
+        ))}
       </nav>
 
       {/* 접기 버튼 */}

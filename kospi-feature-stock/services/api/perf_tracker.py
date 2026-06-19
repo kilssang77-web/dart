@@ -82,7 +82,10 @@ async def run_once(db, redis) -> int:
                   rp.t_1h, rp.t_3h, rp.t_5h,
                   rp.t_1d, rp.t_2d, rp.t_3d, rp.t_4d,
                   rp.t_5d, rp.t_7d, rp.t_10d,
-                  rp.hit_target, rp.hit_stop,
+                  rp.r_1h, rp.r_3h, rp.r_5h,
+                  rp.r_1d, rp.r_2d, rp.r_3d, rp.r_4d,
+                  rp.r_5d, rp.r_7d, rp.r_10d,
+                  rp.hit_target, rp.hit_stop, rp.is_success,
                   r.target_price, r.stop_loss_price
            FROM recommendation_performance rp
            JOIN recommendations r ON r.id = rp.rec_id
@@ -125,25 +128,33 @@ async def run_once(db, redis) -> int:
                         if p >= target_p: updates["hit_target"] = True
                         if p <= stop_p:   updates["hit_stop"]   = True
 
+        def _merged(col):
+            """업데이트 dict 우선, 없으면 DB row에서 조회."""
+            return updates[col] if col in updates else row[col]
+
+        # ── is_success: r_5d 확보 즉시 판정 (tracking_complete 불필요)
+        current_r5d = _merged("r_5d")
+        if current_r5d is not None and row["is_success"] is None:
+            valid_5 = [r for r in [_merged(c) for c in ("r_1d","r_2d","r_3d","r_4d","r_5d")] if r is not None]
+            updates["is_success"] = (
+                bool(_merged("hit_target")) or
+                (bool(valid_5) and sum(valid_5) / len(valid_5) > 0)
+            )
+            non_none = [r for r in [_merged(c) for c in ("r_1h","r_3h","r_5h")] + valid_5 if r is not None]
+            if non_none:
+                updates["max_return"] = max(non_none)
+
         # ── 완료 판정 (10일치 모두 기록)
-        all_day_cols = [c for _, c, _ in _DAY_COLS]
         current_t10 = updates.get("t_10d") or row["t_10d"]
         if current_t10:
             updates["tracking_complete"] = True
-            # is_success: 1d~5d 중 목표가 달성 또는 평균 양수
-            returns = [updates.get(c) or row[c] for c, _, _ in
-                       [("r_1d","t_1d",1),("r_2d","t_2d",2),("r_3d","t_3d",3),
-                        ("r_4d","t_4d",4),("r_5d","t_5d",5)]]
-            valid = [r for r in returns if r is not None]
+            # 10일 완료 시점에 is_success 재계산
+            valid_all = [r for r in [_merged(c) for c in ("r_1d","r_2d","r_3d","r_4d","r_5d")] if r is not None]
             updates["is_success"] = (
-                bool(updates.get("hit_target") or row["hit_target"]) or
-                (bool(valid) and sum(valid) / len(valid) > 0)
+                bool(_merged("hit_target")) or
+                (bool(valid_all) and sum(valid_all) / len(valid_all) > 0)
             )
-            non_none = [r for r in [
-                updates.get("r_1h") or row["r_1h"],
-                updates.get("r_3h") or row["r_3h"],
-                updates.get("r_5h") or row["r_5h"],
-            ] + valid if r is not None]
+            non_none = [r for r in [_merged(c) for c in ("r_1h","r_3h","r_5h")] + valid_all if r is not None]
             if non_none:
                 updates["max_return"] = max(non_none)
 
@@ -154,6 +165,12 @@ async def run_once(db, redis) -> int:
                 f"UPDATE recommendation_performance SET {set_clause}, last_updated=NOW() WHERE id=$1",
                 *vals
             )
+            # recommendations.is_success 동기화
+            if "is_success" in updates:
+                await db.execute(
+                    "UPDATE recommendations SET is_success=$1 WHERE id=$2",
+                    updates["is_success"], row["rec_id"],
+                )
             updated += 1
 
     return updated

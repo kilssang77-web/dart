@@ -144,6 +144,58 @@ async def reload_model():
     return {"status": "ok", "model_loaded": loaded}
 
 
+@app.post("/recalibrate")
+async def recalibrate():
+    """DB 실제 추천 성과로 캘리브레이터 재학습. ≥50건 + 다양한 확률 분포 필요."""
+    if _db_pool is None or _predictor is None:
+        return {"status": "error", "message": "not ready"}
+    try:
+        rows = await _db_pool.fetch(
+            """
+            SELECT r.success_prob AS pred_prob,
+                   CASE WHEN rp.r_5d > 0 THEN 1.0 ELSE 0.0 END AS actual
+            FROM recommendations r
+            JOIN recommendation_performance rp ON rp.rec_id = r.id
+            WHERE rp.r_5d IS NOT NULL AND r.action = 'BUY'
+              AND r.success_prob BETWEEN 0.01 AND 0.99
+            ORDER BY r.created_at DESC
+            LIMIT 2000
+            """
+        )
+        if len(rows) < 50:
+            return {"status": "insufficient_data", "n_samples": len(rows), "required": 50}
+
+        import numpy as np
+        import joblib
+        from sklearn.isotonic import IsotonicRegression
+
+        X = np.array([float(r["pred_prob"]) for r in rows])
+        y = np.array([float(r["actual"]) for r in rows])
+
+        # diversity check: std > 0.05 required
+        if X.std() < 0.05:
+            return {"status": "insufficient_diversity", "std": round(float(X.std()), 4)}
+
+        cal = IsotonicRegression(out_of_bounds="clip")
+        cal.fit(X, y)
+        joblib.dump(cal, f"{_MODEL_DIR}/entry_calibrator.pkl")
+        joblib.dump(cal, f"{_MODEL_DIR}/risk_calibrator.pkl")
+
+        # hot-reload calibrators
+        _predictor._entry_cal = cal
+        _predictor._risk_cal = cal
+
+        win_rate = float(y.mean())
+        return {
+            "status": "ok",
+            "n_samples": len(rows),
+            "win_rate": round(win_rate, 4),
+            "pred_std": round(float(X.std()), 4),
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 @app.post("/retrain")
 async def trigger_retrain():
     """수동 재학습 트리거 — 백그라운드로 walk_forward_train.py 실행."""

@@ -117,6 +117,23 @@ async def lifespan(app: FastAPI):
             await app.state.db.execute(_sql)
         except asyncpg.exceptions.UniqueViolationError:
             pass
+    # is_success 즉시 백필: r_5d 확보된 미판정 레코드
+    try:
+        await app.state.db.execute("""
+            UPDATE recommendation_performance
+            SET is_success = (r_5d > 0),
+                last_updated = NOW()
+            WHERE r_5d IS NOT NULL AND is_success IS NULL
+        """)
+        await app.state.db.execute("""
+            UPDATE recommendations r
+            SET is_success = rp.is_success
+            FROM recommendation_performance rp
+            WHERE rp.rec_id = r.id AND rp.is_success IS NOT NULL AND r.is_success IS NULL
+        """)
+    except Exception as e:
+        logger.warning(f"is_success backfill error: {e}")
+
     # 성과 추적 워커 시작
     import asyncio
     _tracker_task = asyncio.create_task(tracker_loop(app.state.db, app.state.redis))

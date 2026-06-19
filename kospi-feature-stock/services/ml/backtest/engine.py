@@ -94,8 +94,8 @@ class BacktestEngine:
                 trades.append(trade)
                 continue
 
-            sig_date = str(sig["date"])
-            future = code_bars[code_bars["date"] >= sig_date]
+            sig_date = pd.Timestamp(sig["date"]).normalize()
+            future = code_bars[pd.to_datetime(code_bars["date"]).dt.normalize() >= sig_date]
             for i, (_, row) in enumerate(future.iterrows()):
                 if i == 0:
                     continue

@@ -132,7 +132,7 @@ async def performance_history(
         FROM recommendations rec
         JOIN recommendation_performance rp ON rp.rec_id = rec.id
         LEFT JOIN stocks s ON s.code = rec.code
-        WHERE rp.tracking_complete = TRUE
+        WHERE rp.r_5d IS NOT NULL
           AND rec.created_at >= NOW() - ($1 * INTERVAL '1 day')
         ORDER BY rec.created_at DESC
         LIMIT $2
@@ -172,30 +172,30 @@ async def performance_summary(
     row = await db.fetchrow(
         """
         SELECT
-            COUNT(*)                                         AS total,
-            COUNT(*) FILTER (WHERE rp.is_success = TRUE)    AS wins,
-            COUNT(*) FILTER (WHERE rp.hit_target = TRUE)    AS hit_target,
-            COUNT(*) FILTER (WHERE rp.hit_stop = TRUE)      AS hit_stop,
-            ROUND(AVG(rp.r_5d)::NUMERIC, 3)                AS avg_return_5d,
-            ROUND(AVG(rp.max_return)::NUMERIC, 3)          AS avg_max_return,
-            COUNT(*) FILTER (WHERE rp.tracking_complete = FALSE
-                               AND rec.action = 'BUY')      AS active_count
+            COUNT(*)                                                   AS total,
+            COUNT(*) FILTER (WHERE rp.r_5d IS NOT NULL)               AS evaluated,
+            COUNT(*) FILTER (WHERE rp.r_5d > 0)                       AS wins,
+            COUNT(*) FILTER (WHERE rp.hit_target = TRUE)               AS hit_target,
+            COUNT(*) FILTER (WHERE rp.hit_stop = TRUE)                 AS hit_stop,
+            ROUND(AVG(rp.r_5d) FILTER (WHERE rp.r_5d IS NOT NULL)::NUMERIC, 3) AS avg_return_5d,
+            ROUND(AVG(rp.max_return)::NUMERIC, 3)                      AS avg_max_return,
+            COUNT(*) FILTER (WHERE rp.r_5d IS NULL
+                               AND rec.action = 'BUY')                 AS active_count
         FROM recommendations rec
         JOIN recommendation_performance rp ON rp.rec_id = rec.id
         WHERE rec.created_at >= NOW() - ($1 * INTERVAL '1 day')
         """,
         days,
     )
-    total = row["total"] or 0
-    completed = total - (row["active_count"] or 0)
+    evaluated = row["evaluated"] or 0
     return {
-        "total":          total,
+        "total":          row["total"] or 0,
         "active_count":   row["active_count"] or 0,
-        "completed":      completed,
+        "completed":      evaluated,
         "wins":           row["wins"] or 0,
         "hit_target":     row["hit_target"] or 0,
         "hit_stop":       row["hit_stop"] or 0,
-        "win_rate":       round((row["wins"] or 0) / completed * 100, 1) if completed else 0.0,
+        "win_rate":       round((row["wins"] or 0) / evaluated * 100, 1) if evaluated else 0.0,
         "avg_return_5d":  float(row["avg_return_5d"] or 0),
         "avg_max_return": float(row["avg_max_return"] or 0),
         "days":           days,
