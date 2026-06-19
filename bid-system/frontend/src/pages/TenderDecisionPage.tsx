@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { decisionApi, journalApi } from '@/api'
-import type { BidContext, SimulateBidResponse, ZoneItem, JournalOut, AgencyWinHistogram, CompetitorPredictionResponse } from '@/types'
+import type { BidContext, SimulateBidResponse, ZoneItem, JournalOut, AgencyWinHistogram, CompetitorPredictionResponse, HotZoneResponse } from '@/types'
+import { bidsApi } from '@/api'
 import BestRateCard from '@/components/BestRateCard'
 import {
   Search, Target, Zap, TrendingUp, Shield, AlertCircle, CheckCircle2,
@@ -486,6 +487,13 @@ export default function TenderDecisionPage() {
     staleTime: 5 * 60 * 1000,
   })
 
+  const { data: hotZoneData } = useQuery<HotZoneResponse>({
+    queryKey: ['hot-zones', bidId],
+    queryFn: () => bidsApi.hotZones(bidId!),
+    enabled: bidId !== null,
+    staleTime: 10 * 60 * 1000,
+  })
+
   const parsedCompetitorRates = (): number[] | null => {
     if (!competitorRateText.trim()) return null
     const raw = competitorRateText
@@ -699,6 +707,50 @@ export default function TenderDecisionPage() {
           {step === 2 && (
             <div className="space-y-5">
 
+              {/* ── ① 담합 의심 경고 (최우선 표시) ── */}
+              {hotZoneData?.collusion_alert && hotZoneData.collusion_alert.flag !== 'clean' && hotZoneData.collusion_alert.flag !== 'insufficient_data' && (
+                <div className={cn(
+                  'rounded-xl border p-4 flex items-start gap-3',
+                  hotZoneData.collusion_alert.flag === 'collusion'
+                    ? 'bg-red-50 border-red-300'
+                    : 'bg-amber-50 border-amber-300'
+                )}>
+                  <AlertCircle className={cn('w-5 h-5 mt-0.5 shrink-0', hotZoneData.collusion_alert.flag === 'collusion' ? 'text-red-500' : 'text-amber-500')} />
+                  <div>
+                    <div className={cn('font-semibold text-sm', hotZoneData.collusion_alert.flag === 'collusion' ? 'text-red-700' : 'text-amber-700')}>
+                      {hotZoneData.collusion_alert.flag === 'collusion' ? '⚠️ 담합 강한 의심' : '⚠️ 투찰 패턴 이상 감지'}
+                    </div>
+                    <div className="text-xs text-gray-600 mt-1">
+                      이 기관 최근 입찰({hotZoneData.collusion_alert.n}건) — CV={hotZoneData.collusion_alert.cv?.toFixed(4)}, 의심도 {Math.round(hotZoneData.collusion_alert.score * 100)}%
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">{hotZoneData.collusion_alert.reasons.join(' / ')}</div>
+                    <div className="text-xs text-gray-500 mt-1 font-medium">→ 일반 패턴 추정이 부정확할 수 있습니다. AI 추천값 참고 시 주의하세요.</div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── ② 개인 편향 경고 ── */}
+              {ctx?.personal_bias && ctx.personal_bias.direction !== 'balanced' && ctx.personal_bias.sample_count >= 5 && (
+                <div className={cn(
+                  'rounded-xl border p-4 flex items-start gap-3',
+                  ctx.personal_bias.direction === 'too_high' ? 'bg-orange-50 border-orange-200' : 'bg-sky-50 border-sky-200'
+                )}>
+                  <Info className={cn('w-5 h-5 mt-0.5 shrink-0', ctx.personal_bias.direction === 'too_high' ? 'text-orange-400' : 'text-sky-400')} />
+                  <div>
+                    <div className={cn('font-semibold text-sm', ctx.personal_bias.direction === 'too_high' ? 'text-orange-700' : 'text-sky-700')}>
+                      {ctx.personal_bias.direction === 'too_high' ? '나의 투찰 습관: 너무 높게 입찰하는 경향' : '나의 투찰 습관: 너무 낮게 입찰하는 경향'}
+                    </div>
+                    <div className="text-xs text-gray-600 mt-1">{ctx.personal_bias.narrative}</div>
+                    {ctx.personal_bias.agency_correction != null && Math.abs(ctx.personal_bias.agency_correction) > 0.001 && (
+                      <div className="text-xs text-gray-500 mt-0.5">
+                        이 발주처 기준 보정: {ctx.personal_bias.agency_correction > 0 ? '+' : ''}{(ctx.personal_bias.agency_correction * 100).toFixed(2)}%p 추가 적용
+                      </div>
+                    )}
+                    <div className="text-xs text-gray-400 mt-1">신뢰도 {Math.round(ctx.personal_bias.confidence * 100)}% ({ctx.personal_bias.sample_count}건 분석)</div>
+                  </div>
+                </div>
+              )}
+
               {/* ── 공고 정보 (compact) ── */}
               {ctx && (
                 <div className="bg-white rounded-xl border p-4 shadow-sm">
@@ -731,6 +783,39 @@ export default function TenderDecisionPage() {
 
               {/* ── AI 원클릭 최적 투찰율 (BestRateCard) ── */}
               {ctx && <BestRateCard bidId={ctx.bid_id} baseAmount={ctx.base_amount} />}
+
+              {/* ── AI 최종 결론 — 시뮬레이션 완료 후 단일 결론 배너 ── */}
+              {result && result.optimal && (
+                <div className="bg-gradient-to-br from-emerald-600 to-emerald-700 rounded-xl p-5 shadow-lg text-white">
+                  <div className="flex items-center gap-2 mb-3">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-200" />
+                    <span className="text-sm font-semibold text-emerald-100">AI 최종 결론 — Monte Carlo {result.mode === 'real' ? 'C(15,4) 실측' : '30,000회 추정'}</span>
+                  </div>
+                  <div className="flex items-end justify-between gap-4 flex-wrap">
+                    <div>
+                      <div className="text-4xl font-bold tracking-tight">
+                        {(result.optimal.rate * 100).toFixed(4)}%
+                      </div>
+                      <div className="text-sm text-emerald-200 mt-1">최적 투찰율 (기초대비)</div>
+                      <div className="text-2xl font-semibold mt-2">{fmt(result.optimal.amount)}원</div>
+                    </div>
+                    <div className="text-right space-y-2">
+                      <div>
+                        <div className="text-3xl font-bold text-amber-300">{(result.optimal.win_prob * 100).toFixed(1)}%</div>
+                        <div className="text-xs text-emerald-200">낙찰 예상 확률</div>
+                      </div>
+                      <div className={cn('inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium',
+                        result.optimal.floor_ok ? 'bg-emerald-500 text-white' : 'bg-red-400 text-white')}>
+                        {result.optimal.floor_ok ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                        낙찰하한 {result.optimal.floor_ok ? '통과' : '미달'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-emerald-500 text-xs text-emerald-200">
+                    ↓ 아래 전략 카드에서 공격/균형/보수 전략 중 선택 후 투찰 기록을 남겨주세요
+                  </div>
+                </div>
+              )}
 
               {/* ── 시뮬레이션 결과 (자동 실행) ── */}
               {simulateMut.isPending && (

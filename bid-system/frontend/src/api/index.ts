@@ -226,6 +226,8 @@ export const adminApi = {
     n_train?: number
     n_pos?: number
     auc?: number
+    pr_auc?: number
+    lift_at_10?: number
     feature_importance?: Record<string, number>
     feature_cols?: string[]
     trained_at?: number
@@ -501,4 +503,7 @@ export const journalApi = {
 
   gapAnalysis: () =>
     api.get('/journal/gap-analysis').then((r) => r.data as import('../types').JournalGapAnalysis),
+
+  recommendationEffect: (tolerance = 0.003) =>
+    api.get('/journal/recommendation-effect', { params: { tolerance } }).then((r) => r.data as import('../types').RecommendationEffect),
 }

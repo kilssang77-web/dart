@@ -271,6 +271,46 @@ export default function DashboardPage() {
           </button>
         </div>
 
+        {/* ── 오늘 할 일 패널 ── */}
+        {(pendingJournals?.count ?? 0) > 0 && (
+          <Card className="bg-amber-50 border-amber-200 shadow-sm">
+            <CardHeader className="pb-2 pt-4 px-5">
+              <CardTitle className="text-sm font-semibold text-amber-800 flex items-center gap-2">
+                <Bell className="h-4 w-4 text-amber-600" />
+                오늘 할 일 — 개찰 결과 입력 대기 {pendingJournals!.count}건
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-5 pb-4">
+              <div className="space-y-2">
+                {(pendingJournals!.items as Record<string, unknown>[]).slice(0, 5).map((item) => (
+                  <div
+                    key={String(item.journal_id)}
+                    className="flex items-center justify-between bg-white border border-amber-100 rounded-lg px-3 py-2 cursor-pointer hover:border-amber-300 transition-colors"
+                    onClick={() => navigate(`/journal-history?journal_id=${item.journal_id}`)}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-semibold text-slate-800 truncate">{String(item.title ?? '제목 없음')}</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">
+                        {String(item.agency_name ?? '')} | 개찰 {item.bid_open_date ? String(item.bid_open_date).slice(0, 10) : '날짜 미정'}
+                        {item.submitted_rate != null && ` | 투찰 ${((item.submitted_rate as number) * 100).toFixed(4)}%`}
+                      </div>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-amber-400 shrink-0 ml-2" />
+                  </div>
+                ))}
+                {pendingJournals!.count > 5 && (
+                  <button
+                    onClick={() => navigate('/journal-history')}
+                    className="w-full text-xs text-amber-700 hover:text-amber-900 text-center py-1"
+                  >
+                    + {pendingJournals!.count - 5}건 더 보기
+                  </button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* KPI 카드 4개 */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {STAT_CARDS.map(({ key, label, unit, icon: Icon, accentColor, iconColor, iconBg, changeKey, higherIsBetter, pct }) => {

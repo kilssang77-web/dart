@@ -154,6 +154,92 @@ def gap_analysis(
     }
 
 
+@router.get("/recommendation-effect")
+def recommendation_effect(
+    tolerance: float = Query(0.003, description="추천 추종 판정 허용 오차 (기본 0.3%)"),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    AI 추천 추종 효과 분석.
+    submitted_rate ≈ recommended_rate (±tolerance) 이면 '추종', 아니면 '이탈'.
+    두 그룹의 낙찰률·평균 rate_gap을 비교한다.
+    """
+    from sqlalchemy import text
+
+    rows = db.execute(text("""
+        SELECT
+            j.submitted_rate,
+            j.recommended_rate,
+            j.result,
+            j.rate_gap,
+            j.pred_win_prob,
+            j.strategy_chosen
+        FROM bid_journal j
+        WHERE j.user_id = :uid
+          AND j.submitted_rate IS NOT NULL
+          AND j.recommended_rate IS NOT NULL
+          AND j.result IS NOT NULL
+    """), {"uid": user.id}).fetchall()
+
+    followed, deviated = [], []
+    for r in rows:
+        diff = abs(float(r[0]) - float(r[1]))
+        rec = {
+            "result": r[2],
+            "rate_gap": float(r[3]) if r[3] else None,
+            "pred_win_prob": float(r[4]) if r[4] else None,
+            "strategy": r[5],
+        }
+        (followed if diff <= tolerance else deviated).append(rec)
+
+    def _stats(items):
+        if not items:
+            return {"n": 0, "win_rate": None, "avg_abs_gap": None, "avg_pred_win_prob": None}
+        wins = sum(1 for x in items if x["result"] == "낙찰")
+        gaps = [abs(x["rate_gap"]) for x in items if x["rate_gap"] is not None]
+        probs = [x["pred_win_prob"] for x in items if x["pred_win_prob"] is not None]
+        return {
+            "n": len(items),
+            "win_rate": round(wins / len(items), 4),
+            "avg_abs_gap": round(sum(gaps) / len(gaps), 6) if gaps else None,
+            "avg_pred_win_prob": round(sum(probs) / len(probs), 4) if probs else None,
+        }
+
+    f_stats = _stats(followed)
+    d_stats = _stats(deviated)
+
+    lift = None
+    if f_stats["win_rate"] is not None and d_stats["win_rate"] is not None and d_stats["n"] > 0:
+        baseline = d_stats["win_rate"] or 0.001
+        lift = round((f_stats["win_rate"] - d_stats["win_rate"]) / baseline * 100, 1)
+
+    # 전략별 분포
+    by_strategy: dict = {}
+    for item in followed:
+        s = item["strategy"] or "unknown"
+        by_strategy.setdefault(s, {"followed_n": 0, "followed_wins": 0})
+        by_strategy[s]["followed_n"] += 1
+        if item["result"] == "낙찰":
+            by_strategy[s]["followed_wins"] += 1
+
+    return {
+        "tolerance_pct": round(tolerance * 100, 2),
+        "followed": f_stats,
+        "deviated": d_stats,
+        "lift_pct": lift,
+        "message": (
+            f"추천 추종 시 낙찰률 {f_stats['win_rate']*100:.1f}% vs 이탈 시 {d_stats['win_rate']*100:.1f}% "
+            f"(+{lift}% lift)" if lift is not None and f_stats["win_rate"] and d_stats["win_rate"]
+            else "데이터 부족"
+        ),
+        "by_strategy": [
+            {"strategy": k, **v, "win_rate": round(v["followed_wins"] / v["followed_n"], 4) if v["followed_n"] else None}
+            for k, v in by_strategy.items()
+        ],
+    }
+
+
 @router.get("/pending")
 def pending_results(
     db: Session = Depends(get_db),

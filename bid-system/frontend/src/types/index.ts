@@ -1259,14 +1259,15 @@ export interface HotZonePeak {
 }
 
 export interface HotZoneResponse {
-  bid_id:      number
-  agency_id:   number | null
-  peaks:       HotZonePeak[]
-  best_rate:   number | null
-  kde_x:       number[]
-  kde_y:       number[]
-  data_source: 'agency' | 'national'
-  period_type: string
+  bid_id:          number
+  agency_id:       number | null
+  peaks:           HotZonePeak[]
+  best_rate:       number | null
+  kde_x:           number[]
+  kde_y:           number[]
+  data_source:     'agency' | 'national'
+  period_type:     string
+  collusion_alert: CollusionAlert | null
   total_wins:  number
   total_bids:  number
 }
@@ -1309,6 +1310,28 @@ export interface AgencySrateProfile {
   confidence:     number | null
 }
 
+export interface PersonalBiasInfo {
+  correction:        number
+  agency_correction: number | null
+  confidence:        number
+  direction:         'too_low' | 'too_high' | 'balanced'
+  avg_bias_pct:      number
+  sample_count:      number
+  narrative:         string
+}
+
+export interface CollusionAlert {
+  flag:                  'clean' | 'suspicious' | 'collusion' | 'insufficient_data'
+  score:                 number
+  cv:                    number | null
+  n:                     number
+  mean_rate:             number
+  std_rate:              number
+  near_identical_pairs:  number
+  cluster_density:       number
+  reasons:               string[]
+}
+
 export interface BidContext {
   bid_id:               number
   announcement_no:      string
@@ -1329,6 +1352,7 @@ export interface BidContext {
   bid_open_date:        string | null
   status:               string | null
   agency_srate_profile: AgencySrateProfile | null
+  personal_bias:        PersonalBiasInfo | null
 }
 
 export interface CompetitorZone {
@@ -1641,5 +1665,24 @@ export interface JournalGapAnalysis {
   monthly: { month: string; total: number; wins: number; avg_gap: number | null }[]
   histogram: { bucket_pct: number; count: number }[]
   by_strategy: { strategy: string; total: number; wins: number; avg_gap: number | null }[]
+}
+
+export interface RecommendationEffect {
+  tolerance_pct: number
+  followed: {
+    n: number
+    win_rate: number | null
+    avg_abs_gap: number | null
+    avg_pred_win_prob: number | null
+  }
+  deviated: {
+    n: number
+    win_rate: number | null
+    avg_abs_gap: number | null
+    avg_pred_win_prob: number | null
+  }
+  lift_pct: number | null
+  message: string
+  by_strategy: { strategy: string; followed_n: number; followed_wins: number; win_rate: number | null }[]
 }
 

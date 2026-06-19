@@ -1318,6 +1318,16 @@ class AgencySrateProfile(BaseModel):
     confidence:     Optional[float]
 
 
+class PersonalBiasInfo(BaseModel):
+    correction:        float
+    agency_correction: Optional[float] = None
+    confidence:        float
+    direction:         str   # "too_low" | "too_high" | "balanced"
+    avg_bias_pct:      float
+    sample_count:      int
+    narrative:         str
+
+
 class BidContextResponse(BaseModel):
     bid_id:               int
     announcement_no:      str
@@ -1338,6 +1348,7 @@ class BidContextResponse(BaseModel):
     bid_open_date:        Optional[date]
     status:               Optional[str]
     agency_srate_profile: Optional[AgencySrateProfile] = None
+    personal_bias:        Optional[PersonalBiasInfo] = None
 
 
 class SimulateBidRequest(BaseModel):

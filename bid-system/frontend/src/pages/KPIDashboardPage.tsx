@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { BarChart2, Target, TrendingUp, Award, AlertTriangle, RefreshCw, Loader2, CheckCircle2, XCircle, Activity, Users, ChevronDown, BookOpen, Gauge } from 'lucide-react'
+import { BarChart2, Target, TrendingUp, Award, AlertTriangle, RefreshCw, Loader2, CheckCircle2, XCircle, Activity, Users, ChevronDown, BookOpen, Gauge, Zap } from 'lucide-react'
 import { kpiApi, outcomesApi, journalApi, adminApi } from '../api'
-import type { JournalStats, MlCalibration } from '../types'
+import type { JournalStats, MlCalibration, RecommendationEffect } from '../types'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -207,6 +207,12 @@ export default function KPIDashboardPage() {
   const { data: calibration } = useQuery<MlCalibration>({
     queryKey: ['ml-calibration'],
     queryFn: () => adminApi.mlCalibration(),
+    staleTime: 5 * 60_000,
+  })
+
+  const { data: recEffect } = useQuery<RecommendationEffect>({
+    queryKey: ['journal-recommendation-effect'],
+    queryFn: () => journalApi.recommendationEffect(),
     staleTime: 5 * 60_000,
   })
 
@@ -513,6 +519,61 @@ export default function KPIDashboardPage() {
               )}
             </div>
           </div>
+        )}
+
+        {/* ── AI 추천 추종 효과 ── */}
+        {recEffect && (recEffect.followed.n + recEffect.deviated.n) > 0 && (
+          <Card className="bg-white border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 pb-4">
+              <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                <Zap className="h-4 w-4 text-amber-500" />AI 추천 추종 효과 분석
+                {recEffect.lift_pct !== null && (
+                  <span className={cn('ml-2 text-xs px-2 py-0.5 rounded-full font-medium',
+                    recEffect.lift_pct > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                  )}>
+                    {recEffect.lift_pct > 0 ? '+' : ''}{recEffect.lift_pct.toFixed(1)}% lift
+                  </span>
+                )}
+              </CardTitle>
+              <CardDescription className="text-slate-500">{recEffect.message}</CardDescription>
+            </CardHeader>
+            <CardContent className="p-5">
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-4">
+                  <div className="text-xs font-medium text-emerald-600 mb-1">추천 추종 (±{recEffect.tolerance_pct}%)</div>
+                  <div className="text-2xl font-bold text-emerald-700 tabular-nums">
+                    {recEffect.followed.win_rate !== null ? `${(recEffect.followed.win_rate * 100).toFixed(1)}%` : '—'}
+                  </div>
+                  <div className="text-xs text-emerald-600 mt-1">{recEffect.followed.n}건</div>
+                </div>
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                  <div className="text-xs font-medium text-slate-500 mb-1">추천 이탈</div>
+                  <div className="text-2xl font-bold text-slate-700 tabular-nums">
+                    {recEffect.deviated.win_rate !== null ? `${(recEffect.deviated.win_rate * 100).toFixed(1)}%` : '—'}
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">{recEffect.deviated.n}건</div>
+                </div>
+              </div>
+              {recEffect.by_strategy.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-slate-500">전략별 추종 낙찰률</p>
+                  {recEffect.by_strategy.map((s) => {
+                    const wr = s.win_rate ?? 0
+                    const pct = Math.min(100, Math.round(wr * 100))
+                    return (
+                      <div key={s.strategy} className="flex items-center gap-3 text-xs">
+                        <span className="w-24 text-slate-600 font-medium">{s.strategy}</span>
+                        <div className="flex-1 bg-slate-100 rounded-full h-2">
+                          <div className="bg-emerald-400 h-2 rounded-full" style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="w-20 text-right text-slate-500">{s.followed_wins}/{s.followed_n}건 ({pct}%)</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         )}
 
         {/* ── 모델 캘리브레이션 ── */}

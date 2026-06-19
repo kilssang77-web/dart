@@ -117,11 +117,25 @@ function WinProbTrainCard() {
             {/* 핵심 지표 */}
             <div className="grid grid-cols-3 gap-3">
               <div className="bg-slate-50 rounded-lg p-3 text-center">
-                <div className="text-xs text-slate-400 mb-1">AUC</div>
+                <div className="text-xs text-slate-400 mb-1">ROC-AUC</div>
                 <div className="text-lg font-bold text-emerald-700">
                   {wpStatus.auc != null ? wpStatus.auc.toFixed(4) : '-'}
                 </div>
               </div>
+              <div className="bg-slate-50 rounded-lg p-3 text-center">
+                <div className="text-xs text-slate-400 mb-1">PR-AUC <span className="text-[10px] text-slate-300">(불균형 핵심)</span></div>
+                <div className={`text-lg font-bold ${wpStatus.pr_auc != null && wpStatus.pr_auc >= 0.15 ? 'text-emerald-700' : wpStatus.pr_auc != null ? 'text-amber-600' : 'text-slate-400'}`}>
+                  {wpStatus.pr_auc != null ? wpStatus.pr_auc.toFixed(4) : '-'}
+                </div>
+              </div>
+              <div className="bg-slate-50 rounded-lg p-3 text-center">
+                <div className="text-xs text-slate-400 mb-1">Lift@10%</div>
+                <div className={`text-lg font-bold ${wpStatus.lift_at_10 != null && wpStatus.lift_at_10 >= 2 ? 'text-emerald-700' : wpStatus.lift_at_10 != null ? 'text-amber-600' : 'text-slate-400'}`}>
+                  {wpStatus.lift_at_10 != null ? `${wpStatus.lift_at_10.toFixed(1)}x` : '-'}
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div className="bg-slate-50 rounded-lg p-3 text-center">
                 <div className="text-xs text-slate-400 mb-1">학습 건수</div>
                 <div className="text-lg font-bold text-slate-700">

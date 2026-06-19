@@ -74,7 +74,7 @@ def train(db, floor_rate: float = _DEFAULT_FLOOR) -> dict:
         import joblib
         import pandas as pd
         from sklearn.model_selection import train_test_split
-        from sklearn.metrics import roc_auc_score
+        from sklearn.metrics import roc_auc_score, average_precision_score
         from sklearn.impute import SimpleImputer
         from sqlalchemy import text
     except ImportError as e:
@@ -166,6 +166,13 @@ def train(db, floor_rate: float = _DEFAULT_FLOOR) -> dict:
 
     y_pred = model.predict_proba(X_val)[:, 1]
     auc = float(roc_auc_score(y_val, y_pred))
+    pr_auc = float(average_precision_score(y_val, y_pred))
+
+    # Lift@K: 상위 K% 예측에서 실제 낙찰률 / 전체 낙찰률
+    k_pct = 0.10  # 상위 10%
+    k = max(1, int(len(y_val) * k_pct))
+    top_k_idx = np.argsort(y_pred)[::-1][:k]
+    lift_at_10 = float(y_val[top_k_idx].mean() / (y_val.mean() + 1e-9))
 
     joblib.dump(model, MODEL_PATH)
     joblib.dump(imputer, IMPUTER_PATH)
@@ -179,6 +186,8 @@ def train(db, floor_rate: float = _DEFAULT_FLOOR) -> dict:
         "n_pos":              n_pos,
         "n_neg":              n_neg,
         "auc":                round(auc, 4),
+        "pr_auc":             round(pr_auc, 4),
+        "lift_at_10":         round(lift_at_10, 2),
         "best_iteration":     model.best_iteration_,
         "feature_importance": fi,
         "trained_at":         _time.time(),
@@ -190,7 +199,8 @@ def train(db, floor_rate: float = _DEFAULT_FLOOR) -> dict:
 
     logger.info(
         f"win_prob_model v3 학습 완료: n={len(df)}, pos={n_pos}, neg={n_neg}, "
-        f"AUC={auc:.4f}, best_iter={model.best_iteration_}"
+        f"ROC-AUC={auc:.4f}, PR-AUC={pr_auc:.4f}, Lift@10%={lift_at_10:.2f}x, "
+        f"best_iter={model.best_iteration_}"
     )
     return result
 
@@ -273,6 +283,8 @@ def model_info() -> dict:
                 "n_train":            result.get("n_train"),
                 "n_pos":              result.get("n_pos"),
                 "auc":                result.get("auc"),
+                "pr_auc":             result.get("pr_auc"),
+                "lift_at_10":         result.get("lift_at_10"),
                 "feature_importance": result.get("feature_importance"),
                 "feature_cols":       FEATURE_COLS,
                 "model_path":         str(MODEL_PATH),

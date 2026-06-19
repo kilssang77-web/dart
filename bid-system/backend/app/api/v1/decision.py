@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from ...database import get_db
 from ...models import User
 from ...schemas import (
-    BidContextResponse, SimulateBidRequest, SimulateBidResponse,
+    BidContextResponse, PersonalBiasInfo, SimulateBidRequest, SimulateBidResponse,
     AgencyWinHistogramResponse, WinProbCurveResponse,
 )
 from ...services import DecisionService
@@ -18,12 +18,27 @@ svc = DecisionService()
 def get_bid_context(
     bid_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """투찰 결정용 공고 컨텍스트 — A값, 사정율 예측, 경쟁사 패턴."""
     ctx = svc.get_bid_context(db, bid_id)
     if not ctx:
         raise HTTPException(status_code=404, detail="bid not found")
+
+    # 개인 편향 보정 (my_bid_records 이력 기반)
+    try:
+        from ...ml.personal import PersonalBiasAnalyzer
+        bias = PersonalBiasAnalyzer().compute(
+            db, current_user.id,
+            agency_name=ctx.get("agency_name") if isinstance(ctx, dict) else getattr(ctx, "agency_name", None),
+        )
+        if isinstance(ctx, dict):
+            ctx["personal_bias"] = bias
+        else:
+            ctx.personal_bias = bias
+    except Exception:
+        pass
+
     return ctx
 
 
