@@ -83,7 +83,7 @@ def get_winner_percentiles(
         """), {"aid": agency_id, "lo": amount_lo, "hi": amount_hi,
                "rmin": BID_RATE_MIN, "rmax": BID_RATE_MAX}).fetchall()
 
-        if len(rows) >= 10:
+        if len(rows) >= 5:
             source = "agency"
         else:
             rows = []
@@ -100,6 +100,20 @@ def get_winner_percentiles(
         """), {"lo": amount_lo, "hi": amount_hi,
                "rmin": BID_RATE_MIN, "rmax": BID_RATE_MAX}).fetchall()
         source = "national"
+
+    # ±50% 범위에서도 부족하면 ±80% 광역 fallback
+    if len(rows) < 5:
+        rows = db.execute(text(f"""
+            SELECT ip.bid_rate::float
+            FROM inpo21c_participants ip
+            JOIN inpo21c_bids ib USING (inpo21c_bid_id)
+            WHERE ip.is_winner = TRUE
+              AND ib.base_amount BETWEEN :lo AND :hi
+              AND ib.open_datetime >= {cutoff}
+              AND ip.bid_rate BETWEEN :rmin AND :rmax
+        """), {"lo": base_amount * 0.20, "hi": base_amount * 1.80,
+               "rmin": BID_RATE_MIN, "rmax": BID_RATE_MAX}).fetchall()
+        source = "national_wide"
 
     if len(rows) < 5:
         return _empty_winner_dist()
@@ -267,7 +281,7 @@ def get_relative_rate_dist(
                "bmin": BID_RATE_MIN, "bmax": BID_RATE_MAX,
                "amin": ASSESSMENT_RATE_MIN, "amax": ASSESSMENT_RATE_MAX}).fetchall()
 
-        if len(rows) >= 5:
+        if len(rows) >= 3:
             source = "agency"
         else:
             rows = []
@@ -290,7 +304,7 @@ def get_relative_rate_dist(
                "amin": ASSESSMENT_RATE_MIN, "amax": ASSESSMENT_RATE_MAX}).fetchall()
         source = "national"
 
-    if len(rows) < 5:
+    if len(rows) < 3:
         return {"p50": None, "p65": None, "p70": None, "p75": None,
                 "mean": None, "std": None, "count": 0, "source": "none"}
 
@@ -299,7 +313,7 @@ def get_relative_rate_dist(
         if r[0] and RELATIVE_RATE_MIN <= float(r[0]) <= RELATIVE_RATE_MAX
     ])
 
-    if len(rel) < 5:
+    if len(rel) < 3:
         return {"p50": None, "p65": None, "p70": None, "p75": None,
                 "mean": None, "std": None, "count": 0, "source": "none"}
 

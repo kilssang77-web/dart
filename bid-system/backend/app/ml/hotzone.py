@@ -253,15 +253,19 @@ def get_best_rate(
     # ── 3: A값 × 예정대비 최적율 ────────────────────────
     if recommended_srate is None:
         arate_p50 = arate_dist.get("p50")
-        rel_key   = "p75" if intensity == "low" else "p65"
-        rel_opt   = rel_dist.get(rel_key)
+        # arate 이력 없으면 실측 A ratio로 대체
+        if not arate_p50 and a_ratio_actual and 0.85 <= a_ratio_actual <= 1.05:
+            arate_p50 = a_ratio_actual
 
-        if arate_p50 and rel_opt and arate_dist.get("count", 0) >= 5:
-            calc = round(arate_p50 * rel_opt, 4)
-            if 0.840 <= calc <= 0.990:
+        rel_key = "p75" if intensity == "low" else "p65"
+        rel_opt = rel_dist.get(rel_key) or rel_dist.get("p50")
+
+        if arate_p50 and rel_opt:
+            calc = round(arate_p50 * rel_opt, 6)
+            if 0.830 <= calc <= 1.000:
                 recommended_srate = calc
                 source     = "assessment_based"
-                confidence = min(0.72, 0.45 + min(arate_dist["count"], 50) / 250)
+                confidence = min(0.72, 0.43 + min(arate_dist.get("count", 0), 50) / 250)
 
     # ── 4~6: 기존 Hot Zone + Prism fallback ─────────────
     if recommended_srate is None:
