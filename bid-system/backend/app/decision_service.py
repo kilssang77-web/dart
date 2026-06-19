@@ -256,23 +256,23 @@ class DecisionService:
             rate_agg = _by_wp[0]["rate"]    # 최고 승률 구간
             rate_con = _by_rate[0]["rate"]  # 최고 투찰율 구간 (높을수록 안전 마진)
             if rate_con <= rate_agg:
-                rate_con = round(rate_agg + 0.0005, 4)
+                rate_con = round(rate_agg + 0.0005, 6)
             if len(_by_wp) >= 2:
                 rate_bal = _by_wp[1]["rate"]
                 _lo, _hi = min(rate_agg, rate_con), max(rate_agg, rate_con)
                 if not (_lo < rate_bal < _hi):
-                    rate_bal = round((_lo + _hi) / 2, 4)
+                    rate_bal = round((_lo + _hi) / 2, 6)
             else:
-                rate_bal = round((rate_agg + rate_con) / 2, 4)
+                rate_bal = round((rate_agg + rate_con) / 2, 6)
             rate_agg, rate_bal, rate_con = sorted([rate_agg, rate_bal, rate_con])
         else:
-            rate_agg = round(eff_floor + 0.0003, 4)
-            rate_bal = round(max(eff_floor + 0.0015, rate_agg + 0.0005), 4)
-            rate_con = round(max(eff_floor + 0.003,  rate_bal + 0.0005), 4)
+            rate_agg = round(eff_floor + 0.0003, 6)
+            rate_bal = round(max(eff_floor + 0.0015, rate_agg + 0.0005), 6)
+            rate_con = round(max(eff_floor + 0.003,  rate_bal + 0.0005), 6)
         # 낙찰하한 안전 보정
-        rate_agg = max(rate_agg, round(eff_floor + 0.0001, 4))
-        rate_bal = max(rate_bal, round(rate_agg + 0.0003, 4))
-        rate_con = max(rate_con, round(rate_bal + 0.0003, 4))
+        rate_agg = max(rate_agg, round(eff_floor + 0.0001, 6))
+        rate_bal = max(rate_bal, round(rate_agg + 0.0003, 6))
+        rate_con = max(rate_con, round(rate_bal + 0.0003, 6))
 
         # 실증 낙찰확률 모델 로드 (base_ratio → bid_rate 변환 필요)
         _srate_med = float(_np.median(srate_dist))

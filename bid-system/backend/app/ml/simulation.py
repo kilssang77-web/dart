@@ -350,25 +350,25 @@ def recommend_with_simulation(
 
     # 공격형: 하한 직상 — 최고 낙찰확률 (마진 최소)
     # 공격형: 실효하한 직상 — 최고 낙찰확률
-    rate_aggressive = round(eff_floor + 0.0003, 4)
+    rate_aggressive = round(eff_floor + 0.0003, 6)
 
     # 균형형: 하한+0.15% — 낙찰확률·마진 균형 (통상 50-70% 확률)
     # 균형형: 실효하한+0.15% — 확률·마진 균형
-    rate_balanced = round(eff_floor + 0.0015, 4)
+    rate_balanced = round(eff_floor + 0.0015, 6)
     rate_balanced = max(rate_balanced, rate_aggressive + 0.0005)
 
     # 안정형: 하한+0.30% — 마진 우선 (통상 20-40% 확률)
     # 안정형: 실효하한+0.30% — 마진 우선
-    rate_conservative = round(eff_floor + 0.003, 4)
+    rate_conservative = round(eff_floor + 0.003, 6)
     rate_conservative = max(rate_conservative, rate_balanced + 0.0005)
 
     # 회피형: 경쟁사 군집(하위 25%) 아래 포지션
     if competitor_means:
         comp_p25 = float(np.percentile(competitor_means, 25))
-        rate_avoid = max(round(comp_p25 - 0.0005, 4), rate_aggressive)
+        rate_avoid = max(round(comp_p25 - 0.0005, 6), rate_aggressive)
     else:
         rate_avoid = rate_balanced
-    rate_avoid = round(rate_avoid, 4)
+    rate_avoid = round(rate_avoid, 6)
 
     def _wp(rate: float) -> dict:
         if empirical_comp_rates is not None and expected_n_comp > 0:
@@ -509,11 +509,22 @@ def scan_zones_from_dist(
     if inpo_rates is not None and len(inpo_rates) >= 5:
         inpo_base = np.asarray(inpo_rates, dtype=np.float64)
 
+    # inpo_rates가 있으면 각 격자 구간 내 실제 투찰율 centroid 계산
+    # → 격자 중심값(0.0005 그리드) 대신 실측 분포값 사용으로 후행 0 제거
+    half_step = scan_step / 2
+
     zones: list[dict] = []
     rate = scan_start
     while rate <= scan_end + 1e-9:
         rate_r = round(rate, 4)
         floor_ok = rate_r >= eff_floor_abs
+
+        # 해당 격자 구간 내 실측 투찰율 centroid (있으면 사용, 없으면 격자값 유지)
+        if inpo_base is not None:
+            mask = np.abs(inpo_base - rate_r) <= half_step
+            effective_rate = round(float(inpo_base[mask].mean()), 6) if mask.any() else round(rate, 6)
+        else:
+            effective_rate = round(rate, 6)
 
         if gmm_params is not None and expected_n_comp > 0:
             wp = monte_carlo_win_prob_gmm(
@@ -535,8 +546,8 @@ def scan_zones_from_dist(
             wp = {"win_prob": round(vr * 0.5, 4), "avg_rank": 1.0, "valid_ratio": round(vr, 4)}
 
         zones.append({
-            "rate":        rate_r,
-            "amount":      int(round(rate_r * base_amount)),
+            "rate":        effective_rate,
+            "amount":      int(round(effective_rate * base_amount)),
             "win_prob":    wp["win_prob"],
             "valid_ratio": wp["valid_ratio"],
             "floor_ok":    floor_ok,
