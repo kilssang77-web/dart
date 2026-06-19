@@ -1707,3 +1707,42 @@ export interface RecommendationEffect {
   by_strategy: { strategy: string; followed_n: number; followed_wins: number; win_rate: number | null }[]
 }
 
+// ── A값 포지션 분석 (inpo21c_yega is_selected) ──────────────
+export interface PositionItem {
+  position: number
+  freq_pct: number
+}
+
+export interface PositionAnalysisResponse {
+  bid_id: number
+  recommended_rate: number | null
+  recommended_amount: number | null
+  expected_srate: number | null
+  top_positions: number[]           // 상위 포지션 번호 목록 e.g. [1, 8, 2, 3]
+  position_pattern: PositionItem[]  // 15개 포지션 전체 빈도 [{position, freq_pct}]
+  confidence: number
+  sample_count: number
+  data_source: 'agency' | 'national' | 'fallback'
+  eff_floor: number | null
+  has_data: boolean
+}
+
+export interface QuickDecisionResponse {
+  bid_id: number
+  title: string
+  base_amount: number
+  recommended_rate: number | null
+  recommended_amount: number | null
+  win_prob: number | null
+  go_decision: 'go' | 'pass' | 'neutral'
+  go_score: number
+  confidence: number
+  reasons: string[]
+  risk_factors: string[]
+  expected_competitors: number
+  agency_win_rate: number | null
+  best_rate_source: string | null
+  position_top4: number[]   // 상위 포지션 번호 목록
+  floor_rate: number
+}
+

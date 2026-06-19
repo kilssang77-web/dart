@@ -287,6 +287,135 @@ def load_inpo21c_yega_stats(db, agency_id: int) -> dict:
     }
 
 
+def get_position_bid_recommendation(
+    db,
+    agency_id: int,
+    a_value: int,
+    base_amount: int,
+    floor_rate: float = 0.87745,
+    spread_half: float = 0.028,
+    period_months: int = 24,
+) -> dict:
+    """
+    A값 추첨 포지션 이력 기반 최적 투찰율 계산.
+
+    핵심 로직:
+      1. 기관별 is_selected=TRUE 포지션 빈도 조회 (inpo21c_yega)
+      2. 상위 빈도 포지션 조합이 만드는 예정가격(사정율) 계산
+      3. 낙찰하한 고려하여 최적 투찰율 반환
+
+    Returns:
+        recommended_rate    : 포지션 기반 권장 투찰율 (기초금액 대비)
+        recommended_amount  : 권장 투찰금액 (원)
+        expected_srate      : 예상 사정율 (예정가격/기초금액)
+        top_positions       : 상위 추첨 포지션 번호 (1~15)
+        position_pattern    : 15개 포지션별 선택 빈도 (%)
+        confidence          : 신뢰도 (0~1, 샘플 수 기반)
+        sample_count        : 분석에 사용된 입찰 건수
+        data_source         : agency | national | fallback
+    """
+    from sqlalchemy import text as _text
+    from itertools import combinations as _comb
+
+    # ── 1. 포지션 빈도 조회 (기관별 → 전국 fallback) ─────────
+    def _query_positions(aid):
+        return db.execute(_text("""
+            SELECT iy.yega_no, COUNT(*) AS cnt
+            FROM inpo21c_yega iy
+            JOIN inpo21c_bids ib USING (inpo21c_bid_id)
+            JOIN agencies a ON (
+                TRIM(a.name) = TRIM(ib.agency_name)
+                OR TRIM(ib.agency_name) LIKE '%%' || TRIM(a.name) || '%%'
+                OR TRIM(a.name) LIKE '%%' || TRIM(ib.agency_name) || '%%'
+            )
+            WHERE a.id = :aid AND iy.is_selected = TRUE
+              AND ib.open_datetime >= NOW() - INTERVAL :period
+            GROUP BY iy.yega_no
+            ORDER BY iy.yega_no
+        """), {"aid": aid, "period": f"'{period_months} months'"}).fetchall() if aid else []
+
+    data_source = "fallback"
+    pos_rows = _query_positions(agency_id) if agency_id else []
+    total_selections = sum(r[1] for r in pos_rows)
+
+    if total_selections >= 20:  # 기관별 데이터 충분
+        data_source = "agency"
+    else:  # 전국 fallback
+        pos_rows = db.execute(_text("""
+            SELECT yega_no, COUNT(*) AS cnt
+            FROM inpo21c_yega
+            WHERE is_selected = TRUE
+            GROUP BY yega_no ORDER BY yega_no
+        """)).fetchall()
+        total_selections = sum(r[1] for r in pos_rows)
+        data_source = "national" if total_selections > 0 else "fallback"
+
+    # ── 2. 포지션별 빈도 계산 ──────────────────────────────
+    freq_map = {r[0]: r[1] for r in pos_rows}
+    total = max(total_selections, 1)
+    position_pattern = [
+        {"position": n, "freq_pct": round(freq_map.get(n, 0) / total * 100, 1)}
+        for n in range(1, 16)
+    ]
+    position_pattern.sort(key=lambda x: x["freq_pct"], reverse=True)
+    top_positions = [p["position"] for p in position_pattern[:4]]
+
+    # ── 3. A값 범위에서 15개 예비가격 생성 ──────────────────
+    ru = _round_unit(a_value)
+    lo = a_value * (1.0 - spread_half)
+    hi = a_value * (1.0 + spread_half)
+    candidates = [
+        int(round((lo + (hi - lo) * k / 14.0) / ru) * ru)
+        for k in range(15)
+    ]
+
+    # ── 4. 상위 포지션 조합의 기대 사정율 계산 ───────────────
+    # 빈도 가중치로 C(15,4) 조합 샘플링 → 기대 평균 계산
+    weights = [freq_map.get(i + 1, 0.001) for i in range(15)]
+    total_w = sum(weights)
+    weights = [w / total_w for w in weights]
+
+    combo_srates = []
+    for combo in _comb(range(15), 4):
+        combo_weight = sum(weights[i] for i in combo)
+        avg_amount = sum(candidates[i] for i in combo) / 4
+        srate = avg_amount / base_amount
+        combo_srates.append((srate, combo_weight))
+
+    # 가중 평균 사정율
+    total_cw = sum(cw for _, cw in combo_srates)
+    expected_srate = sum(sr * cw for sr, cw in combo_srates) / total_cw if total_cw > 0 else 0.90
+
+    # 상위 빈도 포지션 조합의 사정율 (top4 positions)
+    top_avg = sum(candidates[p - 1] for p in top_positions) / 4
+    top_srate = top_avg / base_amount
+
+    # 두 값 블렌딩 (신뢰도에 따라 가중치 다르게)
+    n_bids = total_selections // 4
+    alpha = min(0.75, n_bids / (n_bids + 20))  # 샘플 많을수록 top_srate 신뢰
+    blended_srate = alpha * top_srate + (1 - alpha) * expected_srate
+
+    # ── 5. 최적 투찰율 = 낙찰하한 직상 + 여유 ─────────────
+    eff_floor = floor_rate * blended_srate
+    recommended_rate = round(eff_floor + 0.0005, 6)
+    recommended_amount = int(recommended_rate * base_amount)
+
+    # ── 6. 신뢰도 ─────────────────────────────────────────
+    confidence = round(min(0.90, alpha * (0.5 + min(n_bids, 50) / 100)), 3)
+
+    return {
+        "recommended_rate":   recommended_rate,
+        "recommended_amount": recommended_amount,
+        "expected_srate":     round(blended_srate, 6),
+        "top_positions":      top_positions,
+        "position_pattern":   position_pattern,
+        "confidence":         confidence,
+        "sample_count":       n_bids,
+        "data_source":        data_source,
+        "eff_floor":          round(eff_floor, 6),
+    }
+
+
 def get_inpo21c_pattern_direct(db, agency_id: int) -> dict:
     """
     inpo21c is_selected 데이터로 기관별 복수예가 추첨 패턴 직접 조회.

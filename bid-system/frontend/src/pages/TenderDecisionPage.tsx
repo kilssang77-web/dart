@@ -5,6 +5,8 @@ import { decisionApi, journalApi } from '@/api'
 import type { BidContext, SimulateBidResponse, ZoneItem, JournalOut, AgencyWinHistogram, CompetitorPredictionResponse, HotZoneResponse, BestRateResponse } from '@/types'
 import { bidsApi } from '@/api'
 import BestRateCard from '@/components/BestRateCard'
+import PositionPatternCard from '@/components/PositionPatternCard'
+import QuickDecisionPanel from '@/components/QuickDecisionPanel'
 import {
   Search, Target, Zap, TrendingUp, Shield, AlertCircle, CheckCircle2,
   Info, Users, X, BookOpen, ClipboardCheck, Trophy, ChevronRight, ChevronLeft,
@@ -714,7 +716,10 @@ export default function TenderDecisionPage() {
           {step === 2 && (
             <div className="space-y-5">
 
-              {/* ── ① 담합 의심 경고 (최우선 표시) ── */}
+              {/* ── ① AI 종합 의사결정 패널 (GO/PASS) ── */}
+              {bidId && <QuickDecisionPanel bidId={bidId} />}
+
+              {/* ── ② 담합 의심 경고 (최우선 표시) ── */}
               {hotZoneData?.collusion_alert && hotZoneData.collusion_alert.flag !== 'clean' && hotZoneData.collusion_alert.flag !== 'insufficient_data' && (
                 <div className={cn(
                   'rounded-xl border p-4 flex items-start gap-3',
@@ -788,7 +793,7 @@ export default function TenderDecisionPage() {
                 </div>
               )}
 
-              {/* ── ② 개인 편향 경고 ── */}
+              {/* ── ③ 개인 편향 경고 ── */}
               {ctx?.personal_bias && ctx.personal_bias.direction !== 'balanced' && ctx.personal_bias.sample_count >= 5 && (
                 <div className={cn(
                   'rounded-xl border p-4 flex items-start gap-3',
@@ -895,6 +900,9 @@ export default function TenderDecisionPage() {
 
               {/* ── AI 원클릭 최적 투찰율 (BestRateCard) ── */}
               {ctx && <BestRateCard bidId={ctx.bid_id} baseAmount={ctx.base_amount} />}
+
+              {/* ── A값 포지션 패턴 분석 ── */}
+              {ctx && <PositionPatternCard bidId={ctx.bid_id} baseAmount={ctx.base_amount} />}
 
               {/* ── AI 최종 결론 — 시뮬레이션 완료 후 단일 결론 배너 ── */}
               {result && result.optimal && (

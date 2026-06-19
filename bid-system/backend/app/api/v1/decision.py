@@ -6,6 +6,7 @@ from ...models import User
 from ...schemas import (
     BidContextResponse, PersonalBiasInfo, SimulateBidRequest, SimulateBidResponse,
     AgencyWinHistogramResponse, WinProbCurveResponse,
+    PositionAnalysisResponse, QuickDecisionResponse,
 )
 from ...services import DecisionService
 from ...common.security import get_current_user
@@ -56,6 +57,32 @@ def get_competitor_prediction(
 ):
     """경쟁사 투찰 구간 예측 — inpo21c 이력 기반 P25-P75 구간."""
     return svc.get_competitor_prediction(db, bid_id, top_n=top_n)
+
+
+@router.get("/{bid_id}/position-analysis", response_model=PositionAnalysisResponse)
+def get_position_analysis(
+    bid_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """A값 추첨 포지션 이력 기반 투찰율 추천 — inpo21c_yega is_selected 실측 데이터."""
+    result = svc.get_position_analysis(db, bid_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="bid not found")
+    return result
+
+
+@router.get("/{bid_id}/quick-decision", response_model=QuickDecisionResponse)
+def get_quick_decision(
+    bid_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """1화면 의사결정 집계 — GO/PASS 판정 + 권장투찰금액 + 낙찰확률 + 근거."""
+    result = svc.get_quick_decision(db, bid_id, user_id=current_user.id)
+    if not result:
+        raise HTTPException(status_code=404, detail="bid not found")
+    return result
 
 
 @router.post("/{bid_id}/simulate-bid", response_model=SimulateBidResponse)

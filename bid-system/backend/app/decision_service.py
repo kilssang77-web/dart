@@ -684,3 +684,178 @@ class DecisionService:
             "industry_name": industry_name,
             "data_points":  data_points,
         }
+
+    def get_position_analysis(self, db: Session, bid_id: int) -> dict:
+        """
+        A값 추첨 포지션 이력 기반 투찰율 추천.
+
+        inpo21c_yega.is_selected 실측 데이터로 기관별 추첨 선호 포지션을 분석하고
+        해당 포지션 조합의 예정가격을 계산해 최적 투찰율을 반환한다.
+        """
+        from .ml.yega import get_position_bid_recommendation
+        from .ml.a_value import calc_floor_rate
+
+        b = db.query(Bid).filter(Bid.id == bid_id).first()
+        if not b:
+            return {"bid_id": bid_id, "has_data": False}
+
+        industry_name = b.industry.name if b.industry else ""
+        floor_rate    = calc_floor_rate(industry_name)
+        a_value       = b.a_value or int((b.base_amount or 0) * 0.8876)
+
+        if not b.base_amount or b.base_amount <= 0:
+            return {"bid_id": bid_id, "has_data": False}
+
+        result = get_position_bid_recommendation(
+            db,
+            agency_id   = b.agency_id,
+            a_value     = a_value,
+            base_amount = b.base_amount,
+            floor_rate  = floor_rate,
+        )
+        result["bid_id"]   = bid_id
+        result["has_data"] = result["sample_count"] > 0
+        return result
+
+    def get_quick_decision(self, db: Session, bid_id: int, user_id: int = 0) -> dict:
+        """
+        1화면 의사결정 집계 — 핵심 신호만 종합하여 GO/PASS/NEUTRAL 판정 반환.
+
+        우선순위:
+          1. 낙찰확률 (win_prob_model)
+          2. 경쟁 강도 (expected_competitors)
+          3. A값 포지션 신뢰도
+          4. 기관 낙찰율
+        """
+        import numpy as _np
+        from .ml.a_value import calc_floor_rate
+        from .ml.assessment import load_srate_stats, predict_srate
+        from .ml.hotzone import get_best_rate
+        from .ml.win_prob_model import predict as _wpm_predict
+
+        b = db.query(Bid).filter(Bid.id == bid_id).first()
+        if not b:
+            return {}
+
+        industry_name = b.industry.name if b.industry else ""
+        agency_id     = b.agency_id or 0
+        industry_id   = b.industry_id or 0
+        base_amount   = b.base_amount or 0
+        floor_rate    = calc_floor_rate(industry_name)
+
+        features = load_srate_stats(db, agency_id, industry_id, 0, base_amount)
+        ep        = predict_srate(features, base_amount)
+        srate_med = float(ep["srate_range"]["center"])
+        expected_n = int(features.get("expected_competitor_count") or features.get("global_comp_count") or 8)
+
+        # 최적 투찰율 (best_rate)
+        best = get_best_rate(db, agency_id, base_amount, period_type="24M")
+        recommended_rate   = best.get("recommended_srate")
+        recommended_amount = best.get("recommended_price")
+        best_source        = best.get("source", "fallback")
+        confidence         = float(best.get("confidence", 0.30))
+
+        # 낙찰확률
+        win_prob = 0.0
+        if recommended_rate:
+            try:
+                wp = _wpm_predict(recommended_rate, srate_med, expected_n, floor_rate)
+                win_prob = max(0.0, float(wp))
+            except Exception:
+                pass
+
+        # 기관 낙찰율
+        agency_win_rate = None
+        try:
+            from sqlalchemy import text as _t
+            row = db.execute(_t("""
+                SELECT ROUND(AVG(CASE WHEN ip.is_winner THEN 1.0 ELSE 0.0 END), 4)
+                FROM inpo21c_participants ip
+                JOIN inpo21c_bids ib USING (inpo21c_bid_id)
+                JOIN agencies a ON (
+                    TRIM(a.name) = TRIM(ib.agency_name)
+                    OR TRIM(ib.agency_name) LIKE '%%' || TRIM(a.name) || '%%'
+                )
+                WHERE a.id = :aid AND ib.open_datetime >= NOW() - INTERVAL '24 months'
+            """), {"aid": agency_id}).scalar()
+            agency_win_rate = float(row) if row is not None else None
+        except Exception:
+            pass
+
+        # 포지션 분석
+        pos = self.get_position_analysis(db, bid_id)
+        position_top4 = pos.get("top_positions", [])
+
+        # GO/PASS 판정
+        reasons, risks = [], []
+        go_score = 0.5  # 기본 중립
+
+        # 낙찰확률 기여
+        if win_prob >= 0.35:
+            go_score += 0.20
+            reasons.append(f"AI 낙찰확률 {win_prob*100:.0f}% — 양호한 수준")
+        elif win_prob >= 0.20:
+            go_score += 0.05
+            reasons.append(f"AI 낙찰확률 {win_prob*100:.0f}% — 보통 수준")
+        else:
+            go_score -= 0.15
+            risks.append(f"AI 낙찰확률 {win_prob*100:.0f}% — 경쟁 강도 높음")
+
+        # 경쟁자 수
+        if expected_n <= 5:
+            go_score += 0.15
+            reasons.append(f"예상 경쟁사 {expected_n}개 — 비교적 소수")
+        elif expected_n <= 10:
+            go_score += 0.05
+        elif expected_n >= 15:
+            go_score -= 0.20
+            risks.append(f"예상 경쟁사 {expected_n}개 이상 — 과열 경쟁 우려")
+        else:
+            risks.append(f"예상 경쟁사 {expected_n}개 — 보통 수준 경쟁")
+
+        # 기관 낙찰율
+        if agency_win_rate is not None:
+            if agency_win_rate >= 0.12:
+                go_score += 0.10
+                reasons.append(f"이 기관 낙찰율 {agency_win_rate*100:.1f}% — 높은 편")
+            elif agency_win_rate <= 0.05:
+                go_score -= 0.10
+                risks.append(f"이 기관 낙찰율 {agency_win_rate*100:.1f}% — 낮은 편")
+
+        # 포지션 데이터 신뢰도
+        if pos.get("confidence", 0) >= 0.60:
+            go_score += 0.05
+            reasons.append(f"A값 포지션 분석 고신뢰 ({pos['sample_count']}건 이력)")
+
+        # 추천 소스
+        if best_source in ("winner+hotzone", "winner"):
+            go_score += 0.05
+            reasons.append("실증 낙찰자 분포 기반 추천율 활용")
+
+        go_score = round(max(0.0, min(1.0, go_score)), 3)
+
+        if go_score >= 0.65:
+            go_decision = "go"
+        elif go_score <= 0.38:
+            go_decision = "pass"
+        else:
+            go_decision = "neutral"
+
+        return {
+            "bid_id":               bid_id,
+            "title":                b.title,
+            "base_amount":          base_amount,
+            "recommended_rate":     recommended_rate,
+            "recommended_amount":   recommended_amount,
+            "win_prob":             round(win_prob, 4),
+            "go_decision":          go_decision,
+            "go_score":             go_score,
+            "confidence":           round(confidence, 3),
+            "reasons":              reasons[:4],
+            "risk_factors":         risks[:3],
+            "expected_competitors": expected_n,
+            "agency_win_rate":      round(agency_win_rate, 4) if agency_win_rate else None,
+            "best_rate_source":     best_source,
+            "position_top4":        position_top4,
+            "floor_rate":           floor_rate,
+        }

@@ -483,6 +483,12 @@ export const decisionApi = {
 
   searchBids: (keyword: string, limit = 10) =>
     api.get('/bids/search', { params: { q: keyword, limit } }).then((r) => r.data),
+
+  positionAnalysis: (bidId: number): Promise<import('../types').PositionAnalysisResponse> =>
+    api.get(`/bids/${bidId}/position-analysis`).then((r) => r.data),
+
+  quickDecision: (bidId: number): Promise<import('../types').QuickDecisionResponse> =>
+    api.get(`/bids/${bidId}/quick-decision`).then((r) => r.data),
 }
 
 export const journalApi = {

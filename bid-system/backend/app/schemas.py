@@ -1487,6 +1487,44 @@ class WinnerPercentiles(BaseModel):
     p85: Optional[float] = None
 
 
+class PositionItem(BaseModel):
+    position: int
+    freq_pct: float
+
+
+class PositionAnalysisResponse(BaseModel):
+    bid_id:             int
+    recommended_rate:   Optional[float] = None
+    recommended_amount: Optional[int]   = None
+    expected_srate:     Optional[float] = None
+    top_positions:      List[int]       = []
+    position_pattern:   List[PositionItem] = []
+    confidence:         float           = 0.0
+    sample_count:       int             = 0
+    data_source:        str             = "fallback"
+    eff_floor:          Optional[float] = None
+    has_data:           bool            = False
+
+
+class QuickDecisionResponse(BaseModel):
+    bid_id:                int
+    title:                 str
+    base_amount:           int
+    recommended_rate:      Optional[float] = None
+    recommended_amount:    Optional[int]   = None
+    win_prob:              float           = 0.0
+    go_decision:           str             = "neutral"  # go | pass | neutral
+    go_score:              float           = 0.0        # 0~1
+    confidence:            float           = 0.0
+    reasons:               List[str]       = []
+    risk_factors:          List[str]       = []
+    expected_competitors:  int             = 0
+    agency_win_rate:       Optional[float] = None
+    best_rate_source:      str             = "fallback"
+    position_top4:         List[int]       = []
+    floor_rate:            float           = 0.87745
+
+
 class BestRateResponse(BaseModel):
     bid_id:              int
     base_amount:         Optional[int]  = None
