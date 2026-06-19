@@ -10,9 +10,9 @@ import {
 import { systemApi } from '@/api/market'
 import { settingsApi } from '@/api/settings'
 import type { TelegramConfig, ModelStatus } from '@/api/settings'
-import { recommendationsApi } from '@/api/recommendations'
-import type { Recommendation } from '@/types'
+
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card'
+import { probToScore, scoreToProb, scoreBarColor } from '@/lib/utils'
 
 // ── 탐지 임계값 파라미터 목록 ─────────────────────────────────────────────────
 const THRESHOLDS = [
@@ -223,13 +223,6 @@ function TelegramSection() {
     queryFn:  settingsApi.getTelegram,
   })
 
-  // 현재 추천 목록 조회 → 정규화 범위 계산 (Recommendations.tsx와 동일 로직)
-  const { data: recs } = useQuery<Recommendation[]>({
-    queryKey: ['recommendations', 'settings-range'],
-    queryFn:  () => recommendationsApi.list({ limit: 200, dedupe: true }),
-    staleTime: 120_000,
-  })
-
   useEffect(() => {
     if (cfg && !draft) setDraft(cfg)
   }, [cfg])
@@ -246,22 +239,6 @@ function TelegramSection() {
 
   const handleSave = () => { if (draft) updateMut.mutate(draft) }
 
-  // 정규화 헬퍼
-  const _probs   = (recs ?? []).map((r) => r.success_prob)
-  const _probMin = _probs.length > 0 ? Math.min(..._probs) : 0
-  const _probMax = _probs.length > 0 ? Math.max(..._probs) : 1
-  const hasRange = _probMax > _probMin
-
-  const toNorm = (p: number) =>
-    hasRange
-      ? Math.min(100, Math.max(1, Math.round(((p - _probMin) / (_probMax - _probMin)) * 99 + 1)))
-      : Math.round(p * 100)
-
-  const fromNorm = (n: number) =>
-    hasRange
-      ? _probMin + ((n - 1) / 99) * (_probMax - _probMin)
-      : n / 100
-
   if (isLoading || !draft) {
     return (
       <div className="space-y-3">
@@ -272,7 +249,9 @@ function TelegramSection() {
     )
   }
 
-  const normVal = toNorm(draft.min_prob)
+  const score     = probToScore(draft.min_prob)
+  const barCls    = scoreBarColor(score)
+  const textColor = barCls.replace('bg-', 'text-')
 
   return (
     <div className="space-y-5">
@@ -293,31 +272,35 @@ function TelegramSection() {
         </button>
       </div>
 
-      {/* 최소 성공확률 슬라이더 */}
+      {/* 최소 성공 점수 슬라이더 (1~100점) */}
       <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg)]">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <div className="text-sm font-semibold text-[var(--fg)]">매수 신호 최소 성공확률</div>
-            <div className="text-xs text-[var(--muted)] mt-0.5">이 확률 이상인 신호만 텔레그램 발송</div>
+            <div className="text-sm font-semibold text-[var(--fg)]">매수 신호 최소 성공 점수</div>
+            <div className="text-xs text-[var(--muted)] mt-0.5">이 점수 이상인 신호만 텔레그램 발송</div>
           </div>
           <div className="text-right">
-            <code className="text-lg font-bold text-cyan-400 tabular">{normVal}%</code>
-            {hasRange && (
-              <div className="text-[10px] text-[var(--muted)] tabular mt-0.5">
-                원본 {(draft.min_prob * 100).toFixed(1)}%
-              </div>
-            )}
+            <code className={clsx('text-2xl font-extrabold tabular', textColor)}>{score}점</code>
+            <div className="text-[10px] text-[var(--muted)] tabular mt-0.5">
+              ML확률 {(draft.min_prob * 100).toFixed(1)}%
+            </div>
           </div>
         </div>
         <input
           type="range" min={1} max={100} step={1}
-          value={normVal}
-          onChange={(e) => setDraft({ ...draft, min_prob: fromNorm(Number(e.target.value)) })}
+          value={score}
+          onChange={(e) => {
+            const s = Number(e.target.value)
+            setDraft({ ...draft, min_prob: parseFloat(scoreToProb(s).toFixed(3)) })
+          }}
           className="w-full accent-cyan-400"
         />
         <div className="flex justify-between text-[10px] text-[var(--muted)] mt-1">
-          <span>1% {hasRange && <span className="opacity-60">(원본 {(_probMin * 100).toFixed(1)}%)</span>}</span>
-          <span>100% {hasRange && <span className="opacity-60">(원본 {(_probMax * 100).toFixed(1)}%)</span>}</span>
+          <span>1점 <span className="opacity-60">(ML 37.3%)</span></span>
+          <span className="text-yellow-400">31점</span>
+          <span className="text-orange-400">51점</span>
+          <span className="text-green-400">70점</span>
+          <span>100점 <span className="opacity-60">(ML 62.7%)</span></span>
         </div>
       </div>
 
@@ -479,7 +462,7 @@ function QuickLinksCard() {
       href: null,
       badge: 'infra',
       badgeColor: 'text-orange-400 bg-orange-500/10 border-orange-500/25',
-      onClick: () => window.open('http://localhost:8000/docs', '_blank'),
+      onClick: () => window.open(`${import.meta.env.VITE_API_BASE_URL ?? ''}/docs`, '_blank'),
     },
     {
       icon: <Bell size={16} className="text-purple-400" />,

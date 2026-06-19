@@ -28,6 +28,9 @@ SUPPLY_SURGE_RATIO = float(os.environ.get("BATCH_SUPPLY_SURGE_RATIO", "3.0"))
 BREAKOUT_MIN_PCT   = float(os.environ.get("BATCH_BREAKOUT_MIN_PCT",   "0.001"))
 MIN_AMOUNT         = int(os.environ.get("BATCH_MIN_AMOUNT",            "500000000"))
 
+CANDLE_BODY_RATIO  = float(os.environ.get("CANDLE_LONG_WHITE_BODY_RATIO", "0.65"))
+CANDLE_MIN_CHANGE  = float(os.environ.get("CANDLE_LONG_WHITE_MIN_CHANGE", "3.0"))
+
 BATCH_SIZE         = int(os.environ.get("BACKFILL_BATCH_SIZE", "30"))   # 한 번에 처리할 날짜 수
 CONCURRENCY        = int(os.environ.get("BACKFILL_CONCURRENCY", "4"))   # 동시 날짜 처리 수
 
@@ -102,7 +105,7 @@ def _detect_events(row: dict) -> list[dict]:
         rng    = h - l
         body_r = body / rng if rng else 0
         chg_pct = (price - o) / o * 100
-        if body_r >= 0.65 and chg_pct >= 3.0 and price > o:
+        if body_r >= CANDLE_BODY_RATIO and chg_pct >= CANDLE_MIN_CHANGE and price > o:
             score = min(0.92, 0.50 + body_r * 0.4 + min(chg_pct / 20.0, 0.10))
             results.append({**base,
                 "event_type":   "LONG_WHITE_CANDLE",

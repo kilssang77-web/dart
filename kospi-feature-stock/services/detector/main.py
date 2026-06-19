@@ -329,7 +329,7 @@ class FeatureStockDetector:
         rng    = h - l
         body_r = body / rng if rng else 0
         chg_pct = (c - o) / o * 100 if o else 0
-        if body_r >= 0.65 and chg_pct >= 3.0 and c > o:
+        if body_r >= CandlestickDetector.LONG_WHITE_BODY_RATIO and chg_pct >= CandlestickDetector.LONG_WHITE_MIN_CHANGE and c > o:
             dedup = f"candle:rt:{code}:{today}:LONG_WHITE_CANDLE"
             if not await self.redis.exists(dedup):
                 score = round(min(0.88, 0.50 + body_r * 0.4 + min(chg_pct / 20.0, 0.10)), 3)

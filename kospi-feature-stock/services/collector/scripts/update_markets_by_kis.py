@@ -17,7 +17,7 @@ import redis.asyncio as redis_lib
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("kis_market")
 
-KRX_URL  = "https://openapi.koreainvestment.com:9443"
+KRX_URL  = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
 # 코스닥 한글명 → KOSDAQ
 # rprs_mrkt_kor_name 예시: KOSPI, KOSPI200, 코스닥, KSQ150, 코스닥150, KONEX, 코넥스
 def _parse_market(kor_name: str) -> str | None:

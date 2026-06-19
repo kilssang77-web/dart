@@ -1,9 +1,12 @@
 import logging
+import os
 from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+_BACKTEST_COMMISSION = float(os.getenv("BACKTEST_COMMISSION", "0.00015"))
 
 
 @dataclass
@@ -55,7 +58,7 @@ class BacktestEngine:
         stop_loss_pct: float = -0.05,
         target_pct:    float =  0.10,
         max_hold_days: int   = 10,
-        commission:    float = 0.00015,
+        commission:    float = _BACKTEST_COMMISSION,
     ):
         self.stop_loss_pct = stop_loss_pct
         self.target_pct    = target_pct

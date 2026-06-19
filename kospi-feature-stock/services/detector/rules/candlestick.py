@@ -1,12 +1,16 @@
 import logging
+import os
 
 logger = logging.getLogger(__name__)
+
+_LONG_WHITE_BODY_RATIO = float(os.getenv("CANDLE_LONG_WHITE_BODY_RATIO", "0.65"))
+_LONG_WHITE_MIN_CHANGE = float(os.getenv("CANDLE_LONG_WHITE_MIN_CHANGE", "3.0"))
 
 
 class CandlestickDetector:
 
-    LONG_WHITE_BODY_RATIO = 0.65
-    LONG_WHITE_MIN_CHANGE = 3.0   # %
+    LONG_WHITE_BODY_RATIO = _LONG_WHITE_BODY_RATIO
+    LONG_WHITE_MIN_CHANGE = _LONG_WHITE_MIN_CHANGE
 
     def detect_long_white_candle(self, bar: dict) -> bool:
         o = int(bar.get("open",  0))
@@ -34,7 +38,7 @@ class CandlestickDetector:
         change_rate = (c - o) / o * 100
         vol_ratio   = float(bar.get("volume_ratio", 1.0))
 
-        base = 0.50 + (body_ratio - 0.65) * 0.5 + (change_rate - 3.0) * 0.02
+        base = 0.50 + (body_ratio - _LONG_WHITE_BODY_RATIO) * 0.5 + (change_rate - _LONG_WHITE_MIN_CHANGE) * 0.02
         vol_bonus = min(0.10, (vol_ratio - 1.0) * 0.02) if vol_ratio > 1.0 else 0.0
         return round(min(0.92, max(0.50, base + vol_bonus)), 3)
 

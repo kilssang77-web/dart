@@ -1,9 +1,14 @@
 import logging
+import os
 from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+_BACKTEST_COMMISSION = float(os.getenv("BACKTEST_COMMISSION", "0.00015"))  # 편도 수수료 0.015%
+_BACKTEST_SLIPPAGE   = float(os.getenv("BACKTEST_SLIPPAGE",   "0.00100"))  # 편도 슬리피지 0.1%
+_BACKTEST_SELL_TAX   = float(os.getenv("BACKTEST_SELL_TAX",   "0.00230"))  # 증권거래세 0.23%
 
 
 @dataclass
@@ -83,9 +88,9 @@ class BacktestEngine:
         stop_loss_pct: float = -0.05,
         target_pct:    float =  0.10,
         max_hold_days: int   = 10,
-        commission:    float = 0.00015,   # 편도 수수료 0.015%
-        slippage:      float = 0.00100,   # 편도 슬리피지 0.1% (시장충격)
-        sell_tax:      float = 0.00230,   # 증권거래세 0.23%
+        commission:    float = _BACKTEST_COMMISSION,
+        slippage:      float = _BACKTEST_SLIPPAGE,
+        sell_tax:      float = _BACKTEST_SELL_TAX,
     ):
         self.stop_loss_pct = stop_loss_pct
         self.target_pct    = target_pct

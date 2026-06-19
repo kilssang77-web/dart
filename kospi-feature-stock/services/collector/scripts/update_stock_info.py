@@ -23,7 +23,7 @@ import redis.asyncio as redis_lib
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("update_stock_info")
 
-KRX_URL    = "https://openapi.koreainvestment.com:9443"
+KRX_URL    = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
 SEM_LIMIT  = 8
 DELAY_SEC  = 0.12
 

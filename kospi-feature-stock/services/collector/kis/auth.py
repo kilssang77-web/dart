@@ -1,11 +1,15 @@
 import asyncio
 import logging
+import os
 import httpx
 import redis.asyncio as redis_lib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 logger = logging.getLogger(__name__)
+
+_KIS_BASE_URL = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
+_KIS_WS_URL   = os.getenv("KIS_WS_URL",   "ws://ops.koreainvestment.com:21000")
 
 
 @dataclass
@@ -14,8 +18,8 @@ class KISConfig:
     app_secret: str
     account_no: str
     account_type: str = "01"
-    base_url: str = "https://openapi.koreainvestment.com:9443"
-    ws_url: str = "ws://ops.koreainvestment.com:21000"
+    base_url: str = field(default_factory=lambda: _KIS_BASE_URL)
+    ws_url: str   = field(default_factory=lambda: _KIS_WS_URL)
 
 
 class KISAuthManager:

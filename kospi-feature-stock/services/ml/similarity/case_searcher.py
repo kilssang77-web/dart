@@ -1,10 +1,13 @@
 import logging
+import os
 from dataclasses import dataclass
 from typing import Optional
 import asyncpg
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+_SIMILARITY_MIN_THR = float(os.getenv("SIMILARITY_MIN_THRESHOLD", "0.65"))
 
 
 @dataclass
@@ -33,7 +36,7 @@ class SimilarCaseSearcher:
         vector: np.ndarray,
         event_type: Optional[str] = None,
         top_k: int = 30,
-        min_sim: float = 0.65,
+        min_sim: float = _SIMILARITY_MIN_THR,
     ) -> list[SimilarCase]:
         vec_str = "[" + ",".join(f"{v:.6f}" for v in vector.tolist()) + "]"
 

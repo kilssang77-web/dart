@@ -28,6 +28,8 @@ SUPPLY_SURGE_RATIO = float(os.environ.get("BATCH_SUPPLY_SURGE_RATIO", "3.0"))
 BREAKOUT_MIN_PCT        = float(os.environ.get("BATCH_BREAKOUT_MIN_PCT",       "0.001"))  # 0.1%
 MIN_AMOUNT              = int(os.environ.get("BATCH_MIN_AMOUNT",               "500000000"))  # 5억
 MORNING_STAR_DOJI_PCT   = float(os.environ.get("MORNING_STAR_DOJI_PCT",        "0.005"))  # 0.5% — 실전 기준
+CANDLE_BODY_RATIO  = float(os.environ.get("CANDLE_LONG_WHITE_BODY_RATIO",  "0.65"))
+CANDLE_MIN_CHANGE  = float(os.environ.get("CANDLE_LONG_WHITE_MIN_CHANGE",  "3.0"))
 
 TOP_N_ACTIVE       = int(os.environ.get("BATCH_TOP_N_ACTIVE", "80"))  # 다음날 실시간 대상
 
@@ -221,10 +223,10 @@ class BatchScanner:
             """
             SELECT
                 code,
-                MAX(close) FILTER (WHERE date >= $2 - INTERVAL '30 days')  AS high_20d,
-                MAX(close) FILTER (WHERE date >= $2 - INTERVAL '100 days') AS high_13w,
-                MAX(close) FILTER (WHERE date >= $2 - INTERVAL '200 days') AS high_26w,
-                MAX(close) FILTER (WHERE date >= $2 - INTERVAL '400 days') AS high_52w
+                MAX(close) FILTER (WHERE date >= $2::date - INTERVAL '30 days')  AS high_20d,
+                MAX(close) FILTER (WHERE date >= $2::date - INTERVAL '100 days') AS high_13w,
+                MAX(close) FILTER (WHERE date >= $2::date - INTERVAL '200 days') AS high_26w,
+                MAX(close) FILTER (WHERE date >= $2::date - INTERVAL '400 days') AS high_52w
             FROM daily_bars
             WHERE code = ANY($1::varchar[])
               AND date < $2
@@ -346,7 +348,7 @@ class BatchScanner:
             rng     = h - l
             body_r  = body / rng if rng else 0
             chg_pct = (price - o) / o * 100
-            if body_r >= 0.65 and chg_pct >= 3.0 and price > o:
+            if body_r >= CANDLE_BODY_RATIO and chg_pct >= CANDLE_MIN_CHANGE and price > o:
                 score = min(0.92, 0.50 + body_r * 0.4 + min(chg_pct / 20.0, 0.10))
                 results.append({**base,
                     "event_type":   "LONG_WHITE_CANDLE",

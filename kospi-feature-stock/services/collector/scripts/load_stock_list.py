@@ -13,7 +13,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("load_stocks")
 
-KRX_URL = "https://openapi.koreainvestment.com:9443"
+KRX_URL = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
 STOCK_LIST_TRS = {
     "KOSPI":  ("FHKST03010100", "J"),
     "KOSDAQ": ("FHKST03010100", "Q"),

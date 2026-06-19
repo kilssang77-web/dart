@@ -18,6 +18,8 @@ _MODEL_NAME  = os.environ.get("SENTIMENT_MODEL", "snunlp/KR-FinBert-SC")
 _CACHE_DIR   = os.environ.get("MODEL_CACHE_DIR", "/models")
 _USE_BERT    = os.environ.get("USE_BERT_SENTIMENT", "true").lower() == "true"
 _MAX_LEN     = 128   # KR-FinBERT max input
+_SENTIMENT_POS_THR = float(os.environ.get("SENTIMENT_POS_THR", "0.15"))
+_SENTIMENT_NEG_THR = float(os.environ.get("SENTIMENT_NEG_THR", "-0.15"))
 
 
 # ── 키워드 fallback (원본 로직 유지) ─────────────────────────────────────────
@@ -60,7 +62,7 @@ def _keyword_analyze(title: str, content: str = "") -> dict:
         if re.search(pat, text_raw):
             score += bonus
     score = round(max(-1.0, min(1.0, score)), 3)
-    label = "positive" if score >= 0.15 else ("negative" if score <= -0.15 else "neutral")
+    label = "positive" if score >= _SENTIMENT_POS_THR else ("negative" if score <= _SENTIMENT_NEG_THR else "neutral")
     return {"sentiment_score": score, "label": label, "matched": matched[:10], "model": "keyword"}
 
 

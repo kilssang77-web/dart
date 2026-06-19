@@ -186,7 +186,7 @@ async def foreign_flow(
     return result
 
 
-_KIS_BASE = "https://openapi.koreainvestment.com:9443"
+_KIS_BASE = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
 _KIS_APP_KEY    = os.getenv("KIS_APP_KEY") or ""
 _KIS_APP_SECRET = os.getenv("KIS_APP_SECRET") or ""
 
@@ -219,53 +219,60 @@ async def _kis_index_quote(redis: redis_lib.Redis, market_code: str) -> dict | N
             return None
         token = raw.decode() if isinstance(raw, bytes) else raw
         today = datetime.now().strftime("%Y%m%d")
-        async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.get(
-                f"{_KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice",
-                headers={
-                    "Content-Type":  "application/json; charset=utf-8",
-                    "authorization": f"Bearer {token}",
-                    "appkey":        _KIS_APP_KEY,
-                    "appsecret":     _KIS_APP_SECRET,
-                    "tr_id":         "FHKUP03500100",
-                    "custtype":      "P",
-                },
-                params={
-                    "FID_COND_MRKT_DIV_CODE": "U",
-                    "FID_INPUT_ISCD":         market_code,
-                    "FID_INPUT_DATE_1":       today,
-                    "FID_INPUT_DATE_2":       today,
-                    "FID_PERIOD_DIV_CODE":    "D",
-                },
-            )
-            d = r.json()
-            if d.get("rt_cd") != "0":
-                logger.debug(f"KIS API non-zero rt_cd={d.get('rt_cd')} for {market_code}")
-                return None
-            o = d.get("output1") or {}
-            if isinstance(o, list):
-                o = o[0] if o else {}
-            price_str = o.get("bstp_nmix_prpr", "")
-            if not price_str or price_str == "0":
-                return None
-            result = {
-                "price":       round(float(price_str), 2),
-                "change":      round(float(o.get("bstp_nmix_prdy_vrss", 0) or 0), 2),
-                "change_rate": round(float(o.get("bstp_nmix_prdy_ctrt", 0) or 0), 2),
-                "open":        round(float(o.get("bstp_nmix_oprc", 0)    or 0), 2),
-                "high":        round(float(o.get("bstp_nmix_hgpr", 0)    or 0), 2),
-                "low":         round(float(o.get("bstp_nmix_lwpr", 0)    or 0), 2),
-                "volume":      int(o.get("acml_vol", 0) or 0),
-            }
+
+        for attempt in range(2):
             try:
-                import json as _json
-                await redis.set(cache_key, _json.dumps(result), ex=30)
-            except Exception as e:
-                logger.debug(f"Redis cache write failed for {cache_key}: {e}")
-            return result
-    except asyncio.TimeoutError:
-        logger.warning(f"KIS index quote timeout for {market_code}")
-        return None
+                async with httpx.AsyncClient(timeout=5) as c:
+                    r = await c.get(
+                        f"{_KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice",
+                        headers={
+                            "Content-Type":  "application/json; charset=utf-8",
+                            "authorization": f"Bearer {token}",
+                            "appkey":        _KIS_APP_KEY,
+                            "appsecret":     _KIS_APP_SECRET,
+                            "tr_id":         "FHKUP03500100",
+                            "custtype":      "P",
+                        },
+                        params={
+                            "FID_COND_MRKT_DIV_CODE": "U",
+                            "FID_INPUT_ISCD":         market_code,
+                            "FID_INPUT_DATE_1":       today,
+                            "FID_INPUT_DATE_2":       today,
+                            "FID_PERIOD_DIV_CODE":    "D",
+                        },
+                    )
+                d = r.json()
+                if d.get("rt_cd") != "0":
+                    logger.debug(f"KIS API non-zero rt_cd={d.get('rt_cd')} for {market_code}")
+                    return None
+                o = d.get("output1") or {}
+                if isinstance(o, list):
+                    o = o[0] if o else {}
+                price_str = o.get("bstp_nmix_prpr", "")
+                if not price_str or price_str == "0":
+                    return None
+                result = {
+                    "price":       round(float(price_str), 2),
+                    "change":      round(float(o.get("bstp_nmix_prdy_vrss", 0) or 0), 2),
+                    "change_rate": round(float(o.get("bstp_nmix_prdy_ctrt", 0) or 0), 2),
+                    "open":        round(float(o.get("bstp_nmix_oprc", 0)    or 0), 2),
+                    "high":        round(float(o.get("bstp_nmix_hgpr", 0)    or 0), 2),
+                    "low":         round(float(o.get("bstp_nmix_lwpr", 0)    or 0), 2),
+                    "volume":      int(o.get("acml_vol", 0) or 0),
+                }
+                try:
+                    import json as _json
+                    await redis.set(cache_key, _json.dumps(result), ex=30)
+                except Exception as e:
+                    logger.debug(f"Redis cache write failed for {cache_key}: {e}")
+                return result
+            except asyncio.TimeoutError:
+                if attempt == 0:
+                    logger.debug(f"KIS index quote timeout (attempt 1), retrying in 1s for {market_code}")
+                    await asyncio.sleep(1)
+                    continue
+                logger.warning(f"KIS index quote timeout after 2 attempts for {market_code}")
+                return None
     except Exception as e:
         logger.error(f"KIS index quote error for {market_code}: {e}")
         return None
