@@ -121,12 +121,12 @@ def _compute_prism_zones(
             & (comp_bids <= srates[:, None])
         )
         # 유효 경쟁사 최고 rate (-inf: 유효 경쟁사 없음 → 자동 낙찰)
-        comp_bids_eff = np.where(comp_valid, comp_bids, np.NINF)
+        comp_bids_eff = np.where(comp_valid, comp_bids, -np.inf)
         comp_max = comp_bids_eff.max(axis=1)  # (n_sim,)
     else:
         comp_bids = None
         comp_valid = None
-        comp_max = np.full(n_sim, np.NINF)  # 경쟁사 없으면 항상 최고
+        comp_max = np.full(n_sim, -np.inf)  # 경쟁사 없으면 항상 최고
         eff_floor_per_sim = floor_rate_pct * srates
 
     # 동적 스캔 범위 — srate_dist 분포 기반 (복수예가/고정방식 자동 대응)

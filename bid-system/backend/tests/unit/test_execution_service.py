@@ -294,7 +294,7 @@ class TestUpdate:
         obj = _exec(status="개찰대기", submitted_rate=0.905)
         svc, db = self._svc_with_exec(obj)
 
-        with patch("app.services.NotificationService") as MockNS:
+        with patch("app.services.notifications.NotificationService") as MockNS:
             mock_ns_instance = MockNS.return_value
             data = _update_data("낙찰")
             data.status = "낙찰"

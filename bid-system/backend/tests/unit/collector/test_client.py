@@ -148,7 +148,7 @@ def test_parse_notice_missing_amount(mocker, client: NarajangterClient):
 def test_parse_bid_result(mocker, client: NarajangterClient):
     """낙찰결과 응답 파싱 정확도 검증"""
     mock_response = _make_notice_response([RESULT_ITEM])
-    mocker.patch.object(client, "_get", return_value=mock_response)
+    mocker.patch.object(client, "_get_results", return_value=mock_response)
 
     raw = client.get_bid_results("202401010000", "202401310000")
     items = NarajangterClient._extract_items(raw)
@@ -164,17 +164,18 @@ def test_parse_bid_result(mocker, client: NarajangterClient):
 
 
 def test_parse_bid_result_loser(mocker, client: NarajangterClient):
-    """낙찰 실패 항목 is_winner=False 확인"""
-    item = {**RESULT_ITEM, "sucsfbidYn": "N", "rank": "2"}
+    """ScsbidInfoService는 낙찰자(1위)만 반환 — is_winner=True, rank=1 고정"""
+    # ScsbidInfoService는 낙찰자 단건만 반환하므로 rank/is_winner는 항상 1/True
+    item = {**RESULT_ITEM}
     mock_response = _make_notice_response([item])
-    mocker.patch.object(client, "_get", return_value=mock_response)
+    mocker.patch.object(client, "_get_results", return_value=mock_response)
 
     raw = client.get_bid_results("202401010000", "202401310000")
     items = NarajangterClient._extract_items(raw)
     result = NarajangterClient._parse_bid_result(items[0])
 
-    assert result.is_winner is False
-    assert result.rank == 2
+    assert result.is_winner is True  # ScsbidInfoService: 낙찰자만 반환
+    assert result.rank == 1
 
 
 # ------------------------------------------------------------------ #
@@ -281,7 +282,7 @@ def test_pagination_bid_results(mocker, client: NarajangterClient):
         _make_notice_response([result_p1], total=2, page=1),
         _make_notice_response([result_p2], total=2, page=2),
     ]
-    mocker.patch.object(client, "_get", side_effect=responses)
+    mocker.patch.object(client, "_get_results", side_effect=responses)
 
     pages = list(client.paginate_bid_results("202401010000", "202401310000", num_of_rows=1))
 

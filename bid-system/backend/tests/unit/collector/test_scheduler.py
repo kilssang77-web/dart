@@ -29,7 +29,8 @@ def test_create_scheduler_job_ids():
     assert "collect_results_and_sync_daily" in job_ids
     assert "collect_scsbid_daily" in job_ids
     assert "collect_bid_notices_inpo21c_daily" in job_ids
-    assert "collect_inpo21c_weekly" in job_ids
+    # collect_inpo21c_weekly → 주 3회 분리 (tue/thu/sun)
+    assert any(j.startswith("collect_inpo21c_national") for j in job_ids)
     assert "srate_spike_check_daily" in job_ids
 
 
@@ -57,6 +58,7 @@ def test_run_collection_job_all(monkeypatch):
         patch("app.config.get_settings", return_value=mock_settings),
         patch("app.collector.client.NarajangterClient", mock_client_cls),
         patch("app.collector.service.run_full_collection", mock_run_full),
+        patch("app.collector.scheduler._trigger_ml_retrain"),
     ):
         sched_mod.run_collection_job("all")
 
@@ -84,12 +86,12 @@ def test_run_collection_job_notices(monkeypatch):
     ):
         sched_mod.run_collection_job("notices")
 
-    assert mock_collect_notices.call_count == 3
+    # notice_thng 제거 후 2회 호출 (notice_cnstwk, notice_servc)
+    assert mock_collect_notices.call_count == 2
     mock_collect_notices.assert_has_calls(
         [
             call(mock_db, mock_client, "notice_cnstwk"),
             call(mock_db, mock_client, "notice_servc"),
-            call(mock_db, mock_client, "notice_thng"),
         ]
     )
 
@@ -111,6 +113,7 @@ def test_run_collection_job_results(monkeypatch):
         patch("app.config.get_settings", return_value=mock_settings),
         patch("app.collector.client.NarajangterClient", mock_client_cls),
         patch("app.collector.service.collect_results", mock_collect_results),
+        patch("app.collector.scheduler._trigger_ml_retrain"),
     ):
         sched_mod.run_collection_job("results")
 
