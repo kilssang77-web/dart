@@ -475,6 +475,7 @@ def scan_zones_from_dist(
     scan_step: float = 0.0005,
     n_sim: int = 10_000,
     gmm_params: Optional[dict] = None,
+    winner_rates: Optional[np.ndarray] = None,
 ) -> tuple[list[dict], list[dict]]:
     """
     사정률 분포로 투찰구간별 낙찰확률 스캔 (기초금액 대비 투찰률 기준).
@@ -484,6 +485,8 @@ def scan_zones_from_dist(
     scan_start/end를 지정하지 않으면 srate_dist에서 동적 산출:
       start = floor_rate_pct × p10(srate) × 0.995
       end   = p95(srate) × 1.005
+
+    winner_rates: 낙찰자 실측 투찰율 배열 (centroid 교정 전용, 경쟁자 pool과 별도)
 
     Returns:
         (all_zones, top10)
@@ -499,19 +502,26 @@ def scan_zones_from_dist(
     if scan_end is None:
         scan_end = round(srate_p95 * 1.005, 4)
 
-    # 스텝 수가 너무 많으면 step 조정
+    # 스텝 수가 너무 많으면 step 조정 — 6자리 정밀도로 비정수 스텝 확보
     n_steps = int((scan_end - scan_start) / scan_step) + 2
     if n_steps > 200:
-        scan_step = round((scan_end - scan_start) / 150, 4)
+        scan_step = round((scan_end - scan_start) / 150, 6)
 
     # inpo_rates: get_inpo_raw_rates() 반환값 — 이미 base_ratio(투찰/기초) 단위
     inpo_base: Optional[np.ndarray] = None
     if inpo_rates is not None and len(inpo_rates) >= 5:
         inpo_base = np.asarray(inpo_rates, dtype=np.float64)
 
-    # inpo_rates가 있으면 각 격자 구간 내 실제 투찰율 centroid 계산
-    # → 격자 중심값(0.0005 그리드) 대신 실측 분포값 사용으로 후행 0 제거
-    half_step = scan_step / 2
+    # centroid 교정 데이터 — winner_rates 우선, 없으면 inpo_base fallback
+    # 낙찰자 실측값을 사용해 격자 중심값 대신 실제 분포값을 effective_rate로 반영
+    centroid_base: Optional[np.ndarray] = None
+    if winner_rates is not None and len(winner_rates) >= 3:
+        centroid_base = np.asarray(winner_rates, dtype=np.float64)
+    elif inpo_base is not None:
+        centroid_base = inpo_base
+
+    # 스텝 크기에 비례한 넓은 윈도우 — 스캔 격자가 클 때도 실측값 포착
+    centroid_window = max(scan_step * 2.0, 0.002)
 
     zones: list[dict] = []
     rate = scan_start
@@ -519,10 +529,10 @@ def scan_zones_from_dist(
         rate_r = round(rate, 4)
         floor_ok = rate_r >= eff_floor_abs
 
-        # 해당 격자 구간 내 실측 투찰율 centroid (있으면 사용, 없으면 격자값 유지)
-        if inpo_base is not None:
-            mask = np.abs(inpo_base - rate_r) <= half_step
-            effective_rate = round(float(inpo_base[mask].mean()), 6) if mask.any() else round(rate, 6)
+        # 해당 격자 구간 내 실측 낙찰율 centroid (있으면 사용, 없으면 격자값 유지)
+        if centroid_base is not None:
+            mask = np.abs(centroid_base - rate_r) <= centroid_window
+            effective_rate = round(float(centroid_base[mask].mean()), 6) if mask.any() else round(rate, 6)
         else:
             effective_rate = round(rate, 6)
 

@@ -243,10 +243,26 @@ class DecisionService:
         except Exception:
             pass
 
+        # 낙찰자 실측 투찰율 — centroid 교정 전용 (경쟁자 pool과 분리)
+        _winner_rates_centroid = None
+        try:
+            from .ml.hotzone import _query_bid_rate_dist
+            _hz_rows, _ = _query_bid_rate_dist(db, agency_id, 24)
+            if _hz_rows:
+                _hz_wc = _np.array(
+                    [float(r[4]) for r in _hz_rows if r[4] is not None and 0.80 <= float(r[4]) <= 1.00],
+                    dtype=_np.float64,
+                )
+                if len(_hz_wc) >= 3:
+                    _winner_rates_centroid = _hz_wc
+        except Exception:
+            pass
+
         all_zones, top_zones = scan_zones_from_dist(
             srate_dist, floor_rate, base_amount,
             inpo_rates, expected_n, n_sim=min(n_sim // 10, 3_000),
             gmm_params=_gmm_params,
+            winner_rates=_winner_rates_centroid,
         )
 
         # 전략 투찰율: top_zones 승률 기반 → 없으면 floor 오프셋 fallback
