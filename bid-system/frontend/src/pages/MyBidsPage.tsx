@@ -738,7 +738,7 @@ export default function MyBidsPage() {
                       <CardContent className="p-5">
                         <p className="text-sm font-medium text-slate-500">평균 격차</p>
                         <p className={cn("text-2xl font-bold mt-1 tabular-nums", gapData.mean_diff != null && gapData.mean_diff > 0 ? "text-amber-600" : "text-blue-600")}>
-                          {gapData.mean_diff != null ? `${gapData.mean_diff > 0 ? '+' : ''}${(gapData.mean_diff * 100).toFixed(3)}%` : '-'}
+                          {gapData.mean_diff != null ? `${gapData.mean_diff > 0 ? '+' : ''}${(gapData.mean_diff * 100).toFixed(4)}%` : '-'}
                         </p>
                         <p className="text-xs text-slate-500 mt-1">
                           {gapData.consistent_direction === 'too_high' ? '▲ 낙찰자보다 높게 투찰' : gapData.consistent_direction === 'too_low' ? '▼ 낙찰자보다 낮게 투찰' : '— 혼합 패턴'}
@@ -751,7 +751,7 @@ export default function MyBidsPage() {
                         <CardContent className="p-5">
                           <p className="text-sm font-medium text-slate-500">낙찰 가능 구간</p>
                           <p className="text-2xl font-bold mt-1 tabular-nums text-amber-600">
-                            -{(gapData.win_if_lower_by * 100).toFixed(3)}%
+                            -{(gapData.win_if_lower_by * 100).toFixed(4)}%
                           </p>
                           <p className="text-xs text-slate-500 mt-1">낮게 투찰하면 낙찰 구간 진입</p>
                         </CardContent>
@@ -771,7 +771,7 @@ export default function MyBidsPage() {
                       <CardContent className="p-5">
                         <p className="text-sm font-medium text-slate-500">분석 건수</p>
                         <p className="text-2xl font-bold mt-1 tabular-nums text-slate-900">{gapData.total_analyzed}건</p>
-                        <p className="text-xs text-slate-500 mt-1">중앙값 {gapData.median_diff != null ? `${gapData.median_diff > 0 ? '+' : ''}${(gapData.median_diff * 100).toFixed(3)}%` : '-'}</p>
+                        <p className="text-xs text-slate-500 mt-1">중앙값 {gapData.median_diff != null ? `${gapData.median_diff > 0 ? '+' : ''}${(gapData.median_diff * 100).toFixed(4)}%` : '-'}</p>
                       </CardContent>
                     </Card>
                   </div>
@@ -788,7 +788,7 @@ export default function MyBidsPage() {
                         <p className="text-sm text-slate-500 text-center py-10">분포 데이터 없음</p>
                       ) : (
                         <ResponsiveContainer width="100%" height={240}>
-                          <BarChart data={gapData.buckets.map((b) => ({ mid: +((b.range_lo + b.range_hi) / 2 * 100).toFixed(3), count: b.count, positive: b.range_lo >= 0 }))} margin={{ left: -10, right: 10 }}>
+                          <BarChart data={gapData.buckets.map((b) => ({ mid: +((b.range_lo + b.range_hi) / 2 * 100).toFixed(4), count: b.count, positive: b.range_lo >= 0 }))} margin={{ left: -10, right: 10 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                             <XAxis dataKey="mid" unit="%" tick={{ fontSize: 12, fill: '#475569' }} />
                             <YAxis tick={{ fontSize: 12, fill: '#475569' }} allowDecimals={false} />
@@ -817,7 +817,7 @@ export default function MyBidsPage() {
                         <div className="flex gap-4 text-xs text-slate-500 bg-slate-50 rounded-lg p-3">
                           <span>신뢰도: <span className="font-medium text-slate-700">{(gapData.personal_bias.confidence * 100).toFixed(0)}%</span></span>
                           <span>샘플: <span className="font-medium text-slate-700">{gapData.personal_bias.sample_count}건</span></span>
-                          <span>편향: <span className="font-medium text-slate-700">{gapData.personal_bias.avg_bias_pct > 0 ? '+' : ''}{gapData.personal_bias.avg_bias_pct.toFixed(3)}%</span></span>
+                          <span>편향: <span className="font-medium text-slate-700">{gapData.personal_bias.avg_bias_pct > 0 ? '+' : ''}{gapData.personal_bias.avg_bias_pct.toFixed(4)}%</span></span>
                         </div>
                       </CardContent>
                     </Card>
@@ -859,7 +859,7 @@ export default function MyBidsPage() {
                         <p className="text-xl font-bold text-slate-900 mb-2">{winPattern.bias.signal}</p>
                         <div className="flex flex-wrap gap-4 text-sm text-slate-500">
                           <span>평균 rate_diff: <span className="font-mono font-semibold text-slate-700">
-                            {winPattern.bias.rate_diff_mean != null ? `${winPattern.bias.rate_diff_mean > 0 ? '+' : ''}${(winPattern.bias.rate_diff_mean * 100).toFixed(3)}%p` : '-'}
+                            {winPattern.bias.rate_diff_mean != null ? `${winPattern.bias.rate_diff_mean > 0 ? '+' : ''}${(winPattern.bias.rate_diff_mean * 100).toFixed(4)}%p` : '-'}
                           </span></span>
                           <span>총 <span className="font-semibold text-slate-700">{winPattern.total}건</span> 중 낙찰 <span className="font-semibold text-emerald-600">{winPattern.won}건</span> ({winPattern.overall_win_rate.toFixed(2)}%)</span>
                         </div>
@@ -941,7 +941,7 @@ export default function MyBidsPage() {
                                 {a.win_rate.toFixed(1)}%
                               </TableCell>
                               <TableCell className={cn('text-right font-mono text-sm', a.avg_rate_diff == null ? 'text-slate-400' : a.avg_rate_diff > 0 ? 'text-amber-600' : 'text-blue-600')}>
-                                {a.avg_rate_diff != null ? `${a.avg_rate_diff > 0 ? '+' : ''}${(a.avg_rate_diff * 100).toFixed(3)}%p` : '-'}
+                                {a.avg_rate_diff != null ? `${a.avg_rate_diff > 0 ? '+' : ''}${(a.avg_rate_diff * 100).toFixed(4)}%p` : '-'}
                               </TableCell>
                             </TableRow>
                           ))}

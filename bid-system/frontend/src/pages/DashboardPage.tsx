@@ -164,7 +164,7 @@ export default function DashboardPage() {
   const trend = (overview?.monthly_trend ?? []).map((d) => ({
     label:  `${d.year}-${String(d.month).padStart(2, '0')}`,
     건수:   d.bid_count,
-    낙찰률: d.avg_rate ? +(d.avg_rate * 100).toFixed(2) : null,
+    낙찰률: d.avg_rate ? +(d.avg_rate * 100).toFixed(4) : null,
   }))
   const topAgencies = (agencies ?? []).slice(0, 10)
   const recentWins = (recentClosed?.items ?? []).filter((b) => b.winner_rate != null).slice(0, 8)
@@ -276,7 +276,7 @@ export default function DashboardPage() {
           {STAT_CARDS.map(({ key, label, unit, icon: Icon, accentColor, iconColor, iconBg, changeKey, higherIsBetter, pct }) => {
             const raw = overview?.[key as keyof OverviewStatsWithChange] as number | null | undefined
             const display = raw == null ? '-'
-              : pct ? (raw * 100).toFixed(2) + unit
+              : pct ? (raw * 100).toFixed(4) + unit
               : key === 'avg_competitor_count' ? raw.toFixed(1) + unit
               : raw.toLocaleString() + unit
             const changeVal = changeKey ? overview?.[changeKey as keyof OverviewStatsWithChange] as number | null | undefined : null
@@ -496,7 +496,7 @@ export default function DashboardPage() {
                     </div>
                     <div className="text-right shrink-0">
                       <p className="text-sm font-bold font-mono text-blue-600 tabular-nums">
-                        {b.winner_rate ? (b.winner_rate * 100).toFixed(2) + '%' : '-'}
+                        {b.winner_rate ? (b.winner_rate * 100).toFixed(4) + '%' : '-'}
                       </p>
                       <p className="text-xs text-slate-500">{fmtAmt(b.base_amount)}</p>
                     </div>

@@ -50,11 +50,11 @@ export default function SrateRangeViz({ p10, p25, p50, p75, p90 }: SrateRangeViz
       </div>
 
       <div className="flex justify-between text-xs">
-        <span className="text-slate-500">P10 {(p10 * 100).toFixed(3)}%</span>
-        <span className="text-blue-500">P25 {(p25 * 100).toFixed(3)}%</span>
-        <span className="font-semibold text-blue-700">중앙 {(p50 * 100).toFixed(3)}%</span>
-        <span className="text-blue-500">P75 {(p75 * 100).toFixed(3)}%</span>
-        <span className="text-slate-500">P90 {(p90 * 100).toFixed(3)}%</span>
+        <span className="text-slate-500">P10 {(p10 * 100).toFixed(4)}%</span>
+        <span className="text-blue-500">P25 {(p25 * 100).toFixed(4)}%</span>
+        <span className="font-semibold text-blue-700">중앙 {(p50 * 100).toFixed(4)}%</span>
+        <span className="text-blue-500">P75 {(p75 * 100).toFixed(4)}%</span>
+        <span className="text-slate-500">P90 {(p90 * 100).toFixed(4)}%</span>
       </div>
     </div>
   )

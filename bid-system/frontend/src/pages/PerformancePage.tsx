@@ -252,7 +252,7 @@ function TabKPI() {
                 <p className={cn('text-2xl font-bold mt-1 tabular-nums',
                   (kpi?.srate_mae ?? 0) <= 0.003 ? 'text-emerald-600'
                   : (kpi?.srate_mae ?? 0) <= 0.005 ? 'text-amber-600' : 'text-red-500')}>
-                  {kpi?.srate_mae != null ? (kpi.srate_mae * 100).toFixed(3) + '%' : '-'}
+                  {kpi?.srate_mae != null ? (kpi.srate_mae * 100).toFixed(4) + '%' : '-'}
                 </p>
                 <p className="text-xs text-slate-500 mt-1">목표 0.500% 이하</p>
               </div>
@@ -328,7 +328,7 @@ function TabHistory({ navigate }: { navigate: ReturnType<typeof useNavigate> }) 
         />
         <KpiCard
           label="평균 투찰률"
-          value={stats?.avg_submitted_rate != null ? `${(stats.avg_submitted_rate * 100).toFixed(3)}%` : '-'}
+          value={stats?.avg_submitted_rate != null ? `${(stats.avg_submitted_rate * 100).toFixed(4)}%` : '-'}
           icon={Target}
         />
       </div>
@@ -401,7 +401,7 @@ function TabHistory({ navigate }: { navigate: ReturnType<typeof useNavigate> }) 
                       {rec.base_amount > 0 ? (rec.base_amount / 1e8).toFixed(1) + '억' : '-'}
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm text-slate-700 tabular-nums">
-                      {(rec.submitted_rate * 100).toFixed(3)}%
+                      {(rec.submitted_rate * 100).toFixed(4)}%
                     </TableCell>
                     <TableCell className="text-center">
                       <ResultBadge result={rec.result} />
@@ -461,7 +461,7 @@ function TabDefeat({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <KpiCard
           label="평균 이탈폭"
-          value={miss_stats?.avg_diff_pct != null ? `${Math.abs(miss_stats.avg_diff_pct).toFixed(3)}%` : '-'}
+          value={miss_stats?.avg_diff_pct != null ? `${Math.abs(miss_stats.avg_diff_pct).toFixed(4)}%` : '-'}
           sub={dirLabel}
           status={dirStatus}
           icon={TrendingDown}
@@ -547,7 +547,7 @@ function TabDefeat({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
                     <TableCell className="font-semibold text-sm text-slate-800">{a.agency_name}</TableCell>
                     <TableCell className="text-center text-sm text-slate-600 tabular-nums">{a.count}건</TableCell>
                     <TableCell className="text-right font-mono text-sm text-slate-600 tabular-nums">
-                      {a.avg_diff != null ? `${Math.abs(a.avg_diff).toFixed(3)}%` : '-'}
+                      {a.avg_diff != null ? `${Math.abs(a.avg_diff).toFixed(4)}%` : '-'}
                     </TableCell>
                     <TableCell className="text-right">
                       <span className={cn(
@@ -589,7 +589,7 @@ function TabDefeat({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
               <div className="text-right">
                 <p className="text-xs text-slate-500 font-medium">평균 편차</p>
                 <p className="text-2xl font-bold text-slate-900 tabular-nums">
-                  {wp.bias.rate_diff_mean != null ? `${(wp.bias.rate_diff_mean * 100).toFixed(3)}%` : '-'}
+                  {wp.bias.rate_diff_mean != null ? `${(wp.bias.rate_diff_mean * 100).toFixed(4)}%` : '-'}
                 </p>
               </div>
             </div>

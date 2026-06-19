@@ -1,4 +1,15 @@
-"""Hot Zone 탐지 — inpo21c_participants 직접 쿼리 + rate_frequency_tables KDE 기반."""
+"""
+Hot Zone 탐지 — inpo21c_participants 직접 쿼리 + rate_frequency_tables KDE 기반.
+
+★ 용어 정의 (이 모듈에서 사용하는 "srate" / "rate" 의미)
+  - srate (peaks 내부)  : bid_rate = 투찰금액 / 기초금액  (범위: 0.860~0.970)
+  - assessment_rate     : 예정가격 / 기초금액            (범위: 0.970~1.030, 복수예가)
+  - relative_rate       : 투찰금액 / 예정가격 = bid_rate / assessment_rate
+
+  get_hot_zones()의 peaks[].srate   → bid_rate (기초대비)
+  get_best_rate()의 recommended_srate → bid_rate (기초대비)
+  assessment.py의 srate_center/std   → assessment_rate (예정/기초)
+"""
 from __future__ import annotations
 
 import math
@@ -11,9 +22,9 @@ from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
-# 복수예가 낙찰 집중 구간
-RATE_MIN = 0.870
-RATE_MAX = 0.960
+# 복수예가 낙찰 집중 구간 (0.860~0.970 포괄 — 복수예가 srate≈1.0 포함)
+RATE_MIN = 0.860
+RATE_MAX = 0.970
 
 
 def _query_bid_rate_dist(
@@ -130,7 +141,7 @@ def get_hot_zones(
         tc  = int(totals[idx])
         score = wr * math.log1p(wc)
         peaks.append({
-            "srate":     round(sr, 3),
+            "srate":     round(sr, 4),
             "win_rate":  round(wr, 4),
             "win_count": wc,
             "total":     tc,
@@ -175,70 +186,134 @@ def get_best_rate(
     period_type: str = "24M",
 ) -> dict:
     """
-    단일 최적 투찰 사정율 계산.
+    Option D: 실증 승자 분포 기반 최적 투찰율 계산.
 
-    우선순위:
-    1) Hot Zone 1위 + Prism 일치 (±0.005) → hotzone+prism
-    2) Hot Zone 1위 단독 (win_count >= 10) → hotzone
-    3) Prism Top 1위 단독 → prism
-    4) 전국 최빈 낙찰 구간 0.898 → fallback
+    추천 우선순위:
+    1) 승자분포 타겟 + Hot Zone 버킷 일치  → winner+hotzone  (신뢰도 최고)
+    2) 승자분포 타겟 단독 (count >= 10)    → winner
+    3) A값 예측 × 예정대비 최적율          → assessment_based
+    4) Hot Zone 1위 + Prism 일치 (±0.005) → hotzone+prism   (기존 fallback)
+    5) Hot Zone 1위 단독 (win_count >= 10) → hotzone
+    6) Prism Top 1위 단독                 → prism
+    7) 전국 최빈 낙찰 구간 0.898          → fallback
     """
     from .assessment import get_prism_zones, get_agency_a_ratio
+    from .winner_dist import (
+        get_winner_percentiles,
+        get_assessment_rate_dist,
+        get_relative_rate_dist,
+    )
 
-    hot   = get_hot_zones(db, agency_id, period_type=period_type)
-    prism = get_prism_zones(db, agency_id, period_type=period_type)
+    hot        = get_hot_zones(db, agency_id, period_type=period_type)
+    prism      = get_prism_zones(db, agency_id, period_type=period_type)
+    winner     = get_winner_percentiles(db, agency_id, None, base_amount, period_type)
+    arate_dist = get_assessment_rate_dist(db, agency_id, period_type)
+    rel_dist   = get_relative_rate_dist(db, agency_id, None, period_type)
     a_ratio_actual = get_agency_a_ratio(db, agency_id)
 
     recommended_srate: Optional[float] = None
-    source = "fallback"
+    source     = "fallback"
     confidence = 0.30
 
-    if hot["best_rate"] and prism["top_zones"]:
-        prism_top1 = prism["top_zones"][0]["srate"]
-        diff = abs(hot["best_rate"] - prism_top1)
+    target_rate  = winner.get("target_rate")
+    target_pct   = winner.get("target_percentile", 65)
+    winner_count = winner.get("count", 0)
+    intensity    = winner.get("competition_intensity", "normal")
 
-        if diff <= 0.005:
-            recommended_srate = hot["best_rate"]
-            source = "hotzone+prism"
-            confidence = min(0.92, 0.65 + hot["peaks"][0]["win_rate"])
+    # ── 1/2: 승자분포 기반 ────────────────────────────────
+    if target_rate and winner_count >= 10:
+        if hot["best_rate"]:
+            hot_bucket    = round(hot["best_rate"], 3)
+            target_bucket = round(target_rate, 3)
+            bucket_match  = abs(hot_bucket - target_bucket) <= 0.002
+
+            if bucket_match:
+                recommended_srate = target_rate
+                source     = "winner+hotzone"
+                confidence = min(0.95, 0.70 + min(winner_count, 100) / 500)
+            else:
+                # 버킷 불일치 → 승자분포만 사용 (실증 데이터 우선)
+                recommended_srate = target_rate
+                source     = "winner"
+                confidence = min(0.82, 0.58 + min(winner_count, 100) / 500)
         else:
-            if hot["peaks"][0]["win_count"] >= 10:
+            recommended_srate = target_rate
+            source     = "winner"
+            confidence = min(0.80, 0.55 + min(winner_count, 100) / 500)
+
+    # ── 3: A값 × 예정대비 최적율 ────────────────────────
+    if recommended_srate is None:
+        arate_p50 = arate_dist.get("p50")
+        rel_key   = "p75" if intensity == "low" else "p65"
+        rel_opt   = rel_dist.get(rel_key)
+
+        if arate_p50 and rel_opt and arate_dist.get("count", 0) >= 5:
+            calc = round(arate_p50 * rel_opt, 4)
+            if 0.840 <= calc <= 0.990:
+                recommended_srate = calc
+                source     = "assessment_based"
+                confidence = min(0.72, 0.45 + min(arate_dist["count"], 50) / 250)
+
+    # ── 4~6: 기존 Hot Zone + Prism fallback ─────────────
+    if recommended_srate is None:
+        if hot["best_rate"] and prism["top_zones"]:
+            prism_top1 = prism["top_zones"][0]["srate"]
+            diff = abs(hot["best_rate"] - prism_top1)
+
+            if diff <= 0.005:
                 recommended_srate = hot["best_rate"]
-                source = "hotzone"
-                confidence = min(0.85, 0.50 + hot["peaks"][0]["win_rate"])
+                source     = "hotzone+prism"
+                confidence = min(0.70, 0.50 + hot["peaks"][0]["win_rate"])
+            elif hot["peaks"][0]["win_count"] >= 10:
+                recommended_srate = hot["best_rate"]
+                source     = "hotzone"
+                confidence = min(0.65, 0.45 + hot["peaks"][0]["win_rate"])
             else:
                 recommended_srate = prism_top1
-                source = "prism"
-                confidence = min(0.80, 0.45 + prism["top_zones"][0]["win_rate"])
+                source     = "prism"
+                confidence = min(0.60, 0.40 + prism["top_zones"][0]["win_rate"])
 
-    elif hot["best_rate"]:
-        recommended_srate = hot["best_rate"]
-        source = "hotzone"
-        confidence = min(0.75, 0.40 + hot["peaks"][0]["win_rate"])
+        elif hot["best_rate"]:
+            recommended_srate = hot["best_rate"]
+            source     = "hotzone"
+            confidence = min(0.60, 0.38 + hot["peaks"][0]["win_rate"])
 
-    elif prism["top_zones"]:
-        recommended_srate = prism["top_zones"][0]["srate"]
-        source = "prism"
-        confidence = min(0.70, 0.40 + prism["top_zones"][0]["win_rate"])
+        elif prism["top_zones"]:
+            recommended_srate = prism["top_zones"][0]["srate"]
+            source     = "prism"
+            confidence = min(0.55, 0.35 + prism["top_zones"][0]["win_rate"])
 
-    else:
-        recommended_srate = 0.898   # 전국 복수예가 최빈 낙찰 구간
-        source = "fallback"
-        confidence = 0.30
+        else:
+            recommended_srate = 0.898
+            source     = "fallback"
+            confidence = 0.30
 
     recommended_price = None
     if base_amount > 0 and recommended_srate:
-        # 투찰금액 = 기초금액 × A값(예정/기초) × 투찰율(투찰/예정)
-        recommended_price = int(base_amount * a_ratio_actual * recommended_srate)
+        recommended_price = int(base_amount * recommended_srate)
 
     return {
-        "recommended_srate": round(float(recommended_srate), 4) if recommended_srate else None,
-        "recommended_price": recommended_price,
-        "confidence":        round(confidence, 3),
-        "source":            source,
-        "a_ratio":           a_ratio_actual,
-        "hotzone_peaks":     hot["peaks"][:5],
-        "prism_top":         prism["top_zones"][:5],
-        "data_source":       hot["data_source"],
-        "period_type":       period_type,
+        "recommended_srate":     round(float(recommended_srate), 4) if recommended_srate else None,
+        "recommended_price":     recommended_price,
+        "confidence":            round(confidence, 3),
+        "source":                source,
+        "a_ratio":               a_ratio_actual,
+        "hotzone_peaks":         hot["peaks"][:5],
+        "prism_top":             prism["top_zones"][:5],
+        "data_source":           hot["data_source"],
+        "period_type":           period_type,
+        # Option D 추가 필드
+        "winner_percentiles": {
+            "p25": winner.get("p25"),
+            "p50": winner.get("p50"),
+            "p65": winner.get("p65"),
+            "p70": winner.get("p70"),
+            "p75": winner.get("p75"),
+            "p85": winner.get("p85"),
+        },
+        "winner_count":          winner_count,
+        "target_percentile":     target_pct,
+        "competition_intensity": intensity,
+        "avg_competitors":       winner.get("avg_competitors", 8.0),
+        "assessment_rate_est":   arate_dist.get("p50"),
     }

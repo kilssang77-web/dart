@@ -47,7 +47,7 @@ export default function StrategyCompareChart({ strategies }: StrategyCompareChar
           <LabelList
             dataKey="rate"
             position="right"
-            formatter={(v: number) => `${(v * 100).toFixed(2)}%`}
+            formatter={(v: number) => `${(v * 100).toFixed(4)}%`}
             style={{ fontSize: 12, fill: '#64748b' }}
           />
         </Bar>

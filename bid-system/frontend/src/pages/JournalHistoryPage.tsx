@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-const ratePct = (n: number) => (n * 100).toFixed(3) + '%'
+const ratePct = (n: number) => (n * 100).toFixed(4) + '%'
 const fmt = (n: number) => n.toLocaleString('ko-KR')
 
 type ResultFilter = '' | '낙찰' | '패찰' | '무효' | '취소' | 'pending'
@@ -170,7 +170,7 @@ function JournalRow({ journal }: { journal: JournalOut }) {
               <div>
                 <span className="text-gray-400">투찰률 편차</span>
                 <div className={cn('font-mono font-semibold', Math.abs(journal.rate_gap) < 0.005 ? 'text-emerald-600' : 'text-amber-600')}>
-                  {journal.rate_gap > 0 ? '+' : ''}{(journal.rate_gap * 100).toFixed(3)}%
+                  {journal.rate_gap > 0 ? '+' : ''}{(journal.rate_gap * 100).toFixed(4)}%
                 </div>
               </div>
             )}
@@ -178,7 +178,7 @@ function JournalRow({ journal }: { journal: JournalOut }) {
               <div>
                 <span className="text-gray-400">사정율 오차</span>
                 <div className={cn('font-mono font-semibold', Math.abs(journal.srate_error) < 0.003 ? 'text-emerald-600' : 'text-amber-600')}>
-                  {journal.srate_error > 0 ? '+' : ''}{(journal.srate_error * 100).toFixed(3)}%
+                  {journal.srate_error > 0 ? '+' : ''}{(journal.srate_error * 100).toFixed(4)}%
                 </div>
               </div>
             )}
@@ -267,7 +267,7 @@ export default function JournalHistoryPage() {
                 { label: '총 투찰 기록', value: stats.total + '건', icon: BookOpen, color: 'text-blue-600', bg: 'bg-blue-50' },
                 { label: '낙찰', value: stats.wins + '건', icon: Trophy, color: 'text-emerald-600', bg: 'bg-emerald-50' },
                 { label: '결과 입력 대기', value: stats.pending_result + '건', icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
-                { label: '사정율 예측 MAE', value: stats.avg_srate_mae != null ? (stats.avg_srate_mae * 100).toFixed(2) + '%' : '-', icon: BarChart2, color: 'text-purple-600', bg: 'bg-purple-50' },
+                { label: '사정율 예측 MAE', value: stats.avg_srate_mae != null ? (stats.avg_srate_mae * 100).toFixed(4) + '%' : '-', icon: BarChart2, color: 'text-purple-600', bg: 'bg-purple-50' },
               ].map(({ label, value, icon: Icon, color, bg }) => (
                 <div key={label} className="bg-white rounded-xl border p-4 shadow-sm flex items-center gap-3">
                   <div className={cn('w-10 h-10 rounded-lg flex items-center justify-center shrink-0', bg)}>
@@ -299,7 +299,7 @@ export default function JournalHistoryPage() {
                 <div className="text-center">
                   <div className="text-gray-400 text-xs mb-1">패찰 시 편차 (avg)</div>
                   <div className="text-xl font-bold text-amber-600 font-mono">
-                    {stats.avg_rate_gap_loss != null ? (stats.avg_rate_gap_loss * 100).toFixed(3) + '%' : '-'}
+                    {stats.avg_rate_gap_loss != null ? (stats.avg_rate_gap_loss * 100).toFixed(4) + '%' : '-'}
                   </div>
                   <div className="text-xs text-gray-400 mt-0.5">낙찰자와의 거리</div>
                 </div>
@@ -312,7 +312,7 @@ export default function JournalHistoryPage() {
                 <div className="text-center">
                   <div className="text-gray-400 text-xs mb-1">AI 편차 (avg rate delta)</div>
                   <div className="text-xl font-bold text-blue-600 font-mono">
-                    {stats.avg_rate_delta != null ? (stats.avg_rate_delta * 100).toFixed(3) + '%' : '-'}
+                    {stats.avg_rate_delta != null ? (stats.avg_rate_delta * 100).toFixed(4) + '%' : '-'}
                   </div>
                   <div className="text-xs text-gray-400 mt-0.5">AI 추천 vs 실제 투찰</div>
                 </div>
@@ -328,7 +328,7 @@ export default function JournalHistoryPage() {
                     ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                     : <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
                   <span>
-                    패찰 시 평균 편차 {(Math.abs(stats.avg_rate_gap_loss) * 100).toFixed(3)}% —&nbsp;
+                    패찰 시 평균 편차 {(Math.abs(stats.avg_rate_gap_loss) * 100).toFixed(4)}% —&nbsp;
                     {stats.avg_rate_gap_loss > 0
                       ? '우리가 낙찰자보다 낮게 입찰 중. 투찰률을 소폭 상향 검토.'
                       : '우리가 낙찰자보다 높게 입찰 중. 투찰률을 소폭 하향 검토.'}

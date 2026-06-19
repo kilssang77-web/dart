@@ -182,7 +182,7 @@ export default function CompetitorPage() {
     label:  `${d.year}-${String(d.month).padStart(2,'0')}`,
     입찰수: d.bid_count,
     수주수: d.win_count,
-    평균율: d.avg_rate ? +(d.avg_rate * 100).toFixed(2) : null,
+    평균율: d.avg_rate ? +(d.avg_rate * 100).toFixed(4) : null,
   }))
 
   function handleSearch() { setSearch(keyword); setPage(1) }
@@ -404,7 +404,7 @@ export default function CompetitorPage() {
                           </span>
                         </div>
                         <div className="text-xs text-slate-500 mt-0.5">
-                          수주 {c.win_count}건 · 평균 {(c.avg_bid_rate * 100).toFixed(2)}%
+                          수주 {c.win_count}건 · 평균 {(c.avg_bid_rate * 100).toFixed(4)}%
                         </div>
                       </div>
                     )
@@ -469,7 +469,7 @@ export default function CompetitorPage() {
                         <MetricCard label="수주 건수" value={detail.win_count + '건'} />
                       )}
                       <MetricCard label="수주율" value={(detail.win_rate * 100).toFixed(1) + '%'} highlight />
-                      <MetricCard label="평균 투찰률" value={(detail.avg_bid_rate * 100).toFixed(2) + '%'} />
+                      <MetricCard label="평균 투찰률" value={(detail.avg_bid_rate * 100).toFixed(4) + '%'} />
                       <MetricCard label="공격성 점수" value={detail.aggression_score + '/10'} />
                       <MetricCard label="일관성 점수" value={(detail.consistency_score ?? 0).toFixed(1) + '/10'} />
                     </div>
@@ -859,8 +859,8 @@ export default function CompetitorPage() {
                     const t1 = c1.monthly_trend.find((t: { year_month: string }) => t.year_month === ym)
                     return {
                       ym,
-                      [c0.name]: t0?.avg_rate != null ? +(t0.avg_rate * 100).toFixed(3) : null,
-                      [c1.name]: t1?.avg_rate != null ? +(t1.avg_rate * 100).toFixed(3) : null,
+                      [c0.name]: t0?.avg_rate != null ? +(t0.avg_rate * 100).toFixed(4) : null,
+                      [c1.name]: t1?.avg_rate != null ? +(t1.avg_rate * 100).toFixed(4) : null,
                     }
                   })
                   const COMPARE_COLORS = ['#7c3aed', '#f97316']
@@ -947,7 +947,7 @@ export default function CompetitorPage() {
                       <TableCell className="text-right whitespace-nowrap text-sm text-slate-600">{fmtAmt(w.base_amount)}</TableCell>
                       <TableCell className="text-center">
                         <span className="font-mono font-bold text-purple-600 text-sm">
-                          {w.bid_rate ? (w.bid_rate * 100).toFixed(2) + '%' : '-'}
+                          {w.bid_rate ? (w.bid_rate * 100).toFixed(4) + '%' : '-'}
                         </span>
                       </TableCell>
                     </TableRow>
@@ -958,9 +958,9 @@ export default function CompetitorPage() {
           </div>
           {winHistory.length > 0 && (
             <div className="border-t border-slate-100 pt-3 flex gap-6 text-xs text-slate-500">
-              <span>평균 투찰률 <strong className="text-purple-600 text-sm">{(avgRate * 100).toFixed(2)}%</strong></span>
-              <span>최고 <strong className="text-emerald-600">{(maxRate * 100).toFixed(2)}%</strong></span>
-              <span>최저 <strong className="text-red-500">{(minRate * 100).toFixed(2)}%</strong></span>
+              <span>평균 투찰률 <strong className="text-purple-600 text-sm">{(avgRate * 100).toFixed(4)}%</strong></span>
+              <span>최고 <strong className="text-emerald-600">{(maxRate * 100).toFixed(4)}%</strong></span>
+              <span>최저 <strong className="text-red-500">{(minRate * 100).toFixed(4)}%</strong></span>
             </div>
           )}
         </DialogContent>

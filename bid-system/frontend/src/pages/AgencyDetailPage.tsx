@@ -168,10 +168,10 @@ export default function AgencyDetailPage() {
     .sort((a, b) => new Date(a.bid_open_date!).getTime() - new Date(b.bid_open_date!).getTime())
     .map((b) => ({
       date: new Date(b.bid_open_date!).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }),
-      rate: b.winner_rate != null ? +(b.winner_rate * 100).toFixed(3) : null,
+      rate: b.winner_rate != null ? +(b.winner_rate * 100).toFixed(4) : null,
     }))
-  const globalMean = globalSrate?.srate_mean != null ? +(globalSrate.srate_mean * 100).toFixed(3) : null
-  const agencyMean = agencySrate?.srate_mean != null ? +(agencySrate.srate_mean * 100).toFixed(3) : null
+  const globalMean = globalSrate?.srate_mean != null ? +(globalSrate.srate_mean * 100).toFixed(4) : null
+  const agencyMean = agencySrate?.srate_mean != null ? +(agencySrate.srate_mean * 100).toFixed(4) : null
 
   const timelineRaw = (recentResultsData?.items ?? [])
     .filter((r) => r.assessment_rate != null && r.bid_open_date != null)
@@ -180,12 +180,12 @@ export default function AgencyDetailPage() {
   const trendValues = computeLinearTrend(timelineRaw.map((r) => ({ rate: r.assessment_rate! * 100 })))
   const timelineChartData = timelineRaw.map((r, i) => ({
     date: new Date(r.bid_open_date!).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }),
-    rate: +(r.assessment_rate! * 100).toFixed(3),
+    rate: +(r.assessment_rate! * 100).toFixed(4),
     trend: trendValues[i] ?? null,
   }))
   const tlN = timelineChartData.length
   const tlMeanRate =
-    tlN > 0 ? +(timelineChartData.reduce((s, d) => s + d.rate, 0) / tlN).toFixed(3) : null
+    tlN > 0 ? +(timelineChartData.reduce((s, d) => s + d.rate, 0) / tlN).toFixed(4) : null
 
   const trendSlope = tlN >= 2 ? trendValues[tlN - 1] - trendValues[0] : 0
 
@@ -240,9 +240,9 @@ export default function AgencyDetailPage() {
         <div className="px-6 py-3 flex items-center gap-6 overflow-x-auto">
           {[
             { label: '총 입찰공고', value: bidsData?.total?.toLocaleString() ?? '-', unit: '건', icon: FileText, color: 'text-blue-600' },
-            { label: '평균 낙찰률', value: agencyStat?.avg_rate != null ? (agencyStat.avg_rate * 100).toFixed(2) : '-', unit: '%', icon: Target, color: 'text-emerald-600' },
+            { label: '평균 낙찰률', value: agencyStat?.avg_rate != null ? (agencyStat.avg_rate * 100).toFixed(4) : '-', unit: '%', icon: Target, color: 'text-emerald-600' },
             { label: '평균 경쟁업체', value: agencyStat?.avg_competitor_count != null ? agencyStat.avg_competitor_count.toFixed(1) : '-', unit: '개사', icon: Users, color: 'text-amber-600' },
-            { label: '사정율 중앙값', value: agencySrate?.srate_p50 != null ? (agencySrate.srate_p50 * 100).toFixed(3) : '-', unit: '%', icon: TrendingUp, color: 'text-violet-600' },
+            { label: '사정율 중앙값', value: agencySrate?.srate_p50 != null ? (agencySrate.srate_p50 * 100).toFixed(4) : '-', unit: '%', icon: TrendingUp, color: 'text-violet-600' },
           ].map(({ label, value, unit, icon: Icon, color }) => (
             <div key={label} className="flex items-center gap-2.5 shrink-0">
               <Icon className={cn('h-4 w-4 shrink-0', color)} />
@@ -311,7 +311,7 @@ export default function AgencyDetailPage() {
                         : 'bg-red-50 text-red-700 border border-red-200'
                     )}>
                       <span>{agencySrate.srate_trend > 0 ? '▲' : '▼'} 최근 추세</span>
-                      <span className="font-semibold">{Math.abs(agencySrate.srate_trend * 100).toFixed(3)}%</span>
+                      <span className="font-semibold">{Math.abs(agencySrate.srate_trend * 100).toFixed(4)}%</span>
                     </div>
                   )}
                 </CardContent>
@@ -445,7 +445,7 @@ export default function AgencyDetailPage() {
                             <TableCell className="text-right">
                               {b.winner_rate != null ? (
                                 <span className="font-mono font-semibold text-xs text-blue-600">
-                                  {(b.winner_rate * 100).toFixed(2)}%
+                                  {(b.winner_rate * 100).toFixed(4)}%
                                 </span>
                               ) : (
                                 <span className="text-xs text-slate-300">-</span>
@@ -545,10 +545,10 @@ export default function AgencyDetailPage() {
                     <div className="flex items-center gap-4 mt-2 text-xs text-slate-500">
                       <span>{histMonths}개월 · {histogram.sample_count}건</span>
                       {histogram.mean != null && (
-                        <span>평균 <strong className="text-slate-800">{(histogram.mean * 100).toFixed(3)}%</strong></span>
+                        <span>평균 <strong className="text-slate-800">{(histogram.mean * 100).toFixed(4)}%</strong></span>
                       )}
                       {histogram.std != null && (
-                        <span>σ=<strong className="text-slate-800">{(histogram.std * 100).toFixed(3)}%</strong></span>
+                        <span>σ=<strong className="text-slate-800">{(histogram.std * 100).toFixed(4)}%</strong></span>
                       )}
                       <div className="flex items-center gap-2 ml-auto">
                         <div className="flex items-center gap-1"><div className="w-3 h-2 bg-blue-500 rounded opacity-80" /><span>정상</span></div>
@@ -606,12 +606,12 @@ export default function AgencyDetailPage() {
                           <ReferenceLine y={tlMeanRate} stroke="#2563eb" strokeDasharray="4 2"
                             label={{ value: `평균 ${tlMeanRate}%`, position: 'insideTopRight', fontSize: 11, fill: '#1d4ed8' }} />
                         )}
-                        <ReferenceLine y={+(FLOOR_RATE * 100).toFixed(3)} stroke="#ef4444" strokeWidth={1.5}
+                        <ReferenceLine y={+(FLOOR_RATE * 100).toFixed(4)} stroke="#ef4444" strokeWidth={1.5}
                           label={{ value: '하한', position: 'insideBottomRight', fontSize: 9, fill: '#ef4444' }} />
                       </ComposedChart>
                     </ResponsiveContainer>
                     <p className="text-xs text-slate-500 mt-2">
-                      기울기 {trendSlope > 0 ? '+' : ''}{trendSlope.toFixed(3)}%p/회차
+                      기울기 {trendSlope > 0 ? '+' : ''}{trendSlope.toFixed(4)}%p/회차
                     </p>
                   </>
                 ) : (
@@ -646,7 +646,7 @@ export default function AgencyDetailPage() {
                         <div className="text-xs text-slate-500 font-medium">{key.toUpperCase()}</div>
                         <div className={cn('text-sm font-bold mt-1 tabular-nums', key === 'p50' ? 'text-blue-600' : 'text-slate-800')}>
                           {histogram.percentiles[key] != null
-                            ? (histogram.percentiles[key]! * 100).toFixed(3) + '%'
+                            ? (histogram.percentiles[key]! * 100).toFixed(4) + '%'
                             : '-'}
                         </div>
                       </div>
@@ -654,10 +654,10 @@ export default function AgencyDetailPage() {
                   </div>
                   {histogram.std != null && (
                     <div className="mt-4 flex flex-wrap gap-5 text-xs text-slate-500 border-t border-slate-100 pt-3">
-                      <span>표준편차: <strong className="text-slate-800">{(histogram.std * 100).toFixed(3)}%</strong></span>
+                      <span>표준편차: <strong className="text-slate-800">{(histogram.std * 100).toFixed(4)}%</strong></span>
                       <span>표본 수: <strong className="text-slate-800">{histogram.sample_count.toLocaleString()}건</strong></span>
                       {histogram.mean != null && (
-                        <span>평균: <strong className="text-slate-800">{(histogram.mean * 100).toFixed(3)}%</strong></span>
+                        <span>평균: <strong className="text-slate-800">{(histogram.mean * 100).toFixed(4)}%</strong></span>
                       )}
                     </div>
                   )}
@@ -693,7 +693,7 @@ export default function AgencyDetailPage() {
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   {[
                     { label: '수집 공고 수', value: `${yegaPattern.sample_n}건`, sub: 'inpo21c 실측', color: 'blue' },
-                    { label: '예가 후보 범위', value: `±${(yegaPattern.spread_half * 100).toFixed(2)}%`, sub: '기초금액 대비', color: 'emerald' },
+                    { label: '예가 후보 범위', value: `±${(yegaPattern.spread_half * 100).toFixed(4)}%`, sub: '기초금액 대비', color: 'emerald' },
                     {
                       label: '선호 위치 TOP 3',
                       value: yegaPattern.pos_weights
@@ -790,7 +790,7 @@ export default function AgencyDetailPage() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {[
                     { label: '표본 건수',     value: `${strategyData.total_bid_count.toLocaleString()}건`, color: 'blue' },
-                    { label: '평균 낙찰률',   value: strategyData.avg_win_rate != null ? `${(strategyData.avg_win_rate * 100).toFixed(3)}%` : '-', color: 'emerald' },
+                    { label: '평균 낙찰률',   value: strategyData.avg_win_rate != null ? `${(strategyData.avg_win_rate * 100).toFixed(4)}%` : '-', color: 'emerald' },
                     { label: '평균 경쟁업체', value: strategyData.avg_competitor_cnt != null ? `${strategyData.avg_competitor_cnt.toFixed(1)}개사` : '-', color: 'amber' },
                     { label: '난이도',        value: strategyData.qual_difficulty ?? '-', color: 'violet' },
                   ].map(({ label, value, color }) => (
@@ -833,7 +833,7 @@ export default function AgencyDetailPage() {
                           <div className={cn('text-sm font-bold mt-1 tabular-nums',
                             key === 'P50 (중앙)' ? 'text-blue-600' : 'text-slate-800'
                           )}>
-                            {val != null ? `${(val * 100).toFixed(3)}%` : '-'}
+                            {val != null ? `${(val * 100).toFixed(4)}%` : '-'}
                           </div>
                         </div>
                       ))}
@@ -843,7 +843,7 @@ export default function AgencyDetailPage() {
                         <Target className="h-4 w-4 text-emerald-600 shrink-0" />
                         <span className="text-emerald-700 font-medium">추천 투찰 구간</span>
                         <span className="text-emerald-800 font-bold tabular-nums ml-auto">
-                          {(strategyData.recommended_range_lo * 100).toFixed(3)}% ~ {(strategyData.recommended_range_hi * 100).toFixed(3)}%
+                          {(strategyData.recommended_range_lo * 100).toFixed(4)}% ~ {(strategyData.recommended_range_hi * 100).toFixed(4)}%
                         </span>
                       </div>
                     )}
@@ -877,7 +877,7 @@ export default function AgencyDetailPage() {
                           data={strategyData.histogram_data
                             .filter(([, cnt]) => cnt > 0)
                             .map(([rate, cnt]) => ({
-                              label: (rate * 100).toFixed(2),
+                              label: (rate * 100).toFixed(4),
                               count: cnt,
                               isRec: strategyData.recommended_range_lo != null &&
                                      strategyData.recommended_range_hi != null &&
@@ -915,7 +915,7 @@ export default function AgencyDetailPage() {
                         <div className="flex items-center gap-1.5"><div className="w-3 h-2 bg-blue-600 rounded opacity-80" /><span>일반 구간</span></div>
                         <div className="flex items-center gap-1.5"><div className="w-3 h-2 bg-green-600 rounded opacity-80" /><span>추천 구간 (P25~P75)</span></div>
                         {strategyData.std_win_rate != null && (
-                          <span className="ml-auto">σ = {(strategyData.std_win_rate * 100).toFixed(3)}%</span>
+                          <span className="ml-auto">σ = {(strategyData.std_win_rate * 100).toFixed(4)}%</span>
                         )}
                       </div>
                     </CardContent>
@@ -940,7 +940,7 @@ export default function AgencyDetailPage() {
                       <p className="text-xs text-slate-500 mb-1">30일 변동성</p>
                       <p className="text-2xl font-bold text-slate-900 tabular-nums">
                         {strategyData.volatility_30d != null
-                          ? `${(strategyData.volatility_30d * 100).toFixed(3)}%`
+                          ? `${(strategyData.volatility_30d * 100).toFixed(4)}%`
                           : '-'}
                       </p>
                       <p className="text-xs text-slate-500 mt-1">최근 30일 표준편차</p>
@@ -951,7 +951,7 @@ export default function AgencyDetailPage() {
                       <p className="text-xs text-slate-500 mb-1">낙찰률 범위</p>
                       <p className="text-lg font-bold text-slate-900 tabular-nums">
                         {strategyData.min_win_rate != null && strategyData.max_win_rate != null
-                          ? `${(strategyData.min_win_rate * 100).toFixed(2)}% ~ ${(strategyData.max_win_rate * 100).toFixed(2)}%`
+                          ? `${(strategyData.min_win_rate * 100).toFixed(4)}% ~ ${(strategyData.max_win_rate * 100).toFixed(4)}%`
                           : '-'}
                       </p>
                       <p className="text-xs text-slate-500 mt-1">최저 ~ 최고 낙찰률</p>
@@ -1007,7 +1007,7 @@ export default function AgencyDetailPage() {
                     <ResponsiveContainer width="100%" height={280}>
                       <BarChart
                         data={freqData.buckets.map((b) => ({
-                          label: (b.from * 100).toFixed(2),
+                          label: (b.from * 100).toFixed(4),
                           count: b.count,
                           win_count: b.win_count,
                           win_rate: b.win_rate != null ? +(b.win_rate * 100).toFixed(1) : 0,
@@ -1041,7 +1041,7 @@ export default function AgencyDetailPage() {
                           ))}
                         </Bar>
                         <Bar yAxisId="left" dataKey="win_count" name="win_count" fill="#16a34a" opacity={0.7} radius={[2, 2, 0, 0]} />
-                        <ReferenceLine yAxisId="left" x={`${(FLOOR_RATE * 100).toFixed(2)}`} stroke="#f59e0b" strokeDasharray="4 2" label={{ value: '하한', position: 'top', fontSize: 9, fill: '#f59e0b' }} />
+                        <ReferenceLine yAxisId="left" x={`${(FLOOR_RATE * 100).toFixed(4)}`} stroke="#f59e0b" strokeDasharray="4 2" label={{ value: '하한', position: 'top', fontSize: 9, fill: '#f59e0b' }} />
                       </BarChart>
                     </ResponsiveContainer>
 
@@ -1060,7 +1060,7 @@ export default function AgencyDetailPage() {
                             <div key={i} className="rounded-lg bg-slate-50 border p-2.5 text-center">
                               <div className="text-sm text-muted-foreground">#{i + 1} 최다 구간</div>
                               <div className="text-sm font-bold text-slate-800 mt-0.5">
-                                {(b.from * 100).toFixed(2)}–{(b.to * 100).toFixed(2)}%
+                                {(b.from * 100).toFixed(4)}–{(b.to * 100).toFixed(4)}%
                               </div>
                               <div className="text-xs text-slate-500">{b.count}건 / 낙찰 {b.win_count}건</div>
                               {b.win_rate > 0 && (
@@ -1087,7 +1087,7 @@ function SrateBox({
 }: {
   label: string; value: number | null; global: number | null; highlight?: boolean
 }) {
-  const pct = (v: number | null) => v != null ? (v * 100).toFixed(3) + '%' : '-'
+  const pct = (v: number | null) => v != null ? (v * 100).toFixed(4) + '%' : '-'
   const diff = value != null && globalVal != null ? value - globalVal : null
   return (
     <div className={cn(
@@ -1106,7 +1106,7 @@ function SrateBox({
           diff > 0 ? 'text-blue-600' : diff < 0 ? 'text-red-500' : 'text-slate-500'
         )}>
           <span>{diff > 0 ? '▲' : diff < 0 ? '▼' : '='}</span>
-          <span>전국 대비 {diff > 0 ? '+' : ''}{(diff * 100).toFixed(3)}%</span>
+          <span>전국 대비 {diff > 0 ? '+' : ''}{(diff * 100).toFixed(4)}%</span>
         </div>
       )}
     </div>

@@ -1464,3 +1464,37 @@ class JournalOut(BaseModel):
     note:               Optional[str]
     created_at:         Optional[datetime]
 
+
+# ── 원클릭 최적 투찰율 추천 (Option D: 실증 승자 분포 기반) ──────────────────
+
+class WinnerPercentiles(BaseModel):
+    p25: Optional[float] = None
+    p50: Optional[float] = None
+    p65: Optional[float] = None
+    p70: Optional[float] = None
+    p75: Optional[float] = None
+    p85: Optional[float] = None
+
+
+class BestRateResponse(BaseModel):
+    bid_id:              int
+    base_amount:         Optional[int]  = None
+    # 최종 추천값
+    recommended_srate:   Optional[float] = None  # 투찰율(기초대비)
+    recommended_price:   Optional[int]   = None
+    confidence:          float           = 0.0
+    source:              str             = "fallback"
+    # 부가 정보
+    a_ratio:             float           = 0.91
+    hotzone_peaks:       List[dict]      = []
+    prism_top:           List[dict]      = []
+    data_source:         str             = "national"
+    period_type:         str             = "24M"
+    # Option D 추가 필드
+    winner_percentiles:  WinnerPercentiles = WinnerPercentiles()
+    winner_count:        int             = 0
+    target_percentile:   int             = 65
+    competition_intensity: str           = "normal"
+    avg_competitors:     float           = 8.0
+    assessment_rate_est: Optional[float] = None
+

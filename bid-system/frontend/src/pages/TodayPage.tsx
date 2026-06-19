@@ -567,7 +567,7 @@ export default function TodayPage() {
                     <div className="bg-slate-50 rounded-lg p-2.5 text-center">
                       <p className="text-xs text-slate-400">사정율 MAE</p>
                       <p className="text-base font-bold text-blue-700 mt-0.5 font-mono">
-                        {journalStats.avg_srate_mae != null ? (journalStats.avg_srate_mae * 100).toFixed(2) + '%' : '-'}
+                        {journalStats.avg_srate_mae != null ? (journalStats.avg_srate_mae * 100).toFixed(4) + '%' : '-'}
                       </p>
                     </div>
                   </div>

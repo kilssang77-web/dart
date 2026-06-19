@@ -747,10 +747,10 @@ export default function BidsPage() {
                             {bid.competitor_count}
                           </TableCell>
                           <TableCell className="text-right font-mono text-slate-600 text-sm py-3">
-                            {bid.min_bid_rate ? (bid.min_bid_rate * 100).toFixed(3) + '%' : '-'}
+                            {bid.min_bid_rate ? (bid.min_bid_rate * 100).toFixed(4) + '%' : '-'}
                           </TableCell>
                           <TableCell className="text-right font-mono font-semibold text-slate-900 text-sm py-3">
-                            {bid.winner_rate ? (bid.winner_rate * 100).toFixed(2) + '%' : '-'}
+                            {bid.winner_rate ? (bid.winner_rate * 100).toFixed(4) + '%' : '-'}
                           </TableCell>
                           <TableCell className="text-center py-3">
                             <button

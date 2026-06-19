@@ -55,7 +55,7 @@ function getCatKey(grade: string): CategoryKey {
   return (base.startsWith('A') ? 'A' : base.startsWith('B') ? 'B' : base.startsWith('C') ? 'C' : 'D') as CategoryKey
 }
 function fmtBillion(v: number) { return v.toFixed(2) + '억원' }
-function fmtPct(v: number) { return (v * 100).toFixed(3) + '%' }
+function fmtPct(v: number) { return (v * 100).toFixed(4) + '%' }
 function fmtAmountKrw(v: number) {
   if (v >= 1e8) return (v / 1e8).toFixed(2) + '억원'
   return (v / 1e4).toFixed(0) + '만원'

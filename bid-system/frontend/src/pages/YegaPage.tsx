@@ -92,7 +92,7 @@ function ResultPanel({ result, baseAmount }: { result: YegaFrequencyResult; base
                       : 'bg-slate-100 text-slate-600 border-slate-200',
                   )}
                 >
-                  {r.rate_pct.toFixed(3)}%
+                  {r.rate_pct.toFixed(4)}%
                 </Badge>
               ))}
             </div>
@@ -148,7 +148,7 @@ function ResultPanel({ result, baseAmount }: { result: YegaFrequencyResult; base
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis
                 dataKey="rate_pct"
-                tickFormatter={(v) => `${v.toFixed(2)}%`}
+                tickFormatter={(v) => `${v.toFixed(4)}%`}
                 tick={{ fontSize: 12, fill: '#475569' }}
                 angle={-30}
                 textAnchor="end"
@@ -304,7 +304,7 @@ function ResultPanel({ result, baseAmount }: { result: YegaFrequencyResult; base
                 <div key={c.idx} className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-center">
                   <p className="text-xs text-slate-500 mb-1">#{c.idx}</p>
                   <p className="font-mono font-semibold text-slate-800 text-xs">{fmtWon(c.amount)}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">{(c.rate * 100).toFixed(3)}%</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{(c.rate * 100).toFixed(4)}%</p>
                 </div>
               ))}
             </div>

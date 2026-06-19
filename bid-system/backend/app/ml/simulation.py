@@ -472,8 +472,8 @@ def scan_zones_from_dist(
     expected_n_comp: int = 0,
     scan_start: Optional[float] = None,
     scan_end: Optional[float] = None,
-    scan_step: float = 0.001,
-    n_sim: int = 20_000,
+    scan_step: float = 0.0005,
+    n_sim: int = 10_000,
     gmm_params: Optional[dict] = None,
 ) -> tuple[list[dict], list[dict]]:
     """

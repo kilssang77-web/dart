@@ -1271,18 +1271,34 @@ export interface HotZoneResponse {
   total_bids:  number
 }
 
+export interface WinnerPercentiles {
+  p25: number | null
+  p50: number | null
+  p65: number | null
+  p70: number | null
+  p75: number | null
+  p85: number | null
+}
+
 export interface BestRateResponse {
   bid_id:              number
   base_amount:         number | null
   recommended_srate:   number | null
   recommended_price:   number | null
   confidence:          number
-  source:              'hotzone+prism' | 'hotzone' | 'prism' | 'fallback'
+  source:              'winner+hotzone' | 'winner' | 'assessment_based' | 'hotzone+prism' | 'hotzone' | 'prism' | 'fallback'
   a_ratio:             number
   hotzone_peaks:       HotZonePeak[]
   prism_top:           PrismZone[]
   data_source:         'agency' | 'national'
   period_type:         string
+  // Option D 추가 필드
+  winner_percentiles:  WinnerPercentiles
+  winner_count:        number
+  target_percentile:   number
+  competition_intensity: 'high' | 'normal' | 'low'
+  avg_competitors:     number
+  assessment_rate_est: number | null
 }
 
 // ── 투찰 결정 전용 (TenderDecisionPage) ──────────────────

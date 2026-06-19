@@ -97,7 +97,7 @@ export default function PrismHistogram({ bidId, baseAmount, agencyName }: Props)
         <div className="flex items-center gap-1.5 text-blue-700">
           <Info className="h-3.5 w-3.5" />
           <span className="font-medium">A값(예정가) 추정비율:</span>
-          <span className="font-bold tabular-nums">{(data.a_ratio * 100).toFixed(2)}%</span>
+          <span className="font-bold tabular-nums">{(data.a_ratio * 100).toFixed(4)}%</span>
         </div>
         {baseAmount > 0 && (
           <>
@@ -108,7 +108,7 @@ export default function PrismHistogram({ bidId, baseAmount, agencyName }: Props)
             </div>
             <span className="text-blue-300">|</span>
             <div className="text-blue-600 text-xs">
-              실제 투찰금액 = 기초금액({fmtWon(baseAmount)}) × A값({(data.a_ratio * 100).toFixed(1)}%) × 사정율
+              실제 투찰금액 = 기초금액({fmtWon(baseAmount)}) × A값({(data.a_ratio * 100).toFixed(4)}%) × 사정율
             </div>
           </>
         )}
@@ -131,7 +131,7 @@ export default function PrismHistogram({ bidId, baseAmount, agencyName }: Props)
                   key={bucket.srate}
                   className="relative flex-shrink-0 group"
                   style={{ width: 8, height: 120 }}
-                  title={`사정율 ${bucket.srate.toFixed(3)}\n전체 ${bucket.count}건 / 낙찰 ${bucket.win_count}건\n낙찰률 ${(bucket.win_rate * 100).toFixed(1)}%`}
+                  title={`사정율 ${bucket.srate.toFixed(4)}\n전체 ${bucket.count}건 / 낙찰 ${bucket.win_count}건\n낙찰률 ${(bucket.win_rate * 100).toFixed(1)}%`}
                 >
                   <div
                     className={cn(
@@ -149,9 +149,9 @@ export default function PrismHistogram({ bidId, baseAmount, agencyName }: Props)
           </div>
           {/* X축 라벨 */}
           <div className="flex justify-between text-xs text-slate-500 mt-1 px-1">
-            <span>{hist[0]?.srate.toFixed(3)}</span>
+            <span>{hist[0]?.srate.toFixed(4)}</span>
             <span className="text-slate-500 font-medium">← 사정율 구간 →</span>
-            <span>{hist[hist.length - 1]?.srate.toFixed(3)}</span>
+            <span>{hist[hist.length - 1]?.srate.toFixed(4)}</span>
           </div>
           <div className="flex items-center gap-4 mt-2 text-xs text-slate-500">
             <span className="flex items-center gap-1"><span className="w-3 h-2 bg-amber-400 rounded-sm inline-block" />TOP 추천 구간</span>
@@ -198,7 +198,7 @@ export default function PrismHistogram({ bidId, baseAmount, agencyName }: Props)
                         {z.rank}
                       </span>
                     </td>
-                    <td className="px-3 py-2 font-mono font-bold text-slate-800">{z.srate.toFixed(3)}</td>
+                    <td className="px-3 py-2 font-mono font-bold text-slate-800">{z.srate.toFixed(4)}</td>
                     <td className="px-3 py-2 text-right">
                       <span className={cn(
                         'font-semibold tabular-nums',

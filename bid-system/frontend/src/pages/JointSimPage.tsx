@@ -177,7 +177,7 @@ export default function JointSimPage() {
                     </span>
                     <span className="text-xs text-slate-500">
                       낙찰하한율 <span className="font-semibold text-slate-700">
-                        {bid.min_bid_rate ? `${(bid.min_bid_rate * 100).toFixed(2)}%` : '-'}
+                        {bid.min_bid_rate ? `${(bid.min_bid_rate * 100).toFixed(4)}%` : '-'}
                       </span>
                     </span>
                     <span className="text-xs text-slate-500">
@@ -491,7 +491,7 @@ function SimResultPanel({ result, loading }: { result: JointSimResponse | null; 
 
         {/* 투찰금액 정보 */}
         <div className="grid grid-cols-2 gap-3">
-          <AmtCard label="최저 투찰금액" value={fmtAmt(joint_result.min_bid_amount)} sub={`${(joint_result.min_bid_rate * 100).toFixed(2)}%`} highlight />
+          <AmtCard label="최저 투찰금액" value={fmtAmt(joint_result.min_bid_amount)} sub={`${(joint_result.min_bid_rate * 100).toFixed(4)}%`} highlight />
           <AmtCard label="심사 기준금액" value={fmtAmt(bid_amount_required)} sub="기초금액 × 낙찰하한율" />
         </div>
 

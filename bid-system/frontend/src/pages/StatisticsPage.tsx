@@ -100,18 +100,18 @@ export default function StatisticsPage() {
     const row: Record<string, string | number | null> = { month: m }
     industries_list.forEach((ind) => {
       const cell = (heatmap ?? []).find((d: HeatmapItem) => d.month === m && d.industry === ind)
-      row[ind] = cell ? +(cell.avg_rate * 100).toFixed(2) : null
+      row[ind] = cell ? +(cell.avg_rate * 100).toFixed(4) : null
     })
     return row
   })
   const trendData = (overview?.monthly_trend ?? []).map((d) => ({
     label: `${d.year}-${String(d.month).padStart(2,'0')}`, 입찰수: d.bid_count,
-    낙찰률: d.avg_rate ? +(d.avg_rate * 100).toFixed(2) : null,
+    낙찰률: d.avg_rate ? +(d.avg_rate * 100).toFixed(4) : null,
   }))
   const regionChartData = regions.filter((r) => r.avg_rate !== null)
-    .map((r) => ({ name: r.region_name, rate: +((r.avg_rate! * 100)).toFixed(2), count: r.bid_count })).slice(0, 12)
+    .map((r) => ({ name: r.region_name, rate: +((r.avg_rate! * 100)).toFixed(4), count: r.bid_count })).slice(0, 12)
   const industryChartData = industries.filter((i) => i.avg_rate !== null)
-    .map((i) => ({ name: i.industry_name.slice(0, 12), rate: +((i.avg_rate! * 100)).toFixed(2), count: i.bid_count })).slice(0, 15)
+    .map((i) => ({ name: i.industry_name.slice(0, 12), rate: +((i.avg_rate! * 100)).toFixed(4), count: i.bid_count })).slice(0, 15)
   const clusterChartData = (cluster?.clusters ?? []).filter((c) => c.avg_rate !== null)
 
   function fmtAmt(n: number) {
@@ -127,7 +127,7 @@ export default function StatisticsPage() {
       const rows = [headers, ...(agencies as AgencyStatItem[]).map((a) => [
         a.agency_name,
         String(a.bid_count),
-        a.avg_rate ? (a.avg_rate * 100).toFixed(2) : '',
+        a.avg_rate ? (a.avg_rate * 100).toFixed(4) : '',
         a.avg_competitor_count ? a.avg_competitor_count.toFixed(1) : '',
       ])]
       downloadCsv(`발주기관통계_${months}개월.csv`, rows)
@@ -136,7 +136,7 @@ export default function StatisticsPage() {
       const rows = [headers, ...industries.map((ind) => [
         ind.industry_name,
         String(ind.bid_count),
-        ind.avg_rate ? (ind.avg_rate * 100).toFixed(2) : '',
+        ind.avg_rate ? (ind.avg_rate * 100).toFixed(4) : '',
         ind.avg_competitor_count ? ind.avg_competitor_count.toFixed(1) : '',
         String(ind.total_amount),
       ])]
@@ -224,7 +224,7 @@ export default function StatisticsPage() {
                     {[
                       { label: `총 입찰건수`, value: overview.total_bids.toLocaleString(), sub: `${selectedLabel} 기준`, unit: '건', icon: Activity, color: 'blue' },
                       { label: '경쟁업체 수', value: overview.total_competitors.toLocaleString(), sub: '입찰 참여 업체', unit: '개사', icon: Users, color: 'emerald' },
-                      { label: '평균 낙찰률', value: overview.avg_win_rate ? (overview.avg_win_rate * 100).toFixed(2) : '-', sub: '전체 평균', unit: '%', icon: Target, color: 'amber' },
+                      { label: '평균 낙찰률', value: overview.avg_win_rate ? (overview.avg_win_rate * 100).toFixed(4) : '-', sub: '전체 평균', unit: '%', icon: Target, color: 'amber' },
                       { label: '평균 경쟁사', value: (overview.avg_competitor_count ?? 0).toFixed(1), sub: '공고당 평균', unit: '개사', icon: TrendingUp, color: 'violet' },
                     ].map(({ label, value, sub, unit, icon: Icon, color }) => (
                       <Card key={label} className="relative overflow-hidden bg-white border-slate-200 shadow-sm">
@@ -314,7 +314,7 @@ export default function StatisticsPage() {
                                       <TableCell className="py-2 text-xs truncate max-w-[130px] font-medium text-slate-700">{a.agency_name}</TableCell>
                                       <TableCell className="py-2 text-right text-sm text-slate-600">{a.bid_count.toLocaleString()}</TableCell>
                                       <TableCell className="py-2 text-right text-xs font-semibold text-blue-600">
-                                        {a.avg_rate ? (a.avg_rate * 100).toFixed(2) + '%' : '-'}
+                                        {a.avg_rate ? (a.avg_rate * 100).toFixed(4) + '%' : '-'}
                                       </TableCell>
                                       <TableCell className="py-2 text-right text-sm text-slate-500">
                                         {a.avg_competitor_count ? a.avg_competitor_count.toFixed(1) : '-'}
@@ -537,7 +537,7 @@ export default function StatisticsPage() {
                                   <TableCell className="truncate max-w-[200px] font-medium text-slate-700">{ind.industry_name}</TableCell>
                                   <TableCell className="text-right text-slate-600">{ind.bid_count.toLocaleString()}</TableCell>
                                   <TableCell className="text-right font-semibold text-blue-600">
-                                    {ind.avg_rate ? (ind.avg_rate * 100).toFixed(2) + '%' : '-'}
+                                    {ind.avg_rate ? (ind.avg_rate * 100).toFixed(4) + '%' : '-'}
                                   </TableCell>
                                   <TableCell className="text-right text-slate-500">
                                     {ind.avg_competitor_count ? ind.avg_competitor_count.toFixed(1) : '-'}
@@ -607,7 +607,7 @@ export default function StatisticsPage() {
                           <div className="grid grid-cols-2 gap-2">
                             {[
                               { label: '평균 금액', value: fmtAmt(c.avg_amount), highlight: false },
-                              { label: '평균 낙찰률', value: c.avg_rate ? (c.avg_rate * 100).toFixed(2) + '%' : '-', highlight: true },
+                              { label: '평균 낙찰률', value: c.avg_rate ? (c.avg_rate * 100).toFixed(4) + '%' : '-', highlight: true },
                               { label: '평균 경쟁사', value: c.avg_comp.toFixed(1) + '개사', highlight: false },
                               { label: '주요 공종', value: c.top_industry, highlight: false, small: true },
                             ].map(({ label, value, highlight, small }) => (
@@ -649,7 +649,7 @@ export default function StatisticsPage() {
                             <Tooltip
                               contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
                               cursor={{ strokeDasharray: '3 3' }}
-                              formatter={(v: unknown, name: string) => { const n = Number(v); return name === '낙찰률' ? [(n * 100).toFixed(2) + '%', name] : [fmtAmt(n), name] }}
+                              formatter={(v: unknown, name: string) => { const n = Number(v); return name === '낙찰률' ? [(n * 100).toFixed(4) + '%', name] : [fmtAmt(n), name] }}
                             />
                             <Legend />
                             {clusterChartData.map((c, i) => (
@@ -853,7 +853,7 @@ export default function StatisticsPage() {
                       ...b,
                       display: srateViewMode === 'ratio' ? +((b.count / (totalCount || 1)) * 100).toFixed(2) : b.count,
                       cumul: +(cum / (totalCount || 1) * 100).toFixed(1),
-                      label: (b.rate_pct * 100).toFixed(3) + '%',
+                      label: (b.rate_pct * 100).toFixed(4) + '%',
                     }
                   })
                 })()
@@ -862,9 +862,9 @@ export default function StatisticsPage() {
                     {/* 사정율 KPI 카드 */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       {[
-                        { label: '평균 사정율', value: srateDist.mean != null ? (srateDist.mean * 100).toFixed(3) + '%' : '-', color: 'blue' },
-                        { label: '최빈 사정율', value: srateDist.mode != null ? (srateDist.mode * 100).toFixed(3) + '%' : '-', color: 'emerald' },
-                        { label: '표준편차', value: srateDist.std != null ? (srateDist.std * 100).toFixed(3) + '%' : '-', color: 'amber' },
+                        { label: '평균 사정율', value: srateDist.mean != null ? (srateDist.mean * 100).toFixed(4) + '%' : '-', color: 'blue' },
+                        { label: '최빈 사정율', value: srateDist.mode != null ? (srateDist.mode * 100).toFixed(4) + '%' : '-', color: 'emerald' },
+                        { label: '표준편차', value: srateDist.std != null ? (srateDist.std * 100).toFixed(4) + '%' : '-', color: 'amber' },
                         { label: '표본 수', value: (srateDist.sample_count ?? 0).toLocaleString() + '건', color: 'violet' },
                       ].map(({ label, value, color }) => (
                         <Card key={label} className="relative overflow-hidden bg-white border-slate-200 shadow-sm">
@@ -887,11 +887,11 @@ export default function StatisticsPage() {
                         <div className="flex items-center justify-between">
                           <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                             <Activity className="h-4 w-4 text-blue-500" />사정율 분포
-                            <span className="text-xs font-normal text-slate-500">(소수점 3자리 · 누적 포함)</span>
+                            <span className="text-xs font-normal text-slate-500">(소수점 4자리 · 누적 포함)</span>
                           </CardTitle>
                           <span className="text-xs text-slate-500">
-                            P25: {srateDist.p25 != null ? (srateDist.p25*100).toFixed(3)+'%' : '-'}
-                            {' · '}P75: {srateDist.p75 != null ? (srateDist.p75*100).toFixed(3)+'%' : '-'}
+                            P25: {srateDist.p25 != null ? (srateDist.p25*100).toFixed(4)+'%' : '-'}
+                            {' · '}P75: {srateDist.p75 != null ? (srateDist.p75*100).toFixed(4)+'%' : '-'}
                           </span>
                         </div>
                       </CardHeader>
@@ -918,7 +918,7 @@ export default function StatisticsPage() {
                               <Bar yAxisId="left" dataKey="display" name={srateViewMode === 'ratio' ? '비율' : '빈도수'} fill="#2563eb" fillOpacity={0.65} radius={[2, 2, 0, 0]} />
                               <Line yAxisId="right" type="monotone" dataKey="cumul" name="누적" stroke="#ef4444" dot={false} strokeWidth={2} />
                               {srateDist.mode != null && (
-                                <ReferenceLine yAxisId="left" x={(srateDist.mode * 100).toFixed(3) + '%'} stroke="#ef4444" strokeDasharray="4 2"
+                                <ReferenceLine yAxisId="left" x={(srateDist.mode * 100).toFixed(4) + '%'} stroke="#ef4444" strokeDasharray="4 2"
                                   label={{ value: '최빈', position: 'top', fontSize: 10, fill: '#ef4444' }} />
                               )}
                             </ComposedChart>

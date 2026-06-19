@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone, timedelta
 
 from ...database import get_db
 from ...models import User, Agency, Industry, Region, Bid
-from ...schemas import BidCreate, BidResultCreate, BookmarkResponse, OpportunityScoreResponse, BidRecommendItem, JointPartnersResponse, JointSimRequest, JointSimResponse, FinalRecommendResponse
+from ...schemas import BidCreate, BidResultCreate, BookmarkResponse, OpportunityScoreResponse, BidRecommendItem, JointPartnersResponse, JointSimRequest, JointSimResponse, FinalRecommendResponse, BestRateResponse
 from ...services import BidService, BookmarkService, get_active_industry_ids, OpportunityScoreService, JointQualService, JointSimulateService, FinalRecommendService, InpoParticipantService, RivalRadarService, ActualWinZoneService, HotZoneService, BestRateService
 from ...common.security import get_current_user
 
@@ -311,14 +311,14 @@ def hot_zones(
         raise HTTPException(404, str(e))
 
 
-@router.get("/{bid_id}/best-rate")
+@router.get("/{bid_id}/best-rate", response_model=BestRateResponse)
 def best_rate(
     bid_id: int,
     period: str = Query("24M", regex="^(12M|24M|48M)$"),
     db: Session  = Depends(get_db),
     _: User      = Depends(get_current_user),
 ):
-    """원클릭 최적 투찰 사정율 추천 — Hot Zone + Prism 결합."""
+    """원클릭 최적 투찰율 추천 — Option D 실증 승자 분포 기반."""
     try:
         return BestRateService().get(db, bid_id, period_type=period)
     except ValueError as e:

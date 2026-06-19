@@ -197,7 +197,7 @@ export default function TenderRecommendPage() {
             <div>
               <p className="font-semibold text-red-800 mb-0.5">낙찰하한율 미달 경고</p>
               <p className="text-red-600">
-                권장 사정율 <strong>{fmtRate(rec.recommended_rate)}</strong>이 낙찰하한율{' '}
+                권장 투찰율(기초대비) <strong>{fmtRate(rec.recommended_rate)}</strong>이 낙찰하한율{' '}
                 <strong>{fmtRate(rec.floor_rate)}</strong> 미달입니다. 실격 위험이 있습니다.
               </p>
             </div>
@@ -207,7 +207,7 @@ export default function TenderRecommendPage() {
         {/* 핵심 추천 카드 */}
         <Card className="bg-gradient-to-br from-blue-600 to-blue-700 border-blue-600 shadow-lg">
           <CardContent className="pt-6 pb-6 text-center space-y-2">
-            <p className="text-xs text-blue-200 uppercase tracking-widest font-medium">권장 사정율</p>
+            <p className="text-xs text-blue-200 uppercase tracking-widest font-medium">권장 투찰율(기초대비)</p>
             <p className="text-5xl font-bold text-white tabular-nums tracking-tight">
               {fmtRate(rec.recommended_rate)}
             </p>
@@ -241,7 +241,7 @@ export default function TenderRecommendPage() {
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <th className="px-4 py-2.5 text-left text-sm font-semibold text-slate-600">전략</th>
-                    <th className="px-4 py-2.5 text-right text-sm font-semibold text-slate-600">사정율</th>
+                    <th className="px-4 py-2.5 text-right text-sm font-semibold text-slate-600">투찰율(기초대비)</th>
                     <th className="px-4 py-2.5 text-right text-sm font-semibold text-slate-600">투찰금액</th>
                     <th className="px-4 py-2.5 text-right text-sm font-semibold text-slate-600">낙찰확률</th>
                     <th className="px-4 py-2.5 text-center text-sm font-semibold text-slate-600">적합</th>
@@ -364,7 +364,7 @@ export default function TenderRecommendPage() {
               label="개인 편향 보정"
               value={rec.evidence.personal_bias.applied
                 ? (rec.evidence.personal_bias.rate_diff_mean >= 0 ? '+' : '') +
-                  (rec.evidence.personal_bias.rate_diff_mean * 100).toFixed(2) + '%p'
+                  (rec.evidence.personal_bias.rate_diff_mean * 100).toFixed(4) + '%p'
                 : '미적용'}
               sub={rec.evidence.personal_bias.applied
                 ? '투찰 이력 기반 보정 반영됨'

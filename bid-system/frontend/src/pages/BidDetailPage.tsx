@@ -30,7 +30,7 @@ import HotZonePanel from '@/components/HotZonePanel'
 
 const fmt = (n: number) => new Intl.NumberFormat('ko-KR').format(Math.round(n))
 const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`
-const fmtRate = (n: number) => `${(n * 100).toFixed(3)}%`
+const fmtRate = (n: number) => `${(n * 100).toFixed(4)}%`
 const fmtDate = (s: string | null) => (s ? s.slice(0, 10) : '-')
 
 // ── TabInfo ──────────────────────────────────────────────────────────────
@@ -107,7 +107,7 @@ function TabInfo({ bid, score }: { bid: BidDetail; score: OpportunityScore | und
             {bid.min_bid_rate && (
               <div>
                 <dt className="text-xs text-slate-500 mb-0.5">낙찰하한율</dt>
-                <dd className="font-medium text-slate-800">{(bid.min_bid_rate * 100).toFixed(3)}%</dd>
+                <dd className="font-medium text-slate-800">{(bid.min_bid_rate * 100).toFixed(4)}%</dd>
               </div>
             )}
             {bid.yega_method && (
@@ -219,7 +219,7 @@ function TabInfo({ bid, score }: { bid: BidDetail; score: OpportunityScore | und
                       {y.amount != null ? `₩${fmt(y.amount)}원` : '-'}
                     </TableCell>
                     <TableCell className="text-xs text-right font-mono font-medium text-slate-900">
-                      {y.base_ratio_pct != null ? `${y.base_ratio_pct.toFixed(3)}%` : '-'}
+                      {y.base_ratio_pct != null ? `${y.base_ratio_pct.toFixed(4)}%` : '-'}
                     </TableCell>
                     <TableCell className="text-center text-xs">
                       {y.is_selected && (
@@ -931,7 +931,7 @@ function TabYega({ bid }: { bid: BidDetail }) {
                   i === 0 ? 'bg-blue-50' : 'hover:bg-slate-50'
                 )}>
                   <TableCell className="text-xs font-semibold text-slate-700">{i + 1}</TableCell>
-                  <TableCell className="text-xs text-right font-mono font-medium text-slate-900">{row.rate_pct.toFixed(3)}%</TableCell>
+                  <TableCell className="text-xs text-right font-mono font-medium text-slate-900">{row.rate_pct.toFixed(4)}%</TableCell>
                   <TableCell className="text-xs text-right text-slate-600">{row.count}</TableCell>
                   <TableCell className="text-xs text-right font-semibold text-slate-900">{fmtPct(row.probability)}</TableCell>
                   <TableCell className="text-xs text-right text-slate-500">{fmtPct(row.cumulative_prob)}</TableCell>
@@ -957,7 +957,7 @@ function TabYega({ bid }: { bid: BidDetail }) {
                 <YAxis tick={{ fontSize: 12, fill: '#475569' }} />
                 <Tooltip
                   formatter={(v: number) => [v, '건수']}
-                  labelFormatter={(v: number) => `${v.toFixed(3)}%`}
+                  labelFormatter={(v: number) => `${v.toFixed(4)}%`}
                   contentStyle={{ fontSize: 11, border: '1px solid #e2e8f0', borderRadius: 8 }}
                 />
                 <Bar dataKey="count" fill="#3b82f6" fillOpacity={0.75} radius={[3, 3, 0, 0]} />

@@ -94,7 +94,7 @@ export default function AgenciesPage() {
           {[
             { label: '총 발주기관', value: (meta?.agencies ?? []).length.toLocaleString(), unit: '개사', icon: Building2, color: 'blue' },
             { label: '총 입찰건수', value: totalBids.toLocaleString(), unit: '건', icon: BarChart3, color: 'emerald' },
-            { label: '평균 낙찰률', value: avgRate ? (avgRate * 100).toFixed(2) : '-', unit: '%', icon: TrendingUp, color: 'amber' },
+            { label: '평균 낙찰률', value: avgRate ? (avgRate * 100).toFixed(4) : '-', unit: '%', icon: TrendingUp, color: 'amber' },
           ].map(({ label, value, unit, icon: Icon, color }) => (
             <Card key={label} className="relative overflow-hidden bg-white border-slate-200 shadow-sm">
               <div className={cn('absolute top-0 left-0 right-0 h-0.5',
@@ -157,7 +157,7 @@ export default function AgenciesPage() {
                       <div className="flex items-center justify-between mt-1.5">
                         <p className="text-xs text-slate-500">{s.bid_count.toLocaleString()}건</p>
                         {s.avg_rate != null && (
-                          <p className="text-xs font-mono text-blue-600">{(s.avg_rate * 100).toFixed(2)}%</p>
+                          <p className="text-xs font-mono text-blue-600">{(s.avg_rate * 100).toFixed(4)}%</p>
                         )}
                       </div>
                     </button>
@@ -223,7 +223,7 @@ export default function AgenciesPage() {
                     {s && (
                       <div className="flex items-center gap-3 mt-1.5 ml-3.5">
                         {s.avg_rate != null ? (
-                          <span className="text-xs text-blue-600 font-medium">평균 {(s.avg_rate * 100).toFixed(2)}%</span>
+                          <span className="text-xs text-blue-600 font-medium">평균 {(s.avg_rate * 100).toFixed(4)}%</span>
                         ) : (
                           <span className="text-xs text-slate-500">낙찰 데이터 없음</span>
                         )}

@@ -219,7 +219,7 @@ function SelectionCard({ item, onRegister }: { item: SelectionItem; onRegister?:
             <span className="text-blue-500 font-medium flex items-center gap-1">
               <Target className="h-3 w-3" />추천 투찰률
             </span>
-            <span className="font-bold text-blue-700 tabular-nums">{(item.recommended_rate * 100).toFixed(3)}%</span>
+            <span className="font-bold text-blue-700 tabular-nums">{(item.recommended_rate * 100).toFixed(4)}%</span>
           </div>
         )}
 

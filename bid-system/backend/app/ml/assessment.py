@@ -4,6 +4,11 @@ Engine D — 시장 변동성 분석 엔진
 
 학습 데이터: bids.estimated_price IS NOT NULL 레코드
 폴백: 전국 평균 사정율 0.985 (데이터 부족 시)
+
+★ 용어 정의 (이 모듈의 "srate" 의미)
+  - srate_center/std/mean : assessment_rate = 예정가격 / 기초금액 (범위: 0.870~1.050)
+  - 이 값은 hotzone.py의 bid_rate (투찰/기초, 0.860~0.970)와 다름
+  - bid_rate = assessment_rate × relative_rate  (relative_rate ≈ 0.87~1.00)
 """
 import logging
 import math
@@ -698,7 +703,7 @@ def compute_srate_frequency_v2(db: Session) -> int:
     for period_label, cutoff_dt in cutoffs.items():
         rows = db.execute(text("""
             SELECT a.id                                             AS agency_id,
-                   ROUND(ip.bid_rate::numeric, 3)                  AS srate_bucket,
+                   ROUND(ip.bid_rate::numeric, 3)                  AS bid_rate_bucket,
                    COUNT(*)                                        AS total_cnt,
                    SUM(CASE WHEN ip.is_winner THEN 1 ELSE 0 END)  AS win_cnt
             FROM inpo21c_participants ip
@@ -710,8 +715,8 @@ def compute_srate_frequency_v2(db: Session) -> int:
             )
             WHERE ip.bid_rate BETWEEN 0.860 AND 0.970
               AND ib.open_datetime >= :cutoff
-            GROUP BY a.id, srate_bucket
-            ORDER BY a.id, srate_bucket
+            GROUP BY a.id, bid_rate_bucket
+            ORDER BY a.id, bid_rate_bucket
         """), {"cutoff": cutoff_dt}).fetchall()
 
         for r in rows:
@@ -838,7 +843,7 @@ def get_prism_zones(
 
     histogram = [
         {
-            "srate":     round(float(r[0]), 3),
+            "srate":     round(float(r[0]), 4),
             "count":     int(r[1]),
             "win_count": int(r[2]),
             "win_rate":  round(float(r[3]), 4),

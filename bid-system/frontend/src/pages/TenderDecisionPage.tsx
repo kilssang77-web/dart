@@ -15,8 +15,8 @@ import { cn } from '@/lib/utils'
    유틸
 ───────────────────────────────────────────────────────────── */
 const fmt = (n: number) => n.toLocaleString('ko-KR')
-const pct = (n: number, d = 3) => (n * 100).toFixed(d) + '%'
-const ratePct = (n: number) => (n * 100).toFixed(3) + '%'
+const pct = (n: number, d = 4) => (n * 100).toFixed(d) + '%'
+const ratePct = (n: number) => (n * 100).toFixed(4) + '%'
 
 /* ─────────────────────────────────────────────────────────────
    Step Indicator (2단계)
@@ -171,7 +171,7 @@ function YegaGrid({ values, onChange, baseAmount }: { values: (string | number)[
       <div className="grid grid-cols-3 gap-2" onPaste={handlePaste}>
         {values.map((v, i) => {
           const num = typeof v === 'string' ? Number(v.replace(/,/g, '')) : v
-          const rate = num && baseAmount ? (num / baseAmount * 100).toFixed(3) : ''
+          const rate = num && baseAmount ? (num / baseAmount * 100).toFixed(4) : ''
           return (
             <div key={i} className="relative">
               <label className="absolute -top-2 left-2 bg-white px-1 text-xs text-gray-400 font-mono">
@@ -220,7 +220,7 @@ function AgencyWinHistogramChart({ data }: { data: AgencyWinHistogram }) {
               )}
             >
               <Award className="w-3 h-3" />
-              {i + 1}위 {(z.rate * 100).toFixed(3)}%
+              {i + 1}위 {(z.rate * 100).toFixed(4)}%
               <span className="opacity-70">({z.win_count}/{z.total_count}건 낙찰)</span>
             </div>
           ))}
@@ -234,7 +234,7 @@ function AgencyWinHistogramChart({ data }: { data: AgencyWinHistogram }) {
             <div
               key={i}
               className="relative flex-1 group cursor-default"
-              title={`${(b.rate * 100).toFixed(3)}% | 전체 ${b.total_count}건 | 낙찰 ${b.win_count}건 (${(b.win_rate * 100).toFixed(1)}%)`}
+              title={`${(b.rate * 100).toFixed(4)}% | 전체 ${b.total_count}건 | 낙찰 ${b.win_count}건 (${(b.win_rate * 100).toFixed(1)}%)`}
             >
               <div
                 className={cn('w-full rounded-t transition-all', isTop ? 'bg-emerald-400' : 'bg-gray-300 group-hover:bg-gray-400')}
@@ -251,12 +251,12 @@ function AgencyWinHistogramChart({ data }: { data: AgencyWinHistogram }) {
         })}
       </div>
       <div className="flex justify-between text-xs text-gray-400">
-        <span className="font-mono">{data.bins.length > 0 ? (data.bins[0].rate * 100).toFixed(2) + '%' : ''}</span>
+        <span className="font-mono">{data.bins.length > 0 ? (data.bins[0].rate * 100).toFixed(4) + '%' : ''}</span>
         <span className="text-gray-500">
           {data.data_source === 'agency' ? `기관 실증 ${data.inpo21c_n.toLocaleString()}건` : '전국 평균 집계'}
           &nbsp;|&nbsp;낙찰 {data.total_wins}건
         </span>
-        <span className="font-mono">{data.bins.length > 0 ? (data.bins[data.bins.length - 1].rate * 100).toFixed(2) + '%' : ''}</span>
+        <span className="font-mono">{data.bins.length > 0 ? (data.bins[data.bins.length - 1].rate * 100).toFixed(4) + '%' : ''}</span>
       </div>
       <div className="flex items-center gap-4 text-xs text-gray-500">
         <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm bg-gray-300" /> 전체 투찰</span>
@@ -292,7 +292,7 @@ function WinProbCurveChart({ data, strategies }: { data: import('@/types').WinPr
             const isStrategy = strategies?.some(s => Math.abs(s.rate - p.bid_rate) < 0.0008)
             const strategyMatch = strategies?.find(s => Math.abs(s.rate - p.bid_rate) < 0.0008)
             return (
-              <div key={i} className="relative flex-1 group" title={`투찰율 ${(p.bid_rate * 100).toFixed(3)}% → 낙찰확률 ${(p.win_prob * 100).toFixed(2)}%`}>
+              <div key={i} className="relative flex-1 group" title={`투찰율 ${(p.bid_rate * 100).toFixed(4)}% → 낙찰확률 ${(p.win_prob * 100).toFixed(2)}%`}>
                 <div
                   className={cn(
                     'w-full rounded-t transition-all',
@@ -309,13 +309,13 @@ function WinProbCurveChart({ data, strategies }: { data: import('@/types').WinPr
           style={{
             left: `${((floorBid - data.curve[0]?.bid_rate) / (data.curve[data.curve.length - 1]?.bid_rate - data.curve[0]?.bid_rate)) * 100}%`,
           }}
-          title={`낙찰하한 ${(floorBid * 100).toFixed(3)}%`}
+          title={`낙찰하한 ${(floorBid * 100).toFixed(4)}%`}
         />
       </div>
       <div className="flex justify-between text-xs text-gray-400">
-        <span className="font-mono">{(data.curve[0]?.bid_rate * 100).toFixed(2)}%</span>
-        <span className="text-gray-500">사정율 {(data.srate * 100).toFixed(2)}% · 경쟁 {data.n_competitors}사 기준</span>
-        <span className="font-mono">{(data.curve[data.curve.length - 1]?.bid_rate * 100).toFixed(2)}%</span>
+        <span className="font-mono">{(data.curve[0]?.bid_rate * 100).toFixed(4)}%</span>
+        <span className="text-gray-500">사정율 {(data.srate * 100).toFixed(4)}% · 경쟁 {data.n_competitors}사 기준</span>
+        <span className="font-mono">{(data.curve[data.curve.length - 1]?.bid_rate * 100).toFixed(4)}%</span>
       </div>
       <div className="flex items-center gap-4 text-xs text-gray-500 flex-wrap">
         <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm bg-blue-200" /> 모델 예측 승률</span>
@@ -764,7 +764,7 @@ export default function TenderDecisionPage() {
                               <span className="text-xl ml-2">원</span>
                             </div>
                             <div className="flex items-center gap-4 mt-2 text-blue-100 text-sm">
-                              <span>사정율 <strong className="text-white font-mono">{ratePct(result.optimal.rate)}</strong></span>
+                              <span>투찰율(기초대비) <strong className="text-white font-mono">{ratePct(result.optimal.rate)}</strong></span>
                               <span>낙찰확률 <strong className="text-amber-300 text-base">{(result.optimal.win_prob * 100).toFixed(1)}%</strong></span>
                               <span>낙찰하한 {result.optimal.floor_ok ? <CheckCircle2 className="w-4 h-4 inline text-emerald-300" /> : <AlertCircle className="w-4 h-4 inline text-red-300" />}</span>
                             </div>
@@ -807,7 +807,7 @@ export default function TenderDecisionPage() {
                               <span className="font-mono font-semibold">{fmt(s.amount)}원</span>
                             </div>
                             <div className="flex justify-between text-xs">
-                              <span className="text-gray-500">사정율</span>
+                              <span className="text-gray-500">투찰율(기초대비)</span>
                               <span className="font-mono">{ratePct(s.rate)}</span>
                             </div>
                             <div className="flex justify-between text-xs">
@@ -859,7 +859,7 @@ export default function TenderDecisionPage() {
                         {agencyHistogram.data_source === 'agency' ? '이 기관에서' : '전국 평균 기준'}
                         {' '}낙찰 확률이 가장 높은 투찰율은{' '}
                         <strong className="text-emerald-700 font-mono">
-                          {(agencyHistogram.top_zones[0].rate * 100).toFixed(3)}%
+                          {(agencyHistogram.top_zones[0].rate * 100).toFixed(4)}%
                         </strong>
                         {` 구간으로, ${agencyHistogram.top_zones[0].total_count}건 중 ${agencyHistogram.top_zones[0].win_count}건 낙찰 `}
                         <strong className="text-emerald-700">
@@ -894,10 +894,10 @@ export default function TenderDecisionPage() {
                           <span className="font-semibold text-gray-700">분석:</span>{' '}
                           모델 예측 기준 낙찰 확률 최고 투찰율은{' '}
                           <strong className="text-blue-700 font-mono">
-                            {(bestValid.bid_rate * 100).toFixed(3)}%
+                            {(bestValid.bid_rate * 100).toFixed(4)}%
                           </strong>
                           {` (P=${(bestValid.win_prob * 100).toFixed(2)}%). `}
-                          경쟁사 {winProbCurveData.n_competitors}사, 사정율 {(winProbCurveData.srate * 100).toFixed(2)}% 기준.
+                          경쟁사 {winProbCurveData.n_competitors}사, 사정율 {(winProbCurveData.srate * 100).toFixed(4)}% 기준.
                         </div>
                       )
                     })()}
@@ -1032,13 +1032,13 @@ export default function TenderDecisionPage() {
                                   )}
                                 </div>
                                 <span className="font-mono text-indigo-700 w-20 text-right shrink-0">
-                                  {c.p25_pct?.toFixed(2)}%~{c.p75_pct?.toFixed(2)}%
+                                  {c.p25_pct?.toFixed(4)}%~{c.p75_pct?.toFixed(4)}%
                                 </span>
                                 <span className={cn('w-8 text-right shrink-0 font-semibold', aggrColor)}>{aggrLabel}</span>
                               </div>
                               <div className="hidden group-hover:flex ml-6 text-[10px] text-gray-400 gap-3">
-                                <span>평균 {c.avg_rate_pct.toFixed(3)}%</span>
-                                <span>σ {c.std_pct?.toFixed(2) ?? '-'}%</span>
+                                <span>평균 {c.avg_rate_pct.toFixed(4)}%</span>
+                                <span>σ {c.std_pct?.toFixed(4) ?? '-'}%</span>
                                 <span>투찰 {c.total_bids}회</span>
                                 {c.wins > 0 && <span className="text-emerald-600">낙찰 {c.wins}회</span>}
                                 {c.last_seen && <span>최근 {c.last_seen}</span>}
@@ -1214,7 +1214,7 @@ export default function TenderDecisionPage() {
                       {parsedCompetitorRates() && (
                         <div className="text-xs text-violet-700 bg-violet-50 rounded p-2 flex flex-wrap gap-1">
                           {parsedCompetitorRates()!.map((r, i) => (
-                            <span key={i} className="font-mono bg-violet-100 px-1.5 py-0.5 rounded">{(r * 100).toFixed(3)}%</span>
+                            <span key={i} className="font-mono bg-violet-100 px-1.5 py-0.5 rounded">{(r * 100).toFixed(4)}%</span>
                           ))}
                         </div>
                       )}
@@ -1268,7 +1268,7 @@ export default function TenderDecisionPage() {
                           <div className={cn('rounded p-2.5', Math.abs(journalRecord.rate_gap) < 0.005 ? 'bg-emerald-50' : 'bg-amber-50')}>
                             <div className="text-gray-400">투찰률 편차</div>
                             <div className={cn('font-mono font-semibold mt-0.5', Math.abs(journalRecord.rate_gap) < 0.005 ? 'text-emerald-700' : 'text-amber-700')}>
-                              {journalRecord.rate_gap > 0 ? '+' : ''}{(journalRecord.rate_gap * 100).toFixed(3)}%
+                              {journalRecord.rate_gap > 0 ? '+' : ''}{(journalRecord.rate_gap * 100).toFixed(4)}%
                             </div>
                           </div>
                         )}
@@ -1276,7 +1276,7 @@ export default function TenderDecisionPage() {
                           <div className={cn('rounded p-2.5', Math.abs(journalRecord.srate_error) < 0.003 ? 'bg-emerald-50' : 'bg-amber-50')}>
                             <div className="text-gray-400">사정율 예측 오차</div>
                             <div className={cn('font-mono font-semibold mt-0.5', Math.abs(journalRecord.srate_error) < 0.003 ? 'text-emerald-700' : 'text-amber-700')}>
-                              {journalRecord.srate_error > 0 ? '+' : ''}{(journalRecord.srate_error * 100).toFixed(3)}%
+                              {journalRecord.srate_error > 0 ? '+' : ''}{(journalRecord.srate_error * 100).toFixed(4)}%
                             </div>
                           </div>
                         )}
@@ -1430,12 +1430,12 @@ export default function TenderDecisionPage() {
                             <input
                               value={submittedRateInput}
                               onChange={e => setSubmittedRateInput(e.target.value)}
-                              placeholder={result?.optimal ? (result.optimal.rate * 100).toFixed(3) : '예) 90.234'}
+                              placeholder={result?.optimal ? (result.optimal.rate * 100).toFixed(4) : '예) 90.2345'}
                               className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-400"
                             />
                             {result?.optimal && !submittedRateInput && (
                               <button
-                                onClick={() => setSubmittedRateInput((result.optimal!.rate * 100).toFixed(3))}
+                                onClick={() => setSubmittedRateInput((result.optimal!.rate * 100).toFixed(4))}
                                 className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-blue-600 hover:text-blue-800 font-medium"
                               >
                                 최적값 사용

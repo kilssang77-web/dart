@@ -299,7 +299,7 @@ export default function RecommendPage() {
 
   const valid = Number(form.agency_id) > 0 && Number(form.industry_id) > 0 &&
                 Number(form.region_id) > 0 && Number(form.base_amount) > 0
-  const pct = (v: number) => (v * 100).toFixed(2)
+  const pct = (v: number) => (v * 100).toFixed(4)
 
   // 4전략 데이터 구성
   const strategyData: StrategyEntry[] = result
@@ -611,7 +611,7 @@ export default function RecommendPage() {
                 <div className="bg-white rounded-lg p-3 border border-blue-100">
                   <p className="text-xs text-slate-500 mb-1">낙찰하한율</p>
                   <p className="font-mono font-bold text-slate-900 text-base">
-                    {(bidRange.floor_rate * 100).toFixed(3)}%
+                    {(bidRange.floor_rate * 100).toFixed(4)}%
                     {bidRange.industry_name && (
                       <span className="text-xs font-normal text-slate-500 ml-1">({bidRange.industry_name})</span>
                     )}
@@ -664,14 +664,14 @@ export default function RecommendPage() {
                   <div className="text-center">
                     <p className="text-sm font-medium text-blue-500 uppercase tracking-wider mb-1">최종 권장 투찰률</p>
                     <span className="text-5xl font-mono font-black text-blue-700 leading-none">
-                      {(result.strategies.balanced.rate * 100).toFixed(2)}%
+                      {(result.strategies.balanced.rate * 100).toFixed(4)}%
                     </span>
                     <p className="text-xs text-slate-500 mt-1">{result.strategies.balanced.target}</p>
                   </div>
                   <ConfidenceBadge confidence={result.estimated_price.confidence} />
                   <div className="w-full grid grid-cols-3 gap-2">
                     <InfoBox label="낙찰하한" value={`${pct(result.competition.floor_rate)}%`} />
-                    <InfoBox label="예상 사정율" value={`${(result.estimated_price.srate_range.center * 100).toFixed(3)}%`} />
+                    <InfoBox label="예상 사정율" value={`${(result.estimated_price.srate_range.center * 100).toFixed(4)}%`} />
                     <InfoBox label="예상 예정가" value={`${(result.estimated_price.estimated_price_range.center / 1e8).toFixed(2)}억`} />
                   </div>
                 </CardContent>
@@ -715,7 +715,7 @@ export default function RecommendPage() {
                     <div className="p-3.5">
                       <Badge className="bg-red-100 text-red-700 border-red-200 text-xs mb-2.5">공격형</Badge>
                       <p className="text-2xl font-bold tabular-nums text-slate-900">
-                        {(result.strategies.aggressive.rate * 100).toFixed(2)}%
+                        {(result.strategies.aggressive.rate * 100).toFixed(4)}%
                       </p>
                       <p className="text-xs text-red-700 font-semibold mt-1">
                         낙찰확률 {(result.win_probabilities.at_aggressive * 100).toFixed(1)}%
@@ -732,7 +732,7 @@ export default function RecommendPage() {
                         <Badge className="bg-blue-600 text-white text-xs">권장</Badge>
                       </div>
                       <p className="text-2xl font-bold tabular-nums text-blue-700">
-                        {(result.strategies.balanced.rate * 100).toFixed(2)}%
+                        {(result.strategies.balanced.rate * 100).toFixed(4)}%
                       </p>
                       <p className="text-xs text-blue-700 font-semibold mt-1">
                         낙찰확률 {(result.win_probabilities.at_balanced * 100).toFixed(1)}%
@@ -746,7 +746,7 @@ export default function RecommendPage() {
                     <div className="p-3.5">
                       <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs mb-2.5">안정형</Badge>
                       <p className="text-2xl font-bold tabular-nums text-slate-900">
-                        {(result.strategies.conservative.rate * 100).toFixed(2)}%
+                        {(result.strategies.conservative.rate * 100).toFixed(4)}%
                       </p>
                       <p className="text-xs text-emerald-700 font-semibold mt-1">
                         낙찰확률 {(result.win_probabilities.at_conservative * 100).toFixed(1)}%
@@ -786,24 +786,24 @@ export default function RecommendPage() {
                     {srateDist.agency_stats && (
                       <div className="bg-blue-50 rounded-lg p-3 border border-blue-100">
                         <p className="font-semibold text-blue-700 mb-1">이 발주기관 기준</p>
-                        <p className="text-slate-700">평균 {(srateDist.agency_stats.mean * 100).toFixed(3)}%</p>
-                        <p className="text-slate-500">편차 ±{(srateDist.agency_stats.std * 100).toFixed(3)}%</p>
+                        <p className="text-slate-700">평균 {(srateDist.agency_stats.mean * 100).toFixed(4)}%</p>
+                        <p className="text-slate-500">편차 ±{(srateDist.agency_stats.std * 100).toFixed(4)}%</p>
                         <p className="text-slate-500">{srateDist.agency_stats.sample_count}건</p>
                       </div>
                     )}
                     {srateDist.industry_stats && (
                       <div className="bg-slate-50 rounded-lg p-3 border border-slate-100">
                         <p className="font-semibold text-slate-600 mb-1">동일 공종 기준</p>
-                        <p className="text-slate-700">평균 {(srateDist.industry_stats.mean * 100).toFixed(3)}%</p>
-                        <p className="text-slate-500">편차 ±{(srateDist.industry_stats.std * 100).toFixed(3)}%</p>
+                        <p className="text-slate-700">평균 {(srateDist.industry_stats.mean * 100).toFixed(4)}%</p>
+                        <p className="text-slate-500">편차 ±{(srateDist.industry_stats.std * 100).toFixed(4)}%</p>
                         <p className="text-slate-500">{srateDist.industry_stats.sample_count}건</p>
                       </div>
                     )}
                     {srateDist.global_stats && (
                       <div className="bg-slate-50 rounded-lg p-3 border border-slate-100">
                         <p className="font-semibold text-slate-600 mb-1">전체 평균</p>
-                        <p className="text-slate-700">평균 {(srateDist.global_stats.mean * 100).toFixed(3)}%</p>
-                        <p className="text-slate-500">편차 ±{(srateDist.global_stats.std * 100).toFixed(3)}%</p>
+                        <p className="text-slate-700">평균 {(srateDist.global_stats.mean * 100).toFixed(4)}%</p>
+                        <p className="text-slate-500">편차 ±{(srateDist.global_stats.std * 100).toFixed(4)}%</p>
                         <p className="text-slate-500">{srateDist.global_stats.sample_count}건</p>
                       </div>
                     )}
@@ -892,7 +892,7 @@ export default function RecommendPage() {
                         <div key={p.competitor_id} className="flex items-center justify-between text-xs py-2 border-b border-slate-100 last:border-0">
                           <span className="truncate text-slate-700">{p.name}</span>
                           <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-slate-500">평균 {(p.avg_rate * 100).toFixed(2)}%</span>
+                            <span className="text-slate-500">평균 {(p.avg_rate * 100).toFixed(4)}%</span>
                             <RiskBadgeSm level={p.risk_level} />
                           </div>
                         </div>
@@ -939,7 +939,7 @@ export default function RecommendPage() {
                 .slice(0, 10)
                 .map((b: { rate_pct: number; count: number }, idx: number) => ({
                   rank: idx + 1,
-                  pct: (b.rate_pct * 100).toFixed(3) + '%',
+                  pct: (b.rate_pct * 100).toFixed(4) + '%',
                   count: b.count,
                   ratio: +((b.count / (totalCount || 1)) * 100).toFixed(1),
                   isNear: result && Math.abs(b.rate_pct - result.strategies.balanced.rate) < 0.005,
@@ -950,7 +950,7 @@ export default function RecommendPage() {
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-base font-semibold text-slate-800">
                         과거 낙찰 집중 구간 Top 10
-                        <span className="text-xs font-normal text-slate-500 ml-2">소수점 3자리 · 24개월</span>
+                        <span className="text-xs font-normal text-slate-500 ml-2">소수점 4자리 · 24개월</span>
                       </CardTitle>
                       <span className="text-xs text-slate-500">
                         {srateDist?.agency_stats
@@ -1060,7 +1060,7 @@ export default function RecommendPage() {
                                 `${(v * 100).toFixed(2)}%`,
                                 props.payload?.floor_ok ? '낙찰확률' : '낙찰확률 (하한 미달)',
                               ]}
-                              labelFormatter={(label: number) => `투찰률 ${(label * 100).toFixed(3)}%`}
+                              labelFormatter={(label: number) => `투찰률 ${(label * 100).toFixed(4)}%`}
                             />
                             <Bar dataKey="win_prob" radius={[2, 2, 0, 0]}>
                               {prismData.zones.map((z, i) => {
@@ -1104,7 +1104,7 @@ export default function RecommendPage() {
                               <TableRow key={z.rate} className={idx === 0 ? 'bg-amber-50/50' : 'hover:bg-slate-50/50'}>
                                 <TableCell className="text-center font-mono text-slate-500">{idx + 1}</TableCell>
                                 <TableCell className="font-mono font-semibold text-amber-700">
-                                  {(z.rate * 100).toFixed(3)}%
+                                  {(z.rate * 100).toFixed(4)}%
                                 </TableCell>
                                 <TableCell className="text-right font-mono text-slate-700">
                                   {(z.win_prob * 100).toFixed(2)}%
@@ -1201,7 +1201,7 @@ export default function RecommendPage() {
                   <div className="flex items-end gap-3 flex-wrap">
                     <div className="space-y-1">
                       <p className="text-xs text-slate-500">AI 권장 투찰률</p>
-                      <p className="text-lg font-mono font-bold text-blue-600">{(result.strategies.balanced.rate * 100).toFixed(2)}%</p>
+                      <p className="text-lg font-mono font-bold text-blue-600">{(result.strategies.balanced.rate * 100).toFixed(4)}%</p>
                     </div>
                     <div className="space-y-1 flex-1 min-w-[120px]">
                       <label className="text-xs text-slate-500">실제 투찰률 (%)</label>
@@ -1282,7 +1282,7 @@ export default function RecommendPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '3px', fontSize: '10px' }}>
                   <div>A값: {bidRange.a_value.toLocaleString('ko-KR')}원</div>
                   <div>낙찰하한가: {bidRange.floor_price.toLocaleString('ko-KR')}원</div>
-                  <div>하한율: {(bidRange.floor_rate * 100).toFixed(3)}%</div>
+                  <div>하한율: {(bidRange.floor_rate * 100).toFixed(4)}%</div>
                 </div>
               </div>
             )}
@@ -1293,8 +1293,8 @@ export default function RecommendPage() {
                 <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>② 사정율 트렌드</div>
                 <div style={{ fontSize: '10px' }}>
                   방향: {srateTrend.direction === 'up' ? '↑ 상승' : srateTrend.direction === 'down' ? '↓ 하락' : '→ 안정'}
-                  &nbsp;&nbsp;최근 평균: {srateTrend.recent_mean ? (srateTrend.recent_mean * 100).toFixed(3) + '%' : '-'}
-                  &nbsp;&nbsp;직전 평균: {srateTrend.prev_mean ? (srateTrend.prev_mean * 100).toFixed(3) + '%' : '-'}
+                  &nbsp;&nbsp;최근 평균: {srateTrend.recent_mean ? (srateTrend.recent_mean * 100).toFixed(4) + '%' : '-'}
+                  &nbsp;&nbsp;직전 평균: {srateTrend.prev_mean ? (srateTrend.prev_mean * 100).toFixed(4) + '%' : '-'}
                 </div>
               </div>
             )}
@@ -1309,7 +1309,7 @@ export default function RecommendPage() {
               ].map(s => (
                 <div key={s.label} style={{ display: 'flex', gap: '12px', marginBottom: '3px', padding: '3px', background: s.label.includes('권장') ? '#fef08a' : 'transparent', borderRadius: '3px' }}>
                   <div style={{ width: '90px', fontWeight: s.label.includes('권장') ? 'bold' : 'normal', fontSize: '10px' }}>{s.label}</div>
-                  <div style={{ width: '65px', fontFamily: 'monospace', fontWeight: 'bold', fontSize: '10px' }}>{(s.rate * 100).toFixed(3)}%</div>
+                  <div style={{ width: '65px', fontFamily: 'monospace', fontWeight: 'bold', fontSize: '10px' }}>{(s.rate * 100).toFixed(4)}%</div>
                   <div style={{ width: '75px', fontSize: '10px' }}>낙찰확률 {(s.prob * 100).toFixed(0)}%</div>
                   <div style={{ color: '#555', fontSize: '9px' }}>{s.note || ''}</div>
                 </div>
@@ -1332,7 +1332,7 @@ export default function RecommendPage() {
                   <tbody>
                     {prismData.top10.slice(0, 5).map((z, i) => (
                       <tr key={i} style={{ background: i % 2 === 0 ? '#faf5ff' : 'white' }}>
-                        <td style={{ padding: '3px 4px', fontFamily: 'monospace' }}>{(z.rate * 100).toFixed(3)}%</td>
+                        <td style={{ padding: '3px 4px', fontFamily: 'monospace' }}>{(z.rate * 100).toFixed(4)}%</td>
                         <td style={{ padding: '3px 4px', textAlign: 'right' }}>{(z.win_prob * 100).toFixed(1)}%</td>
                         <td style={{ padding: '3px 4px', textAlign: 'right' }}>{z.amount.toLocaleString('ko-KR')}원</td>
                         <td style={{ padding: '3px 4px', textAlign: 'center' }}>{z.floor_ok ? '✓' : '✗'}</td>
@@ -1381,10 +1381,10 @@ function RateBand({ floor, lower, center, upper }: { floor: number; lower: numbe
         <div className="absolute top-0 h-full w-0.5 bg-red-400" style={{ left: `${p(floor)}%` }} />
       </div>
       <div className="flex justify-between text-xs text-slate-500 mt-1.5">
-        <span>낙찰하한 {(floor * 100).toFixed(2)}%</span>
-        <span>하단 {(lower * 100).toFixed(2)}%</span>
-        <span className="font-semibold text-blue-600">권장 {(center * 100).toFixed(2)}%</span>
-        <span>상단 {(upper * 100).toFixed(2)}%</span>
+        <span>낙찰하한 {(floor * 100).toFixed(4)}%</span>
+        <span>하단 {(lower * 100).toFixed(4)}%</span>
+        <span className="font-semibold text-blue-600">권장 {(center * 100).toFixed(4)}%</span>
+        <span>상단 {(upper * 100).toFixed(4)}%</span>
       </div>
     </div>
   )
@@ -1408,7 +1408,7 @@ function InfoBox({ label, value }: { label: string; value: string }) {
 function TrendRow({ label, value, isRate }: { label: string; value: number; unit: string; isRate?: boolean }) {
   const Icon = value > 0.001 ? TrendingUp : value < -0.001 ? TrendingDown : Minus
   const color = value > 0.001 ? 'text-blue-600' : value < -0.001 ? 'text-red-500' : 'text-slate-500'
-  const display = isRate ? `${value >= 0 ? '+' : ''}${(value * 100).toFixed(3)}%` : String(value)
+  const display = isRate ? `${value >= 0 ? '+' : ''}${(value * 100).toFixed(4)}%` : String(value)
   return (
     <div className="flex items-center justify-between">
       <span className="text-xs text-slate-500">{label}</span>
@@ -1453,12 +1453,12 @@ function SratePercentileBar({ srate, center }: { srate: SrateRange; center: numb
       </div>
       <div className="flex justify-between text-xs text-slate-500">
         {labels.map(({ key, label }) => (
-          <span key={key}>{label}: {(srate[key] * 100).toFixed(3)}%</span>
+          <span key={key}>{label}: {(srate[key] * 100).toFixed(4)}%</span>
         ))}
       </div>
       <p className="text-xs text-center text-blue-700 font-medium">
-        예측 중앙값 {(center * 100).toFixed(3)}%
-        (A값 = 기초금액 × {(center * 100).toFixed(3)}%)
+        예측 중앙값 {(center * 100).toFixed(4)}%
+        (A값 = 기초금액 × {(center * 100).toFixed(4)}%)
       </p>
     </div>
   )

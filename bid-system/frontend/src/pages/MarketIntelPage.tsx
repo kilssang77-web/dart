@@ -37,15 +37,15 @@ export default function MarketIntelPage() {
 
   const trendData = (trend?.trend ?? []).map((t: WinnerTrendItem) => ({
     label: `${t.year}-${String(t.month).padStart(2, '0')}`,
-    avg_rate: t.avg_rate != null ? +(t.avg_rate * 100).toFixed(3) : null,
+    avg_rate: t.avg_rate != null ? +(t.avg_rate * 100).toFixed(4) : null,
     bid_count: t.bid_count,
   }))
 
   const boxData = (heatmap?.agencies ?? []).map((a: AgencyHeatmapItem) => ({
     name: a.agency_name.slice(0, 12),
-    avg: a.avg_rate != null ? +(a.avg_rate * 100).toFixed(3) : 0,
-    p25: a.p25 != null ? +(a.p25 * 100).toFixed(3) : 0,
-    p75: a.p75 != null ? +(a.p75 * 100).toFixed(3) : 0,
+    avg: a.avg_rate != null ? +(a.avg_rate * 100).toFixed(4) : 0,
+    p25: a.p25 != null ? +(a.p25 * 100).toFixed(4) : 0,
+    p75: a.p75 != null ? +(a.p75 * 100).toFixed(4) : 0,
     count: a.bid_count,
   }))
 
@@ -161,13 +161,13 @@ export default function MarketIntelPage() {
                         </TableCell>
                         <TableCell className="text-right text-slate-600">{a.bid_count.toLocaleString()}</TableCell>
                         <TableCell className="text-right font-mono font-semibold text-blue-600">
-                          {a.avg_rate != null ? (a.avg_rate * 100).toFixed(3) + '%' : '-'}
+                          {a.avg_rate != null ? (a.avg_rate * 100).toFixed(4) + '%' : '-'}
                         </TableCell>
                         <TableCell className="text-right font-mono text-slate-500 text-xs">
-                          {a.p25 != null ? (a.p25 * 100).toFixed(3) + '%' : '-'}
+                          {a.p25 != null ? (a.p25 * 100).toFixed(4) + '%' : '-'}
                         </TableCell>
                         <TableCell className="text-right font-mono text-slate-500 text-xs">
-                          {a.p75 != null ? (a.p75 * 100).toFixed(3) + '%' : '-'}
+                          {a.p75 != null ? (a.p75 * 100).toFixed(4) + '%' : '-'}
                         </TableCell>
                         <TableCell className="text-right text-sm text-slate-500">
                           {a.min_rate && a.max_rate
@@ -292,7 +292,7 @@ export default function MarketIntelPage() {
                             </TableCell>
                             <TableCell className="text-right font-semibold text-slate-800">{w.win_count}<span className="text-xs font-normal text-slate-500 ml-0.5">건</span></TableCell>
                             <TableCell className="text-right font-mono text-sm text-slate-500">
-                              {w.avg_rate != null ? (w.avg_rate * 100).toFixed(3) + '%' : '-'}
+                              {w.avg_rate != null ? (w.avg_rate * 100).toFixed(4) + '%' : '-'}
                             </TableCell>
                           </TableRow>
                         )
@@ -318,9 +318,9 @@ export default function MarketIntelPage() {
             <CardContent className="pt-4 space-y-2">
               {heatmap.agencies.slice(0, 10).map((a: AgencyHeatmapItem) => {
                 if (a.avg_rate == null) return null
-                const avgPct = +(a.avg_rate * 100).toFixed(3)
-                const p25Pct = a.p25 != null ? +(a.p25 * 100).toFixed(3) : avgPct
-                const p75Pct = a.p75 != null ? +(a.p75 * 100).toFixed(3) : avgPct
+                const avgPct = +(a.avg_rate * 100).toFixed(4)
+                const p25Pct = a.p25 != null ? +(a.p25 * 100).toFixed(4) : avgPct
+                const p75Pct = a.p75 != null ? +(a.p75 * 100).toFixed(4) : avgPct
                 const minV = 87, maxV = 95
                 const toPos = (v: number) => Math.max(0, Math.min(100, ((v - minV) / (maxV - minV)) * 100))
                 return (

@@ -545,7 +545,7 @@ function ExecutionRow({
                 )}
                 {analysis.next_rate_adj != null && analysis.next_rate_adj !== 0 && (
                   <span className="text-blue-600">
-                    다음 조정: {analysis.next_rate_adj > 0 ? '+' : ''}{(analysis.next_rate_adj * 100).toFixed(2)}%p
+                    다음 조정: {analysis.next_rate_adj > 0 ? '+' : ''}{(analysis.next_rate_adj * 100).toFixed(4)}%p
                   </span>
                 )}
               </div>
@@ -847,7 +847,7 @@ export default function ExecutionsPage() {
                     </div>
                     {c.avg_rate_adj !== null && c.avg_rate_adj !== 0 && (
                       <div className={cn('text-xs mt-1 font-medium', c.avg_rate_adj < 0 ? 'text-blue-600' : 'text-slate-500')}>
-                        권장 조정: {c.avg_rate_adj > 0 ? '+' : ''}{(c.avg_rate_adj * 100).toFixed(2)}%p
+                        권장 조정: {c.avg_rate_adj > 0 ? '+' : ''}{(c.avg_rate_adj * 100).toFixed(4)}%p
                       </div>
                     )}
                   </div>
@@ -863,8 +863,8 @@ export default function ExecutionsPage() {
                       <div className="truncate max-w-[50%] text-slate-700">{r.title}</div>
                       <div className="flex items-center gap-3 shrink-0 text-slate-500">
                         {r.bid_open_date && <span>{new Date(r.bid_open_date).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}</span>}
-                        {r.submitted_rate !== null && <span>투찰 {(r.submitted_rate * 100).toFixed(2)}%</span>}
-                        {r.winner_rate !== null && <span>낙찰 {(r.winner_rate * 100).toFixed(2)}%</span>}
+                        {r.submitted_rate !== null && <span>투찰 {(r.submitted_rate * 100).toFixed(4)}%</span>}
+                        {r.winner_rate !== null && <span>낙찰 {(r.winner_rate * 100).toFixed(4)}%</span>}
                         {r.gap_pct !== null && (
                           <span className={cn('font-semibold', r.gap_pct > 0 ? 'text-red-500' : 'text-blue-500')}>
                             {r.gap_pct > 0 ? '+' : ''}{r.gap_pct.toFixed(2)}%p

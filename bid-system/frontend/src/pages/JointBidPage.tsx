@@ -491,7 +491,7 @@ export default function JointBidPage() {
                                 {(c.win_rate * 100).toFixed(1)}%
                               </TableCell>
                               <TableCell className="text-right font-mono text-sm text-slate-600 tabular-nums">
-                                {c.avg_bid_rate != null ? (c.avg_bid_rate * 100).toFixed(3) + '%' : '-'}
+                                {c.avg_bid_rate != null ? (c.avg_bid_rate * 100).toFixed(4) + '%' : '-'}
                               </TableCell>
                               <TableCell className="text-right text-sm text-slate-600">{c.total_bids}건</TableCell>
                               <TableCell>
@@ -552,7 +552,7 @@ export default function JointBidPage() {
                                           </span>
                                         </div>
                                         <p className="text-xs text-slate-500 mt-0.5">
-                                          P25~P75 투찰구간: {c.p25_rate != null ? (c.p25_rate * 100).toFixed(3) : '-'}% ~ {c.p75_rate != null ? (c.p75_rate * 100).toFixed(3) : '-'}%
+                                          P25~P75 투찰구간: {c.p25_rate != null ? (c.p25_rate * 100).toFixed(4) : '-'}% ~ {c.p75_rate != null ? (c.p75_rate * 100).toFixed(4) : '-'}%
                                         </p>
                                       </div>
                                     </div>

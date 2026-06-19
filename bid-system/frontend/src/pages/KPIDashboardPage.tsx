@@ -539,7 +539,7 @@ export default function KPIDashboardPage() {
                 </div>
                 {calibration.srate_mae != null && (
                   <div className="text-center p-3 bg-slate-50 rounded-lg">
-                    <div className="font-bold text-lg text-blue-700">{(calibration.srate_mae * 100).toFixed(3)}%</div>
+                    <div className="font-bold text-lg text-blue-700">{(calibration.srate_mae * 100).toFixed(4)}%</div>
                     <div className="text-slate-500 text-xs">사정률 예측 MAE</div>
                   </div>
                 )}
@@ -548,7 +548,7 @@ export default function KPIDashboardPage() {
                     <div className={cn('font-bold text-lg',
                       Math.abs(calibration.srate_median_bias) < 0.002 ? 'text-emerald-700' : 'text-amber-700'
                     )}>
-                      {calibration.srate_median_bias > 0 ? '+' : ''}{(calibration.srate_median_bias * 100).toFixed(3)}%
+                      {calibration.srate_median_bias > 0 ? '+' : ''}{(calibration.srate_median_bias * 100).toFixed(4)}%
                     </div>
                     <div className="text-slate-500 text-xs">사정률 예측 편향</div>
                   </div>

@@ -44,7 +44,7 @@ export default function RivalRadarPage() {
   const chartData = data.rivals.slice(0, 10).map((r, i) => ({
     name: r.company_name.slice(0, 8),
     count: r.co_bid_count,
-    avg_rate: r.avg_bid_rate ? +(r.avg_bid_rate * 100).toFixed(3) : 0,
+    avg_rate: r.avg_bid_rate ? +(r.avg_bid_rate * 100).toFixed(4) : 0,
     idx: i,
   }))
 
@@ -97,7 +97,7 @@ export default function RivalRadarPage() {
           />
           <StatCard
             label="낙찰률"
-            value={data.winner_rate ? (data.winner_rate * 100).toFixed(3) + '%' : '-'}
+            value={data.winner_rate ? (data.winner_rate * 100).toFixed(4) + '%' : '-'}
             sub="낙찰 투찰률"
             icon={TrendingUp}
             color="emerald"
@@ -167,7 +167,7 @@ export default function RivalRadarPage() {
                           'font-mono text-sm font-semibold tabular-nums',
                           p.is_winner ? 'text-amber-700' : 'text-slate-600'
                         )}>
-                          {p.bid_rate != null ? (p.bid_rate * 100).toFixed(3) + '%' : '-'}
+                          {p.bid_rate != null ? (p.bid_rate * 100).toFixed(4) + '%' : '-'}
                         </span>
                       </TableCell>
                       <TableCell className="text-center pr-5">
@@ -267,7 +267,7 @@ export default function RivalRadarPage() {
                       <span className="text-xs text-slate-500 ml-0.5">건</span>
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm text-slate-600 tabular-nums">
-                      {r.avg_bid_rate != null ? (r.avg_bid_rate * 100).toFixed(3) + '%' : '-'}
+                      {r.avg_bid_rate != null ? (r.avg_bid_rate * 100).toFixed(4) + '%' : '-'}
                     </TableCell>
                     <TableCell className="text-right pr-5">
                       {r.win_count > 0 ? (
