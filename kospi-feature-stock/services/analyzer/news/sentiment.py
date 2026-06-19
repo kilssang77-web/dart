@@ -84,11 +84,21 @@ def _load_pipeline():
         logger.info("[Sentiment] BERT disabled by env (USE_BERT_SENTIMENT=false)")
         return None
     try:
-        from transformers import pipeline as hf_pipeline
+        from transformers import (
+            AutoModelForSequenceClassification,
+            AutoTokenizer,
+            pipeline as hf_pipeline,
+        )
+        # cache_dir를 pipeline()에 직접 넘기면 transformers>=4.50 에서
+        # _batch_encode_plus()로 잘못 전달되는 버그가 있어 분리 로딩.
+        tokenizer = AutoTokenizer.from_pretrained(_MODEL_NAME, cache_dir=_CACHE_DIR)
+        model     = AutoModelForSequenceClassification.from_pretrained(
+            _MODEL_NAME, cache_dir=_CACHE_DIR
+        )
         pipe = hf_pipeline(
             "text-classification",
-            model=_MODEL_NAME,
-            cache_dir=_CACHE_DIR,
+            model=model,
+            tokenizer=tokenizer,
             device=-1,          # CPU; GPU: device=0
             truncation=True,
             max_length=_MAX_LEN,

@@ -1,7 +1,7 @@
 asyncpg==0.29.0
 redis[asyncio]==5.0.1
 sentence-transformers==3.0.1
-torch==2.3.0
+torch>=2.6.0
 transformers>=4.40.0
 numpy==1.26.4
 python-dotenv==1.0.1
