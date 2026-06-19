@@ -304,46 +304,11 @@ def hot_zones(
     db: Session  = Depends(get_db),
     _: User      = Depends(get_current_user),
 ):
-    """Hot Zone 분포 — inpo21c_participants.bid_rate 기반 KDE 피크 탐지."""
+    """Hot Zone 분포 — inpo21c_participants.bid_rate 기반 KDE 피크 탐지 + 담합 탐지."""
     try:
-        result = HotZoneService().get(db, bid_id, period_type=period)
+        return HotZoneService().get(db, bid_id, period_type=period)
     except ValueError as e:
         raise HTTPException(404, str(e))
-
-    # 담합 탐지 — 최근 동일 기관 inpo21c 참가자 패턴 분석
-    try:
-        from sqlalchemy import text as sa_text
-        from ...ml.anomaly_detector import detect_collusion
-        bid_row = db.execute(
-            sa_text("SELECT agency_id FROM bids WHERE id = :bid_id"),
-            {"bid_id": bid_id}
-        ).fetchone()
-        if bid_row and bid_row[0]:
-            rows = db.execute(sa_text("""
-                SELECT ip.bid_rate::float
-                FROM inpo21c_participants ip
-                JOIN inpo21c_bids ib USING (inpo21c_bid_id)
-                JOIN agencies a ON (
-                    TRIM(a.name) = TRIM(ib.agency_name)
-                    OR TRIM(ib.agency_name) LIKE '%%' || TRIM(a.name) || '%%'
-                    OR TRIM(a.name) LIKE '%%' || TRIM(ib.agency_name) || '%%'
-                )
-                WHERE a.id = :aid
-                  AND ib.open_datetime >= NOW() - INTERVAL '6 months'
-                  AND ip.bid_rate BETWEEN 0.80 AND 1.05
-                  AND ip.company_name != '유찰'
-                ORDER BY ib.open_datetime DESC
-                LIMIT 200
-            """), {"aid": bid_row[0]}).fetchall()
-            if rows:
-                rates = [float(r[0]) for r in rows]
-                collusion = detect_collusion(rates)
-                if isinstance(result, dict):
-                    result["collusion_alert"] = collusion
-    except Exception:
-        pass
-
-    return result
 
 
 @router.get("/{bid_id}/best-rate", response_model=BestRateResponse)

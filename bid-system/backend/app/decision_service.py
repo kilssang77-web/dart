@@ -7,6 +7,7 @@ from .ml.simulation import (
     simulate_yejung_from_real, simulate_yejung, simulate_yejung_bimodal,
     scan_zones_from_dist, monte_carlo_win_prob_gmm,
 )
+from .ml.personal import PersonalBiasAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 class DecisionService:
     """투찰 결정 전용 서비스 — TenderDecisionPage 백엔드."""
 
-    def get_bid_context(self, db: Session, bid_id: int) -> dict:
+    def get_bid_context(self, db: Session, bid_id: int, user_id: int = 0) -> dict:
         from .ml.a_value import calc_floor_rate
         from .ml.yega import load_inpo21c_yega_stats
         from .ml.competitor_predict import predict_bid_zone
@@ -75,13 +76,24 @@ class DecisionService:
                 return v.date()
             return v
 
+        agency_name = b.agency.name if b.agency else ""
+
+        personal_bias = None
+        if user_id:
+            try:
+                personal_bias = PersonalBiasAnalyzer().compute(
+                    db, user_id, agency_name=agency_name
+                )
+            except Exception:
+                pass
+
         return {
             "bid_id":               b.id,
             "announcement_no":      b.announcement_no,
             "title":                b.title,
             "base_amount":          b.base_amount,
             "agency_id":            b.agency_id,
-            "agency_name":          b.agency.name if b.agency else "",
+            "agency_name":          agency_name,
             "industry_id":          b.industry_id,
             "industry_name":        industry_name,
             "floor_rate":           floor_rate,
@@ -100,6 +112,7 @@ class DecisionService:
                 "trend_slope":     agency_profile.get("trend_slope"),
                 "confidence":      agency_profile.get("confidence"),
             } if agency_profile else None,
+            "personal_bias":        personal_bias,
         }
 
     def simulate_bid(self, db: Session, bid_id: int, req) -> dict:

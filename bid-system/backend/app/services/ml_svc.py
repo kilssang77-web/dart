@@ -509,16 +509,42 @@ class YegaFrequencyService:
 # ==================================================
 
 class HotZoneService:
-    """inpo21c bid_rate 기반 Hot Zone KDE 피크 탐지."""
+    """inpo21c bid_rate 기반 Hot Zone KDE 피크 탐지 + 담합 탐지."""
 
     def get(self, db: Session, bid_id: int, period_type: str = "24M") -> dict:
         from ..ml.hotzone import get_hot_zones as _get_hot_zones
+        from ..ml.anomaly_detector import detect_collusion
         bid = db.query(Bid).filter(Bid.id == bid_id).first()
         if not bid:
             raise ValueError(f"공고를 찾을 수 없습니다: {bid_id}")
         result = _get_hot_zones(db, agency_id=bid.agency_id, period_type=period_type)
         result["bid_id"] = bid_id
         result["agency_id"] = bid.agency_id
+
+        collusion_alert = None
+        if bid.agency_id:
+            try:
+                rows = db.execute(text("""
+                    SELECT ip.bid_rate::float
+                    FROM inpo21c_participants ip
+                    JOIN inpo21c_bids ib USING (inpo21c_bid_id)
+                    JOIN agencies a ON (
+                        TRIM(a.name) = TRIM(ib.agency_name)
+                        OR TRIM(ib.agency_name) LIKE '%' || TRIM(a.name) || '%'
+                        OR TRIM(a.name) LIKE '%' || TRIM(ib.agency_name) || '%'
+                    )
+                    WHERE a.id = :aid
+                      AND ib.open_datetime >= NOW() - INTERVAL '6 months'
+                      AND ip.bid_rate BETWEEN 0.80 AND 1.05
+                      AND ip.company_name != '유찰'
+                    ORDER BY ib.open_datetime DESC
+                    LIMIT 200
+                """), {"aid": bid.agency_id}).fetchall()
+                if rows:
+                    collusion_alert = detect_collusion([float(r[0]) for r in rows])
+            except Exception:
+                pass
+        result["collusion_alert"] = collusion_alert
         return result
 
 class BestRateService:
