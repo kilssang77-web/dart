@@ -259,6 +259,11 @@ def train_models(df: pd.DataFrame, clf_df: Optional["pd.DataFrame"] = None) -> d
     joblib.dump(rate_models, MODEL_DIR / "rate_models.pkl")
     if win_model is not None:
         joblib.dump(win_model, MODEL_DIR / "win_model.pkl")
+    else:
+        # win_model 스킵 시 구버전 파일 삭제 — 피처 수 불일치 방지
+        win_path = MODEL_DIR / "win_model.pkl"
+        if win_path.exists():
+            win_path.unlink()
     joblib.dump(imputer,     MODEL_DIR / "imputer.pkl")
     with open(MODEL_DIR / "meta.json", "w") as f:
         json.dump({"version": version, "train_size": len(df),
