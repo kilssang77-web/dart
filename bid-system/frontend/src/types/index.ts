@@ -1330,6 +1330,8 @@ export interface CollusionAlert {
   near_identical_pairs:  number
   cluster_density:       number
   reasons:               string[]
+  dense_peaks?:          DensePeak[]
+  avoidance_suggestion?: AvoidanceSuggestion | null
 }
 
 export interface BidContext {
@@ -1545,6 +1547,23 @@ export interface MlCalibration {
   message?:          string
 }
 
+export interface DensePeak {
+  center:  number
+  density: number
+  count:   number
+}
+
+export interface AvoidanceSuggestion {
+  suggested_rate:  number
+  avoid_center:    number
+  avoid_density:   number
+  avoid_count:     number
+  direction:       string
+  delta:           number
+  nearby_density:  number
+  message:         string
+}
+
 export interface CollusionResult {
   flag:                 'clean' | 'suspicious' | 'collusion' | 'insufficient_data'
   score:                number
@@ -1556,6 +1575,8 @@ export interface CollusionResult {
   cluster_density:      number
   reasons:              string[]
   announcement_no:      string
+  dense_peaks?:         DensePeak[]
+  avoidance_suggestion?: AvoidanceSuggestion | null
 }
 
 export interface CollusionScanResponse {

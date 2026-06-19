@@ -1,4 +1,4 @@
-"""C-4: 담합 의심 탐지 — CV 기반 이상 투찰 패턴 감지."""
+"""C-4: 담합 의심 탐지 — CV 기반 이상 투찰 패턴 감지 + 밀집 구간 회피 제안."""
 from __future__ import annotations
 
 import logging
@@ -16,6 +16,77 @@ CLUSTER_DENSITY_THRESHOLD = 0.60
 
 # 거의 동일한 투찰 기준
 NEAR_IDENTICAL_DELTA = 0.0010
+
+# 회피 제안 — 밀집 구간 탐지 윈도우
+DENSE_WINDOW = 0.002        # ±0.001 범위
+DENSE_THRESHOLD = 0.25      # 전체의 25% 이상 집중 시 피크로 판단
+AVOIDANCE_STEPS = [0.002, 0.003, 0.004]  # 회피 후보 이동 거리
+
+
+def _find_dense_peaks(arr: np.ndarray, window: float = DENSE_WINDOW, threshold: float = DENSE_THRESHOLD) -> list[dict]:
+    """밀집 투찰 구간 피크를 찾는다 (슬라이딩 윈도우 0.001 간격)."""
+    n = len(arr)
+    step = 0.001
+    lo = float(arr.min()) - step
+    hi = float(arr.max()) + step
+
+    peaks: list[dict] = []
+    seen: list[float] = []
+
+    for center in np.arange(lo, hi + step, step):
+        in_w = arr[(arr >= center - window / 2) & (arr <= center + window / 2)]
+        density = len(in_w) / n
+        if density < threshold:
+            continue
+        rounded = round(float(center), 3)
+        if any(abs(rounded - s) < window for s in seen):
+            continue
+        seen.append(rounded)
+        peaks.append({
+            "center":  round(float(center), 4),
+            "density": round(density, 3),
+            "count":   int(len(in_w)),
+        })
+
+    peaks.sort(key=lambda x: x["density"], reverse=True)
+    return peaks[:5]
+
+
+def _suggest_avoidance(arr: np.ndarray, dense_peaks: list[dict]) -> Optional[dict]:
+    """가장 밀집된 피크를 피하는 투찰율 + 이동 방향을 계산한다."""
+    if not dense_peaks:
+        return None
+
+    top = dense_peaks[0]
+    center = top["center"]
+    n = len(arr)
+
+    best: Optional[dict] = None
+    best_density = float("inf")
+
+    for step in AVOIDANCE_STEPS:
+        for direction, cand in [("아래", center - step), ("위", center + step)]:
+            if not (0.75 <= cand <= 1.02):
+                continue
+            nearby = arr[(arr >= cand - DENSE_WINDOW / 2) & (arr <= cand + DENSE_WINDOW / 2)]
+            density = len(nearby) / n
+            if density < best_density:
+                best_density = density
+                best = {
+                    "suggested_rate": round(cand, 4),
+                    "avoid_center":   round(center, 4),
+                    "avoid_density":  top["density"],
+                    "avoid_count":    top["count"],
+                    "direction":      direction,
+                    "delta":          round(step, 4),
+                    "nearby_density": round(density, 3),
+                    "message": (
+                        f"밀집 구간({center * 100:.3f}%, {top['count']}명 / {int(top['density'] * 100)}%) "
+                        f"회피 → {cand * 100:.3f}%로 {direction}쪽 {step * 100:.2f}%p 이동 권장"
+                    ),
+                }
+
+    return best
 
 
 def detect_collusion(
@@ -118,6 +189,13 @@ def detect_collusion(
     if not reasons:
         reasons.append("이상 패턴 없음")
 
+    # 밀집 피크 탐지 + 회피 제안 (suspicious/collusion 일 때만)
+    dense_peaks: list[dict] = []
+    avoidance_suggestion: Optional[dict] = None
+    if flag in ("suspicious", "collusion"):
+        dense_peaks = _find_dense_peaks(arr)
+        avoidance_suggestion = _suggest_avoidance(arr, dense_peaks)
+
     return {
         "flag": flag,
         "score": round(score, 3),
@@ -129,6 +207,8 @@ def detect_collusion(
         "cluster_density": round(cluster_density, 3),
         "reasons": reasons,
         "announcement_no": announcement_no,
+        "dense_peaks": dense_peaks,
+        "avoidance_suggestion": avoidance_suggestion,
     }
 
 

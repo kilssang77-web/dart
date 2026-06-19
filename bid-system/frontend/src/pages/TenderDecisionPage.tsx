@@ -723,7 +723,7 @@ export default function TenderDecisionPage() {
                     : 'bg-amber-50 border-amber-300'
                 )}>
                   <AlertCircle className={cn('w-5 h-5 mt-0.5 shrink-0', hotZoneData.collusion_alert.flag === 'collusion' ? 'text-red-500' : 'text-amber-500')} />
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <div className={cn('font-semibold text-sm', hotZoneData.collusion_alert.flag === 'collusion' ? 'text-red-700' : 'text-amber-700')}>
                       {hotZoneData.collusion_alert.flag === 'collusion' ? '⚠️ 담합 강한 의심' : '⚠️ 투찰 패턴 이상 감지'}
                     </div>
@@ -731,7 +731,59 @@ export default function TenderDecisionPage() {
                       이 기관 최근 입찰({hotZoneData.collusion_alert.n}건) — CV={hotZoneData.collusion_alert.cv?.toFixed(4)}, 의심도 {Math.round(hotZoneData.collusion_alert.score * 100)}%
                     </div>
                     <div className="text-xs text-gray-500 mt-0.5">{hotZoneData.collusion_alert.reasons.join(' / ')}</div>
-                    <div className="text-xs text-gray-500 mt-1 font-medium">→ 일반 패턴 추정이 부정확할 수 있습니다. AI 추천값 참고 시 주의하세요.</div>
+
+                    {/* ── 밀집 구간 회피 제안 ── */}
+                    {hotZoneData.collusion_alert.avoidance_suggestion && (
+                      <div className={cn(
+                        'mt-3 rounded-lg border px-3 py-2.5',
+                        hotZoneData.collusion_alert.flag === 'collusion'
+                          ? 'bg-white border-red-200'
+                          : 'bg-white border-amber-200'
+                      )}>
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <Target className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                          <span className="text-xs font-semibold text-blue-700">밀집 구간 회피 제안</span>
+                        </div>
+                        <div className="flex items-end gap-3 flex-wrap">
+                          <div>
+                            <div className="text-lg font-bold font-mono text-blue-800">
+                              {(hotZoneData.collusion_alert.avoidance_suggestion.suggested_rate * 100).toFixed(4)}%
+                            </div>
+                            {ctx && ctx.base_amount > 0 && (
+                              <div className="text-xs text-blue-600 font-medium mt-0.5">
+                                {fmt(Math.round(ctx.base_amount * hotZoneData.collusion_alert.avoidance_suggestion.suggested_rate))}원
+                              </div>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-500 leading-relaxed flex-1 min-w-0">
+                            <span className={cn(
+                              'inline-block px-1.5 py-0.5 rounded text-[10px] font-medium mr-1',
+                              hotZoneData.collusion_alert.avoidance_suggestion.direction === '아래'
+                                ? 'bg-blue-100 text-blue-700'
+                                : 'bg-purple-100 text-purple-700'
+                            )}>
+                              {hotZoneData.collusion_alert.avoidance_suggestion.direction}쪽 {(hotZoneData.collusion_alert.avoidance_suggestion.delta * 100).toFixed(2)}%p
+                            </span>
+                            밀집 구간 {(hotZoneData.collusion_alert.avoidance_suggestion.avoid_center * 100).toFixed(3)}%
+                            ({hotZoneData.collusion_alert.avoidance_suggestion.avoid_count}명, {Math.round(hotZoneData.collusion_alert.avoidance_suggestion.avoid_density * 100)}%)
+                            회피 → 주변 밀집도 {Math.round(hotZoneData.collusion_alert.avoidance_suggestion.nearby_density * 100)}%로 감소
+                          </div>
+                        </div>
+                        {/* 밀집 피크 목록 (2개 이상일 때) */}
+                        {(hotZoneData.collusion_alert.dense_peaks?.length ?? 0) > 1 && (
+                          <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] text-gray-400">밀집 구간:</span>
+                            {hotZoneData.collusion_alert.dense_peaks!.slice(0, 3).map((p, i) => (
+                              <span key={i} className="text-[10px] font-mono bg-red-50 border border-red-200 px-1.5 py-0.5 rounded text-red-600">
+                                {(p.center * 100).toFixed(3)}% ({p.count}명)
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="text-xs text-gray-400 mt-2">→ 일반 패턴 추정이 부정확할 수 있습니다. AI 추천값 참고 시 주의하세요.</div>
                   </div>
                 </div>
               )}
