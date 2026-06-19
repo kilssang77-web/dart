@@ -15,7 +15,7 @@ import { CandleChart } from '@/components/charts/CandleChart'
 import { Badge, ActionBadge, MarketBadge } from '@/components/ui/Badge'
 import { EventDetailModal } from '@/components/modals/EventDetailModal'
 import { RecDetailModal } from '@/components/modals/RecDetailModal'
-import { fmt, pctColor } from '@/lib/utils'
+import { fmt, pctColor, probToScore, scoreBarColor } from '@/lib/utils'
 import type { SupplyDemand, FeatureEvent, Recommendation } from '@/types'
 
 interface SimilarCaseWithBars {
@@ -460,8 +460,9 @@ export function StockSearch() {
                     <div className="space-y-3 cursor-pointer hover:bg-[var(--border)]/15 rounded-lg p-2 -m-2 transition-colors" onClick={() => setSelectedRec(latestRec)} title="클릭하여 상세 보기">
                       <div className="flex items-center justify-between"><ActionBadge action={latestRec.action} /><span className="text-xs text-[var(--muted)]">{fmt.dateTime(latestRec.created_at)}</span></div>
                       <div className="flex items-center gap-2">
-                        <div className="flex-1 h-2 bg-[var(--border)] rounded-full overflow-hidden"><div className={clsx('h-full rounded-full', latestRec.success_prob >= 0.55 ? 'bg-green-400' : latestRec.success_prob >= 0.35 ? 'bg-orange-400' : latestRec.success_prob >= 0.22 ? 'bg-yellow-400' : 'bg-[var(--muted)]')} style={{ width: `${latestRec.success_prob * 100}%` }} /></div>
-                        <span className="text-sm font-bold tabular text-[var(--fg)]">{(latestRec.success_prob * 100).toFixed(1)}%</span>
+                        <div className="flex-1 h-2 bg-[var(--border)] rounded-full overflow-hidden"><div className={clsx('h-full rounded-full', scoreBarColor(probToScore(latestRec.success_prob)))} style={{ width: `${probToScore(latestRec.success_prob)}%` }} /></div>
+                        <span className={clsx('text-sm font-bold tabular', scoreBarColor(probToScore(latestRec.success_prob)).replace('bg-', 'text-'))}>{probToScore(latestRec.success_prob)}점</span>
+                        <span className="text-xs text-[var(--muted)] tabular">ML {(latestRec.success_prob * 100).toFixed(1)}%</span>
                       </div>
                       <div className="grid grid-cols-3 gap-2 text-center">
                         <div className="bg-[var(--bg)] rounded-lg p-2"><div className="text-xs text-[var(--muted)]">진입가(매수)</div><div className="text-xs font-bold tabular mt-0.5 text-[var(--fg)]">{fmt.price(latestRec.entry_price)}</div></div>

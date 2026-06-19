@@ -13,10 +13,11 @@ import { disclosuresApi } from '@/api/disclosures'
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Badge, MarketBadge, EVENT_LABELS } from '@/components/ui/Badge'
-import { fmt, pctColor } from '@/lib/utils'
+import { fmt, pctColor, probToScore } from '@/lib/utils'
 import { useRealtimeStream, StreamFeature, StreamRecommendation } from '@/hooks/useRealtimeStream'
 import { EventDetailModal } from '@/components/modals/EventDetailModal'
-import type { FeatureEvent, Recommendation } from '@/types'
+import type { FeatureEvent, Recommendation, TodaySummary, PerformanceStats } from '@/types'
+import type { IndexLive, MarketSummary, MarketMovers, MarketMover } from '@/api/market'
 
 // ── 이벤트 타입 아이콘 매핑 ─────────────────────────────────────────────────
 const EVENT_ICONS: Record<string, React.ReactNode> = {
@@ -50,15 +51,15 @@ function ActionBar({
   isRt,
 }: {
   buyCount:   number | undefined
-  indexLive:  any
-  mkSummary:  any
+  indexLive:  IndexLive | undefined
+  mkSummary:  MarketSummary | undefined
   mlMode:     string | undefined
   isRt:       boolean
 }) {
   const kospi  = indexLive?.kospi
   const kosdaq = indexLive?.kosdaq
 
-  function IndexPill({ label, data }: { label: string; data: any }) {
+  function IndexPill({ label, data }: { label: string; data: IndexLive['kospi'] | undefined }) {
     const chg = data?.change_rate ?? 0
     const up = chg > 0; const dn = chg < 0
     const color = up ? 'text-red-400' : dn ? 'text-blue-400' : 'text-[var(--muted)]'
@@ -311,13 +312,13 @@ function TodaySummaryPanel({
   buyCount,
   disclosureCount,
 }: {
-  summary:         any
-  perf:            any
+  summary:         TodaySummary | undefined
+  perf:            PerformanceStats | undefined
   buyCount:        number | undefined
   disclosureCount: number | undefined
 }) {
-  const p = perf as any
-  const s = summary as any
+  const p = perf
+  const s = summary
 
   return (
     <div className="space-y-4">
@@ -438,15 +439,14 @@ function TodaySummaryPanel({
 }
 
 // ── 상승/하락 Movers ─────────────────────────────────────────────────────────
-function MoversRow({ movers }: { movers: any }) {
+function MoversRow({ movers }: { movers: MarketMovers | undefined }) {
   const nav = useNavigate()
-  const mv = movers as any
 
-  if (!mv?.gainers?.length && !mv?.losers?.length) return null
+  if (!movers?.gainers?.length && !movers?.losers?.length) return null
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      {mv?.gainers?.length > 0 && (
+      {movers?.gainers?.length > 0 && (
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
@@ -455,7 +455,7 @@ function MoversRow({ movers }: { movers: any }) {
             </div>
           </CardHeader>
           <CardBody className="pt-3 space-y-1">
-            {mv.gainers.slice(0, 6).map((s: any) => (
+            {movers.gainers.slice(0, 6).map((s: MarketMover) => (
               <div
                 key={s.code}
                 className="flex items-center justify-between cursor-pointer hover:bg-[var(--border)]/25 rounded-lg px-2 py-2 transition-colors"
@@ -469,7 +469,7 @@ function MoversRow({ movers }: { movers: any }) {
         </Card>
       )}
 
-      {mv?.losers?.length > 0 && (
+      {movers?.losers?.length > 0 && (
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
@@ -478,7 +478,7 @@ function MoversRow({ movers }: { movers: any }) {
             </div>
           </CardHeader>
           <CardBody className="pt-3 space-y-1">
-            {mv.losers.slice(0, 6).map((s: any) => (
+            {movers.losers.slice(0, 6).map((s: MarketMover) => (
               <div
                 key={s.code}
                 className="flex items-center justify-between cursor-pointer hover:bg-[var(--border)]/25 rounded-lg px-2 py-2 transition-colors"
@@ -521,7 +521,7 @@ export function Dashboard() {
       key:   `r-${rec.code}-${Date.now()}`,
       code:  rec.code,
       label: `${rec.code} 매수신호`,
-      sub:   `${(rec.success_prob * 100).toFixed(1)}%`,
+      sub:   `${probToScore(rec.success_prob)}점 (${(rec.success_prob * 100).toFixed(1)}%)`,
       type:  'rec' as const,
       ts:    Date.now(),
     }, ...prev].slice(0, 8))
@@ -548,7 +548,7 @@ export function Dashboard() {
 
   const { data: topRecs } = useQuery({
     queryKey:        ['top-recs'],
-    queryFn:         () => recommendationsApi.list({ min_prob: 0.20, hours: 24, limit: 10 }),
+    queryFn:         () => recommendationsApi.list({ min_prob: 0.30, hours: 24, limit: 10 }),
     refetchInterval: 60_000,
   })
 

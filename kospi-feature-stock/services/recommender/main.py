@@ -141,15 +141,16 @@ class RecommenderService:
 
         if rec["action"] == "BUY":
             signal = {
-                "code":            rec["code"],
-                "name":            rec.get("name", rec["code"]),
-                "created_at":      rec["created_at"],
-                "action":          rec["action"],
-                "entry_price":     rec["entry_price"],
-                "target_price":    rec["target_price"],
-                "stop_loss_price": rec["stop_loss_price"],
-                "success_prob":    rec["success_prob"],
-                "risk_score":      rec["risk_score"],
+                "code":              rec["code"],
+                "name":              rec.get("name", rec["code"]),
+                "created_at":        rec["created_at"],
+                "action":            rec["action"],
+                "entry_price":       rec["entry_price"],
+                "target_price":      rec["target_price"],
+                "stop_loss_price":   rec["stop_loss_price"],
+                "success_prob":      rec["success_prob"],
+                "risk_score":        rec["risk_score"],
+                "risk_reward_ratio": rec["risk_reward_ratio"],
             }
             await self._redis.publish("ch:signal-generated", orjson.dumps(signal).decode())
             logger.info(

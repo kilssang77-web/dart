@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 _MIN_RR        = float(os.environ.get("REC_MIN_RISK_REWARD", "2.0"))
 _MAX_RISK      = float(os.environ.get("REC_MAX_RISK", "0.60"))
-_MIN_PROB      = float(os.environ.get("REC_MIN_PROB", "0.20"))
+_MIN_PROB      = float(os.environ.get("REC_MIN_PROB", "0.30"))
 _ENTRY_BAND    = float(os.environ.get("REC_ENTRY_BAND", "0.015"))
 _VOL_HEAT_H    = float(os.environ.get("REC_VOL_HEAT_HIGH", "20.0"))
 _VOL_HEAT_M    = float(os.environ.get("REC_VOL_HEAT_MED", "10.0"))
@@ -101,6 +101,13 @@ class EntryRecommender:
         risk   = self._risk(event, ml_result)
         action = self._decide(prob, risk, rr)
 
+        # 복합 조건 격하: ML 확률 낮음 AND 유사 패턴 수익 중위수 부정적 (최소 10건 이상)
+        avg_sim_ret = sim_stats.get("avg_return_5d", 0)
+        rf = self._risk_factors(event, ml_result)
+        if action == "BUY" and ml_prob < 0.45 and avg_sim_ret < -3.0 and n_cases >= 10:
+            action = "WAIT"
+            rf = [*rf, "유사 패턴 수익 부정적"]
+
         hold = self._estimate_hold_days(similar_cases, ml_result, target_dist)
 
         model_mode = "ml" if ml_result.model_used else "fallback"
@@ -131,7 +138,7 @@ class EntryRecommender:
                 "target_dist_pct":     round(target_dist * 100, 2),
                 "atr_based":           atr_val is not None and atr_val > 0,
                 "atr14":               round(float(atr_val), 2) if atr_val else None,
-                "risk_factors":        self._risk_factors(event, ml_result),
+                "risk_factors":        rf,
                 "confidence_grade":    confidence["grade"],
                 "confidence_score":    confidence["score"],
                 "confidence_warnings": confidence["warnings"],
@@ -151,10 +158,10 @@ class EntryRecommender:
         # 유사 사례 각각에서 목표 달성 일수 추정
         hold_estimates: list[int] = []
         for case in similar_cases:
-            r1  = float(case.get("result_1d")  or 0)
-            r3  = float(case.get("result_3d")  or 0)
-            r5  = float(case.get("result_5d")  or 0)
-            r10 = float(case.get("result_10d") or 0)
+            r1  = float(case.get("return_1d")  or 0)
+            r3  = float(case.get("return_3d")  or 0)
+            r5  = float(case.get("return_5d")  or 0)
+            r10 = float(case.get("return_10d") or 0)
 
             # 목표 달성 첫 날수 추정 (linear interpolation 근사)
             if r1 >= target_pct:

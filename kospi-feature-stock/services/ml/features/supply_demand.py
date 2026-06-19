@@ -27,6 +27,28 @@ class SupplyDemandFeatureExtractor:
             df["dual_buy"]    = ((df["foreign_net"] > 0) & (df["inst_net"] > 0)).astype(int)
             df["dual_buy_3d"] = df["dual_buy"].rolling(3).sum()
 
+        # ── 외인·기관 연속 순매수 streak ─────────────────────────
+        for investor in ["foreign", "inst"]:
+            net_col = f"{investor}_net"
+            if net_col not in df.columns:
+                continue
+            net = df[net_col].astype(float).fillna(0).values
+            streak = np.zeros(len(net), dtype=int)
+            for i in range(1, len(net)):
+                if net[i] > 0:
+                    streak[i] = max(streak[i - 1], 0) + 1
+                elif net[i] < 0:
+                    streak[i] = min(streak[i - 1], 0) - 1
+                # net == 0 → streak reset to 0
+            df[f"{investor}_buy_streak"] = streak
+
+        # 외인+기관 동시 연속 매수 streak (둘 다 양수인 최소값)
+        if "foreign_buy_streak" in df.columns and "inst_buy_streak" in df.columns:
+            df["dual_buy_streak"] = np.minimum(
+                df["foreign_buy_streak"].clip(lower=0),
+                df["inst_buy_streak"].clip(lower=0),
+            )
+
         if "short_sell_vol" in df.columns and "volume" in df.columns:
             df["short_ratio"]     = df["short_sell_vol"] / df["volume"].replace(0, np.nan)
             df["short_ma5"]       = df["short_ratio"].rolling(5).mean()

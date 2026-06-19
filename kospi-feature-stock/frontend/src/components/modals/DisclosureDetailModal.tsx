@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { clsx } from 'clsx'
-import { X, Building2, FileText, Tag, TrendingUp, TrendingDown, Calendar, DollarSign, Lightbulb, Users, Clock4 } from 'lucide-react'
+import { X, Building2, FileText, Tag, TrendingUp, TrendingDown, Calendar, DollarSign, Lightbulb, Users, Clock4, ExternalLink } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { http } from '@/api/client'
 import { SentimentBadge } from '@/components/ui/Badge'
@@ -112,6 +112,18 @@ export function DisclosureDetailModal({ disclosure: d, onClose }: Props) {
               <code className="text-sm px-2 py-0.5 rounded-lg bg-[var(--border)] text-cyan-400 font-mono">
                 {d.code}
               </code>
+            )}
+            {d.rcept_no && (
+              <a
+                href={`https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${d.rcept_no}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center gap-1 text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors"
+              >
+                <ExternalLink size={12} />
+                DART 바로가기
+              </a>
             )}
             <div className="ml-auto"><SentimentBadge category={d.category} /></div>
           </div>

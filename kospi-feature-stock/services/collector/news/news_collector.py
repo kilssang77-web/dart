@@ -28,6 +28,7 @@ from datetime import datetime, timezone, timedelta
 
 from news.naver_api_client import NaverNewsAPI
 from news.google_rss_client import GoogleNewsRSS
+from news.korean_financial_rss_client import KoreanFinancialRSSClient
 from news.naver_crawler import NaverNewsCrawler, THEME_KEYWORDS
 
 logger = logging.getLogger(__name__)
@@ -69,9 +70,10 @@ class MultiSourceNewsCollector:
     """
 
     def __init__(self) -> None:
-        self._naver_api = NaverNewsAPI()
-        self._google_rss = GoogleNewsRSS()
-        self._naver_crawler = NaverNewsCrawler()   # fallback
+        self._naver_api      = NaverNewsAPI()
+        self._google_rss     = GoogleNewsRSS()
+        self._korean_rss     = KoreanFinancialRSSClient()   # 한경/MK/연합/서울경제
+        self._naver_crawler  = NaverNewsCrawler()           # 최후 fallback
 
     async def crawl_stock_news(
         self,
@@ -110,7 +112,16 @@ class MultiSourceNewsCollector:
         except Exception as e:
             logger.warning(f"[MultiSource] {code} google_rss 오류: {e}")
 
-        # ── 3순위: 기존 Naver Finance 크롤러 (최후 fallback) ──
+        # ── 3순위: 한국 금융 언론사 RSS (한경/MK/연합/서울경제) ─
+        try:
+            raw_items = await self._korean_rss.get_news(name, max_items=max_items)
+            if raw_items:
+                logger.debug(f"[MultiSource] {code} — korean_rss 성공 ({len(raw_items)}건)")
+                return [_normalize(r, code) for r in raw_items]
+        except Exception as e:
+            logger.warning(f"[MultiSource] {code} korean_rss 오류: {e}")
+
+        # ── 4순위: 기존 Naver Finance 크롤러 (최후 fallback) ──
         try:
             raw_items = await self._naver_crawler.crawl_stock_news(
                 code, name, max_items=max_items

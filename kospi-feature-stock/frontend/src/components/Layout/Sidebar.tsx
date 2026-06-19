@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { clsx } from 'clsx'
 import {
   LayoutDashboard, Zap, TrendingUp, Search, Newspaper, Star,
-  FlaskConical, BarChart3, Settings2, Send,
+  FlaskConical, BarChart3, Settings2, Send, Activity,
   ChevronLeft, ChevronRight, ChevronDown, X,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
@@ -33,6 +33,7 @@ function buildNavGroups(badge?: string): NavGroup[] {
         { to: '/',                icon: <LayoutDashboard size={15} />, label: '대시보드' },
         { to: '/features',        icon: <Zap size={15} />,            label: '특징주 탐지', badge },
         { to: '/recommendations', icon: <TrendingUp size={15} />,     label: '매매 추천' },
+        { to: '/rec-journey',    icon: <Activity   size={15} />,     label: '추천 성과 추적' },
       ],
     },
     {

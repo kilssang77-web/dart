@@ -98,3 +98,30 @@ export function probColor(v?: number | null) {
   if (v >= 0.22) return 'text-yellow-400'
   return 'text-[var(--muted)]'
 }
+
+// ML 확률 → 1~100점 (Min-Max 정규화, 모델 실제 출력 범위 기준)
+const _SCORE_MIN = 0.373
+const _SCORE_MAX = 0.627
+const _SCORE_RANGE = _SCORE_MAX - _SCORE_MIN  // 0.254
+
+export function probToScore(prob: number): number {
+  return Math.min(100, Math.max(1, Math.round(((prob - _SCORE_MIN) / _SCORE_RANGE) * 99 + 1)))
+}
+
+export function scoreToProb(score: number): number {
+  return _SCORE_MIN + ((score - 1) / 99) * _SCORE_RANGE
+}
+
+export function scoreColor(score: number): string {
+  if (score >= 70) return 'text-green-400'
+  if (score >= 51) return 'text-orange-400'
+  if (score >= 31) return 'text-yellow-400'
+  return 'text-[var(--muted)]'
+}
+
+export function scoreBarColor(score: number): string {
+  if (score >= 70) return 'bg-green-400'
+  if (score >= 51) return 'bg-orange-400'
+  if (score >= 31) return 'bg-yellow-500'
+  return 'bg-zinc-500'
+}

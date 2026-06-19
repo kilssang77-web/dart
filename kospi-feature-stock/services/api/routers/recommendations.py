@@ -17,7 +17,7 @@ async def list_recommendations(
     action:   str | None = None,
     market:   str | None = None,
     code:     str | None = None,
-    min_prob: float = Query(default=0.20, ge=0.0, le=1.0),
+    min_prob: float = Query(default=0.30, ge=0.30, le=1.0),
     hours:    int   = Query(default=72, le=168),
     limit:    int   = Query(default=30, le=100),
     dedupe:   bool  = Query(default=True, description="종목당 최고확률 1건만 반환"),
@@ -28,7 +28,7 @@ async def list_recommendations(
 
 @router.get("/buy", response_model=list[RecommendationResponse])
 async def get_buy_signals(
-    min_prob: float = Query(default=0.20, ge=0.0, le=1.0),
+    min_prob: float = Query(default=0.30, ge=0.30, le=1.0),
     db: asyncpg.Pool = Depends(get_db),
 ):
     from services.recommendation_service import _parse_json_fields

@@ -60,6 +60,18 @@ UNFAVORABLE_WEIGHTS: dict[str, float] = {
 FAVORABLE_KEYWORDS = list(FAVORABLE_WEIGHTS.keys())
 UNFAVORABLE_KEYWORDS = list(UNFAVORABLE_WEIGHTS.keys())
 
+# 부정어 패턴 — LEFT: 키워드 앞 15자, RIGHT: 키워드 뒤 12자
+_NEGATIONS_LEFT  = [
+    "아니", "않", "없", "미달", "불", "비", "부인", "실패",
+    "거절", "기각", "무산", "불발", "철수",
+]
+_NEGATIONS_RIGHT = [
+    "취소", "아님", "없음", "미실시", "불발", "중단", "연기",
+    "해소", "해제", "철회", "아니다", "않다", "없다",
+]
+# 강조 문맥: 키워드 전후 10자 이내에 있으면 가중치 +0.1
+_BOOST_CONTEXTS = ["대규모", "최대", "역대", "최초", "글로벌", "세계최대", "사상최대"]
+
 
 class DARTClient:
     BASE_URL = "https://opendart.fss.or.kr/api"
@@ -164,25 +176,80 @@ class DARTClient:
 
         return max(amounts) if amounts else None
 
+    @staticmethod
+    def _has_negation(text: str, match_pos: int, kw_len: int,
+                      left_win: int = 15, right_win: int = 12) -> bool:
+        """키워드 앞(left_win)·뒤(right_win) 범위 내에 부정어가 있으면 True."""
+        left_ctx  = text[max(0, match_pos - left_win): match_pos]
+        right_ctx = text[match_pos + kw_len: match_pos + kw_len + right_win]
+        if any(neg in left_ctx  for neg in _NEGATIONS_LEFT):
+            return True
+        if any(neg in right_ctx for neg in _NEGATIONS_RIGHT):
+            return True
+        return False
+
     def classify(self, title: str, body: str = "") -> tuple[str, float]:
         """
-        가중치 기반 감성 분류.
-        호재·악재 키워드가 다수 발견되면 합산 스코어로 중립 비율 감소.
+        문맥 인식 가중치 분류 (v2).
+
+        개선 사항:
+        1. 부정어 감지: 키워드 앞 15자에 부정어 존재 시 해당 키워드 무효화
+        2. 제목 가중 1.5×: 제목에서 발견된 키워드는 본문보다 신뢰도 높음
+        3. 누적 스코어: max() → 가산 (추가 키워드마다 50% 할인 적용, 상한 1.0)
+        4. 강조 문맥 보너스: '대규모', '역대' 등 표현 시 +0.1
+
         score > 0.3 → favorable, score < -0.3 → unfavorable, else neutral
         """
-        text = (title + " " + (body or "")[:600]).strip()
+        raw_text = (title + " " + (body or "")[:600]).strip()
+        # 공백 제거 버전: "임상3상 성공" → "임상3상성공" 키워드 매칭용
+        text_ns  = raw_text.replace(" ", "")
+
         fav_score = 0.0
         unf_score = 0.0
+        fav_hits  = 0
+        unf_hits  = 0
 
         for kw, w in FAVORABLE_WEIGHTS.items():
-            if kw in text:
-                fav_score = max(fav_score, w)
+            kw_ns = kw.replace(" ", "")
+            # 공백 포함 검색 우선, 없으면 공백 제거 버전
+            pos = raw_text.find(kw)
+            if pos < 0:
+                pos = text_ns.find(kw_ns)
+                search_text, search_kw = text_ns, kw_ns
+            else:
+                search_text, search_kw = raw_text, kw
+            if pos < 0:
+                continue
+            if self._has_negation(search_text, pos, len(search_kw)):
+                continue
+            title_mult = 1.5 if (kw in title or kw_ns in title.replace(" ", "")) else 1.0
+            ctx        = raw_text[max(0, pos - 10): pos + len(kw) + 10]
+            boost      = 0.10 if any(b in ctx for b in _BOOST_CONTEXTS) else 0.0
+            discount   = 1.0 if fav_hits == 0 else 0.5
+            fav_score += (w * title_mult + boost) * discount
+            fav_hits  += 1
 
         for kw, w in UNFAVORABLE_WEIGHTS.items():
-            if kw in text:
-                unf_score = min(unf_score, w)  # w는 음수
+            kw_ns = kw.replace(" ", "")
+            pos = raw_text.find(kw)
+            if pos < 0:
+                pos = text_ns.find(kw_ns)
+                search_text, search_kw = text_ns, kw_ns
+            else:
+                search_text, search_kw = raw_text, kw
+            if pos < 0:
+                continue
+            if self._has_negation(search_text, pos, len(search_kw)):
+                continue
+            title_mult = 1.5 if (kw in title or kw_ns in title.replace(" ", "")) else 1.0
+            discount   = 1.0 if unf_hits == 0 else 0.5
+            unf_score += w * title_mult * discount
+            unf_hits  += 1
 
-        # 복합 문서: 호재와 악재가 함께 있으면 순합산
+        fav_score = min(fav_score,  1.0)
+        unf_score = max(unf_score, -1.0)
+
+        # 복합 문서: 호재·악재가 함께 있으면 순합산
         if fav_score > 0 and unf_score < 0:
             score = round(fav_score + unf_score, 3)
         elif fav_score > 0:

@@ -63,6 +63,55 @@ export function buildEventNarrative(f: {
 }
 
 
+const _CAT_KO_DISC: Record<string, string> = { favorable: '호재', unfavorable: '악재', neutral: '중립' }
+
+function PostDisclosureNarrativeText({
+  code, detectedAt, event,
+}: {
+  code: string; detectedAt: string
+  event: { price?: number; change_rate?: number; volume_ratio?: number }
+}) {
+  const { data } = useQuery({
+    queryKey: ['disclosures-event', code],  // DisclosurePanel과 캐시 공유
+    queryFn:  () => disclosuresApi.list({ code, hours: 168, limit: 5 }),
+    staleTime: 60_000,
+  })
+
+  const price    = fmt.price(event.price)
+  const chg      = event.change_rate != null
+    ? `${event.change_rate >= 0 ? '+' : ''}${event.change_rate.toFixed(2)}%` : '—'
+  const volRatio = event.volume_ratio != null ? `${event.volume_ratio.toFixed(1)}배` : '—'
+
+  const detected = new Date(detectedAt).getTime()
+  const best = (data ?? []).find(
+    (d) => Math.abs(new Date(d.disclosed_at).getTime() - detected) <= 72 * 3600 * 1000
+  )
+
+  const base = `공시 발표 이후 주가와 거래량이 동반 급등했습니다. 탐지 시 주가 ${price}(${chg}), 거래량 비율 ${volRatio}.`
+
+  if (!best) {
+    return <>{base} 연관 공시 내용을 확인하여 모멘텀의 지속 여부와 추가 재료 유무를 판단하세요.</>
+  }
+
+  const catKo   = _CAT_KO_DISC[best.category ?? ''] ?? '미분류'
+  const scoreStr = best.sentiment_score != null && Math.abs(best.sentiment_score) >= 0.05
+    ? ` · 감성점수 ${best.sentiment_score >= 0 ? '+' : ''}${best.sentiment_score.toFixed(2)}`
+    : ''
+  const kwStr   = best.keywords?.slice(0, 3).join(', ')
+  const advice  = best.category === 'favorable'
+    ? '호재성 공시로 모멘텀 지속 가능성이 높습니다. 추가 재료 소진 여부를 확인하며 단계적으로 접근하세요.'
+    : best.category === 'unfavorable'
+    ? '악재성 공시임에도 급등이 발생했습니다. 단기 반등에 그칠 수 있으므로 손절 원칙을 철저히 지키세요.'
+    : '수급 흐름과 거래량 지속 여부를 확인하여 모멘텀 지속 여부를 판단하세요.'
+
+  return (
+    <>
+      {base} 관련 공시 <strong className="font-semibold">&ldquo;{best.title}&rdquo;</strong>({catKo}{scoreStr})이
+      급등의 직접적 원인으로 식별됩니다.{kwStr ? ` 주요 키워드: ${kwStr}.` : ''} {advice}
+    </>
+  )
+}
+
 function DisclosurePanel({ code, detectedAt }: { code: string; detectedAt: string }) {
   const { data, isLoading } = useQuery({
     queryKey: ['disclosures-event', code],
@@ -218,7 +267,15 @@ export function EventDetailModal({ event, onClose, onGoDetail }: EventModalProps
           {/* 서술형 분석 */}
           <div className="bg-[var(--bg)] rounded-xl p-5 border border-[var(--border)]/60">
             <div className="text-sm font-semibold text-[var(--fg)] mb-3">📋 이벤트 분석</div>
-            <p className="modal-narrative text-sm text-[var(--fg)] leading-7">{narrative}</p>
+            <p className="modal-narrative text-sm text-[var(--fg)] leading-7">
+              {event.event_type === 'POST_DISCLOSURE_SURGE'
+                ? <PostDisclosureNarrativeText
+                    code={event.code}
+                    detectedAt={event.detected_at}
+                    event={event}
+                  />
+                : narrative}
+            </p>
           </div>
 
           {/* 공시 후 급등: 실제 공시 내용 */}

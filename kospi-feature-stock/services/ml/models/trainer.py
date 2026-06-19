@@ -18,17 +18,17 @@ logger = logging.getLogger(__name__)
 
 _BASE_PARAMS = {
     "boosting_type": "gbdt",
-    "num_leaves": 48,
-    "max_depth": 7,
-    "learning_rate": 0.03,
-    "n_estimators": 3000,
-    "min_child_samples": 50,
-    "feature_fraction": 0.7,
+    "num_leaves": 63,          # 48 → 63: 복잡한 패턴 학습 확대
+    "max_depth": 8,            # 7 → 8
+    "learning_rate": 0.02,     # 0.03 → 0.02: 느리게 학습, early_stopping으로 최적 지점 탐색
+    "n_estimators": 5000,      # 3000 → 5000: learning_rate 감소 보완
+    "min_child_samples": 40,   # 50 → 40: 소수 양성 샘플 학습 개선
+    "feature_fraction": 0.75,
     "bagging_fraction": 0.8,
     "bagging_freq": 5,
-    "reg_alpha": 0.2,
-    "reg_lambda": 0.2,
-    "min_split_gain": 0.01,
+    "reg_alpha": 0.15,         # L1 완화
+    "reg_lambda": 0.15,        # L2 완화
+    "min_split_gain": 0.005,   # 0.01 → 0.005: 분기 기준 완화
     "random_state": 42,
     "n_jobs": -1,
     "verbose": -1,
@@ -226,6 +226,10 @@ class LGBMTrainer:
         rdf["fwd5_close"] = rdf.groupby("code")["close"].shift(-5)
         rdf["ret5"] = (rdf["fwd5_close"] / rdf["close"].replace(0, np.nan) - 1) * 100
 
+        if feat_df.empty or "__date" not in feat_df.columns:
+            empty = pd.Series(dtype="float64")
+            return empty, empty
+
         fdf = feat_df[["__date", "__code"]].copy()
         fdf["date"] = pd.to_datetime(fdf["__date"])
         fdf["code"] = fdf["__code"]
@@ -245,3 +249,90 @@ class LGBMTrainer:
             dtype="float64",
         )
         return entry_labels, risk_labels
+
+    @staticmethod
+    def make_labels_relative(
+        feat_df: pd.DataFrame,
+        raw_df: pd.DataFrame,
+        fwd: int = 5,
+        top_pct: float = 0.20,
+        min_abs_return: float = 0.01,
+        bot_pct: float = 0.10,
+        max_abs_loss: float = -0.02,
+    ) -> "tuple[pd.Series, pd.Series]":
+        """
+        시장 국면 중립적 레이블 — 절대 임계값 대신 날짜별 상대 순위 사용.
+
+        entry_label = 1  if 같은 날 전체 종목 중 상위 top_pct% AND 절대 수익 >= min_abs_return
+        risk_label  = 1  if 같은 날 전체 종목 중 하위 bot_pct% AND 절대 손실 <= max_abs_loss
+
+        강세장/약세장에 관계없이 양성 비율이 ~top_pct%로 안정적으로 유지됨.
+        """
+        rdf = raw_df[["code", "date", "close"]].copy()
+        rdf["date"] = pd.to_datetime(rdf["date"])
+        rdf = rdf.sort_values(["code", "date"])
+        rdf["fwd_close"] = rdf.groupby("code")["close"].shift(-fwd)
+        rdf["ret"] = rdf["fwd_close"] / rdf["close"].replace(0, np.nan) - 1
+
+        # 날짜별 수익률 순위 (0~1)
+        rdf["ret_rank"] = rdf.groupby("date")["ret"].rank(pct=True)
+
+        if feat_df.empty or "__date" not in feat_df.columns:
+            empty = pd.Series(dtype="float64")
+            return empty, empty
+
+        fdf = feat_df[["__date", "__code"]].copy()
+        fdf["date"] = pd.to_datetime(fdf["__date"])
+        fdf["code"] = fdf["__code"]
+
+        merged = fdf[["code", "date"]].merge(
+            rdf[["code", "date", "ret", "ret_rank"]],
+            on=["code", "date"],
+            how="left",
+        )
+
+        ret      = merged["ret"]
+        ret_rank = merged["ret_rank"]
+
+        entry_labels = pd.Series(
+            np.where(
+                ret.notna(),
+                ((ret_rank >= (1 - top_pct)) & (ret >= min_abs_return)).astype(float),
+                np.nan,
+            ),
+            dtype="float64",
+        )
+        risk_labels = pd.Series(
+            np.where(
+                ret.notna(),
+                ((ret_rank <= bot_pct) & (ret <= max_abs_loss)).astype(float),
+                np.nan,
+            ),
+            dtype="float64",
+        )
+        return entry_labels, risk_labels
+
+    @staticmethod
+    def add_event_type_features(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        event_type 컬럼을 그룹별 one-hot + 순서형 인코딩으로 변환.
+        walk_forward_train.py에서 feature DataFrame에 event_type 컬럼이 있을 때 호출.
+        """
+        if "event_type" not in df.columns:
+            return df
+
+        _EVENT_GROUPS = {
+            "momentum":    {"VOLUME_SURGE", "AMOUNT_SURGE", "LONG_WHITE_CANDLE",
+                            "MORNING_STAR", "HAMMER_CANDLE"},
+            "breakout":    {"BREAKOUT_20D", "BREAKOUT_13W", "BREAKOUT_26W", "BREAKOUT_52W"},
+            "fundamental": {"POST_DISCLOSURE_SURGE", "SUPPLY_ANOMALY"},
+            "vi":          {"VI_TRIGGERED"},
+        }
+        _ALL_TYPES = sorted({t for ts in _EVENT_GROUPS.values() for t in ts})
+        _TYPE_MAP  = {t: i for i, t in enumerate(_ALL_TYPES)}
+
+        df = df.copy()
+        for group, types in _EVENT_GROUPS.items():
+            df[f"event_{group}"] = df["event_type"].isin(types).astype(int)
+        df["event_type_enc"] = df["event_type"].map(_TYPE_MAP).fillna(-1).astype(int)
+        return df

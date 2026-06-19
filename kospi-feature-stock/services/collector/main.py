@@ -18,6 +18,7 @@ from dart.kind_poller import KINDPoller
 from kafka.producer import KafkaProducerWrapper
 from db.writer import write_tick, write_minute_bars, write_daily_bars, write_supply_demand
 from news.naver_crawler import NaverNewsCrawler
+from news.rss_crawler import RssNewsCrawler
 from batch_scanner import BatchScanner
 
 logging.basicConfig(
@@ -181,7 +182,8 @@ class StockCollector:
         self.rest = KISRestClient(config, self.auth)
         self.dart = DARTPoller(os.environ["DART_API_KEY"], self.kafka)
         self.kind = KINDPoller(self.kafka)
-        self.news = NaverNewsCrawler()
+        self.news     = NaverNewsCrawler()
+        self.news_rss = RssNewsCrawler()
 
         self._tick_queue: asyncio.Queue = asyncio.Queue(maxsize=10000)
         self._daily_bars_done = asyncio.Event()   # 일봉+stats 완료 신호
@@ -726,7 +728,9 @@ class StockCollector:
             # Redis 통계 갱신 후 배치 탐지에 신호
             await self._update_redis_stats(codes)
             self._daily_bars_done.set()
-            logger.info("[DailyBar] stats updated — batch scan signal sent")
+            # batch 컨테이너(별도 프로세스)와의 조율용 Redis 키
+            await self.redis.set(f"daily_bars:ready:{today}", "1", ex=86400)
+            logger.info(f"[DailyBar] stats updated — batch scan signal sent (daily_bars:ready:{today})")
 
     async def _backfill_supply_demand(self, codes: list[str]):
         """시작 시 최근 5 영업일 수급 데이터 백필 (누락된 날짜만 대상)."""
@@ -1040,6 +1044,11 @@ class StockCollector:
                 name = stock_names.get(code, code)
                 try:
                     items = await self.news.crawl_stock_news(code, name)
+                    # Naver 수집 실패(빈 결과) 시 RSS fallback
+                    if not items:
+                        items = await self.news_rss.crawl_stock_news(code, name)
+                        if items:
+                            logger.debug(f"[News] {code} RSS fallback: {len(items)}건")
                     for item in items:
                         url = item.get("url", "")
                         if url in seen:

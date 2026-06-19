@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { Send, CheckCircle, XCircle, TrendingUp, FileText, RefreshCw, ChevronLeft, ChevronRight, MessageSquare } from 'lucide-react'
+import { Send, CheckCircle, XCircle, TrendingUp, FileText, RefreshCw, ChevronLeft, ChevronRight, MessageSquare, RotateCcw } from 'lucide-react'
 import { notificationsApi } from '@/api/notifications'
 import { fmt } from '@/lib/utils'
 import type { TelegramLog } from '@/types'
@@ -14,6 +14,38 @@ function decodeTelegramHtml(html: string): string {
     .replace(/<a[^>]*>(.*?)<\/a>/gs, '$1')
     .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+}
+
+function friendlyError(msg: string | null | undefined): string {
+  if (!msg) return ''
+  if (msg.includes('Errno -3') || msg.includes('name resolution') || msg.includes('getaddrinfo failed')) {
+    return 'DNS 조회 실패 — 컨테이너가 외부 인터넷에 접근하지 못했습니다. 네트워크/DNS 설정을 확인하세요.'
+  }
+  if (msg.includes('Errno 111') || msg.includes('Connection refused')) {
+    return '연결 거부됨 — Telegram API 서버가 접속을 거부했습니다. 방화벽 또는 프록시 설정을 확인하세요.'
+  }
+  if (msg.includes('Errno 110') || msg.includes('timed out') || msg.includes('TimeoutError') || msg.includes('timeout')) {
+    return '연결 시간 초과 — Telegram 서버에 응답이 없었습니다. 네트워크 상태를 확인하세요.'
+  }
+  if (msg.includes('401') || msg.toLowerCase().includes('unauthorized')) {
+    return '인증 실패 (401) — 봇 토큰(TELEGRAM_BOT_TOKEN)이 잘못되었거나 만료되었습니다.'
+  }
+  if (msg.toLowerCase().includes('chat not found') || msg.includes('400')) {
+    return '채팅 ID 오류 (400) — TELEGRAM_CHAT_ID가 잘못되었습니다. 올바른 채팅 ID를 설정하세요.'
+  }
+  if (msg.includes('429') || msg.toLowerCase().includes('too many requests')) {
+    return '전송 한도 초과 (429) — Telegram API 호출 빈도가 너무 높습니다. 잠시 후 재시도하세요.'
+  }
+  if (msg.toLowerCase().includes('ssl') || msg.toLowerCase().includes('certificate')) {
+    return 'SSL/TLS 인증 오류 — 인증서 검증에 실패했습니다. 시스템 시간 또는 CA 인증서를 확인하세요.'
+  }
+  if (msg.includes('ConnectError') || msg.includes('ConnectionError') || msg.includes('ECONNRESET') || msg.includes('RemoteProtocolError')) {
+    return '네트워크 연결 오류 — Telegram 서버와의 연결이 끊어졌습니다. 인터넷 연결을 확인하세요.'
+  }
+  if (msg.toLowerCase().includes('not configured') || msg.includes('BOT_TOKEN') || msg.includes('CHAT_ID')) {
+    return 'Telegram 설정 누락 — .env 파일에 TELEGRAM_BOT_TOKEN과 TELEGRAM_CHAT_ID를 설정하세요.'
+  }
+  return msg
 }
 
 const PAGE_SIZE = 50
@@ -62,7 +94,22 @@ function StatusBadge({ success }: { success: boolean }) {
   )
 }
 
-function MessageModal({ log, onClose }: { log: TelegramLog; onClose: () => void }) {
+function MessageModal({
+  log,
+  onClose,
+  onRetry,
+  retrying,
+  retryResult,
+}: {
+  log: TelegramLog
+  onClose: () => void
+  onRetry: () => void
+  retrying: boolean
+  retryResult: 'success' | 'error' | null
+}) {
+  const friendly = friendlyError(log.error_msg)
+  const isRaw = friendly === log.error_msg
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
@@ -86,14 +133,44 @@ function MessageModal({ log, onClose }: { log: TelegramLog; onClose: () => void 
           </pre>
           {log.error_msg && (
             <>
-              <div className="text-sm text-red-400">오류</div>
-              <div className="text-xs text-red-400 bg-red-500/10 rounded-lg p-3">{log.error_msg}</div>
+              <div className="text-sm text-red-400 mt-3">오류 원인</div>
+              <div className="text-xs text-red-300 bg-red-500/10 rounded-lg p-3 leading-relaxed">{friendly}</div>
+              {!isRaw && (
+                <details className="mt-1">
+                  <summary className="text-xs text-[var(--muted)] cursor-pointer hover:text-[var(--fg)] select-none">원본 오류 메시지 보기</summary>
+                  <div className="mt-1.5 text-xs text-[var(--muted)] bg-[var(--bg)] rounded-lg p-2 font-mono break-all border border-[var(--border)]">
+                    {log.error_msg}
+                  </div>
+                </details>
+              )}
             </>
           )}
-          <div className="flex justify-between text-xs text-[var(--muted)] pt-2">
-            <span>발송 시각: {fmt.dateTime(log.sent_at)}</span>
-            <StatusBadge success={log.success} />
+          <div className="flex items-center justify-between pt-2">
+            <span className="text-xs text-[var(--muted)]">발송 시각: {fmt.dateTime(log.sent_at)}</span>
+            <div className="flex items-center gap-3">
+              <StatusBadge success={log.success} />
+              {!log.success && (
+                <button
+                  onClick={onRetry}
+                  disabled={retrying}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/25 disabled:opacity-50 transition-colors"
+                >
+                  <RotateCcw size={12} className={retrying ? 'animate-spin' : ''} />
+                  {retrying ? '재발송 중…' : '재발송'}
+                </button>
+              )}
+            </div>
           </div>
+          {retryResult === 'success' && (
+            <div className="flex items-center gap-1.5 text-xs text-green-400 bg-green-500/10 rounded-lg px-3 py-2">
+              <CheckCircle size={13} /> 재발송 완료
+            </div>
+          )}
+          {retryResult === 'error' && (
+            <div className="flex items-center gap-1.5 text-xs text-red-400 bg-red-500/10 rounded-lg px-3 py-2">
+              <XCircle size={13} /> 재발송 실패 — 설정 및 네트워크 상태를 확인하세요
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -105,7 +182,10 @@ export function NotificationHistory() {
   const [successF, setSuccessF] = useState<string>('')
   const [page,     setPage]     = useState(0)
   const [selected, setSelected] = useState<TelegramLog | null>(null)
+  const [retryResult, setRetryResult] = useState<'success' | 'error' | null>(null)
+  const [rowFlash, setRowFlash] = useState<Record<number, 'success' | 'error'>>({})
 
+  const qc = useQueryClient()
   const offset = page * PAGE_SIZE
 
   const statsQ = useQuery({
@@ -124,6 +204,27 @@ export function NotificationHistory() {
     }),
     refetchInterval: 15_000,
   })
+
+  const retryMut = useMutation({
+    mutationFn: (id: number) => notificationsApi.retryLog(id),
+    onSuccess: (_, id) => {
+      setRetryResult('success')
+      setRowFlash((prev) => ({ ...prev, [id]: 'success' }))
+      setTimeout(() => setRowFlash((prev) => { const n = { ...prev }; delete n[id]; return n }), 3000)
+      qc.invalidateQueries({ queryKey: ['telegram-logs'] })
+      qc.invalidateQueries({ queryKey: ['telegram-stats'] })
+    },
+    onError: (_, id) => {
+      setRetryResult('error')
+      setRowFlash((prev) => ({ ...prev, [id]: 'error' }))
+      setTimeout(() => setRowFlash((prev) => { const n = { ...prev }; delete n[id]; return n }), 3000)
+    },
+  })
+
+  const handleRetry = (id: number) => {
+    setRetryResult(null)
+    retryMut.mutate(id)
+  }
 
   const stats = statsQ.data
   const data  = logsQ.data
@@ -203,46 +304,67 @@ export function NotificationHistory() {
                 <th className="text-left px-4 py-3">종목</th>
                 <th className="text-left px-4 py-3 max-w-xs">제목</th>
                 <th className="text-center px-4 py-3">상태</th>
-                <th className="text-center px-4 py-3">내용</th>
+                <th className="text-center px-4 py-3">액션</th>
               </tr>
             </thead>
             <tbody>
-              {data.items.map((log) => (
-                <tr
-                  key={log.id}
-                  className="border-b border-[var(--border)] hover:bg-[var(--bg)] transition-colors"
-                >
-                  <td className="px-5 py-3 tabular text-[var(--muted)] whitespace-nowrap text-xs">
-                    {fmt.dateTime(log.sent_at)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <TypeBadge type={log.msg_type} />
-                  </td>
-                  <td className="px-4 py-3">
-                    {log.code ? (
-                      <span className="font-semibold text-[var(--fg)]">
-                        {log.name || log.code}
-                        <span className="ml-1.5 text-xs text-[var(--muted)] font-mono">{log.code}</span>
-                      </span>
-                    ) : <span className="text-[var(--muted)]">—</span>}
-                  </td>
-                  <td className="px-4 py-3 max-w-xs">
-                    <span className="text-[var(--fg)] line-clamp-1">{log.title || '—'}</span>
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <StatusBadge success={log.success} />
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <button
-                      onClick={() => setSelected(log)}
-                      className="p-1.5 rounded-lg hover:bg-[var(--border)] text-[var(--muted)] hover:text-cyan-400 transition-colors"
-                      title="메시지 보기"
-                    >
-                      <MessageSquare size={14} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {data.items.map((log) => {
+                const flash = rowFlash[log.id]
+                return (
+                  <tr
+                    key={log.id}
+                    className={clsx(
+                      'border-b border-[var(--border)] transition-colors',
+                      flash === 'success' ? 'bg-green-500/10' : flash === 'error' ? 'bg-red-500/10' : 'hover:bg-[var(--bg)]',
+                    )}
+                  >
+                    <td className="px-5 py-3 tabular text-[var(--muted)] whitespace-nowrap text-xs">
+                      {fmt.dateTime(log.sent_at)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <TypeBadge type={log.msg_type} />
+                    </td>
+                    <td className="px-4 py-3">
+                      {log.code ? (
+                        <span className="font-semibold text-[var(--fg)]">
+                          {log.name || log.code}
+                          <span className="ml-1.5 text-xs text-[var(--muted)] font-mono">{log.code}</span>
+                        </span>
+                      ) : <span className="text-[var(--muted)]">—</span>}
+                    </td>
+                    <td className="px-4 py-3 max-w-xs">
+                      <span className="text-[var(--fg)] line-clamp-1">{log.title || '—'}</span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <StatusBadge success={log.success} />
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <div className="inline-flex items-center gap-1">
+                        <button
+                          onClick={() => { setSelected(log); setRetryResult(null) }}
+                          className="p-1.5 rounded-lg hover:bg-[var(--border)] text-[var(--muted)] hover:text-cyan-400 transition-colors"
+                          title="메시지 보기"
+                        >
+                          <MessageSquare size={14} />
+                        </button>
+                        {!log.success && (
+                          <button
+                            onClick={() => handleRetry(log.id)}
+                            disabled={retryMut.isPending && retryMut.variables === log.id}
+                            className="p-1.5 rounded-lg hover:bg-[var(--border)] text-[var(--muted)] hover:text-orange-400 disabled:opacity-40 transition-colors"
+                            title="재발송"
+                          >
+                            <RotateCcw
+                              size={14}
+                              className={retryMut.isPending && retryMut.variables === log.id ? 'animate-spin' : ''}
+                            />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         )}
@@ -272,7 +394,15 @@ export function NotificationHistory() {
       )}
 
       {/* 메시지 상세 모달 */}
-      {selected && <MessageModal log={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        <MessageModal
+          log={selected}
+          onClose={() => setSelected(null)}
+          onRetry={() => handleRetry(selected.id)}
+          retrying={retryMut.isPending && retryMut.variables === selected.id}
+          retryResult={retryResult}
+        />
+      )}
     </div>
   )
 }

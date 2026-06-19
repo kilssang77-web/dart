@@ -10,7 +10,7 @@ import {
   type HistoryPerformanceItem,
   type PerformanceSummary,
 } from '@/api/recommendations'
-import { fmt, pctColor } from '@/lib/utils'
+import { fmt, pctColor, probToScore, scoreBarColor } from '@/lib/utils'
 
 type HistoryDays = 7 | 30 | 90 | 180
 
@@ -190,7 +190,10 @@ export function PerformanceTracking() {
                       <td className="py-2 text-right tabular text-[var(--fg)]">{fmt.price(a.entry_price)}</td>
                       <td className="py-2 text-right tabular text-green-400">{fmt.price(a.target_price)}</td>
                       <td className="py-2 text-right tabular text-red-400">{fmt.price(a.stop_loss_price)}</td>
-                      <td className="py-2 text-right tabular text-cyan-400">{(a.success_prob * 100).toFixed(1)}%</td>
+                      <td className="py-2 text-right tabular">
+                        <span className={clsx('font-bold', scoreBarColor(probToScore(a.success_prob)).replace('bg-', 'text-'))}>{probToScore(a.success_prob)}점</span>
+                        <span className="text-[var(--muted)] text-[10px] ml-0.5">{(a.success_prob * 100).toFixed(0)}%</span>
+                      </td>
                       <td className="py-2 text-right"><ReturnCell value={a.r_1d} /></td>
                       <td className="py-2 text-right"><ReturnCell value={a.r_3d} /></td>
                       <td className="py-2 text-right"><ReturnCell value={a.r_5d} /></td>
@@ -248,7 +251,10 @@ export function PerformanceTracking() {
                       </td>
                       <td className="py-2 text-[var(--muted)]">{h.event_type ?? '—'}</td>
                       <td className="py-2 text-right tabular text-[var(--fg)]">{fmt.price(h.entry_price)}</td>
-                      <td className="py-2 text-right tabular text-cyan-400">{(h.success_prob * 100).toFixed(0)}%</td>
+                      <td className="py-2 text-right tabular">
+                        <span className={clsx('font-bold', scoreBarColor(probToScore(h.success_prob)).replace('bg-', 'text-'))}>{probToScore(h.success_prob)}점</span>
+                        <span className="text-[var(--muted)] text-[10px] ml-0.5">{(h.success_prob * 100).toFixed(0)}%</span>
+                      </td>
                       <td className="py-2 text-right"><ReturnCell value={h.r_1d} /></td>
                       <td className="py-2 text-right"><ReturnCell value={h.r_5d} /></td>
                       <td className="py-2 text-right"><ReturnCell value={h.r_10d} /></td>

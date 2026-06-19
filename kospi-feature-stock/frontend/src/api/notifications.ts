@@ -25,4 +25,9 @@ export const notificationsApi = {
     const res = await http.get('/notifications/stats')
     return res.data
   },
+
+  retryLog: async (id: number): Promise<{ success: boolean }> => {
+    const res = await http.post(`/notifications/${id}/retry`)
+    return res.data
+  },
 }

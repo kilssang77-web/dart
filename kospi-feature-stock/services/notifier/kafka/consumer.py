@@ -11,7 +11,9 @@ logger = logging.getLogger("notifier.consumer")
 _REDIS_KEY             = "telegram:config"
 _DEDUP_TTL_SIGNAL      = int(os.environ.get("DEDUP_TTL_SIGNAL",     "3600"))  # 1시간
 _DEDUP_TTL_DISCLOSURE  = int(os.environ.get("DEDUP_TTL_DISCLOSURE", "3600"))  # 1시간
-_DEFAULT_MIN_PROB            = float(os.environ.get("REC_MIN_PROB", "0.22"))
+_DEFAULT_MIN_PROB            = float(os.environ.get("REC_MIN_PROB",       "0.22"))
+_DEFAULT_MAX_RISK            = float(os.environ.get("REC_MAX_RISK",       "0.60"))
+_DEFAULT_MIN_RR              = float(os.environ.get("REC_MIN_RISK_REWARD", "2.0"))
 _DEFAULT_DISCLOSURE_KEYWORDS = ["무상증자"]
 
 
@@ -25,6 +27,8 @@ async def _load_config(redis: redis_lib.Redis) -> dict:
     return {
         "enabled":             True,
         "min_prob":            _DEFAULT_MIN_PROB,
+        "max_risk":            _DEFAULT_MAX_RISK,
+        "min_risk_reward":     _DEFAULT_MIN_RR,
         "disclosure_keywords": list(_DEFAULT_DISCLOSURE_KEYWORDS),
     }
 
@@ -77,13 +81,27 @@ class NotifierConsumer:
         cfg  = await _load_config(self._redis)
         if not cfg.get("enabled", True):
             return
-        prob     = data.get("success_prob", 0)
-        min_prob = cfg.get("min_prob", _DEFAULT_MIN_PROB)
+
+        code = data.get("code", "")
+
+        prob     = float(data.get("success_prob", 0))
+        min_prob = float(cfg.get("min_prob", _DEFAULT_MIN_PROB))
         if prob < min_prob:
-            logger.debug(f"[SIGNAL] skip code={data.get('code')} prob={prob:.3f} < min={min_prob:.3f}")
+            logger.debug(f"[SIGNAL] skip code={code} prob={prob:.3f} < min_prob={min_prob:.3f}")
             return
 
-        code      = data.get("code", "")
+        risk     = float(data.get("risk_score", 0))
+        max_risk = float(cfg.get("max_risk", _DEFAULT_MAX_RISK))
+        if risk > max_risk:
+            logger.debug(f"[SIGNAL] skip code={code} risk={risk:.3f} > max_risk={max_risk:.3f}")
+            return
+
+        rr     = float(data.get("risk_reward_ratio", 0))
+        min_rr = float(cfg.get("min_risk_reward", _DEFAULT_MIN_RR))
+        if rr < min_rr:
+            logger.debug(f"[SIGNAL] skip code={code} rr={rr:.3f} < min_risk_reward={min_rr:.3f}")
+            return
+
         name      = data.get("name", "") or code
         dedup_key = f"telegram:dedup:signal:{code}"
 

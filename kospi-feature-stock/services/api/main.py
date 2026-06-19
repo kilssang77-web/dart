@@ -2,7 +2,8 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
+from starlette.middleware.base import BaseHTTPMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from prometheus_client import Counter, Gauge
 import asyncpg
@@ -165,8 +166,15 @@ app.include_router(notifications.router,  prefix="/api/v1/notifications",     ta
 app.include_router(tracking.router,       prefix="/api/v1/tracking",          tags=["tracking"])
 app.include_router(admin.router,          prefix="/api/v1",                   tags=["admin"])
 
+class NoCacheStaticFiles(StaticFiles):
+    """Vite 빌드 자산 — 브라우저 heuristic 캐시 방지. 항상 서버에서 재검증."""
+    async def get_response(self, path: str, scope):
+        resp = await super().get_response(path, scope)
+        resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return resp
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
-app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
+app.mount("/assets", NoCacheStaticFiles(directory="static/assets"), name="assets")
 
 
 @app.get("/favicon.svg", include_in_schema=False)

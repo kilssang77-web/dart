@@ -59,6 +59,76 @@ def format_buy_signal(msg: dict) -> str:
     )
 
 
+def format_price_alert(msg: dict) -> str:
+    """익절가 도달 / 손절가 접근 / 손절가 도달 알림."""
+    alert_type  = msg.get("alert_type", "")   # "target_hit" | "stop_approach" | "stop_hit"
+    code        = msg.get("code", "")
+    name        = msg.get("name", "") or code
+    current     = msg.get("current_price", 0)
+    entry       = msg.get("entry_price", 0)
+    target      = msg.get("target_price", 0)
+    stop        = msg.get("stop_loss_price", 0)
+    hold_days   = msg.get("hold_days", 0)
+    now_str     = datetime.now(_KST).strftime("%m/%d %H:%M")
+
+    pnl_pct = ""
+    if entry and current:
+        pct  = (float(current) - float(entry)) / float(entry) * 100
+        sign = "+" if pct >= 0 else ""
+        pnl_pct = f"{sign}{pct:.1f}%"
+
+    if alert_type == "target_hit":
+        icon   = "🎯"
+        title  = "익절가 도달"
+        detail = (
+            f"&#127937; 목표가: <b>{_fmt_price(target)}원</b>\n"
+            f"&#128200; 현재가: <b>{_fmt_price(current)}원</b>  (<code>{pnl_pct}</code>)\n"
+            f"&#9989; <b>익절 검토 권장</b>"
+        )
+    elif alert_type == "stop_approach":
+        icon   = "⚠️"
+        title  = "손절가 접근 경고"
+        remain_pct = ""
+        if stop and current:
+            r = (float(stop) - float(current)) / float(current) * 100
+            remain_pct = f"  손절까지 <code>-{abs(r):.1f}%</code>"
+        detail = (
+            f"&#128721; 손절가: <b>{_fmt_price(stop)}원</b>{remain_pct}\n"
+            f"&#128200; 현재가: <b>{_fmt_price(current)}원</b>  (<code>{pnl_pct}</code>)\n"
+            f"&#9888;&#65039; <b>리스크 관리 점검 필요</b>"
+        )
+    elif alert_type == "stop_hit":
+        icon   = "🛑"
+        title  = "손절가 도달"
+        detail = (
+            f"&#128721; 손절가: <b>{_fmt_price(stop)}원</b>\n"
+            f"&#128200; 현재가: <b>{_fmt_price(current)}원</b>  (<code>{pnl_pct}</code>)\n"
+            f"&#128679; <b>손절 실행 강력 권장</b>"
+        )
+    else:
+        icon   = "📌"
+        title  = "가격 알림"
+        detail = f"&#128200; 현재가: <b>{_fmt_price(current)}원</b>  (<code>{pnl_pct}</code>)"
+
+    name_line = (
+        f"&#128204; 종목: <b>{name}</b>  (<code>{code}</code>)\n"
+        if name != code else
+        f"&#128204; 종목: <b>{code}</b>\n"
+    )
+    hold_line = f"&#128336; 보유 <b>{hold_days}일</b>차 · {now_str}" if hold_days else f"&#128336; {now_str}"
+
+    return (
+        f"<b>{icon} {title}</b>\n"
+        f"\n"
+        f"{name_line}"
+        f"&#128176; 진입가: <b>{_fmt_price(entry)}원</b>\n"
+        f"\n"
+        f"{detail}\n"
+        f"\n"
+        f"{hold_line}"
+    )
+
+
 _CAT_KO = {"favorable": "호재", "unfavorable": "악재", "neutral": "중립"}
 
 
