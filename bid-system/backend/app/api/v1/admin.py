@@ -257,12 +257,67 @@ def retrain_ml(
                     except Exception:
                         pass
 
+                # clf_df: inpo21c_participants에서 낙찰자+비낙찰자 추출 (win_model 학습용)
+                clf_records = []
+                try:
+                    clf_rows = db.execute(text("""
+                        SELECT b.agency_id, b.industry_id,
+                               COALESCE(b.region_id, 0) AS region_id,
+                               b.base_amount, b.bid_open_date,
+                               COALESCE(b.region_restriction, false),
+                               b.construction_period,
+                               p.bid_rate, p.is_winner
+                        FROM inpo21c_participants p
+                        JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = p.inpo21c_bid_id
+                        JOIN bids b ON b.announcement_no = ib.announcement_no
+                        WHERE b.agency_id IS NOT NULL AND b.industry_id IS NOT NULL
+                          AND b.base_amount > 0
+                          AND p.bid_rate BETWEEN 0.80 AND 1.00
+                        ORDER BY b.bid_open_date
+                    """)).fetchall()
+                    for crow in clf_rows:
+                        c_agency, c_ind, c_reg, c_amt, c_dt, c_rr, c_cp, c_rate, c_win = crow
+                        if c_rate is None:
+                            continue
+                        hist_b = hist_df[hist_df["bid_open_date"] < c_dt].copy() if c_dt else hist_df.copy()
+                        try:
+                            cf = build_features(
+                                agency_id=int(c_agency) if c_agency else 0,
+                                industry_id=int(c_ind) if c_ind else 0,
+                                region_id=int(c_reg),
+                                base_amount=int(c_amt),
+                                construction_period=int(c_cp) if c_cp else None,
+                                region_restriction=bool(c_rr),
+                                bid_open_date=c_dt,
+                                historical_df=hist_b,
+                            )
+                            cf["target_rate"] = float(c_rate)
+                            cf["our_bid_rate"] = float(c_rate)
+                            cf["is_winner"]    = bool(c_win)
+                            clf_records.append(cf)
+                        except Exception:
+                            pass
+                except Exception as _clf_err:
+                    logger.warning("clf_df 빌드 실패: %s", _clf_err)
+
+                logger.info("clf_records 빌드 완료: %d건 (pos=%d neg=%d)",
+                            len(clf_records),
+                            sum(1 for r in clf_records if r.get("is_winner")),
+                            sum(1 for r in clf_records if not r.get("is_winner")))
+
                 if len(records) >= 20:
                     train_df = pd.DataFrame(records)
                     for col in FEATURE_COLS:
                         if col not in train_df.columns:
                             train_df[col] = None
-                    res = train_models(train_df)
+                    clf_df = None
+                    if len(clf_records) >= 20:
+                        clf_df = pd.DataFrame(clf_records)
+                        for col in FEATURE_COLS:
+                            if col not in clf_df.columns:
+                                clf_df[col] = None
+                        results["clf_df_size"] = len(clf_df)
+                    res = train_models(train_df, clf_df=clf_df)
                     if res:
                         get_engine().reload()
                         results["engine_b"] = res
