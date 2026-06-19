@@ -93,6 +93,32 @@ _NEGATIVE_CONTEXT = [
     (r"계열사\s*(지원|지급보증)", -0.08),
 ]
 
+# ── 긍정 맥락 패턴 (부정어 무효화 — "계약해지 가능성 없음" 등) ────────────────
+# 패턴: (부정어 무효화 패턴, 상쇄 점수)
+# 이 패턴이 매칭되면 해당 부정 키워드 점수를 상쇄함
+_NEGATION_NEUTRALIZE = [
+    # "~가 아님", "~이 없음", "~할 가능성 없음" 등 부정어가 붙은 악재 키워드
+    (r"(계약해지|계약취소|계약실패)\s*(가능성|우려|위험)?\s*(없|아니|부인|해소|해결|완료)", +0.20),
+    (r"(소송|분쟁)\s*(해결|종료|취하|화해|승소)", +0.15),
+    (r"(관리종목|상장폐지)\s*(해제|탈피|벗어|회피)", +0.30),
+    (r"(유상증자|CB발행)\s*(철회|취소|없음|미실시)", +0.15),
+    (r"(횡령|배임)\s*(혐의\s*)?(없음|무죄|무혐의|기각)", +0.25),
+    (r"(부도|파산)\s*(위기\s*)?(없음|해소|극복|정상화)", +0.20),
+    # 실적 관련 긍정 맥락
+    (r"(적자|손실)\s*(폭\s*)?(축소|감소|개선|전환)", +0.15),
+    (r"(흑자|이익)\s*(전환|달성|확대|증가)", +0.20),
+    # 규제 이슈 해소
+    (r"(금융감독원|금감원)\s*(조사|검사)\s*(종료|완료|이상\s*없음)", +0.15),
+]
+
+# ── 미래 불확실성 할인 패턴 (호재 키워드가 있어도 점수 할인) ──────────────────
+# "예정", "검토 중", "추진 중" 등은 확정 호재보다 약함
+_UNCERTAINTY_DISCOUNT = [
+    (r"(수주|계약|흑자전환)\s*(예정|검토|추진\s*중|협의\s*중)", -0.08),
+    (r"임상\s*(1상|전임상|개시)", -0.05),  # 초기 임상은 불확실
+    (r"MOU|업무협약.*체결\s*예정", -0.05),
+]
+
 AMOUNT_PATTERNS = [
     (r"(\d[\d,]*)\s*조\s*원",                  1_000_000_000_000),
     (r"(\d[\d,]*(?:\.\d+)?)\s*억\s*원",        100_000_000),
@@ -165,12 +191,24 @@ class DisclosureClassifier:
             if re.search(pattern, text):
                 score += penalty
 
+        # 긍정 맥락 패턴 (부정어 무효화)
+        for pattern, offset in _NEGATION_NEUTRALIZE:
+            if re.search(pattern, text):
+                score += offset
+
+        # 미래 불확실성 할인
+        for pattern, discount in _UNCERTAINTY_DISCOUNT:
+            if re.search(pattern, text):
+                score += discount
+
         # 금액 규모 보정: 규모가 클수록 긍정 방향으로 보정 (큰 조건 먼저 검사)
         amount, _ = self.extract_amount(text)
         if amount >= 1_000_000_000_000 and score > 0:    # 1조 이상
             score += 0.10
         elif amount >= 100_000_000_000 and score > 0:    # 1000억 이상
             score += 0.05
+        elif amount > 0 and amount < 1_000_000_000 and score > 0:  # 10억 미만 소규모
+            score *= 0.7  # 소규모 계약은 호재 강도 30% 할인
 
         score = round(max(-1.0, min(1.0, score)), 3)
 
@@ -229,10 +267,11 @@ class DisclosureClassifier:
 
 # ── KR-FinBERT 기반 공시 분류기 ───────────────────────────────────────────────
 
-_BERT_MODEL   = os.environ.get("SENTIMENT_MODEL", "snunlp/KR-FinBert-SC")
-_BERT_CACHE   = os.environ.get("MODEL_CACHE_DIR", "/models")
-_USE_BERT     = os.environ.get("USE_BERT_SENTIMENT", "true").lower() == "true"
-_BERT_WEIGHT  = float(os.environ.get("DISCLOSURE_BERT_WEIGHT", "0.65"))
+_BERT_MODEL      = os.environ.get("SENTIMENT_MODEL", "snunlp/KR-FinBert-SC")
+_BERT_CACHE      = os.environ.get("MODEL_CACHE_DIR", "/models")
+_USE_BERT        = os.environ.get("USE_BERT_SENTIMENT", "true").lower() == "true"
+_BERT_WEIGHT     = float(os.environ.get("DISCLOSURE_BERT_WEIGHT", "0.90"))   # 0.65→0.90
+_BERT_CONF_THR   = float(os.environ.get("DISCLOSURE_BERT_CONF_THR", "0.55")) # 이하면 keyword-only
 _BERT_LABEL_MAP = {
     "positive": 1, "LABEL_2": 1,
     "negative": -1, "LABEL_0": -1,
@@ -263,10 +302,11 @@ def _load_bert_pipeline():
 
 
 class DisclosureBERTClassifier:
-    """KR-FinBERT 1차 + 키워드 분류기 2차 앙상블.
+    """KR-FinBERT 주도 분류기 (키워드는 저신뢰도 fallback).
 
-    BERT 신뢰도(confidence)가 높을수록 BERT 결과에 더 많은 가중치를 부여하며,
-    신뢰도가 낮거나 BERT를 사용할 수 없을 때는 키워드 분류기로 대체한다.
+    BERT confidence >= _BERT_CONF_THR(0.55) 이면 BERT 결과에 _BERT_WEIGHT(0.90) 비중을 부여.
+    confidence < 0.55 이면 BERT 무시 — 키워드 분류기만 사용.
+    BERT 자체가 로드 불가인 경우에도 키워드 분류기로 안전하게 fallback.
     """
 
     def __init__(self):
@@ -285,19 +325,26 @@ class DisclosureBERTClassifier:
             try:
                 text = (title + " " + content[:300]).strip()[:512]
                 result = pipe(text)[0]
-                polarity   = _BERT_LABEL_MAP.get(result["label"],
-                             _BERT_LABEL_MAP.get(result["label"].lower(), 0))
+                polarity        = _BERT_LABEL_MAP.get(result["label"],
+                                  _BERT_LABEL_MAP.get(result["label"].lower(), 0))
                 bert_confidence = float(result["score"])
-                bert_score = round(polarity * bert_confidence, 4)
-                model_used = _BERT_MODEL
+                bert_score      = round(polarity * bert_confidence, 4)
+                model_used      = _BERT_MODEL
             except Exception as e:
                 logger.warning(f"[DisclosureBERT] 추론 오류: {e}")
 
-        if bert_score is not None:
-            w = _BERT_WEIGHT * bert_confidence
+        if bert_score is not None and bert_confidence >= _BERT_CONF_THR:
+            # 고신뢰도: BERT 90% + 키워드 10%
+            w        = _BERT_WEIGHT * bert_confidence
             combined = w * bert_score + (1.0 - w) * kw_score
         else:
+            # 저신뢰도 또는 BERT 불가: 키워드 전용
             combined = kw_score
+            if bert_score is not None:
+                logger.debug(
+                    f"[DisclosureBERT] confidence={bert_confidence:.3f} < {_BERT_CONF_THR} "
+                    "— keyword fallback"
+                )
 
         combined = round(max(-1.0, min(1.0, combined)), 3)
 

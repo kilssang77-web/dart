@@ -35,6 +35,7 @@ FEATURE_COLUMNS: list[str] = [
     "is_new_high_20d", "is_new_high_52d", "is_new_high_260d",
     "pos_52w",
     "foreign_cumnet_5d", "foreign_cumnet_20d",
+    "foreign_cumnet_streak",
     "inst_cumnet_5d", "inst_cumnet_20d",
     "dual_buy", "dual_buy_3d",
     "short_ratio", "short_increasing",
@@ -43,6 +44,7 @@ FEATURE_COLUMNS: list[str] = [
     "rel_strength_10d", "rel_strength_20d",
     "kospi_vol_5d",
     "market_vol_ratio",
+    "market_phase",
     "price_accel",
     "gap_pct",
     "consec_up", "consec_down",
@@ -288,6 +290,24 @@ def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: li
     short_ratio     = short_vol / volumes[0] if volumes[0] else 0.0
     short_increasing = _safe(rows[0].get("short_increasing", 0))
 
+    # 외국인 연속 순매수/순매도 streak (+N=연속매수일, -N=연속매도일, 최대 ±20)
+    _fstreak = 0
+    for _sr in sd_rows[:20]:
+        _fn = _safe(_sr.get("foreign_net"))
+        if _fn > 0:
+            if _fstreak >= 0:
+                _fstreak += 1
+            else:
+                break
+        elif _fn < 0:
+            if _fstreak <= 0:
+                _fstreak -= 1
+            else:
+                break
+        else:
+            break
+    foreign_cumnet_streak = float(_fstreak)
+
     # 외국인/기관 순매수 비율 (당일 거래량 대비)
     foreign_net_today = _safe(sd_rows[0].get("foreign_net")) if sd_rows else _safe(rows[0].get("foreign_net_buy"))
     inst_net_today    = _safe(sd_rows[0].get("inst_net"))    if sd_rows else _safe(rows[0].get("inst_net_buy"))
@@ -325,6 +345,21 @@ def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: li
     rel_strength_10d = return_10d - kr10d
     rel_strength_20d = return_20d - kr20d
     market_vol_ratio = vol_ratio_20d
+
+    # 시장 국면: KOSPI MA20·MA60 기반 (+1=불장, -1=약세장, 0=중립)
+    _kc_list = [float(r["close"]) for r in (kospi_rows or []) if r.get("close")]
+    if len(_kc_list) >= 60:
+        _kma20 = float(np.mean(_kc_list[:20]))
+        _kma60 = float(np.mean(_kc_list[:60]))
+        _kc0   = _kc_list[0]
+        if _kc0 > _kma60 and _kma20 > _kma60:
+            market_phase = 1.0
+        elif _kc0 < _kma60 and _kma20 < _kma60:
+            market_phase = -1.0
+        else:
+            market_phase = 0.0
+    else:
+        market_phase = 0.0
 
     # ── 시간 인코딩 (sin/cos) — 학습 코드와 동일하게 /7 사용 ──
     _now = datetime.now()
@@ -632,22 +667,24 @@ async def get_similar_cases(event: dict, db: asyncpg.Pool) -> tuple[list, dict]:
             if isinstance(v, decimal.Decimal):
                 return float(v)
             return v
-        cases = [{k: _to_native(v) for k, v in dict(r).items()} for r in rows]
+        _RENAME = {"result_5d": "return_5d", "result_3d": "return_3d", "result_1d": "return_1d",
+                   "detected_at": "date"}
+        cases = [{_RENAME.get(k, k): _to_native(v) for k, v in dict(r).items()} for r in rows]
         if not cases:
             return [], {"success_rate": 0.5, "avg_return_5d": 0.0, "avg_return_1d": 0.0, "count": 0, "search_method": search_method}
 
-        returns_5d = [float(c["result_5d"]) for c in cases if c.get("result_5d") is not None]
-        returns_1d = [float(c["result_1d"]) for c in cases if c.get("result_1d") is not None]
+        returns_5d = [float(c["return_5d"]) for c in cases if c.get("return_5d") is not None]
+        returns_1d = [float(c["return_1d"]) for c in cases if c.get("return_1d") is not None]
         sims       = [float(c["similarity"]) for c in cases if c.get("similarity") is not None]
 
         success_rate = sum(1 for r in returns_5d if r >= 5.0) / max(len(returns_5d), 1)
 
         stats = {
             "success_rate":    round(success_rate, 4),
-            "avg_return_5d":   round(float(np.mean(returns_5d)), 2) if returns_5d else 0.0,
-            "std_return_5d":   round(float(np.std(returns_5d)), 2)  if len(returns_5d) > 1 else 0.0,
-            "avg_return_1d":   round(float(np.mean(returns_1d)), 2) if returns_1d else 0.0,
-            "avg_similarity":  round(float(np.mean(sims)), 4)       if sims else 0.0,
+            "avg_return_5d":   round(float(np.median(returns_5d)), 2) if returns_5d else 0.0,
+            "std_return_5d":   round(float(np.std(returns_5d)), 2)    if len(returns_5d) > 1 else 0.0,
+            "avg_return_1d":   round(float(np.median(returns_1d)), 2) if returns_1d else 0.0,
+            "avg_similarity":  round(float(np.mean(sims)), 4)         if sims else 0.0,
             "count":           len(cases),
             "search_method":   search_method,
         }

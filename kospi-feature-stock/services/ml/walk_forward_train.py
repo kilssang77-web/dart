@@ -303,6 +303,22 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
             f3  = f_nets[max(0,i-2):i+1].sum()
             i3  = i_nets[max(0,i-2):i+1].sum()
             db3 = 1.0 if f3 > 0 and i3 > 0 else 0.0
+            # 외인 연속 순매수/순매도 일수 (양수=연속매수, 음수=연속매도, 최대 ±20일 cap)
+            _fstreak = 0
+            for _fj in range(i, max(i - 20, -1), -1):
+                if f_nets[_fj] > 0:
+                    if _fstreak >= 0:
+                        _fstreak += 1
+                    else:
+                        break
+                elif f_nets[_fj] < 0:
+                    if _fstreak <= 0:
+                        _fstreak -= 1
+                    else:
+                        break
+                else:
+                    break
+            foreign_cumnet_streak = float(_fstreak)
 
             sv_arr = grp["short_sell_vol"].iloc[max(0,i-9):i+1].astype(float).fillna(0).values
             short_r = sv_arr[-1]/volumes[i] if volumes[i] else 0.0
@@ -339,10 +355,21 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
                     # KOSPI 5일 변동성 (방향 아닌 시장 불확실성 지표)
                     ks5 = [float(kospi_df["close"].iloc[max(0, kidx-j)]) for j in range(5)]
                     kospi_vol_5d = float(np.std([(ks5[j]/ks5[j+1]-1)*100 for j in range(len(ks5)-1)])) if len(ks5) >= 2 else 0.0
+                    # 시장 국면: KOSPI MA20·MA60 기반 (+1=불장, -1=약세장, 0=중립)
+                    _kma20 = float(kospi_df["close"].iloc[max(0, kidx-19):kidx+1].mean())
+                    _kma60 = float(kospi_df["close"].iloc[max(0, kidx-59):kidx+1].mean())
+                    if kc > _kma60 and _kma20 > _kma60:
+                        _mphase = 1.0   # 불장
+                    elif kc < _kma60 and _kma20 < _kma60:
+                        _mphase = -1.0  # 약세장
+                    else:
+                        _mphase = 0.0   # 중립
                 else:
                     kr1d = kr3d = kr5d = kr10d = kr20d = kospi_vol_5d = 0.0
+                    _mphase = 0.0
             else:
                 kr1d = kr3d = kr5d = kr10d = kr20d = kospi_vol_5d = 0.0
+                _mphase = 0.0
             rel5 = r5d - kr5d
 
             # Medium-term momentum
@@ -438,6 +465,7 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
                 "is_new_high_20d":nh20, "is_new_high_52d":nh52w, "is_new_high_260d":nh260,
                 "pos_52w":pos52w,
                 "foreign_cumnet_5d":f5, "foreign_cumnet_20d":f20,
+                "foreign_cumnet_streak": foreign_cumnet_streak,
                 "inst_cumnet_5d":i5, "inst_cumnet_20d":i20,
                 "dual_buy":db, "dual_buy_3d":db3,
                 "short_ratio":short_r, "short_increasing":short_inc,
@@ -447,6 +475,7 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
                 "rel_strength_20d":r20d - kr20d,
                 "kospi_vol_5d": kospi_vol_5d,
                 "market_vol_ratio":vr20,
+                "market_phase": _mphase,
                 "return_10d": r10d, "return_20d": r20d,
                 "price_accel": price_accel,
                 "gap_pct": gap_pct,
@@ -550,13 +579,24 @@ async def main(args):
     te_feat = build_features(te_raw, kospi_te, disc_all, news_all, fin_all)
 
     # 레이블 생성
-    logger.info("Generating labels (5-day forward returns)...")
-    tr_le, tr_lr = LGBMTrainer.make_labels_bulk(tr_feat, tr_raw, args.entry_pct, args.risk_pct)
-    va_le, va_lr = LGBMTrainer.make_labels_bulk(va_feat, va_raw, args.entry_pct, args.risk_pct)
-    te_le, te_lr = LGBMTrainer.make_labels_bulk(te_feat, te_raw, args.entry_pct, args.risk_pct)
+    if args.label_mode == "relative":
+        logger.info("Generating labels (relative rank — top/bottom 20%% per date)...")
+        tr_le, tr_lr = LGBMTrainer.make_labels_relative(tr_feat, tr_raw)
+        va_le, va_lr = LGBMTrainer.make_labels_relative(va_feat, va_raw)
+        te_le, te_lr = LGBMTrainer.make_labels_relative(te_feat, te_raw)
+    else:
+        logger.info("Generating labels (5-day forward returns)...")
+        tr_le, tr_lr = LGBMTrainer.make_labels_bulk(tr_feat, tr_raw, args.entry_pct, args.risk_pct)
+        va_le, va_lr = LGBMTrainer.make_labels_bulk(va_feat, va_raw, args.entry_pct, args.risk_pct)
+        te_le, te_lr = LGBMTrainer.make_labels_bulk(te_feat, te_raw, args.entry_pct, args.risk_pct)
 
     # 피처 행렬 준비 (FEATURE_COLUMNS)
     def prep(feat_df, labels):
+        if labels.empty or feat_df.empty:
+            import numpy as np
+            X = pd.DataFrame(columns=FEATURE_COLUMNS, dtype=np.float64)
+            y = pd.Series(dtype=int)
+            return X, y
         mask = labels.notna()
         X = feat_df[mask][[c for c in FEATURE_COLUMNS if c in feat_df.columns]].copy()
         for col in FEATURE_COLUMNS:
@@ -573,9 +613,13 @@ async def main(args):
     Xva_r, yva_r = prep(va_feat, va_lr)
     Xte_r, yte_r = prep(te_feat, te_lr)
 
-    logger.info(f"Train: {len(Xtr_e)} | Val: {len(Xva_e)} | Test: {len(Xte_e)}")
-    logger.info(f"Entry label pos rate — train:{ytr_e.mean():.3f} val:{yva_e.mean():.3f} test:{yte_e.mean():.3f}")
-    logger.info(f"Risk  label pos rate — train:{ytr_r.mean():.3f} val:{yva_r.mean():.3f} test:{yte_r.mean():.3f}")
+    te_available = len(Xte_e) > 0
+    logger.info(f"Train: {len(Xtr_e)} | Val: {len(Xva_e)} | Test: {len(Xte_e)}" +
+                ("" if te_available else " (테스트셋 없음 — val AUC로 평가)"))
+    logger.info(f"Entry label pos rate — train:{ytr_e.mean():.3f} val:{yva_e.mean():.3f}" +
+                (f" test:{yte_e.mean():.3f}" if te_available else " test:N/A"))
+    logger.info(f"Risk  label pos rate — train:{ytr_r.mean():.3f} val:{yva_r.mean():.3f}" +
+                (f" test:{yte_r.mean():.3f}" if te_available else " test:N/A"))
 
     # 학습
     Path(args.model_dir).mkdir(parents=True, exist_ok=True)
@@ -594,11 +638,18 @@ async def main(args):
     va_e_auc, va_e_brier, best_t_e = report("Entry [Val]",  entry_model, Xva_e, yva_e)
     va_r_auc, va_r_brier, best_t_r = report("Risk  [Val]",  risk_model,  Xva_r, yva_r)
 
-    print("\n" + "="*60)
-    print("TEST SET RESULTS (2025+) — 완전 홀드아웃")
-    print("="*60)
-    te_e_auc, te_e_brier, _ = report("Entry [Test]", entry_model, Xte_e, yte_e, best_t_e)
-    te_r_auc, te_r_brier, _ = report("Risk  [Test]", risk_model,  Xte_r, yte_r, best_t_r)
+    if te_available:
+        print("\n" + "="*60)
+        print("TEST SET RESULTS (2025+) — 완전 홀드아웃")
+        print("="*60)
+        te_e_auc, te_e_brier, _ = report("Entry [Test]", entry_model, Xte_e, yte_e, best_t_e)
+        te_r_auc, te_r_brier, _ = report("Risk  [Test]", risk_model,  Xte_r, yte_r, best_t_r)
+    else:
+        logger.warning("테스트셋 없음 — val AUC로 평가 대체")
+        te_e_auc = va_e_auc
+        te_r_auc = va_r_auc
+        te_e_brier = va_e_brier
+        te_r_brier = va_r_brier
 
     print(f"""
 ╔══════════════════════════════════════════════════════════╗
@@ -711,4 +762,6 @@ if __name__ == "__main__":
                         help="SMOTE 오버샘플링 적용")
     parser.add_argument("--max-codes",   type=int, default=600,
                         help="거래대금 상위 N개 종목만 사용 (메모리 절감, 기본 600)")
+    parser.add_argument("--label-mode",  default="relative", choices=["absolute", "relative"],
+                        help="레이블 생성 방식: absolute=절대 수익률 임계, relative=날짜별 상위 20%% 랭크")
     asyncio.run(main(parser.parse_args()))
