@@ -7,7 +7,7 @@ import { recommendationsApi } from '@/api/recommendations'
 import type { SignalItem } from '@/api/recommendations'
 import { Badge, ActionBadge, MarketBadge, EVENT_NAMES } from '@/components/ui/Badge'
 import { StatCard, Card, CardBody } from '@/components/ui/Card'
-import { fmt, pctColor, probColor } from '@/lib/utils'
+import { fmt, pctColor, probColor, probToScore, scoreBarColor } from '@/lib/utils'
 import type { Recommendation } from '@/types'
 import { RecDetailModal } from '@/components/modals/RecDetailModal'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -388,28 +388,31 @@ function RecCard({
 
         {/* 확률 바 */}
         <div className="mb-3">
-          <div className="flex justify-between text-sm mb-1.5">
-            <span className="flex items-center gap-1 text-[var(--muted)] font-medium">
-              성공 확률
-              <span title={`현재 목록 기준 상대 순위 (1%=최저·100%=최고)\nML 모델 원본값: ${fmt.prob(rec.success_prob)}`} className="cursor-help">
-                <Info size={10} className="text-[var(--muted)]/60" />
-              </span>
-            </span>
-            <div className="flex items-baseline gap-1.5">
-              <span className={clsx('font-bold text-base tabular', probColor(rec.success_prob))}>
-                {normProb}%
-              </span>
-              <span className="text-xs text-[var(--muted)] tabular">({fmt.prob(rec.success_prob)})</span>
-            </div>
-          </div>
-          <div className="h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
-            <div
-              className={clsx('h-full rounded-full transition-all',
-                normProb >= 70 ? 'bg-green-400' : normProb >= 40 ? 'bg-yellow-400' : 'bg-[var(--muted)]'
-              )}
-              style={{ width: `${normProb}%` }}
-            />
-          </div>
+          {(() => {
+            const score = probToScore(rec.success_prob)
+            const barCls = scoreBarColor(score)
+            return (
+              <>
+                <div className="flex justify-between text-sm mb-1.5">
+                  <span className="flex items-center gap-1 text-[var(--muted)] font-medium">
+                    성공 확률
+                    <span title={`현재 목록 기준 상대 순위: ${normProb}% (1%=최저·100%=최고)`} className="cursor-help">
+                      <Info size={10} className="text-[var(--muted)]/60" />
+                    </span>
+                  </span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className={clsx('font-bold text-base tabular', barCls.replace('bg-', 'text-'))}>
+                      {score}점
+                    </span>
+                    <span className="text-xs text-[var(--muted)] tabular">ML {fmt.prob(rec.success_prob)}</span>
+                  </div>
+                </div>
+                <div className="h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
+                  <div className={clsx('h-full rounded-full transition-all', barCls)} style={{ width: `${score}%` }} />
+                </div>
+              </>
+            )
+          })()}
         </div>
 
         {/* 경고 메시지 */}
@@ -541,7 +544,7 @@ function RecCard({
 export function Recommendations() {
   const nav = useNavigate()
   const [filter,     setFilter]     = useState<'ALL' | 'BUY' | 'WAIT' | 'SKIP'>('BUY')
-  const [minProb,    setMinProb]    = useState(0.15)
+  const [minProb,    setMinProb]    = useState(0.30)
   const [dedupe,     setDedupe]     = useState(true)
   const [signalModal, setSignalModal] = useState<{ code: string; name: string } | null>(null)
   const [selectedRec, setSelectedRec] = useState<Recommendation | null>(null)
@@ -570,7 +573,14 @@ export function Recommendations() {
     staleTime: 30_000,
   })
 
-  const buys = recs?.filter((r) => r.action === 'BUY') ?? []
+  // 탭 필터와 무관하게 BUY 신호 수를 항상 동일 기준으로 표시
+  const { data: buyRecs } = useQuery({
+    queryKey:        ['recs-buy-count', minProb],
+    queryFn:         () => recommendationsApi.list({ action: 'BUY', min_prob: minProb, limit: 100, dedupe: true }),
+    refetchInterval: 60_000,
+  })
+
+  const buySignalCount = buyRecs?.length ?? 0
 
   // 현재 결과셋 기준 min-max 정규화 (1%~100%)
   const _probs   = recs?.map((r) => r.success_prob) ?? []
@@ -606,7 +616,7 @@ export function Recommendations() {
         />
         <StatCard
           label="현재 BUY 신호"
-          value={buys.length}
+          value={buySignalCount}
           sub={`확률 ${(minProb * 100).toFixed(0)}% 이상`}
           valueColor="text-green-400"
         />
@@ -634,7 +644,7 @@ export function Recommendations() {
         <div className="flex items-center gap-2">
           <span className="text-sm text-[var(--muted)]">최소 확률</span>
           <input
-            type="range" min="0.1" max="0.9" step="0.05" value={minProb}
+            type="range" min="0.3" max="0.9" step="0.05" value={minProb}
             onChange={(e) => setMinProb(Number(e.target.value))}
             className="w-24 accent-cyan-400"
           />
@@ -666,7 +676,7 @@ export function Recommendations() {
           )
         })()}
         <button
-          onClick={() => { setFilter('BUY'); setMinProb(0.15); setDedupe(true) }}
+          onClick={() => { setFilter('BUY'); setMinProb(0.30); setDedupe(true) }}
           className="ml-auto text-xs text-[var(--muted)] hover:text-[var(--fg)] transition-colors px-2 py-1 rounded hover:bg-[var(--border)]"
         >
           초기화
