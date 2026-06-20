@@ -80,9 +80,10 @@ async def lifespan(app: FastAPI):
             _sched_lock_fd = None
 
     if _is_scheduler_master:
-        from .collector.scheduler import create_scheduler
+        from .collector.scheduler import create_scheduler, set_scheduler
         scheduler = create_scheduler()
         scheduler.start()
+        set_scheduler(scheduler)
         logger.info("Scheduler started (master worker)")
     else:
         scheduler = None

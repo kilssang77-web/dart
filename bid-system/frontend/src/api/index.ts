@@ -241,6 +241,10 @@ export const adminApi = {
     api.post('/admin/sync-inpo21c-to-bids').then((r) => r.data),
   migrateJournalToExecutions: (): Promise<{ status: string; created: number; skipped: number }> =>
     api.post('/admin/journal/migrate-to-executions').then((r) => r.data),
+  schedulerJobs: (): Promise<import('@/types').SchedulerJob[]> =>
+    api.get('/admin/scheduler-jobs').then((r) => r.data),
+  collectionStats: (days = 30): Promise<import('@/types').CollectionTypeStat[]> =>
+    api.get('/admin/collection-stats', { params: { days } }).then((r) => r.data),
 }
 
 // -- 투찰 이력 --------------------------------------------------

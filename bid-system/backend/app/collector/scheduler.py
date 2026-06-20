@@ -1,10 +1,22 @@
 ﻿"""APScheduler 기반 백그라운드 작업 스케줄러"""
 import logging
+from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 logger = logging.getLogger(__name__)
+
+_scheduler_instance: Optional[BackgroundScheduler] = None
+
+
+def set_scheduler(scheduler: Optional[BackgroundScheduler]) -> None:
+    global _scheduler_instance
+    _scheduler_instance = scheduler
+
+
+def get_scheduler() -> Optional[BackgroundScheduler]:
+    return _scheduler_instance
 
 
 def _trigger_ml_retrain(reason: str = "") -> None:

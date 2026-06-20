@@ -930,6 +930,92 @@ def collection_log_detail(
     return log
 
 
+@router.get("/scheduler-jobs")
+def list_scheduler_jobs(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin")),
+):
+    """등록된 APScheduler 작업 목록 + 다음/마지막 실행 시각 반환."""
+    from ...collector.scheduler import get_scheduler
+
+    scheduler = get_scheduler()
+    if scheduler is None:
+        return []
+
+    # 수집 유형별 마지막 실행 시각 — job ID → collect_type 매핑으로 단순 조회
+    JOB_COLLECT_TYPES = {
+        "collect_notices_daily":             ("notice_cnstwk", "notice_servc", "notice_thng"),
+        "collect_results_and_sync_daily":    ("result",),
+        "collect_scsbid_daily":              ("scsbid",),
+        "collect_bid_notices_inpo21c_daily": ("inpo21c_notice",),
+        "collect_inpo21c_daily":             ("inpo21c", "inpo21c_region", "inpo21c_national"),
+        "journal_auto_fill_daily":           ("journal_auto_fill",),
+    }
+    # 단일 쿼리로 모든 유형의 MAX(collected_at) 조회
+    all_types = [t for types in JOB_COLLECT_TYPES.values() for t in types]
+    rows_last = db.execute(text("""
+        SELECT collect_type, MAX(collected_at)
+        FROM collection_logs
+        WHERE collect_type = ANY(:types)
+        GROUP BY collect_type
+    """), {"types": all_types}).fetchall()
+    type_last_map: dict = {row[0]: row[1] for row in rows_last}
+
+    def _job_last_run(job_id: str):
+        types = JOB_COLLECT_TYPES.get(job_id, ())
+        candidates = [type_last_map[t] for t in types if t in type_last_map]
+        return max(candidates) if candidates else None
+
+    last_run_map = {jid: _job_last_run(jid) for jid in JOB_COLLECT_TYPES}
+
+    result = []
+    for job in scheduler.get_jobs():
+        next_run = job.next_run_time
+        last_run = last_run_map.get(job.id)
+        result.append({
+            "id": job.id,
+            "name": job.name,
+            "next_run_at": next_run.isoformat() if next_run else None,
+            "last_run_at": last_run.isoformat() if last_run else None,
+        })
+    result.sort(key=lambda x: (x["next_run_at"] or ""))
+    return result
+
+
+@router.get("/collection-stats")
+def collection_stats(
+    days: int = 30,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin")),
+):
+    """수집 유형별 통계 (총 성공건수, 실패건수, 평균 소요시간, 마지막 수집일, 실행 횟수)."""
+    rows = db.execute(text("""
+        SELECT
+            collect_type,
+            SUM(success_count)              AS total_success,
+            SUM(fail_count)                 AS total_fail,
+            AVG(duration_sec)               AS avg_duration,
+            MAX(collected_at)               AS last_run_at,
+            COUNT(*)                        AS run_count
+        FROM collection_logs
+        WHERE collected_at >= NOW() - INTERVAL '1 day' * :days
+        GROUP BY collect_type
+        ORDER BY last_run_at DESC NULLS LAST
+    """), {"days": days}).fetchall()
+
+    return [
+        {
+            "collect_type":  r[0],
+            "total_success": int(r[1] or 0),
+            "total_fail":    int(r[2] or 0),
+            "avg_duration":  float(r[3]) if r[3] is not None else None,
+            "last_run_at":   r[4].isoformat() if r[4] else None,
+            "run_count":     int(r[5] or 0),
+        }
+        for r in rows
+    ]
+
+
 class InpoCookieBody(BaseModel):
     cookie: str
 

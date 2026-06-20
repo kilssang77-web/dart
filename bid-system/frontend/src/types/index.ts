@@ -383,6 +383,22 @@ export interface CollectorStatus {
   next_run_at: string | null
 }
 
+export interface SchedulerJob {
+  id: string
+  name: string
+  next_run_at: string | null
+  last_run_at: string | null
+}
+
+export interface CollectionTypeStat {
+  collect_type: string
+  total_success: number
+  total_fail: number
+  avg_duration: number | null
+  last_run_at: string | null
+  run_count: number
+}
+
 export interface BidSearchItem {
   id: number
   announcement_no: string

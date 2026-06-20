@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Users, ShieldCheck, Activity, Plus, Pencil, Trash2, RefreshCw, Database, Layers, Search, CheckSquare, Square, Save, ChevronDown, Loader2, Zap, Download, Info, ExternalLink, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Users, ShieldCheck, Activity, Plus, Pencil, Trash2, RefreshCw, Database, Layers, Search, CheckSquare, Square, Save, ChevronDown, Loader2, Zap, Download, Info, ExternalLink, AlertCircle, CheckCircle2, Clock, BarChart2, Calendar } from 'lucide-react'
 import { adminApi, statsApi } from '@/api'
-import type { AdminUser, SystemStatus, ModelInfo, IndustryFilterItem, CollectionLogOut, CollectionLogDetail, CollectorStatus } from '@/types'
+import type { AdminUser, SystemStatus, ModelInfo, IndustryFilterItem, CollectionLogOut, CollectionLogDetail, CollectorStatus, SchedulerJob, CollectionTypeStat } from '@/types'
 import { useAuthStore } from '@/store/auth'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -221,6 +221,7 @@ export default function AdminPage() {
   const [triggerMsg, setTriggerMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [inpoCollectMsg, setInpoCollectMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [selectedLog, setSelectedLog] = useState<CollectionLogOut | null>(null)
+  const [logDays, setLogDays] = useState(7)
 
   const { data: users = [], isLoading: usersLoading } = useQuery<AdminUser[]>({
     queryKey: ['admin-users'], queryFn: adminApi.users, enabled: tab === 'users',
@@ -238,10 +239,22 @@ export default function AdminPage() {
     queryKey: ['admin-industry-filters'], queryFn: adminApi.industryFilters, enabled: tab === 'industries',
   })
   const { data: collectionLogs = [], refetch: refetchLogs } = useQuery<CollectionLogOut[]>({
-    queryKey: ['admin-collection-logs'],
-    queryFn: () => adminApi.collectionLogs(7),
+    queryKey: ['admin-collection-logs', logDays],
+    queryFn: () => adminApi.collectionLogs(logDays),
     enabled: tab === 'system' || tab === 'collection',
     refetchInterval: 60000,
+  })
+  const { data: schedulerJobs = [], refetch: refetchSchedulerJobs } = useQuery<SchedulerJob[]>({
+    queryKey: ['admin-scheduler-jobs'],
+    queryFn: () => adminApi.schedulerJobs(),
+    enabled: tab === 'collection',
+    refetchInterval: 60000,
+  })
+  const { data: collectionStats = [] } = useQuery<CollectionTypeStat[]>({
+    queryKey: ['admin-collection-stats', logDays],
+    queryFn: () => adminApi.collectionStats(logDays),
+    enabled: tab === 'collection',
+    refetchInterval: 120000,
   })
   const { data: inpoStatus, refetch: refetchInpoStatus } = useQuery({
     queryKey: ['admin-inpo21c-status'],
@@ -994,37 +1007,177 @@ export default function AdminPage() {
               <>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <h2 className="text-sm font-semibold text-slate-700">최근 수집 이력 (7일)</h2>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:text-blue-600" onClick={() => refetchLogs()}>
+                    <h2 className="text-sm font-semibold text-slate-700">수집 현황</h2>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:text-blue-600" onClick={() => { refetchLogs(); refetchSchedulerJobs() }}>
                       <RefreshCw className="h-3.5 w-3.5" />
                     </Button>
                   </div>
-                  <div className="relative">
-                    <Button
-                      className="gap-2 bg-blue-600 hover:bg-blue-700"
-                      onClick={() => setDropdownOpen((v) => !v)}
-                      onBlur={() => setTimeout(() => setDropdownOpen(false), 150)}
-                      disabled={triggerMutation.isPending}
-                    >
-                      {triggerMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
-                      지금 수집
-                      <ChevronDown className="h-3.5 w-3.5" />
-                    </Button>
-                    {dropdownOpen && (
-                      <div className="absolute right-0 top-full mt-1 z-10 bg-white border border-slate-200 rounded-lg shadow-lg py-1 w-28">
-                        {([['all', '전체'], ['notices', '공고만'], ['results', '결과만']] as const).map(([value, label]) => (
-                          <button
-                            key={value}
-                            className="w-full text-left text-sm px-3 py-2 hover:bg-slate-50 transition-colors text-slate-700"
-                            onMouseDown={() => { setDropdownOpen(false); triggerMutation.mutate(value) }}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                  <div className="flex items-center gap-2">
+                    {/* 날짜 범위 필터 */}
+                    <div className="flex items-center rounded-lg border border-slate-200 bg-white overflow-hidden">
+                      {([7, 30, 90] as const).map((d) => (
+                        <button
+                          key={d}
+                          onClick={() => setLogDays(d)}
+                          className={cn(
+                            'px-3 py-1.5 text-xs font-medium transition-colors',
+                            logDays === d
+                              ? 'bg-blue-600 text-white'
+                              : 'text-slate-600 hover:bg-slate-50'
+                          )}
+                        >
+                          {d}일
+                        </button>
+                      ))}
+                    </div>
+                    <div className="relative">
+                      <Button
+                        className="gap-2 bg-blue-600 hover:bg-blue-700"
+                        onClick={() => setDropdownOpen((v) => !v)}
+                        onBlur={() => setTimeout(() => setDropdownOpen(false), 150)}
+                        disabled={triggerMutation.isPending}
+                      >
+                        {triggerMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                        지금 수집
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      </Button>
+                      {dropdownOpen && (
+                        <div className="absolute right-0 top-full mt-1 z-10 bg-white border border-slate-200 rounded-lg shadow-lg py-1 w-28">
+                          {([['all', '전체'], ['notices', '공고만'], ['results', '결과만']] as const).map(([value, label]) => (
+                            <button
+                              key={value}
+                              className="w-full text-left text-sm px-3 py-2 hover:bg-slate-50 transition-colors text-slate-700"
+                              onMouseDown={() => { setDropdownOpen(false); triggerMutation.mutate(value) }}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
+
+                {/* 수집 통계 요약 카드 */}
+                {collectionStats.length > 0 && (
+                  <Card className="bg-white border-slate-200 shadow-sm overflow-hidden">
+                    <CardHeader className="border-b border-slate-100 pb-3">
+                      <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <BarChart2 className="h-4 w-4 text-indigo-600" />유형별 수집 통계 (최근 {logDays}일)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-slate-50 border-b border-slate-200">
+                            <TableHead className="text-slate-600 font-semibold">수집 유형</TableHead>
+                            <TableHead className="text-center text-slate-600 font-semibold">실행 횟수</TableHead>
+                            <TableHead className="text-center text-slate-600 font-semibold text-emerald-700">성공</TableHead>
+                            <TableHead className="text-center text-slate-600 font-semibold text-red-600">실패</TableHead>
+                            <TableHead className="text-right text-slate-600 font-semibold">평균 소요(초)</TableHead>
+                            <TableHead className="text-right text-slate-600 font-semibold">성공률</TableHead>
+                            <TableHead className="text-right text-slate-600 font-semibold">마지막 수집</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {collectionStats.map((s) => {
+                            const m = COLLECT_TYPE_META[s.collect_type] ?? { label: s.collect_type, color: 'bg-slate-100 text-slate-600 border-slate-200' }
+                            const total = s.total_success + s.total_fail
+                            const successRate = total > 0 ? Math.round((s.total_success / total) * 100) : 0
+                            return (
+                              <TableRow key={s.collect_type} className="border-b border-slate-100 hover:bg-slate-50/50">
+                                <TableCell>
+                                  <span className={cn('text-xs font-semibold px-2.5 py-0.5 rounded-full border', m.color)}>{m.label}</span>
+                                </TableCell>
+                                <TableCell className="text-center text-sm text-slate-600">{s.run_count.toLocaleString()}회</TableCell>
+                                <TableCell className="text-center font-bold text-sm text-emerald-600">{s.total_success.toLocaleString()}</TableCell>
+                                <TableCell className={cn('text-center font-bold text-sm', s.total_fail > 0 ? 'text-red-500' : 'text-slate-400')}>{s.total_fail.toLocaleString()}</TableCell>
+                                <TableCell className="text-right text-sm text-slate-500">{s.avg_duration != null ? s.avg_duration.toFixed(1) : '-'}</TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex items-center justify-end gap-2">
+                                    <div className="w-16 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                                      <div className={cn('h-full rounded-full', successRate >= 95 ? 'bg-emerald-500' : successRate >= 80 ? 'bg-amber-400' : 'bg-red-400')} style={{ width: `${successRate}%` }} />
+                                    </div>
+                                    <span className="text-xs font-semibold text-slate-600">{successRate}%</span>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right text-xs text-slate-400 whitespace-nowrap">
+                                  {s.last_run_at ? new Date(s.last_run_at).toLocaleString('ko-KR') : '-'}
+                                </TableCell>
+                              </TableRow>
+                            )
+                          })}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* 수집 일정 (스케줄러 jobs) */}
+                <Card className="bg-white border-slate-200 shadow-sm overflow-hidden">
+                  <CardHeader className="border-b border-slate-100 pb-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <Calendar className="h-4 w-4 text-blue-600" />수집 일정 (스케줄러)
+                      </CardTitle>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500 hover:text-blue-600" onClick={() => refetchSchedulerJobs()}>
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    {schedulerJobs.length === 0 ? (
+                      <div className="py-8 text-center text-sm text-slate-400">스케줄러 정보를 불러오는 중...</div>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-slate-50 border-b border-slate-200">
+                            <TableHead className="text-slate-600 font-semibold">작업명</TableHead>
+                            <TableHead className="text-slate-600 font-semibold">작업 ID</TableHead>
+                            <TableHead className="text-slate-600 font-semibold">다음 실행 예정</TableHead>
+                            <TableHead className="text-slate-600 font-semibold">마지막 실행</TableHead>
+                            <TableHead className="text-right text-slate-600 font-semibold">남은 시간</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {schedulerJobs.map((job) => {
+                            const now = Date.now()
+                            const nextMs = job.next_run_at ? new Date(job.next_run_at).getTime() : null
+                            const diffMs = nextMs ? nextMs - now : null
+                            const diffMin = diffMs != null ? Math.floor(diffMs / 60000) : null
+                            const diffH = diffMin != null ? Math.floor(diffMin / 60) : null
+                            const remaining = diffMin == null ? '-'
+                              : diffMin < 0 ? '실행 중 / 지연'
+                              : diffMin < 60 ? `${diffMin}분 후`
+                              : diffH != null && diffH < 24 ? `${diffH}시간 ${diffMin % 60}분 후`
+                              : `${Math.floor(diffH! / 24)}일 후`
+                            const isImminent = diffMin != null && diffMin >= 0 && diffMin < 30
+                            return (
+                              <TableRow key={job.id} className={cn('border-b border-slate-100', isImminent && 'bg-amber-50/40')}>
+                                <TableCell className="text-sm font-medium text-slate-700 max-w-[240px] truncate">{job.name}</TableCell>
+                                <TableCell className="text-xs font-mono text-slate-400">{job.id}</TableCell>
+                                <TableCell className="text-sm text-slate-500 whitespace-nowrap">
+                                  {job.next_run_at ? new Date(job.next_run_at).toLocaleString('ko-KR') : '-'}
+                                </TableCell>
+                                <TableCell className="text-sm text-slate-400 whitespace-nowrap">
+                                  {job.last_run_at ? new Date(job.last_run_at).toLocaleString('ko-KR') : '기록 없음'}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <span className={cn(
+                                    'text-xs font-semibold px-2 py-0.5 rounded-full',
+                                    isImminent ? 'bg-amber-100 text-amber-700' : 'text-slate-500'
+                                  )}>
+                                    <Clock className="inline h-3 w-3 mr-1 opacity-60" />{remaining}
+                                  </span>
+                                </TableCell>
+                              </TableRow>
+                            )
+                          })}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </CardContent>
+                </Card>
 
                 {triggerMsg && (
                   <div className={cn('flex items-center gap-2 text-sm px-4 py-3 rounded-lg border',
@@ -1204,7 +1357,7 @@ export default function AdminPage() {
                   <CardHeader className="border-b border-slate-100 pb-3">
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                        <Database className="h-4 w-4 text-blue-600" />수집 이력
+                        <Database className="h-4 w-4 text-blue-600" />수집 이력 (최근 {logDays}일 · {collectionLogs.length}건)
                       </CardTitle>
                       <span className="text-xs text-slate-400 flex items-center gap-1">
                         <Info className="h-3 w-3" />행 클릭 시 상세 정보
