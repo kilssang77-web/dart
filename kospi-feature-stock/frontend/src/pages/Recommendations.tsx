@@ -7,7 +7,7 @@ import { recommendationsApi } from '@/api/recommendations'
 import type { SignalItem } from '@/api/recommendations'
 import { Badge, ActionBadge, MarketBadge, EVENT_NAMES } from '@/components/ui/Badge'
 import { StatCard, Card, CardBody } from '@/components/ui/Card'
-import { fmt, pctColor, probColor, probToScore, scoreBarColor } from '@/lib/utils'
+import { fmt, pctColor, probColor, probToScore, scoreBarColor, recScoreBand } from '@/lib/utils'
 import type { Recommendation } from '@/types'
 import { RecDetailModal } from '@/components/modals/RecDetailModal'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -386,29 +386,30 @@ function RecCard({
           </div>
         </div>
 
-        {/* 확률 바 */}
+        {/* 추천 점수 */}
         <div className="mb-3">
           {(() => {
-            const score = probToScore(rec.success_prob)
-            const barCls = scoreBarColor(score)
+            const recScore = rec.rationale?.rec_score
+            const score = recScore ?? probToScore(rec.success_prob)
+            const band  = recScoreBand(score)
             return (
               <>
                 <div className="flex justify-between text-sm mb-1.5">
                   <span className="flex items-center gap-1 text-[var(--muted)] font-medium">
-                    성공 확률
-                    <span title={`현재 목록 기준 상대 순위: ${normProb}% (1%=최저·100%=최고)`} className="cursor-help">
+                    추천 점수
+                    <span title={`1~30 위험 / 31~49 중립 / 50~64 매수★ / 65~79 강한매수★★ / 80~100 최강매수★★★`} className="cursor-help">
                       <Info size={10} className="text-[var(--muted)]/60" />
                     </span>
                   </span>
-                  <div className="flex items-baseline gap-1.5">
-                    <span className={clsx('font-bold text-base tabular', barCls.replace('bg-', 'text-'))}>
-                      {score}점
-                    </span>
-                    <span className="text-xs text-[var(--muted)] tabular">ML {fmt.prob(rec.success_prob)}</span>
+                  <div className="flex items-baseline gap-1">
+                    <span className={clsx('font-bold text-base tabular', band.colorClass)}>{score}점</span>
+                    {band.stars && <span className={clsx('text-xs font-bold', band.colorClass)}>{band.stars}</span>}
+                    <span className={clsx('text-xs font-semibold ml-0.5', band.colorClass)}>{band.label}</span>
+                    <span className="text-xs text-[var(--muted)] tabular ml-1">ML {fmt.prob(rec.success_prob)}</span>
                   </div>
                 </div>
                 <div className="h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
-                  <div className={clsx('h-full rounded-full transition-all', barCls)} style={{ width: `${score}%` }} />
+                  <div className={clsx('h-full rounded-full transition-all', band.barColorClass)} style={{ width: `${score}%` }} />
                 </div>
               </>
             )
@@ -519,7 +520,7 @@ function RecCard({
                     유사 사례 <span className="text-[var(--fg)] font-semibold">{rec.rationale.sim_count}건</span>
                     {rec.rationale.avg_sim_return != null && (
                       <span className={clsx('ml-1 font-semibold', rec.rationale.avg_sim_return >= 0 ? 'text-red-400' : 'text-blue-400')}>
-                        · 평균 {rec.rationale.avg_sim_return >= 0 ? '+' : ''}{(rec.rationale.avg_sim_return * 100).toFixed(1)}%
+                        · 평균 {rec.rationale.avg_sim_return >= 0 ? '+' : ''}{rec.rationale.avg_sim_return.toFixed(1)}%
                       </span>
                     )}
                   </div>

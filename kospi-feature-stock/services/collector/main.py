@@ -1085,9 +1085,10 @@ class StockCollector:
             if collected:
                 logger.info(f"[News] Collected {collected} news items")
 
-            # seen 집합 크기 제한 (메모리 누수 방지)
+            # seen 집합 크기 제한 — clear() 대신 오래된 항목 절반 제거
+            # (clear()는 이전 URL을 모두 잊어 재수집 유발)
             if len(seen) > 5000:
-                seen.clear()
+                seen = set(list(seen)[2500:])
 
 
 if __name__ == "__main__":

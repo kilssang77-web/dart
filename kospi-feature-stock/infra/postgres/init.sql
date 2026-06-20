@@ -234,6 +234,7 @@ CREATE TABLE IF NOT EXISTS news_stock_links (
     PRIMARY KEY (news_id, code)
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_news_url_unique ON news(url) WHERE url IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_news_published  ON news(published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_news_embedding  ON news
     USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);

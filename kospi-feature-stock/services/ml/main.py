@@ -353,9 +353,10 @@ async def _run_retrain(pool: asyncpg.Pool, predictor: LGBMPredictor):
         await _redis.set("ml:retrain_started_at", _now(), ex=86400)
 
     end_dt   = date.today()
-    # walk-forward 분할: 최근 2년 train / 최근 6개월 val / 최근 90일 test
-    train_end   = (end_dt - timedelta(days=180)).isoformat()
-    val_start   = (end_dt - timedelta(days=180)).isoformat()
+    # walk-forward 분할: 최근 2년 train / 최근 6~9개월 val(180일) / 최근 90일 test
+    # val 180일(≈126 거래일) 보장 — build_features 최소 62행 요건 충족
+    train_end   = (end_dt - timedelta(days=270)).isoformat()
+    val_start   = (end_dt - timedelta(days=270)).isoformat()
     val_end     = (end_dt - timedelta(days=90)).isoformat()
     test_start  = (end_dt - timedelta(days=90)).isoformat()
     test_end    = end_dt.isoformat()

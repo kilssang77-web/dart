@@ -2,7 +2,7 @@
 import type { ReactNode } from 'react'
 import { X, Target, Shield, Zap, TrendingUp, BrainCircuit, BarChart2, Clock, History } from 'lucide-react'
 import { clsx } from 'clsx'
-import { fmt, probColor, pctColor, probToScore, scoreBarColor } from '@/lib/utils'
+import { fmt, probColor, pctColor, probToScore, scoreBarColor, recScoreBand } from '@/lib/utils'
 import type { Recommendation, SimilarCase } from '@/types'
 import { ActionBadge, Badge, EVENT_LABELS, EVENT_NAMES } from '@/components/ui/Badge'
 
@@ -154,9 +154,10 @@ function RecNarrative({ rec }: { rec: Recommendation }) {
   const B = ({ children }: { children: ReactNode }) => <strong className="font-bold text-[var(--fg)]">{children}</strong>
 
   const sentences: ReactNode[] = []
-  const scoreVal = rec.success_prob != null ? probToScore(rec.success_prob) : null
+  const scoreVal = rec.rationale?.rec_score ?? (rec.success_prob != null ? probToScore(rec.success_prob) : null)
+  const band = scoreVal != null ? recScoreBand(scoreVal) : null
   const probLabel = scoreVal != null
-    ? <><B>{scoreVal}점</B> <span style={{fontSize:'0.85em',opacity:0.7}}>({fmt.prob(rec.success_prob)})</span></>
+    ? <><B>{scoreVal}점</B>{band?.stars ? <span style={{fontSize:'0.85em'}}> {band.stars} {band.label}</span> : null} <span style={{fontSize:'0.85em',opacity:0.7}}>({fmt.prob(rec.success_prob)})</span></>
     : <B>{fmt.prob(rec.success_prob)}</B>
 
   if (rec.action === 'BUY') {
@@ -207,8 +208,9 @@ export function RecDetailModal({ rec, onClose, onGoDetail, compact = false }: Re
     ? ((rec.current_price - rec.entry_price) / rec.entry_price * 100)
     : null
 
-  const score    = rec.success_prob != null ? probToScore(rec.success_prob) : 1
-  const barColor = scoreBarColor(score)
+  const score    = rec.rationale?.rec_score ?? (rec.success_prob != null ? probToScore(rec.success_prob) : 1)
+  const band     = recScoreBand(score)
+  const barColor = band.barColorClass
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4" data-v="2" onClick={onClose}>
@@ -245,17 +247,21 @@ export function RecDetailModal({ rec, onClose, onGoDetail, compact = false }: Re
         {/* ── 스크롤 본문 ── */}
         <div className="overflow-y-auto space-y-4 px-5 py-4" style={{ flex: 1 }}>
 
-          {/* 성공확률 */}
+          {/* 추천 점수 */}
           <div>
             <div className="flex justify-between items-end mb-2">
-              <span className="text-sm font-semibold text-[var(--fg)]">성공 확률</span>
+              <span className="text-sm font-semibold text-[var(--fg)]">추천 점수</span>
               <div className="text-right">
-                <span className={clsx('text-2xl font-extrabold tabular tracking-tight', scoreBarColor(score).replace('bg-', 'text-'))}>
-                  {score}점
-                </span>
-                <div className="text-[var(--muted)] tabular text-[10px] mt-0.5">
-                  ML확률 {fmt.prob(rec.success_prob)}
+                <div className="flex items-baseline gap-1.5 justify-end">
+                  <span className={clsx('text-2xl font-extrabold tabular tracking-tight', band.colorClass)}>
+                    {score}점
+                  </span>
+                  {band.stars && (
+                    <span className={clsx('text-lg font-bold', band.colorClass)}>{band.stars}</span>
+                  )}
                 </div>
+                <div className={clsx('font-semibold text-sm mt-0.5', band.colorClass)}>{band.label}</div>
+                <div className="text-[var(--muted)] tabular text-[10px] mt-0.5">ML확률 {fmt.prob(rec.success_prob)}</div>
               </div>
             </div>
             <div className="h-4 bg-[var(--border)] rounded-full overflow-hidden">
@@ -265,11 +271,11 @@ export function RecDetailModal({ rec, onClose, onGoDetail, compact = false }: Re
               />
             </div>
             <div className="flex justify-between text-[var(--muted)] mt-1.5 text-xs">
-              <span>1점</span>
-              <span className="text-yellow-400 font-semibold">31점</span>
-              <span className="text-orange-400 font-semibold">51점</span>
-              <span className="text-green-400 font-semibold">70점</span>
-              <span>100점</span>
+              <span>1 위험</span>
+              <span className="text-yellow-400 font-semibold">31 중립</span>
+              <span className="text-orange-400 font-semibold">50 매수★</span>
+              <span className="text-green-400 font-semibold">65 강한매수★★</span>
+              <span className="text-green-300 font-semibold">80 최강★★★</span>
             </div>
           </div>
 

@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { TrendingUp, Target, BrainCircuit, Info, RefreshCw, CheckCircle2, AlertCircle, Loader2, Clock, ChevronRight } from 'lucide-react'
+import { TrendingUp, Target, BrainCircuit, Info, RefreshCw, CheckCircle2, AlertCircle, AlertTriangle, Loader2, Clock, ChevronRight } from 'lucide-react'
 import { marketApi } from '@/api/market'
 import type { RecJourneyItem } from '@/api/market'
 import { recommendationsApi } from '@/api/recommendations'
@@ -406,6 +406,17 @@ export function RecommendationJourney() {
           ML 재학습 피드백 데이터
         </div>
       </div>
+
+      {/* 통계 신뢰도 경고 */}
+      {stats && stats.completed < 30 && (
+        <div className="flex items-start gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-300">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+          <span>
+            평가 완료된 추천이 <strong>{stats.completed}건</strong>으로 통계 신뢰도가 낮습니다.
+            최소 30건 이상 누적되면 수익률·승률 지표가 의미 있어집니다.
+          </span>
+        </div>
+      )}
 
       {/* 당일종가 수집 중 배너 */}
       {closePending && (

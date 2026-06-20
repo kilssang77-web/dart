@@ -112,7 +112,7 @@ class ThemeClusterer:
             # 확산 추이: 최근 3일 vs 7일 뉴스 수
             now = datetime.now(timezone.utc)
             count_3d = sum(1 for d in cluster_dates if d and (now - d).days <= 3)
-            count_7d = mask.sum()
+            count_7d = int(mask.sum())
             trend = "rising" if count_3d > count_7d * 0.6 else (
                 "falling" if count_3d < count_7d * 0.25 else "stable"
             )

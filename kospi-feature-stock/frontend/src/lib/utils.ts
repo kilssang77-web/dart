@@ -99,10 +99,10 @@ export function probColor(v?: number | null) {
   return 'text-[var(--muted)]'
 }
 
-// ML 확률 → 1~100점 (Min-Max 정규화, 모델 실제 출력 범위 기준)
-const _SCORE_MIN = 0.373
-const _SCORE_MAX = 0.627
-const _SCORE_RANGE = _SCORE_MAX - _SCORE_MIN  // 0.254
+// ML 확률 → 1~100점 (BUY 최소 임계값 0.28 ~ 모델 상한 0.95 기준)
+const _SCORE_MIN = 0.28
+const _SCORE_MAX = 0.95
+const _SCORE_RANGE = _SCORE_MAX - _SCORE_MIN  // 0.67
 
 export function probToScore(prob: number): number {
   return Math.min(100, Math.max(1, Math.round(((prob - _SCORE_MIN) / _SCORE_RANGE) * 99 + 1)))
@@ -113,15 +113,32 @@ export function scoreToProb(score: number): number {
 }
 
 export function scoreColor(score: number): string {
-  if (score >= 70) return 'text-green-400'
-  if (score >= 51) return 'text-orange-400'
+  if (score >= 80) return 'text-green-300'
+  if (score >= 65) return 'text-green-400'
+  if (score >= 50) return 'text-orange-400'
   if (score >= 31) return 'text-yellow-400'
   return 'text-[var(--muted)]'
 }
 
 export function scoreBarColor(score: number): string {
-  if (score >= 70) return 'bg-green-400'
-  if (score >= 51) return 'bg-orange-400'
+  if (score >= 80) return 'bg-green-300'
+  if (score >= 65) return 'bg-green-400'
+  if (score >= 50) return 'bg-orange-400'
   if (score >= 31) return 'bg-yellow-500'
   return 'bg-zinc-500'
+}
+
+export interface RecScoreBand {
+  label:         string
+  stars:         string
+  colorClass:    string
+  barColorClass: string
+}
+
+export function recScoreBand(score: number): RecScoreBand {
+  if (score >= 80) return { label: '최강매수', stars: '★★★', colorClass: 'text-green-300',      barColorClass: 'bg-green-300' }
+  if (score >= 65) return { label: '강한매수', stars: '★★',  colorClass: 'text-green-400',      barColorClass: 'bg-green-400' }
+  if (score >= 50) return { label: '매수',     stars: '★',   colorClass: 'text-orange-400',     barColorClass: 'bg-orange-400' }
+  if (score >= 31) return { label: '중립',     stars: '',    colorClass: 'text-yellow-400',     barColorClass: 'bg-yellow-500' }
+  return               { label: '위험',     stars: '',    colorClass: 'text-[var(--muted)]', barColorClass: 'bg-zinc-500' }
 }

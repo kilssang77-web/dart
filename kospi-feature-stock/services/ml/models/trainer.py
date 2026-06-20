@@ -20,8 +20,8 @@ _BASE_PARAMS = {
     "boosting_type": "gbdt",
     "num_leaves": 63,          # 48 → 63: 복잡한 패턴 학습 확대
     "max_depth": 8,            # 7 → 8
-    "learning_rate": 0.02,     # 0.03 → 0.02: 느리게 학습, early_stopping으로 최적 지점 탐색
-    "n_estimators": 5000,      # 3000 → 5000: learning_rate 감소 보완
+    "learning_rate": 0.03,     # 0.02 → 0.03: 학습 속도 균형 (2000라운드 기준)
+    "n_estimators": 2000,      # 5000 → 2000: early_stopping + 합리적 상한선
     "min_child_samples": 40,   # 50 → 40: 소수 양성 샘플 학습 개선
     "feature_fraction": 0.75,
     "bagging_fraction": 0.8,
@@ -74,80 +74,93 @@ class LGBMTrainer:
         params["scale_pos_weight"] = scale_pos
 
         model = lgb.LGBMClassifier(**params)
-        model.fit(
-            X_tr, y_tr,
-            eval_set=[(X_val, y_val)],
-            callbacks=[
-                lgb.early_stopping(150, verbose=False),
-                lgb.log_evaluation(200),
-            ],
-        )
-
-        raw_proba = model.predict_proba(X_val)[:, 1]
-        auc = roc_auc_score(y_val, raw_proba)
+        has_val = len(X_val) >= 30 and len(y_val) >= 30 and y_val.nunique() >= 2
+        if has_val:
+            model.fit(
+                X_tr, y_tr,
+                eval_set=[(X_val, y_val)],
+                callbacks=[
+                    lgb.early_stopping(100, verbose=False),
+                    lgb.log_evaluation(200),
+                ],
+            )
+            raw_proba = model.predict_proba(X_val)[:, 1]
+            auc = roc_auc_score(y_val, raw_proba)
+        else:
+            logger.warning(f"[Trainer] Val set insufficient (n={len(X_val)}, classes={y_val.nunique() if len(y_val)>0 else 0}) — training without early stopping (1000 rounds)")
+            params_no_es = dict(params)
+            params_no_es["n_estimators"] = 1000
+            model = lgb.LGBMClassifier(**params_no_es)
+            model.fit(X_tr, y_tr)
+            raw_proba = np.array([])
+            auc = 0.0
         logger.info(f"Entry model AUC: {auc:.4f}")
 
         Path(model_dir).mkdir(parents=True, exist_ok=True)
         model.booster_.save_model(f"{model_dir}/entry_model.lgb")
 
-        # ── Isotonic calibration ──────────────────────────────
-        cal = IsotonicRegression(out_of_bounds="clip")
-        cal.fit(raw_proba, np.array(y_val))
-        joblib.dump(cal, f"{model_dir}/entry_calibrator.pkl")
-
-        # ── 피처 컬럼 목록 저장 (단일 소스 오브 트루스) ──────
         feature_cols = list(X_train.columns)
         with open(f"{model_dir}/feature_columns.json", "w") as fp:
             json.dump(feature_cols, fp)
         logger.info(f"feature_columns.json saved ({len(feature_cols)} features)")
 
-        # ── 모델 성능 지표 저장 ───────────────────────────────
-        cal_proba = np.clip(cal.predict(raw_proba), 0.0, 1.0)
-
-        # Recall ≥ 0.25 을 만족하는 최고 Precision 임계값 탐색
-        precs, recs, threshs = precision_recall_curve(np.array(y_val), cal_proba)
-        # threshs 길이 = precs 길이 - 1; 인덱스 정렬
-        recall_25_mask = recs[:-1] >= 0.25
-        if recall_25_mask.any():
-            best_idx = int(np.argmax(precs[:-1][recall_25_mask]))
-            opt_thresh = float(threshs[recall_25_mask][best_idx])
+        cal = IsotonicRegression(out_of_bounds="clip")
+        if has_val:
+            cal.fit(raw_proba, np.array(y_val))
+            cal_proba = np.clip(cal.predict(raw_proba), 0.0, 1.0)
+            precs, recs, threshs = precision_recall_curve(np.array(y_val), cal_proba)
+            recall_25_mask = recs[:-1] >= 0.25
+            if recall_25_mask.any():
+                best_idx = int(np.argmax(precs[:-1][recall_25_mask]))
+                opt_thresh = float(threshs[recall_25_mask][best_idx])
+            else:
+                opt_thresh = float(threshs[int(np.argmax(recs[:-1]))])
+            opt_thresh = round(max(0.10, min(0.90, opt_thresh)), 4)
+            y_pred_05  = (cal_proba >= 0.5).astype(int)
+            y_pred_opt = (cal_proba >= opt_thresh).astype(int)
+            val_metrics = {
+                "auc":               round(float(auc), 4),
+                "f1":                round(float(f1_score(y_val, y_pred_05, zero_division=0)), 4),
+                "precision":         round(float(precision_score(y_val, y_pred_05, zero_division=0)), 4),
+                "recall":            round(float(recall_score(y_val, y_pred_05, zero_division=0)), 4),
+                "accuracy":          round(float(accuracy_score(y_val, y_pred_05)), 4),
+                "brier_score":       round(float(brier_score_loss(y_val, cal_proba)), 4),
+                "optimal_threshold": opt_thresh,
+                "opt_f1":            round(float(f1_score(y_val, y_pred_opt, zero_division=0)), 4),
+                "opt_precision":     round(float(precision_score(y_val, y_pred_opt, zero_division=0)), 4),
+                "opt_recall":        round(float(recall_score(y_val, y_pred_opt, zero_division=0)), 4),
+            }
         else:
-            # Recall 0.25 달성 불가 시 최대 Recall 임계값 사용
-            opt_thresh = float(threshs[int(np.argmax(recs[:-1]))])
-        opt_thresh = round(max(0.10, min(0.90, opt_thresh)), 4)
-
-        y_pred_05  = (cal_proba >= 0.5).astype(int)
-        y_pred_opt = (cal_proba >= opt_thresh).astype(int)
+            # val 없음 — train 예측으로 calibrator 피팅, 임계값 기본값 사용
+            tr_proba = model.predict_proba(X_tr)[:, 1]
+            cal.fit(tr_proba, np.array(y_tr))
+            opt_thresh = 0.30
+            val_metrics = {
+                "auc": 0.0, "f1": 0.0, "precision": 0.0, "recall": 0.0,
+                "accuracy": 0.0, "brier_score": 0.0,
+                "optimal_threshold": opt_thresh,
+                "opt_f1": 0.0, "opt_precision": 0.0, "opt_recall": 0.0,
+            }
+        joblib.dump(cal, f"{model_dir}/entry_calibrator.pkl")
 
         fi = dict(zip(X_train.columns, model.feature_importances_.tolist()))
         top_fi = dict(sorted(fi.items(), key=lambda x: -x[1])[:30])
         metrics = {
-            "model_type":        "LightGBM (Entry)",
-            "trained_at":        datetime.now(timezone.utc).isoformat(),
-            "n_features":        len(feature_cols),
-            "n_train":           len(X_train),
-            "n_val":             len(X_val),
-            "auc":               round(float(auc), 4),
-            # @ threshold 0.5 (baseline)
-            "f1":                round(float(f1_score(y_val, y_pred_05, zero_division=0)), 4),
-            "precision":         round(float(precision_score(y_val, y_pred_05, zero_division=0)), 4),
-            "recall":            round(float(recall_score(y_val, y_pred_05, zero_division=0)), 4),
-            "accuracy":          round(float(accuracy_score(y_val, y_pred_05)), 4),
-            "brier_score":       round(float(brier_score_loss(y_val, cal_proba)), 4),
-            # @ optimal threshold (Recall ≥ 0.25)
-            "optimal_threshold": opt_thresh,
-            "opt_f1":            round(float(f1_score(y_val, y_pred_opt, zero_division=0)), 4),
-            "opt_precision":     round(float(precision_score(y_val, y_pred_opt, zero_division=0)), 4),
-            "opt_recall":        round(float(recall_score(y_val, y_pred_opt, zero_division=0)), 4),
+            "model_type": "LightGBM (Entry)",
+            "trained_at": datetime.now(timezone.utc).isoformat(),
+            "n_features": len(feature_cols),
+            "n_train":    len(X_train),
+            "n_val":      len(X_val),
             "feature_importance": top_fi,
+            **val_metrics,
         }
         with open(f"{model_dir}/model_metrics.json", "w") as fp:
             json.dump(metrics, fp, indent=2)
         logger.info(
-            f"model_metrics.json saved: AUC={auc:.4f}  "
-            f"opt_threshold={opt_thresh:.3f}  "
-            f"opt_recall={metrics['opt_recall']:.3f}  "
-            f"opt_precision={metrics['opt_precision']:.3f}"
+            f"model_metrics.json saved: AUC={metrics['auc']:.4f}  "
+            f"opt_threshold={val_metrics['optimal_threshold']:.3f}  "
+            f"opt_recall={val_metrics['opt_recall']:.3f}  "
+            f"opt_precision={val_metrics['opt_precision']:.3f}"
         )
 
         return model
@@ -189,16 +202,26 @@ class LGBMTrainer:
         params["scale_pos_weight"] = scale_pos
 
         model = lgb.LGBMClassifier(**params)
-        model.fit(
-            X_tr, y_tr,
-            eval_set=[(X_val, y_val)],
-            callbacks=[lgb.early_stopping(100, verbose=False)],
-        )
-        raw_proba = model.predict_proba(X_val)[:, 1]
+        has_val = len(X_val) >= 30 and len(y_val) >= 30 and y_val.nunique() >= 2
+        if has_val:
+            model.fit(
+                X_tr, y_tr,
+                eval_set=[(X_val, y_val)],
+                callbacks=[lgb.early_stopping(100, verbose=False)],
+            )
+            raw_proba = model.predict_proba(X_val)[:, 1]
+        else:
+            logger.warning(f"[Trainer] Risk val set insufficient (n={len(X_val)}) — training without early stopping (800 rounds)")
+            params_no_es = dict(params)
+            params_no_es["n_estimators"] = 800
+            model = lgb.LGBMClassifier(**params_no_es)
+            model.fit(X_tr, y_tr)
+            raw_proba = model.predict_proba(X_tr)[:, 1]
+
         model.booster_.save_model(f"{model_dir}/risk_model.lgb")
 
         cal = IsotonicRegression(out_of_bounds="clip")
-        cal.fit(raw_proba, np.array(y_val))
+        cal.fit(raw_proba, np.array(y_val if has_val else y_tr))
         joblib.dump(cal, f"{model_dir}/risk_calibrator.pkl")
         logger.info("Risk calibrator saved")
 

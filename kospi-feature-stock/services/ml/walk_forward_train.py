@@ -506,9 +506,19 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
 # ── 검증 리포트 ───────────────────────────────────────────────────────────────
 
 def report(name: str, model, X: pd.DataFrame, y: pd.Series, threshold: float = 0.5):
+    if X.empty or y.empty:
+        logger.warning(f"[{name}] Empty dataset — skipping report")
+        return 0.0, 1.0, threshold
+
     prob = model.predict_proba(X)[:, 1]
     valid = y.notna()
     X_v = X[valid]; y_v = y[valid]; p_v = prob[valid.values]
+
+    if y_v.empty or y_v.nunique() < 2:
+        pos_rate = float(y_v.mean()) if not y_v.empty else 0.0
+        logger.warning(f"[{name}] Single class only (pos_rate={pos_rate:.3f}) — AUC undefined, returning 0.0")
+        brier = float(brier_score_loss(y_v, p_v)) if not y_v.empty else 1.0
+        return 0.0, brier, threshold
 
     auc   = roc_auc_score(y_v, p_v)
     brier = brier_score_loss(y_v, p_v)

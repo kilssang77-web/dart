@@ -73,6 +73,7 @@ export interface RationaleDetail {
   confidence_grade?:    'A' | 'B' | 'C' | 'D'
   confidence_score?:    number
   confidence_warnings?: string[]
+  rec_score?:           number
 }
 
 export interface SimilarCase {

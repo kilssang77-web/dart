@@ -333,7 +333,7 @@ class AnalyzerService:
                 INSERT INTO news (source, published_at, title, content, url,
                     themes, sentiment_score, embedding)
                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8::vector)
-                ON CONFLICT DO NOTHING
+                ON CONFLICT (url) WHERE url IS NOT NULL DO NOTHING
                 RETURNING id
                 """,
                 data.get("source"),

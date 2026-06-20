@@ -92,7 +92,7 @@ class EntryRecommender:
         # 유사 사례 1~2건의 success_rate는 신뢰도 낮음 → 최대 93% cap
         # 하한 0.20 보장: 유사 사례가 ML 확률을 과도하게 하향 조정하지 않도록 방지
         raw_sim  = sim_stats.get("success_rate", ml_prob)
-        sim_prob = max(0.20, min(0.93, raw_sim))
+        sim_prob = max(0.05, min(0.93, raw_sim))
         n_cases  = sim_stats.get("count", 0)
         # 최소 2건 이상 유사 사례가 있어야 sim_weight 적용
         sim_w    = 0.0 if n_cases < 2 else min(_SIM_MAX_W, n_cases / _SIM_SCALE_N * _SIM_MAX_W)
@@ -114,6 +114,7 @@ class EntryRecommender:
 
         model_mode = "ml" if ml_result.model_used else "fallback"
         confidence = self._compute_confidence_grade(model_mode, n_cases, ml_prob)
+        rec_score  = self._compute_rec_score(ml_prob, max(0.0, min(0.93, raw_sim)), n_cases, avg_sim_ret, rf)
 
         return EntryRecommendation(
             code=code,
@@ -144,6 +145,7 @@ class EntryRecommender:
                 "confidence_grade":    confidence["grade"],
                 "confidence_score":    confidence["score"],
                 "confidence_warnings": confidence["warnings"],
+                "rec_score":           rec_score,
             },
             similar_cases=similar_cases[:5],
         )
@@ -263,6 +265,35 @@ class EntryRecommender:
             "label":    {"A": "높음", "B": "보통", "C": "낮음", "D": "매우낮음"}[grade],
             "warnings": warnings,
         }
+
+    def _compute_rec_score(
+        self,
+        ml_prob: float,
+        sim_prob_raw: float,
+        n_cases: int,
+        avg_sim_return: float,  # % 단위 (e.g. -6.73 = -6.73%)
+        risk_factors: list,
+    ) -> int:
+        # ① ML 신호 (max 55)
+        ml_component = (ml_prob / 0.95) * 55
+        # ② 패턴 근거 (max 30): 사례 수로 가중 (30건 이상 = 풀 가중)
+        pattern_weight = min(1.0, n_cases / 30.0)
+        pattern_component = (min(sim_prob_raw, 0.93) / 0.93) * 30 * pattern_weight
+        # ③ 패턴 수익 보정 (-20 ~ +15)
+        if avg_sim_return >= 5.0:
+            return_adj = 15
+        elif avg_sim_return >= 0.0:
+            return_adj = 8
+        elif avg_sim_return >= -3.0:
+            return_adj = 0
+        elif avg_sim_return >= -7.0:
+            return_adj = -10
+        else:
+            return_adj = -20
+        # ④ 위험 패널티 (-10점/개, 최대 -30)
+        risk_penalty = min(30, len(risk_factors) * 10)
+        raw = ml_component + pattern_component + return_adj - risk_penalty
+        return int(max(1, min(100, round(raw))))
 
     def _skip(self, code: str, price: int, reason: str) -> EntryRecommendation:
         return EntryRecommendation(

@@ -140,6 +140,10 @@ class RecommenderService:
         await self._redis.publish("channel:features", orjson.dumps(event).decode())
 
         if rec["action"] == "BUY":
+            try:
+                await self._redis.set(f"rec:cd24:{rec['code']}", "1", ex=86400)
+            except Exception:
+                pass
             signal = {
                 "code":              rec["code"],
                 "name":              rec.get("name", rec["code"]),
@@ -159,17 +163,48 @@ class RecommenderService:
             )
 
     async def _on_cooldown(self, code: str) -> bool:
-        """종목 단위 쿨다운 원자적 확인+설정. 이미 쿨다운 중이면 True 반환.
-        이벤트 타입과 무관하게 동일 종목의 1시간 이내 재추천을 억제한다."""
-        if not _COOLDOWN_MINUTES or not code:
+        """종목 단위 쿨다운 확인.
+        1) Redis 단기 쿨다운 (60분) — 같은 세션 내 폭발적 중복 방지
+        2) DB 24시간 쿨다운 — 날짜를 넘겨도 당일 이미 추천한 종목 재추천 방지
+        둘 중 하나라도 쿨다운 중이면 True 반환."""
+        if not code:
             return False
-        key = f"rec:cd:{code}"
+        # ① Redis 단기 쿨다운
+        if _COOLDOWN_MINUTES:
+            key = f"rec:cd:{code}"
+            try:
+                result = await self._redis.set(key, "1", nx=True, ex=_COOLDOWN_MINUTES * 60)
+                if result is None:
+                    return True
+            except Exception:
+                pass
+        # ② Redis 기반 24시간 쿨다운 — DB 연결 오류에도 안정적으로 작동
         try:
-            # SET NX EX: 키가 없으면 설정(False 반환), 있으면 None 반환(쿨다운 중)
-            result = await self._redis.set(key, "1", nx=True, ex=_COOLDOWN_MINUTES * 60)
-            return result is None
+            if await self._redis.get(f"rec:cd24:{code}"):
+                return True
         except Exception:
-            return False
+            pass
+        # ③ DB 기반 24시간 쿨다운 — Redis 미스 시 폴백 (DB 연결 실패 시 safe=False)
+        try:
+            since = datetime.now(timezone.utc) - timedelta(hours=24)
+            exists = await self._db.fetchval(
+                """
+                SELECT 1 FROM recommendations
+                WHERE code = $1 AND action = 'BUY' AND created_at >= $2
+                LIMIT 1
+                """,
+                code, since,
+            )
+            if exists:
+                # Redis 키 복구 — DB에 있으면 Redis에도 세팅
+                try:
+                    await self._redis.set(f"rec:cd24:{code}", "1", ex=86400)
+                except Exception:
+                    pass
+                return True
+        except Exception:
+            pass
+        return False
 
     async def _get_anchor(self, code: str) -> int | None:
         """당일 세션 진입가 앵커 조회."""
