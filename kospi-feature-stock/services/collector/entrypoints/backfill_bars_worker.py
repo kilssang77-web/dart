@@ -53,6 +53,18 @@ async def _get_sparse_codes(db, all_codes: list[str]) -> list[str]:
     return [r["code"] for r in rows]
 
 
+def _date_chunks(start_str: str, end_str: str, chunk_days: int = 90):
+    """YYYYMMDD 문자열을 받아 chunk_days 단위로 (s, e) 쌍 생성."""
+    from datetime import date as _date
+    s = _date(int(start_str[:4]), int(start_str[4:6]), int(start_str[6:8]))
+    e = _date(int(end_str[:4]),   int(end_str[4:6]),   int(end_str[6:8]))
+    cur = s
+    while cur <= e:
+        nxt = min(cur + timedelta(days=chunk_days - 1), e)
+        yield cur.strftime("%Y%m%d"), nxt.strftime("%Y%m%d")
+        cur = nxt + timedelta(days=1)
+
+
 async def run_backfill(svc: StockCollector, all_codes: list[str]) -> None:
     sparse = await _get_sparse_codes(svc.db, all_codes)
     if not sparse:
@@ -74,17 +86,21 @@ async def run_backfill(svc: StockCollector, all_codes: list[str]) -> None:
             continue
 
         try:
-            bars = await svc.rest.get_daily_bars(code, start, end)
-            if bars:
-                n = await write_daily_bars(svc.db, bars)
-                total_added += n
+            # 90일 청크로 분할 요청 — KIS API 100봉 한계 우회
+            code_added = 0
+            for chunk_s, chunk_e in _date_chunks(start, end):
+                bars = await svc.rest.get_daily_bars(code, chunk_s, chunk_e)
+                if bars:
+                    code_added += await write_daily_bars(svc.db, bars)
+                await asyncio.sleep(_REQ_DELAY)
+            if code_added > 0:
+                total_added += code_added
                 await svc.redis.delete(_REDIS_KEY_FAIL.format(code=code))
             else:
-                # 7일간 재시도 없음 (비상장/거래정지/조회불가)
+                # 모든 청크에서 0행 → 조회 불가
                 await svc.redis.set(
                     _REDIS_KEY_SKIP.format(code=code), "1", ex=86400 * 7
                 )
-                # 연속 실패 카운터 증가 → N회 도달 시 is_active = FALSE
                 fail_key = _REDIS_KEY_FAIL.format(code=code)
                 _raw     = await svc.redis.get(fail_key)
                 fail_cnt = (int(_raw.decode() if isinstance(_raw, bytes) else _raw) if _raw else 0) + 1
@@ -99,8 +115,6 @@ async def run_backfill(svc: StockCollector, all_codes: list[str]) -> None:
         except Exception as e:
             logger.warning(f"[bars-backfill] {code} 오류: {e}")
             error_count += 1
-
-        await asyncio.sleep(_REQ_DELAY)
 
         if (i + 1) % _BATCH_LOG_EVERY == 0:
             logger.info(
