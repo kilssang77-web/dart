@@ -351,17 +351,10 @@ class RecommenderService:
                 float(rec["expected_hold_days"]),
                 feature_event_id,
             )
-            # BUY 신호 확정 시 성과 추적 초기 row 등록 (텔레그램 발송 기준과 동일한 임계값 적용)
+            # BUY 신호 확정 시 성과 추적 초기 row 등록
+            # REC_PERF_MIN_PROB 는 Telegram min_prob 와 독립적으로 설정
             if rec_id and rec.get("action") == "BUY":
-                # Redis 런타임 telegram:config 의 min_prob 기준으로 필터
-                perf_min_prob = float(os.environ.get("REC_MIN_PROB", "0.22"))
-                try:
-                    raw = await self._redis.get("telegram:config")
-                    if raw:
-                        cfg = orjson.loads(raw)
-                        perf_min_prob = float(cfg.get("min_prob", perf_min_prob))
-                except Exception:
-                    pass
+                perf_min_prob = float(os.environ.get("REC_PERF_MIN_PROB", "0.55"))
                 if rec.get("success_prob", 0) >= perf_min_prob:
                     rationale = rec["rationale"]
                     event_type = (
