@@ -257,18 +257,20 @@ class AnalyzerService:
                     rcept_no, code, corp_name, disclosed_at,
                     report_type, disclosure_type, title,
                     category, sentiment_score, amount, amount_text,
+                    contract_amount,
                     keywords, counterparty, contract_period,
                     embedding, raw_json
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::vector,$16)
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::vector,$17)
                 ON CONFLICT (rcept_no) DO UPDATE SET
                     category        = EXCLUDED.category,
                     sentiment_score = EXCLUDED.sentiment_score,
                     keywords        = EXCLUDED.keywords,
                     embedding       = EXCLUDED.embedding,
-                    amount          = COALESCE(EXCLUDED.amount,          disclosures.amount),
-                    amount_text     = COALESCE(EXCLUDED.amount_text,     disclosures.amount_text),
-                    counterparty    = COALESCE(EXCLUDED.counterparty,    disclosures.counterparty),
-                    contract_period = COALESCE(EXCLUDED.contract_period, disclosures.contract_period)
+                    amount          = COALESCE(EXCLUDED.amount,           disclosures.amount),
+                    amount_text     = COALESCE(EXCLUDED.amount_text,      disclosures.amount_text),
+                    contract_amount = COALESCE(EXCLUDED.contract_amount,  disclosures.contract_amount),
+                    counterparty    = COALESCE(EXCLUDED.counterparty,     disclosures.counterparty),
+                    contract_period = COALESCE(EXCLUDED.contract_period,  disclosures.contract_period)
                 """,
                 rcept_no,
                 data.get("code"),
@@ -281,6 +283,7 @@ class AnalyzerService:
                 sentiment_score,
                 amount or None,
                 amount_text or None,
+                amount or None,          # contract_amount = amount (동일 추출값)
                 orjson.dumps(clf["keywords"]).decode(),
                 counterparty or None,
                 period or None,

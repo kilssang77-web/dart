@@ -171,17 +171,12 @@ async def write_minute_bars(pool: asyncpg.Pool, code: str, bars: list[dict]) -> 
                     TO_TIMESTAMP($1, 'YYYYMMDDHH24MISS') AT TIME ZONE 'Asia/Seoul',
                     $2, $3, $4, $5, $6, $7, $8, $9
                 )
-                ON CONFLICT (code, interval_min, time) DO UPDATE SET
-                    high   = GREATEST(EXCLUDED.high, minute_bars.high),
-                    low    = LEAST(EXCLUDED.low, minute_bars.low),
-                    close  = EXCLUDED.close,
-                    volume = EXCLUDED.volume,
-                    amount = EXCLUDED.amount
+                ON CONFLICT DO NOTHING
                 """,
                 rows,
             )
     except Exception as e:
-        logger.debug(f"minute_bar write error {code}: {e}")
+        logger.warning(f"minute_bar write error {code}: {e}")
 
 
 async def write_daily_bars(pool: asyncpg.Pool, bars: list[dict]) -> int:
