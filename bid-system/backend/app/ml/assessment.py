@@ -532,11 +532,11 @@ def predict_srate(features_a: dict, base_amount: int) -> dict:
 
     return {
         "srate_range": {
-            "p10":    round(p10,    4),
-            "lower":  round(lower,  4),
-            "center": round(center, 4),
-            "upper":  round(upper,  4),
-            "p90":    round(p90,    4),
+            "p10":    round(p10,    6),
+            "lower":  round(lower,  6),
+            "center": round(center, 6),
+            "upper":  round(upper,  6),
+            "p90":    round(p90,    6),
         },
         "estimated_price_range": {
             "lower":  int(base_amount * lower),

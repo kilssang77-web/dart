@@ -455,11 +455,11 @@ class HybridRecommendService:
 
         return {
             "rate_range": {
-                "safe_lower": round(ens_lower  - 0.003, 4),
-                "lower":      round(ens_lower,   4),
-                "center":     round(ens_center,  4),
-                "upper":      round(ens_upper,   4),
-                "safe_upper": round(ens_upper  + 0.003, 4),
+                "safe_lower": round(ens_lower  - 0.003, 6),
+                "lower":      round(ens_lower,   6),
+                "center":     round(ens_center,  6),
+                "upper":      round(ens_upper,   6),
+                "safe_upper": round(ens_upper  + 0.003, 6),
             },
             "strategies":    strategies,
             "estimated_price": ep_result,
@@ -1058,7 +1058,7 @@ class FinalRecommendService:
         correction   = float(bias.get("correction", 0.0))
         bias_applied = abs(correction) > 0.0001
 
-        recommended_rate = round(float(srate_mean) + trend_adj + correction, 4)
+        recommended_rate = round(float(srate_mean) + trend_adj + correction, 6)
 
         # 7. 낙찰하한율 (A값 기준 floor → base_amount 기준 환산)
         floor_pct = calc_floor_rate(industry_name)
@@ -1081,7 +1081,7 @@ class FinalRecommendService:
             return round(float(nearest.get("win_prob", 0.0)), 4)
 
         def _strat(rate: float) -> dict:
-            r = round(max(rate, floor_rate), 4)   # 항상 floor 이상으로 클램핑
+            r = round(max(rate, floor_rate), 6)   # 항상 floor 이상으로 클램핑
             return {"rate": r, "amount": round(base_amount * r), "win_prob": _win_prob(r)}
 
         # recommended_rate가 floor에 클램핑됐을 때 aggressive/balanced가 모두
@@ -1118,20 +1118,20 @@ class FinalRecommendService:
         # 11. 근거 패널
         evidence = {
             "srate_stats": {
-                "mean": round(float(srate_mean), 4),
+                "mean": round(float(srate_mean), 6),
                 "sample_count": sample_count,
                 "trend_direction": trend_direction,
             },
             "prism_top": {
-                "rate":        round(float(prism_top["rate"]), 4),
+                "rate":        round(float(prism_top["rate"]), 6),
                 "probability": round(float(prism_top["win_prob"]), 4),
             } if prism_top else None,
             "yega_top": {
-                "rate":        round(yega_top_rate, 4),
+                "rate":        round(yega_top_rate, 6),
                 "probability": round(yega_top_prob, 2),
             } if (yega_top_rate is not None and yega_top_prob is not None) else None,
             "personal_bias": {
-                "rate_diff_mean": round(correction, 4),
+                "rate_diff_mean": round(correction, 6),
                 "applied":        bias_applied,
             },
         }

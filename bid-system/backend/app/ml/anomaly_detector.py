@@ -43,7 +43,7 @@ def _find_dense_peaks(arr: np.ndarray, window: float = DENSE_WINDOW, threshold: 
             continue
         seen.append(rounded)
         peaks.append({
-            "center":  round(float(center), 4),
+            "center":  round(float(center), 6),
             "density": round(density, 3),
             "count":   int(len(in_w)),
         })
@@ -73,12 +73,12 @@ def _suggest_avoidance(arr: np.ndarray, dense_peaks: list[dict]) -> Optional[dic
             if density < best_density:
                 best_density = density
                 best = {
-                    "suggested_rate": round(cand, 4),
-                    "avoid_center":   round(center, 4),
+                    "suggested_rate": round(cand, 6),
+                    "avoid_center":   round(center, 6),
                     "avoid_density":  top["density"],
                     "avoid_count":    top["count"],
                     "direction":      direction,
-                    "delta":          round(step, 4),
+                    "delta":          round(step, 6),
                     "nearby_density": round(density, 3),
                     "message": (
                         f"밀집 구간({center * 100:.3f}%, {top['count']}명 / {int(top['density'] * 100)}%) "

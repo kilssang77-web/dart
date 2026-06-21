@@ -1,6 +1,7 @@
 ﻿"""
-프리즘 2.0 — 구간별 낙찰확률 스캔 (0.860~0.930, SCAN_STEP=0.0005, 140구간)
+프리즘 2.0 — 구간별 낙찰확률 스캔 (0.860~0.930, SCAN_STEP=0.0001, 700구간)
 inpo21c 실증 분포 기반 Monte Carlo win_prob 계산, 상위 10개 추출.
+격자 중심값 대신 인접 inpo21c 실측율의 centroid를 effective_rate로 사용해 자연스러운 소수점 표현.
 
 ★ 용어 정의 (이 모듈의 "rate" 의미)
   - rate (zones 내부)   : bid_rate = 투찰금액 / 기초금액  (범위: 0.860~0.930)
@@ -23,7 +24,7 @@ from .yega import load_inpo21c_yega_stats
 
 SCAN_START = 0.860   # base_ratio(투찰/기초) 유효 구간 — srate_center≈0.885 기준 [floor*srate, srate] 포함
 SCAN_END   = 0.930
-SCAN_STEP  = 0.0005  # 0.001→0.0005: 140구간으로 2배 정밀도 (n_sim 절반으로 속도 보전)
+SCAN_STEP  = 0.0001  # 0.0005→0.0001: 700구간으로 5배 정밀도. centroid로 실측값 표현
 TOP_N      = 10
 
 
@@ -132,16 +133,26 @@ def _compute_prism_zones(
     # 동적 스캔 범위 — srate_dist 분포 기반 (복수예가/고정방식 자동 대응)
     srate_p5  = float(np.percentile(srate_dist, 5))
     srate_p97 = float(np.percentile(srate_dist, 97))
-    dyn_start = round(max(0.840, floor_rate_pct * srate_p5 * 0.997), 4)
-    dyn_end   = round(min(1.010, srate_p97 * 1.003), 4)
+    dyn_start = round(max(0.840, floor_rate_pct * srate_p5 * 0.997), 6)
+    dyn_end   = round(min(1.010, srate_p97 * 1.003), 6)
     n_steps   = int((dyn_end - dyn_start) / SCAN_STEP) + 1
-    dyn_step  = SCAN_STEP if n_steps <= 300 else round((dyn_end - dyn_start) / 200, 4)
-    rates = np.round(np.arange(dyn_start, dyn_end + dyn_step / 2, dyn_step), 4)
+    dyn_step  = SCAN_STEP if n_steps <= 1500 else round((dyn_end - dyn_start) / 1000, 6)
+    rates = np.round(np.arange(dyn_start, dyn_end + dyn_step / 2, dyn_step), 6)
     all_zones: list[dict] = []
 
+    # centroid 윈도우 크기 — 인접 inpo21c 실측율 탐색 범위 (격자 간격의 1.5배)
+    _centroid_window = max(dyn_step * 1.5, 0.0002)
+
     for rate_raw in rates:
-        rate = round(float(rate_raw), 4)
+        rate = round(float(rate_raw), 6)
         floor_ok = rate >= eff_floor_abs
+
+        # inpo21c 실측 분포 centroid — 격자점 대신 실제 낙찰 빈출 값 사용
+        if inpo_rates is not None and len(inpo_rates) >= 5:
+            _mask = np.abs(inpo_rates - rate) <= _centroid_window
+            effective_rate = round(float(inpo_rates[_mask].mean()), 6) if _mask.any() else rate
+        else:
+            effective_rate = rate
 
         # 투찰 유효성: floor*srate <= rate <= srate
         valid = (rate >= eff_floor_per_sim) & (rate <= srates)  # (n_sim,)
@@ -164,10 +175,10 @@ def _compute_prism_zones(
             avg_rank = 1.0
 
         all_zones.append({
-            "rate":         rate,
+            "rate":         effective_rate,
             "win_prob":     win_prob,
             "floor_ok":     floor_ok,
-            "amount":       round(base_amount * rate),
+            "amount":       round(base_amount * effective_rate),
             "rank_est":     avg_rank,
             "data_quality": _dql,
         })

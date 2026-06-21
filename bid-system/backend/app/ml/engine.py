@@ -524,7 +524,7 @@ class RecommendEngine:
         comp_adj = -(comp_cnt - 10) * 0.0003  # 경쟁사 많을수록 낮게
         q4_adj   = 0.0005 if features.get("is_q4") else 0.0
 
-        center = round(base + comp_adj + q4_adj, 4)
+        center = round(base + comp_adj + q4_adj, 6)
         spread = 0.004 + (comp_cnt / 100) * 0.002
 
         def wp(rate_offset: float) -> float:
@@ -541,11 +541,11 @@ class RecommendEngine:
 
         return {
             "rate_range": {
-                "safe_lower": round(center - spread * 2, 4),
-                "lower":      round(center - spread, 4),
-                "center":     center,
-                "upper":      round(center + spread, 4),
-                "safe_upper": round(center + spread * 2, 4),
+                "safe_lower": round(center - spread * 2, 6),
+                "lower":      round(center - spread, 6),
+                "center":     round(center, 6),
+                "upper":      round(center + spread, 6),
+                "safe_upper": round(center + spread * 2, 6),
             },
             "win_probabilities": {
                 "at_lower":  round(wp(-spread), 4),

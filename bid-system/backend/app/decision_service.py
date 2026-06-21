@@ -154,7 +154,7 @@ class DecisionService:
             mode = "real"
             srate_dist = simulate_yejung_from_real(yega_values, base_amount)
             candidates = [
-                {"idx": i + 1, "amount": int(yega_values[i]), "rate": round(yega_values[i] / base_amount, 4)}
+                {"idx": i + 1, "amount": int(yega_values[i]), "rate": round(yega_values[i] / base_amount, 6)}
                 for i in range(15)
             ]
             vals = _np.array(yega_values, dtype=_np.float64)
@@ -164,7 +164,7 @@ class DecisionService:
                 {
                     "combo": [i + 1 for i in c[0]],
                     "amount": int(round(c[1])),
-                    "rate": round(c[1] / base_amount, 4),
+                    "rate": round(c[1] / base_amount, 6),
                     "prob": round(1 / 1365, 5),
                 }
                 for c in top_combos
@@ -189,14 +189,14 @@ class DecisionService:
                 srate_dist = simulate_yejung(base_amount, srate_center, srate_std, n_sim, rng, pos_weights)
             yega_res = calc_yega_frequency(base_amount, b.a_value, srate_center)
             candidates = [
-                {"idx": i + 1, "amount": int(c["amount"]), "rate": round(c["rate"], 4)}
+                {"idx": i + 1, "amount": int(c["amount"]), "rate": round(c["rate"], 6)}
                 for i, c in enumerate(yega_res.get("candidates", []))
             ]
             top_combinations = [
                 {
                     "combo": [],
                     "amount": int(t["amount"]),
-                    "rate": round(t["rate"], 4),
+                    "rate": round(t["rate"], 6),
                     "prob": round(t["probability"], 5),
                 }
                 for t in yega_res.get("top10", [])

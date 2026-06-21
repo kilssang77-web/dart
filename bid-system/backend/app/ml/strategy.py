@@ -302,7 +302,7 @@ def recommend(inp: StrategyInput, n_sim: int = 30_000) -> SingleRecommendation:
     prism_top5 = sorted(scan, key=lambda x: x["ev"], reverse=True)[:5]
 
     return SingleRecommendation(
-        rate=round(final_rate, 4),
+        rate=round(final_rate, 6),
         bid_amount=int(final_rate * inp.base_amount),
         win_prob=round(final_wp, 4),
         expected_value=ev,
@@ -310,9 +310,9 @@ def recommend(inp: StrategyInput, n_sim: int = 30_000) -> SingleRecommendation:
         strategy_type=strategy_type,
         rationale=rationale,
         rationale_details=details,
-        valid_range=(round(low, 4), round(high, 4)),
+        valid_range=(round(low, 6), round(high, 6)),
         prism_top5=[
-            {"rate": round(p["rate"], 4), "win_prob": round(p["win_prob"], 4), "ev": int(p["ev"])}
+            {"rate": round(p["rate"], 6), "win_prob": round(p["win_prob"], 4), "ev": int(p["ev"])}
             for p in prism_top5
         ],
     )

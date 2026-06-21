@@ -498,9 +498,9 @@ def scan_zones_from_dist(
     eff_floor_abs = floor_rate_pct * srate_med
 
     if scan_start is None:
-        scan_start = round(floor_rate_pct * srate_p10 * 0.995, 4)
+        scan_start = round(floor_rate_pct * srate_p10 * 0.995, 6)
     if scan_end is None:
-        scan_end = round(srate_p95 * 1.005, 4)
+        scan_end = round(srate_p95 * 1.005, 6)
 
     # 스텝 수가 너무 많으면 step 조정 — 6자리 정밀도로 비정수 스텝 확보
     n_steps = int((scan_end - scan_start) / scan_step) + 2
@@ -526,7 +526,7 @@ def scan_zones_from_dist(
     zones: list[dict] = []
     rate = scan_start
     while rate <= scan_end + 1e-9:
-        rate_r = round(rate, 4)
+        rate_r = round(rate, 6)
         floor_ok = rate_r >= eff_floor_abs
 
         # 해당 격자 구간 내 실측 낙찰율 centroid (있으면 사용, 없으면 격자값 유지)
