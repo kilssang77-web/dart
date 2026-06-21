@@ -325,7 +325,7 @@ def _fetch_inpo_row(db, announcement_no: str, agency_id: int, bid_open_date, bas
     # 2단계: 정규화 매칭 (다른 포맷 공고번호 처리)
     if announcement_no:
         norm = _normalize_ano(announcement_no)
-        r = db.execute(text(BASE_SQL.format(where="REGEXP_REPLACE(LOWER(ib.announcement_no), '[\\\\s\\\\-/]', '', 'g') = :norm")),
+        r = db.execute(text(BASE_SQL.format(where="REGEXP_REPLACE(LOWER(ib.announcement_no), '[[:space:]\\-/]', '', 'g') = :norm")),
                        {"norm": norm}).fetchone()
         if r and (r[0] or r[2]):
             return r, "normalized"
@@ -418,9 +418,9 @@ def run_journal_auto_fill_job() -> None:
                 br_row = db.execute(text("""
                     SELECT
                         COUNT(*)                                                          AS total,
-                        MIN(CASE WHEN is_winner AND bid_rate BETWEEN 0.80 AND 0.97
+                        MIN(CASE WHEN is_winner AND bid_rate BETWEEN 0.70 AND 1.05
                                  THEN bid_rate END)                                       AS winner_rate,
-                        SUM(CASE WHEN bid_rate BETWEEN 0.80 AND 0.97
+                        SUM(CASE WHEN bid_rate BETWEEN 0.70 AND 1.05
                                   AND bid_rate <= :srate THEN 1 ELSE 0 END)              AS rank_approx
                     FROM bid_results
                     WHERE bid_id = :bid_id
@@ -518,6 +518,77 @@ def run_pre_open_alert_job() -> None:
         logger.info("3시간 전 알림: %d건", created)
     except Exception as exc:
         logger.error("3시간 전 알림 실패: %s", exc)
+    finally:
+        db.close()
+
+
+def run_kpi_snapshot_job() -> None:
+    """KPI 스냅샷 일별 갱신 — bid_journal 기반 (매일 22:30 KST).
+
+    actual_bid_outcomes 가 비어있어도 bid_journal 직접 집계로 동작.
+    """
+    from datetime import date as date_type
+    from app.database import SessionLocal
+    from app.services import KpiService
+    from sqlalchemy import text
+
+    db = SessionLocal()
+    try:
+        today = date_type.today()
+        start_of_month = today.replace(day=1)
+
+        user_ids = [r[0] for r in db.execute(text(
+            "SELECT DISTINCT user_id FROM bid_journal WHERE user_id IS NOT NULL"
+        )).fetchall()]
+
+        svc = KpiService()
+        saved = 0
+
+        for uid in user_ids:
+            rows = db.execute(text("""
+                SELECT result, submitted_rate, winner_rate, srate_error, our_rank, total_bidders
+                FROM bid_journal
+                WHERE user_id = :uid
+                  AND result IS NOT NULL
+                  AND DATE(updated_at) BETWEEN :start AND :today
+            """), {"uid": uid, "start": start_of_month, "today": today}).fetchall()
+
+            if not rows:
+                continue
+
+            total_bids = len(rows)
+            total_wins = sum(1 for r in rows if r[0] == "낙찰")
+            win_rate   = round(total_wins / total_bids, 4) if total_bids > 0 else 0.0
+
+            srate_errs = [abs(float(r[3])) for r in rows if r[3] is not None]
+            srate_mae  = round(sum(srate_errs) / len(srate_errs), 5) if srate_errs else None
+
+            rank_losses = [float(r[4]) for r in rows if r[0] == "패찰" and r[4] is not None]
+            avg_rank_at_loss = round(sum(rank_losses) / len(rank_losses), 2) if rank_losses else None
+
+            kpi = {
+                "user_id":           uid,
+                "snapshot_date":     today,
+                "period_type":       "MONTHLY",
+                "total_bids":        total_bids,
+                "total_wins":        total_wins,
+                "win_rate":          win_rate,
+                "srate_mae":         srate_mae,
+                "avg_rank_at_loss":  avg_rank_at_loss,
+                "qualify_pass_rate": None,
+                "win_prob_calibration": None,
+                "go_rate":           None,
+                "no_go_saved":       0,
+            }
+            svc.upsert_snapshot(db, kpi)
+            saved += 1
+            logger.info("KPI 스냅샷: user=%d, bids=%d, wins=%d, win_rate=%.2f%%",
+                        uid, total_bids, total_wins, win_rate * 100)
+
+        db.commit()
+        logger.info("KPI 스냅샷 갱신 완료: %d명", saved)
+    except Exception as exc:
+        logger.error("KPI 스냅샷 갱신 실패: %s", exc)
     finally:
         db.close()
 
@@ -667,6 +738,15 @@ def create_scheduler() -> BackgroundScheduler:
         trigger=CronTrigger(day=1, hour=3, minute=0, timezone="Asia/Seoul"),
         id="walkforward_monthly",
         name="Walk-forward 모델 검증 (매월 1일 03:00 KST)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    # KPI 스냅샷 일별 갱신 (매일 22:30 KST — journal_auto_fill 완료 후)
+    scheduler.add_job(
+        run_kpi_snapshot_job,
+        trigger=CronTrigger(hour=22, minute=30, timezone="Asia/Seoul"),
+        id="kpi_snapshot_daily",
+        name="KPI 스냅샷 일별 갱신 (매일 22:30 KST)",
         replace_existing=True,
         max_instances=1,
     )

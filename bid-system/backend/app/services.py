@@ -3068,11 +3068,14 @@ class MyBidFeedbackService:
                 result = train_models_temporal(train_df, val_weeks=4, date_col="bid_open_date")
                 if result:
                     get_engine().reload()
+                    tv = result.get("temporal_val_metrics") or {}
                     db.add(ModelPerformanceLog(
                         model_name    = "auto_retrain",
                         model_version = result.get("version", ""),
                         eval_date     = datetime.utcnow().date(),
-                        sample_count  = result.get("train_size", 0),
+                        sample_count  = tv.get("train_size") or result.get("train_size", 0),
+                        mae           = tv.get("mae"),
+                        rmse          = tv.get("rmse"),
                     ))
                     db.commit()
                     logger.info("자동 재학습 완료: %s", result)
