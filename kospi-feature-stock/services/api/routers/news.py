@@ -31,7 +31,7 @@ _NEWS_SELECT = """
             SELECT nsl.code FROM news_stock_links nsl WHERE nsl.news_id = n.id LIMIT 5
         ) AS codes,
         (
-            SELECT json_agg(json_build_object('code', s.code, 'name', s.name) ORDER BY nsl.id)
+            SELECT json_agg(json_build_object('code', s.code, 'name', s.name) ORDER BY nsl.news_id, nsl.code)
             FROM news_stock_links nsl
             JOIN stocks s ON s.code = nsl.code
             WHERE nsl.news_id = n.id LIMIT 5
