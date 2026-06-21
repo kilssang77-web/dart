@@ -21,14 +21,56 @@ _COOLDOWN_MINUTES = int(os.environ.get("REC_COOLDOWN_MINUTES", "60"))
 
 _KST = timezone(timedelta(hours=9))
 
+# KRX 공식 비거래일 (주말 제외 공휴일·임시공휴일)
+# 출처: KRX 연간 휴장일 공고 기준
+_KRX_HOLIDAYS: frozenset[tuple[int, int, int]] = frozenset({
+    # 2025년
+    (2025, 1, 1),   # 신정
+    (2025, 1, 28),  # 설날 전날
+    (2025, 1, 29),  # 설날
+    (2025, 1, 30),  # 설날 다음날
+    (2025, 3, 1),   # 삼일절
+    (2025, 5, 5),   # 어린이날
+    (2025, 5, 6),   # 어린이날 대체
+    (2025, 6, 6),   # 현충일
+    (2025, 8, 15),  # 광복절
+    (2025, 10, 3),  # 개천절
+    (2025, 10, 6),  # 추석 전날
+    (2025, 10, 7),  # 추석
+    (2025, 10, 8),  # 추석 다음날
+    (2025, 10, 9),  # 한글날
+    (2025, 12, 25), # 크리스마스
+    (2025, 12, 31), # KRX 연말 휴장
+    # 2026년
+    (2026, 1, 1),   # 신정
+    (2026, 1, 27),  # 설날 전날 (음력 12/29)
+    (2026, 1, 28),  # 설날 (음력 1/1)
+    (2026, 1, 29),  # 설날 다음날 (음력 1/2)
+    (2026, 1, 30),  # 설날 대체공휴일
+    (2026, 3, 2),   # 삼일절 대체 (3/1 일요일)
+    (2026, 5, 5),   # 어린이날
+    (2026, 5, 25),  # 부처님오신날 (음력 4/8)
+    (2026, 6, 6),   # 현충일 (토요일이나 KRX 별도 지정 확인 필요)
+    (2026, 8, 17),  # 광복절 대체 (8/15 토요일)
+    (2026, 9, 24),  # 추석 전날
+    (2026, 9, 25),  # 추석
+    (2026, 9, 26),  # 추석 다음날
+    (2026, 10, 9),  # 한글날
+    (2026, 12, 25), # 크리스마스
+    (2026, 12, 31), # KRX 연말 휴장
+    # 2027년 (추가 예정)
+    (2027, 1, 1),   # 신정
+})
+
+
 def _is_trading_day() -> bool:
-    """한국 거래일 여부: 월~금 09:00~15:30 KST. 공휴일은 별도 관리하지 않음."""
+    """한국 거래일 여부: 월~금 + KRX 비거래일 제외 + 09:00~15:35 KST."""
     now_kst = datetime.now(_KST)
-    dow = now_kst.weekday()   # 0=월, 5=토, 6=일
-    if dow >= 5:
+    if now_kst.weekday() >= 5:          # 토·일
         return False
-    hour = now_kst.hour
-    minute = now_kst.minute
+    if (now_kst.year, now_kst.month, now_kst.day) in _KRX_HOLIDAYS:
+        return False
+    hour, minute = now_kst.hour, now_kst.minute
     return (hour > 9 or (hour == 9 and minute >= 0)) and (hour < 15 or (hour == 15 and minute <= 35))
 # 당일 세션 진입가 앵커 유효 시간 (시간)
 _ANCHOR_HOURS     = int(os.environ.get("REC_ANCHOR_HOURS",     "8"))
