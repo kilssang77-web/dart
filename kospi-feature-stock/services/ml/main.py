@@ -369,7 +369,7 @@ async def _run_retrain(pool: asyncpg.Pool, predictor: LGBMPredictor):
         "--train-start", train_start, "--train-end", train_end,
         "--val-start",   val_start,   "--val-end",   val_end,
         "--test-start",  test_start,  "--test-end",  test_end,
-        "--smote", "--model-dir", _MODEL_DIR, "--max-codes", "400",
+        "--smote", "--model-dir", _MODEL_DIR, "--max-codes", "800",
     ]
     logger.info(f"[Retrain] walk_forward_train.py 시작: {train_start} ~ {test_end}")
 
