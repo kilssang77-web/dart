@@ -819,7 +819,7 @@ def collect_inpo21c_national(db: Session, max_pages: int = 50) -> dict:
                         total_participants += cnt
                         total_bids += 1
                         _prog_add(bids=1, participants=cnt)
-                    existing_parts.add(bid_id)  # 파싱 실패해도 동일 건 재시도 방지
+                    existing_full.add(bid_id)  # 파싱 실패해도 동일 건 재시도 방지
 
                 if needs_header:
                     header = _parse_bid_header(detail_html)

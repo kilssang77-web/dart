@@ -935,50 +935,58 @@ def list_scheduler_jobs(
     db: Session = Depends(get_db),
     _: User = Depends(require_role("admin")),
 ):
-    """등록된 APScheduler 작업 목록 + 다음/마지막 실행 시각 반환."""
-    from ...collector.scheduler import get_scheduler
+    """스케줄 작업 목록 + 마지막/다음 실행 시각 반환.
+    APScheduler 인스턴스에 직접 접근하는 대신 DB 수집 로그와 고정 스케줄 정보를 조합.
+    (멀티워커 환경에서 master 워커만 스케줄러를 보유하므로 API 워커에서 직접 접근 불가)
+    """
+    from datetime import timezone
 
-    scheduler = get_scheduler()
-    if scheduler is None:
-        return []
+    # 고정 스케줄 정의 (scheduler.py create_scheduler()와 동기화)
+    # KST = UTC+9, cron 트리거는 UTC 기준
+    SCHEDULE_DEFS = [
+        {"id": "collect_notices_daily",             "name": "공고 수집 (G2B)",          "hour_utc": 18, "minute": 0,  "types": ("notice_cnstwk", "notice_servc", "notice_thng")},
+        {"id": "collect_results_and_sync_daily",    "name": "낙찰결과 수집 + 동기화",    "hour_utc": 19, "minute": 0,  "types": ("result",)},
+        {"id": "collect_scsbid_daily",              "name": "입찰결과 수집 (SCSBID)",     "hour_utc": 19, "minute": 30, "types": ("scsbid",)},
+        {"id": "collect_bid_notices_inpo21c_daily", "name": "inpo21c 공고 수집",          "hour_utc": 20, "minute": 0,  "types": ("inpo21c_notice",)},
+        {"id": "collect_inpo21c_daily",             "name": "inpo21c 참여자 수집",        "hour_utc": 20, "minute": 30, "types": ("inpo21c", "inpo21c_region", "inpo21c_national")},
+        {"id": "journal_auto_fill_daily",           "name": "저널 자동 채우기",           "hour_utc": 21, "minute": 0,  "types": ("journal_auto_fill",)},
+    ]
 
-    # 수집 유형별 마지막 실행 시각 — job ID → collect_type 매핑으로 단순 조회
-    JOB_COLLECT_TYPES = {
-        "collect_notices_daily":             ("notice_cnstwk", "notice_servc", "notice_thng"),
-        "collect_results_and_sync_daily":    ("result",),
-        "collect_scsbid_daily":              ("scsbid",),
-        "collect_bid_notices_inpo21c_daily": ("inpo21c_notice",),
-        "collect_inpo21c_daily":             ("inpo21c", "inpo21c_region", "inpo21c_national"),
-        "journal_auto_fill_daily":           ("journal_auto_fill",),
-    }
-    # 단일 쿼리로 모든 유형의 MAX(collected_at) 조회
-    all_types = [t for types in JOB_COLLECT_TYPES.values() for t in types]
+    all_types = [t for s in SCHEDULE_DEFS for t in s["types"]]
     rows_last = db.execute(text("""
-        SELECT collect_type, MAX(collected_at)
+        SELECT collect_type, MAX(collected_at), SUM(success_count), SUM(fail_count)
         FROM collection_logs
         WHERE collect_type = ANY(:types)
         GROUP BY collect_type
     """), {"types": all_types}).fetchall()
-    type_last_map: dict = {row[0]: row[1] for row in rows_last}
+    type_map: dict = {r[0]: {"last_run": r[1], "success": int(r[2] or 0), "fail": int(r[3] or 0)} for r in rows_last}
 
-    def _job_last_run(job_id: str):
-        types = JOB_COLLECT_TYPES.get(job_id, ())
-        candidates = [type_last_map[t] for t in types if t in type_last_map]
-        return max(candidates) if candidates else None
-
-    last_run_map = {jid: _job_last_run(jid) for jid in JOB_COLLECT_TYPES}
+    from datetime import datetime, timedelta
+    now_utc = datetime.now(timezone.utc)
 
     result = []
-    for job in scheduler.get_jobs():
-        next_run = job.next_run_time
-        last_run = last_run_map.get(job.id)
+    for sched in SCHEDULE_DEFS:
+        candidates = [type_map[t]["last_run"] for t in sched["types"] if t in type_map and type_map[t]["last_run"]]
+        last_run = max(candidates) if candidates else None
+
+        # 다음 실행 시각 계산 (고정 cron UTC)
+        h, m = sched["hour_utc"], sched["minute"]
+        today_run = now_utc.replace(hour=h, minute=m, second=0, microsecond=0)
+        next_run = today_run if today_run > now_utc else today_run + timedelta(days=1)
+
+        total_success = sum(type_map[t]["success"] for t in sched["types"] if t in type_map)
+        total_fail    = sum(type_map[t]["fail"]    for t in sched["types"] if t in type_map)
+
         result.append({
-            "id": job.id,
-            "name": job.name,
-            "next_run_at": next_run.isoformat() if next_run else None,
-            "last_run_at": last_run.isoformat() if last_run else None,
+            "id":           sched["id"],
+            "name":         sched["name"],
+            "next_run_at":  next_run.isoformat(),
+            "last_run_at":  last_run.isoformat() if last_run else None,
+            "total_success": total_success,
+            "total_fail":    total_fail,
         })
-    result.sort(key=lambda x: (x["next_run_at"] or ""))
+
+    result.sort(key=lambda x: x["next_run_at"])
     return result
 
 
