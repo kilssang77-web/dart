@@ -2327,9 +2327,9 @@ class SingleRecommendService:
                 rng.normal(m, max(s, 0.002), n_sim)
                 for m, s in zip(comp_means, comp_stds)
             ])
-            comp_min_dist = comp_matrix.min(axis=1)
+            comp_max_dist = comp_matrix.max(axis=1)
         else:
-            comp_min_dist = None
+            comp_max_dist = None
 
         # 낙찰하한율 — industry_id → 공종명 조회 후 calc_floor_rate 호출
         _industry_id = req.get("industry_id")
@@ -2392,7 +2392,7 @@ class SingleRecommendService:
             srate_dist=srate_dist,
             competitor_means=comp_means,
             competitor_stds=comp_stds,
-            competitor_min_dist=comp_min_dist,
+            competitor_max_dist=comp_max_dist,
             valid_low=valid_low,
             valid_high=valid_high,
             bias_correction=bias_correction,

@@ -390,7 +390,7 @@ def run_journal_auto_fill_job() -> None:
         rows = db.execute(text("""
             SELECT j.id, j.bid_id, j.announcement_no, j.submitted_rate,
                    j.pred_srate_center, b.agency_id,
-                   b.bid_open_date, b.base_amount
+                   b.bid_open_date, b.base_amount, j.user_id
             FROM bid_journal j
             JOIN bids b ON b.id = j.bid_id
             WHERE j.result IS NULL
@@ -408,7 +408,7 @@ def run_journal_auto_fill_job() -> None:
         match_stats = {"exact": 0, "normalized": 0, "fuzzy": 0, "bid_results": 0}
 
         for row in rows:
-            jid, bid_id, announcement_no, submitted_rate, pred_srate, agency_id, bid_open_date, base_amount = row
+            jid, bid_id, announcement_no, submitted_rate, pred_srate, agency_id, bid_open_date, base_amount, user_id = row
             try:
                 # 3단계 퍼지 매칭
                 inpo_row, match_type = _fetch_inpo_row(db, announcement_no, agency_id, bid_open_date, base_amount)
@@ -476,6 +476,42 @@ def run_journal_auto_fill_job() -> None:
                     "jid":           jid,
                 })
                 db.commit()
+
+                # actual_bid_outcomes 동기화
+                _OUTCOME_MAP = {"낙찰": "WON", "패찰": "LOST"}
+                outcome_result = _OUTCOME_MAP.get(result)
+                if outcome_result and submitted_rate and user_id:
+                    try:
+                        from datetime import datetime as _dt
+                        from app.models import ActualBidOutcome
+                        existing = db.query(ActualBidOutcome).filter(
+                            ActualBidOutcome.bid_id == bid_id,
+                            ActualBidOutcome.user_id == user_id,
+                        ).first()
+                        fields = dict(
+                            bid_id          = bid_id,
+                            user_id         = user_id,
+                            announcement_no = announcement_no,
+                            submitted_rate  = float(submitted_rate),
+                            result          = outcome_result,
+                            actual_srate    = actual_srate,
+                            winner_rate     = winner_rate,
+                            our_rank        = our_rank,
+                            total_bidders   = total_bidders,
+                            predicted_srate = float(pred_srate) if pred_srate else None,
+                            srate_error     = srate_error,
+                            collected_at    = _dt.utcnow(),
+                        )
+                        if existing:
+                            for k, v in fields.items():
+                                setattr(existing, k, v)
+                        else:
+                            db.add(ActualBidOutcome(**fields))
+                        db.commit()
+                    except Exception as oe:
+                        db.rollback()
+                        logger.warning("journal_auto_fill actual_outcome #%d 오류: %s", jid, oe)
+
                 filled += 1
                 logger.info("journal_auto_fill: #%d → %s [%s] (rate_gap=%.4f)",
                             jid, result, match_type or "bid_results", rate_gap or 0)

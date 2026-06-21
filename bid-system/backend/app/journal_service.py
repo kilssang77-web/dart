@@ -93,6 +93,10 @@ class JournalService:
             obj.srate_error = round(float(obj.actual_srate) - float(obj.pred_srate_center), 6)
 
         db.commit()
+
+        # actual_bid_outcomes 동기화 (피드백 루프 핵심 테이블)
+        _sync_actual_outcome(db, obj)
+
         db.refresh(obj)
         return obj
 
@@ -219,3 +223,51 @@ class JournalService:
             "monthly_trend":        monthly_trend,
             "strategy_stats":       strategy_stats,
         }
+
+
+# ── 결과 매핑 ──────────────────────────────────────────────────
+_RESULT_MAP = {"낙찰": "WON", "패찰": "LOST", "무효": "DISQUALIFIED", "취소": "DISQUALIFIED"}
+
+
+def _sync_actual_outcome(db: Session, journal: "BidJournal") -> None:
+    """bid_journal 결과를 actual_bid_outcomes에 upsert (피드백 루프 연결)."""
+    from .models import ActualBidOutcome
+
+    outcome_result = _RESULT_MAP.get(journal.result)
+    if not outcome_result or not journal.submitted_rate:
+        return
+
+    try:
+        existing = db.query(ActualBidOutcome).filter(
+            ActualBidOutcome.user_id == journal.user_id,
+            ActualBidOutcome.bid_id == journal.bid_id,
+        ).first()
+
+        fields = dict(
+            bid_id            = journal.bid_id,
+            user_id           = journal.user_id,
+            announcement_no   = journal.announcement_no,
+            submitted_rate    = float(journal.submitted_rate),
+            result            = outcome_result,
+            actual_srate      = float(journal.actual_srate) if journal.actual_srate else None,
+            winner_rate       = float(journal.winner_rate) if journal.winner_rate else None,
+            winner_biz_no     = journal.winner_biz_no if hasattr(journal, "winner_biz_no") else None,
+            our_rank          = journal.our_rank,
+            total_bidders     = journal.total_bidders,
+            predicted_win_prob= float(journal.pred_win_prob) if journal.pred_win_prob else None,
+            predicted_srate   = float(journal.pred_srate_center) if journal.pred_srate_center else None,
+            srate_error       = float(journal.srate_error) if journal.srate_error else None,
+            collected_at      = journal.opened_at,
+        )
+
+        if existing:
+            for k, v in fields.items():
+                setattr(existing, k, v)
+        else:
+            db.add(ActualBidOutcome(**fields))
+
+        db.commit()
+        logger.info("actual_bid_outcomes 동기화: journal#%d → %s", journal.id, outcome_result)
+    except Exception as exc:
+        db.rollback()
+        logger.error("actual_bid_outcomes 동기화 실패 journal#%d: %s", journal.id, exc)

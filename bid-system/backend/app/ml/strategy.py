@@ -32,7 +32,7 @@ class StrategyInput:
     # 경쟁 정보
     competitor_means:   List[float] = field(default_factory=list)
     competitor_stds:    List[float] = field(default_factory=list)
-    competitor_min_dist: Optional[np.ndarray] = None  # 경쟁사 최소 투찰률 분포
+    competitor_max_dist: Optional[np.ndarray] = None  # 경쟁사 최고 투찰률 분포 (복수예가: 예정가 이하 최고가 낙찰)
 
     # 적격 정보
     valid_low:          Optional[float] = None   # 유효 투찰률 하한 (적격+낙찰 통합)
@@ -78,13 +78,13 @@ def _calc_win_prob_at_rate(
     rate: float,
     floor_rate: float,
     srate_dist: np.ndarray,
-    competitor_min_dist: Optional[np.ndarray],
+    competitor_max_dist: Optional[np.ndarray],
     n_sim: int = 10_000,
     rng: Optional[np.random.Generator] = None,
 ) -> float:
-    """특정 투찰률에서의 낙찰확률 계산"""
+    """특정 투찰률에서의 낙찰확률 계산 (복수예가 방식: 예정가 이하 최고가 낙찰)."""
     if rng is None:
-        rng = np.random.default_rng(42)
+        rng = np.random.default_rng()
 
     # 낙찰하한 미달 → 즉시 0
     if rate < floor_rate:
@@ -101,13 +101,11 @@ def _calc_win_prob_at_rate(
     # 유효 조건 1: rate <= srate (예정가격 이하)
     valid_mask = rate <= srates
 
-    # 유효 조건 2: rate < min(경쟁사) (최저가 낙찰)
-    if competitor_min_dist is not None and len(competitor_min_dist) > 0:
-        n_comp = min(n, len(competitor_min_dist))
-        comp_mins = competitor_min_dist[rng.choice(len(competitor_min_dist), size=n, replace=True)]
-        win_mask = valid_mask & (rate <= comp_mins)
+    # 유효 조건 2: rate >= max(경쟁사) (복수예가 — 예정가 이하 최고가 낙찰)
+    if competitor_max_dist is not None and len(competitor_max_dist) > 0:
+        comp_maxes = competitor_max_dist[rng.choice(len(competitor_max_dist), size=n, replace=True)]
+        win_mask = valid_mask & (rate >= comp_maxes)
     else:
-        # 경쟁사 분포 없으면 경쟁사 없다고 가정 (낙관적)
         win_mask = valid_mask
 
     return float(np.mean(win_mask))
@@ -138,7 +136,7 @@ def _scan_rate_range(
             rate=rate,
             floor_rate=inp.floor_rate,
             srate_dist=inp.srate_dist,
-            competitor_min_dist=inp.competitor_min_dist,
+            competitor_max_dist=inp.competitor_max_dist,
             n_sim=5_000,
             rng=rng,
         )
@@ -241,10 +239,10 @@ def recommend(inp: StrategyInput, n_sim: int = 30_000) -> SingleRecommendation:
     """
     단일 최적 투찰률 추천 메인 함수.
 
-    Monte Carlo 사정율 분포와 경쟁사 최소 투찰률 분포가 없으면
+    Monte Carlo 사정율 분포와 경쟁사 최고 투찰률 분포가 없으면
     규칙 기반 폴백으로 동작.
     """
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng()  # 랜덤 시드 — 매 호출마다 다른 난수 시퀀스
 
     # srate_dist 없으면 생성
     if inp.srate_dist is None or len(inp.srate_dist) == 0:
@@ -277,7 +275,7 @@ def recommend(inp: StrategyInput, n_sim: int = 30_000) -> SingleRecommendation:
         rate=final_rate,
         floor_rate=inp.floor_rate,
         srate_dist=inp.srate_dist,
-        competitor_min_dist=inp.competitor_min_dist,
+        competitor_max_dist=inp.competitor_max_dist,
         n_sim=n_sim,
         rng=rng,
     )
@@ -290,7 +288,7 @@ def recommend(inp: StrategyInput, n_sim: int = 30_000) -> SingleRecommendation:
     confidence = 0.5
     if inp.srate_std < 0.005:
         confidence += 0.2   # 사정율 예측이 안정적
-    if inp.competitor_min_dist is not None:
+    if inp.competitor_max_dist is not None:
         confidence += 0.2   # 경쟁사 분포 있음
     if inp.historical_win_rate > 0:
         confidence += 0.1   # 과거 이력 있음
