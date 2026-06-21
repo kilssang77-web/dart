@@ -179,8 +179,8 @@ class RecommenderService:
 
     async def _on_cooldown(self, code: str) -> bool:
         """종목 단위 쿨다운 확인.
-        1) Redis 단기 쿨다운 (60분) — 같은 세션 내 폭발적 중복 방지
-        2) DB 24시간 쿨다운 — 날짜를 넘겨도 당일 이미 추천한 종목 재추천 방지
+        1) Redis 단기 쿨다운 (_COOLDOWN_MINUTES) — 세션 내 폭발적 중복 방지
+        2) DB 당일(KST) 쿨다운 — 날짜가 같으면 재추천 방지
         둘 중 하나라도 쿨다운 중이면 True 반환."""
         if not code:
             return False
@@ -193,25 +193,25 @@ class RecommenderService:
                     return True
             except Exception:
                 pass
-        # ② Redis 기반 24시간 쿨다운 — DB 연결 오류에도 안정적으로 작동
+        # ② Redis 기반 당일 쿨다운 — 장 시작 시 초기화됨
         try:
             if await self._redis.get(f"rec:cd24:{code}"):
                 return True
         except Exception:
             pass
-        # ③ DB 기반 24시간 쿨다운 — Redis 미스 시 폴백 (DB 연결 실패 시 safe=False)
+        # ③ DB 당일(KST) 쿨다운 — Redis 미스 시 폴백
         try:
-            since = datetime.now(timezone.utc) - timedelta(hours=24)
             exists = await self._db.fetchval(
                 """
                 SELECT 1 FROM recommendations
-                WHERE code = $1 AND action = 'BUY' AND created_at >= $2
+                WHERE code = $1 AND action = 'BUY'
+                  AND (created_at AT TIME ZONE 'Asia/Seoul')::DATE
+                      = (NOW() AT TIME ZONE 'Asia/Seoul')::DATE
                 LIMIT 1
                 """,
-                code, since,
+                code,
             )
             if exists:
-                # Redis 키 복구 — DB에 있으면 Redis에도 세팅
                 try:
                     await self._redis.set(f"rec:cd24:{code}", "1", ex=86400)
                 except Exception:
