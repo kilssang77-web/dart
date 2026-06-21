@@ -66,7 +66,7 @@ def _compute_prism_zones(
     db: Session,
     n_sim: int = 10_000,
 ) -> tuple[list[dict], list[dict]]:
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng()
     floor_rate_pct = calc_floor_rate(industry_name)
 
     features = load_srate_stats(db, agency_id, industry_id, 0, base_amount)

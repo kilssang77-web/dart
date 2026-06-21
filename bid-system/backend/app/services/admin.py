@@ -739,5 +739,190 @@ class SekihaiService:
 
 
 # ==================================================
+# 어드민 CRUD 서비스 — user, industry filter, status
+# ==================================================
+
+class AdminService:
+    """어드민 API에서 직접 DB를 조작하는 대신 이 서비스를 통해 처리한다."""
+
+    # ── 사용자 관리 ──────────────────────────────────────────────
+
+    def list_users(self, db: Session) -> list:
+        from ..common.security import hash_password  # noqa
+        users = db.query(User).order_by(User.id).all()
+        return [
+            {
+                "id": u.id, "email": u.email, "name": u.name,
+                "role": u.role, "department": u.department,
+                "is_active": u.is_active,
+                "last_login": u.last_login,
+                "created_at": u.created_at,
+            }
+            for u in users
+        ]
+
+    def create_user(self, db: Session, email: str, password: str, name: str,
+                    role: str = "viewer", department: str = None) -> dict:
+        from ..common.security import hash_password
+        from fastapi import HTTPException
+        if db.query(User).filter(User.email == email).first():
+            raise HTTPException(400, "이미 사용 중인 이메일입니다.")
+        if role not in ("admin", "analyst", "viewer"):
+            raise HTTPException(400, "유효하지 않은 역할입니다.")
+        user = User(
+            email=email,
+            hashed_password=hash_password(password),
+            name=name, role=role,
+            department=department,
+            is_active=True,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return {"id": user.id, "email": user.email, "name": user.name, "role": user.role}
+
+    def update_user(self, db: Session, uid: int, admin_id: int, **fields) -> dict:
+        from fastapi import HTTPException
+        if uid == admin_id and fields.get("is_active") is False:
+            raise HTTPException(400, "자신의 계정을 비활성화할 수 없습니다.")
+        user = db.query(User).filter(User.id == uid).first()
+        if not user:
+            raise HTTPException(404, "사용자를 찾을 수 없습니다.")
+        from ..common.security import hash_password
+        if fields.get("name") is not None:       user.name = fields["name"]
+        if fields.get("role") is not None:       user.role = fields["role"]
+        if fields.get("department") is not None: user.department = fields["department"]
+        if fields.get("is_active") is not None:  user.is_active = fields["is_active"]
+        if fields.get("password"):               user.hashed_password = hash_password(fields["password"])
+        db.commit()
+        return {"id": user.id, "email": user.email, "name": user.name,
+                "role": user.role, "is_active": user.is_active}
+
+    def delete_user(self, db: Session, uid: int, admin_id: int) -> None:
+        from fastapi import HTTPException
+        if uid == admin_id:
+            raise HTTPException(400, "자신의 계정은 삭제할 수 없습니다.")
+        user = db.query(User).filter(User.id == uid).first()
+        if not user:
+            raise HTTPException(404, "사용자를 찾을 수 없습니다.")
+        db.delete(user)
+        db.commit()
+
+    # ── 공종 필터 관리 ────────────────────────────────────────────
+
+    def get_industry_filters(self, db: Session) -> list:
+        all_industries = db.query(Industry).order_by(Industry.name).all()
+        filter_map = {f.industry_id: f.is_active for f in db.query(IndustryFilter).all()}
+        no_config = len(filter_map) == 0
+        return [
+            {
+                "industry_id": ind.id, "name": ind.name, "code": ind.code,
+                "is_active": filter_map.get(ind.id, True) if not no_config else True,
+                "is_configured": ind.id in filter_map,
+            }
+            for ind in all_industries
+        ]
+
+    def update_industry_filters(self, db: Session, active_ids: list) -> dict:
+        all_industries = db.query(Industry).all()
+        active_set = set(active_ids)
+        if len(active_set) == len(all_industries):
+            db.query(IndustryFilter).delete()
+            db.commit()
+            return {"status": "cleared", "active_count": len(all_industries), "message": "전체 공종 활성 (필터 없음)"}
+        existing = {f.industry_id: f for f in db.query(IndustryFilter).all()}
+        for ind in all_industries:
+            is_active = ind.id in active_set
+            if ind.id in existing:
+                existing[ind.id].is_active = is_active
+            else:
+                db.add(IndustryFilter(industry_id=ind.id, is_active=is_active))
+        db.commit()
+        return {"status": "saved", "active_count": len(active_set), "total_count": len(all_industries)}
+
+    # ── 수집 로그 ─────────────────────────────────────────────────
+
+    def get_collection_logs(self, db: Session, days: int = 7) -> list:
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        return (
+            db.query(CollectionLog)
+            .filter(CollectionLog.collected_at >= cutoff)
+            .order_by(CollectionLog.collected_at.desc())
+            .limit(200)
+            .all()
+        )
+
+    def get_collection_log_detail(self, db: Session, log_id: int):
+        from fastapi import HTTPException
+        log = db.query(CollectionLog).filter(CollectionLog.id == log_id).first()
+        if not log:
+            raise HTTPException(404, "수집 로그를 찾을 수 없습니다.")
+        return log
+
+    # ── 시스템 상태 ───────────────────────────────────────────────
+
+    def get_collector_status(self, db: Session) -> dict:
+        import os as _os
+        kst = timezone(timedelta(hours=9))
+        now_kst = datetime.now(kst)
+        today_start_utc = now_kst.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        row = db.execute(text("""
+            SELECT
+                COALESCE(SUM(CASE WHEN collect_type LIKE 'notice%%' THEN success_count ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN collect_type LIKE 'result%%' THEN success_count ELSE 0 END), 0)
+            FROM collection_logs WHERE collected_at >= :today_start
+        """), {"today_start": today_start_utc}).fetchone()
+        last_run = db.execute(text("SELECT MAX(collected_at) FROM collection_logs")).scalar()
+        next_runs = []
+        for hour in (6, 18):
+            candidate = now_kst.replace(hour=hour, minute=0, second=0, microsecond=0)
+            if candidate <= now_kst:
+                candidate += timedelta(days=1)
+            next_runs.append(candidate)
+        next_run_at = min(next_runs)
+        return {
+            "today_notices": int(row[0]), "today_results": int(row[1]),
+            "last_run_at": last_run, "next_run_at": next_run_at.isoformat(),
+        }
+
+    def get_system_status(self, db: Session) -> dict:
+        import os as _os
+        counts = db.execute(text("""
+            SELECT
+                (SELECT COUNT(*) FROM bids)                                              AS total_bids,
+                (SELECT COUNT(*) FROM bids WHERE source = 'g2b')                        AS g2b_bids,
+                (SELECT COUNT(*) FROM bids WHERE created_at >= NOW() - INTERVAL '7 days') AS new_7d,
+                (SELECT COUNT(*) FROM bid_results)                                       AS total_results,
+                (SELECT COUNT(*) FROM competitors)                                       AS total_competitors,
+                (SELECT COUNT(*) FROM users)                                             AS total_users,
+                (SELECT COUNT(*) FROM watch_keywords WHERE is_active = true)             AS active_keywords,
+                (SELECT COUNT(*) FROM feature_store)                                     AS feature_store_count
+        """)).fetchone()
+        last_g2b = db.execute(text("SELECT MAX(created_at) FROM bids WHERE source = 'g2b'")).scalar()
+        daily = db.execute(text("""
+            SELECT DATE(created_at) AS day, COUNT(*) AS cnt
+            FROM bids WHERE created_at >= NOW() - INTERVAL '14 days'
+            GROUP BY day ORDER BY day DESC LIMIT 14
+        """)).fetchall()
+        pred_count = db.execute(text(
+            "SELECT COUNT(*) FROM prediction_logs WHERE created_at >= NOW() - INTERVAL '7 days'"
+        )).scalar()
+        return {
+            "db_stats": {
+                "total_bids": counts[0] or 0, "g2b_bids": counts[1] or 0,
+                "new_bids_7d": counts[2] or 0, "total_results": counts[3] or 0,
+                "total_competitors": counts[4] or 0, "total_users": counts[5] or 0,
+                "active_keywords": counts[6] or 0, "feature_store": counts[7] or 0,
+            },
+            "collector": {
+                "enabled": _os.getenv("COLLECT_ENABLED", "false").lower() == "true",
+                "last_g2b_collect": last_g2b,
+            },
+            "ml_stats": {"predictions_7d": pred_count or 0},
+            "daily_collection": [{"date": str(r[0]), "count": r[1]} for r in daily],
+        }
+
+
+# ==================================================
 # 경쟁 레이더 서비스 — 동반 입찰 경쟁사 분석
 # ==================================================

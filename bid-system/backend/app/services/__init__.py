@@ -74,6 +74,7 @@ from .execution import ExecutionService
 
 # ── 어드민 ────────────────────────────────────────────────────────
 from .admin import (
+    AdminService,
     G2BSyncService,
     InpoNoticesSyncService,
     InpoParticipantService,
@@ -142,6 +143,7 @@ __all__ = [
     # execution
     "ExecutionService",
     # admin
+    "AdminService",
     "G2BSyncService",
     "InpoNoticesSyncService",
     "InpoParticipantService",

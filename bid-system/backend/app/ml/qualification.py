@@ -166,7 +166,7 @@ def check_qualification(
         n_scenarios:             시나리오 수 (사정율 범위 순열)
     """
     import numpy as np
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng()
 
     criteria_type = _get_criteria_type(base_amount, contract_law)
     crit = CRITERIA[criteria_type]

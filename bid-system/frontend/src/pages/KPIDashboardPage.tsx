@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
+import DashboardTabBar from '@/components/DashboardTabBar'
 import { BarChart2, Target, TrendingUp, Award, AlertTriangle, RefreshCw, Loader2, CheckCircle2, XCircle, Activity, Users, ChevronDown, BookOpen, Gauge, Zap, Lightbulb, ChevronRight, ArrowRight } from 'lucide-react'
 import { kpiApi, outcomesApi, journalApi, adminApi } from '../api'
 import type { JournalStats, MlCalibration, RecommendationEffect } from '../types'
@@ -354,6 +355,9 @@ export default function KPIDashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* 대시보드 탭 네비게이션 */}
+      <DashboardTabBar />
 
       <div className="max-w-6xl mx-auto p-6 space-y-6">
         {/* 경고 알림 */}

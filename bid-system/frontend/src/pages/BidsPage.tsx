@@ -67,9 +67,9 @@ export default function BidsPage() {
   const [searchParams] = useSearchParams()
 
   const activeMode: ActiveMode =
-    searchParams.get('tab') === 'recommend' ? 'recommend'
+    searchParams.get('tab') === 'all' ? 'all'
     : searchParams.get('tab') === 'region' ? 'region'
-    : 'all'
+    : 'recommend'
 
   const initKeyword = searchParams.get('keyword') ?? ''
   const [keyword, setKeyword]               = useState(initKeyword)

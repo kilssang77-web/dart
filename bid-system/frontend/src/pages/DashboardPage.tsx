@@ -1,6 +1,7 @@
 import React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
+import DashboardTabBar from '@/components/DashboardTabBar'
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ComposedChart, Area,
@@ -216,6 +217,9 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* 대시보드 탭 네비게이션 */}
+      <DashboardTabBar />
 
       {/* 콘텐츠 */}
       <div className="flex-1 p-6 space-y-5 max-w-[1440px] mx-auto w-full">

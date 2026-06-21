@@ -14,6 +14,9 @@ from ...database import get_db
 from ...models import User, Industry, IndustryFilter, CollectionLog
 from ...schemas import CollectionLogOut
 from ...common.security import require_role, hash_password
+from ...services import AdminService
+
+_admin_svc = AdminService()
 
 router = APIRouter(prefix="/admin", tags=["관리자"])
 
@@ -28,17 +31,7 @@ class UserUpdateBody(BaseModel):
 
 @router.get("/users")
 def list_users(db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
-    users = db.query(User).order_by(User.id).all()
-    return [
-        {
-            "id": u.id, "email": u.email, "name": u.name,
-            "role": u.role, "department": u.department,
-            "is_active": u.is_active,
-            "last_login": u.last_login,
-            "created_at": u.created_at,
-        }
-        for u in users
-    ]
+    return _admin_svc.list_users(db)
 
 
 class UserCreateBody(BaseModel):
@@ -55,22 +48,10 @@ def create_user(
     db: Session = Depends(get_db),
     _: User = Depends(require_role("admin")),
 ):
-    if db.query(User).filter(User.email == body.email).first():
-        raise HTTPException(status_code=400, detail="이미 사용 중인 이메일입니다.")
-    if body.role not in ("admin", "analyst", "viewer"):
-        raise HTTPException(status_code=400, detail="유효하지 않은 역할입니다.")
-    user = User(
-        email=body.email,
-        hashed_password=hash_password(body.password),
-        name=body.name,
-        role=body.role,
-        department=body.department,
-        is_active=True,
+    return _admin_svc.create_user(
+        db, email=body.email, password=body.password,
+        name=body.name, role=body.role, department=body.department,
     )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return {"id": user.id, "email": user.email, "name": user.name, "role": user.role}
 
 
 @router.put("/users/{uid}")
@@ -80,21 +61,11 @@ def update_user(
     db: Session = Depends(get_db),
     admin: User = Depends(require_role("admin")),
 ):
-    if uid == admin.id and body.is_active is False:
-        raise HTTPException(status_code=400, detail="자신의 계정을 비활성화할 수 없습니다.")
-    user = db.query(User).filter(User.id == uid).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
-    if body.name is not None:       user.name       = body.name
-    if body.role is not None:       user.role       = body.role
-    if body.department is not None: user.department = body.department
-    if body.is_active is not None:  user.is_active  = body.is_active
-    if body.password:               user.hashed_password = hash_password(body.password)
-    db.commit()
-    return {
-        "id": user.id, "email": user.email, "name": user.name,
-        "role": user.role, "is_active": user.is_active,
-    }
+    return _admin_svc.update_user(
+        db, uid=uid, admin_id=admin.id,
+        name=body.name, role=body.role, department=body.department,
+        is_active=body.is_active, password=body.password,
+    )
 
 
 @router.delete("/users/{uid}", status_code=204)
@@ -103,13 +74,7 @@ def delete_user(
     db: Session = Depends(get_db),
     admin: User = Depends(require_role("admin")),
 ):
-    if uid == admin.id:
-        raise HTTPException(status_code=400, detail="자신의 계정은 삭제할 수 없습니다.")
-    user = db.query(User).filter(User.id == uid).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
-    db.delete(user)
-    db.commit()
+    _admin_svc.delete_user(db, uid=uid, admin_id=admin.id)
 
 
 # ── 공종 관리 ──────────────────────────────────────────────────────────
@@ -120,22 +85,7 @@ def get_industry_filters(
     _: User = Depends(require_role("admin")),
 ):
     """모든 공종 목록과 활성화 여부 반환."""
-    all_industries = db.query(Industry).order_by(Industry.name).all()
-    filter_map = {
-        f.industry_id: f.is_active
-        for f in db.query(IndustryFilter).all()
-    }
-    no_config = len(filter_map) == 0  # 설정 없음 = 전체 활성
-    return [
-        {
-            "industry_id": ind.id,
-            "name": ind.name,
-            "code": ind.code,
-            "is_active": filter_map.get(ind.id, True) if not no_config else True,
-            "is_configured": ind.id in filter_map,
-        }
-        for ind in all_industries
-    ]
+    return _admin_svc.get_industry_filters(db)
 
 
 class IndustryFilterBody(BaseModel):
@@ -149,30 +99,7 @@ def update_industry_filters(
     _: User = Depends(require_role("admin")),
 ):
     """활성 공종 목록 저장. active_ids 에 없는 공종은 비활성 처리."""
-    all_industries = db.query(Industry).all()
-    active_set = set(body.active_ids)
-
-    # 전체 공종이 선택된 경우 = 필터 없음 (테이블 전체 삭제)
-    if len(active_set) == len(all_industries):
-        db.query(IndustryFilter).delete()
-        db.commit()
-        return {"status": "cleared", "active_count": len(all_industries), "message": "전체 공종 활성 (필터 없음)"}
-
-    # 공종별 upsert
-    existing = {f.industry_id: f for f in db.query(IndustryFilter).all()}
-    for ind in all_industries:
-        is_active = ind.id in active_set
-        if ind.id in existing:
-            existing[ind.id].is_active = is_active
-        else:
-            db.add(IndustryFilter(industry_id=ind.id, is_active=is_active))
-
-    db.commit()
-    return {
-        "status": "saved",
-        "active_count": len(active_set),
-        "total_count": len(all_industries),
-    }
+    return _admin_svc.update_industry_filters(db, body.active_ids)
 
 
 @router.post("/ml/retrain")
@@ -401,92 +328,12 @@ def get_collector_status(
     _: User = Depends(require_role("admin")),
 ):
     """오늘 수집량·마지막/다음 수집 시각 실시간 조회."""
-    from datetime import datetime, timedelta, timezone
-
-    kst = timezone(timedelta(hours=9))
-    now_kst = datetime.now(kst)
-    today_start_utc = now_kst.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
-
-    row = db.execute(text("""
-        SELECT
-            COALESCE(SUM(CASE WHEN collect_type LIKE 'notice%' THEN success_count ELSE 0 END), 0),
-            COALESCE(SUM(CASE WHEN collect_type LIKE 'result%' THEN success_count ELSE 0 END), 0)
-        FROM collection_logs
-        WHERE collected_at >= :today_start
-    """), {"today_start": today_start_utc}).fetchone()
-
-    last_run = db.execute(text("SELECT MAX(collected_at) FROM collection_logs")).scalar()
-
-    # 다음 수집 예정: 06:00 또는 18:00 KST
-    next_runs = []
-    for hour in (6, 18):
-        candidate = now_kst.replace(hour=hour, minute=0, second=0, microsecond=0)
-        if candidate <= now_kst:
-            candidate += timedelta(days=1)
-        next_runs.append(candidate)
-    next_run_at = min(next_runs)
-
-    return {
-        "today_notices": int(row[0]),
-        "today_results": int(row[1]),
-        "last_run_at": last_run,
-        "next_run_at": next_run_at.isoformat(),
-    }
+    return _admin_svc.get_collector_status(db)
 
 
 @router.get("/system-status")
 def system_status(db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
-    counts = db.execute(text("""
-        SELECT
-            (SELECT COUNT(*) FROM bids)                                              AS total_bids,
-            (SELECT COUNT(*) FROM bids WHERE source = 'g2b')                        AS g2b_bids,
-            (SELECT COUNT(*) FROM bids WHERE created_at >= NOW() - INTERVAL '7 days') AS new_7d,
-            (SELECT COUNT(*) FROM bid_results)                                       AS total_results,
-            (SELECT COUNT(*) FROM competitors)                                       AS total_competitors,
-            (SELECT COUNT(*) FROM users)                                             AS total_users,
-            (SELECT COUNT(*) FROM watch_keywords WHERE is_active = true)             AS active_keywords,
-            (SELECT COUNT(*) FROM feature_store)                                     AS feature_store_count
-    """)).fetchone()
-
-    last_g2b = db.execute(text(
-        "SELECT MAX(created_at) FROM bids WHERE source = 'g2b'"
-    )).scalar()
-
-    daily = db.execute(text("""
-        SELECT DATE(created_at) AS day, COUNT(*) AS cnt
-        FROM bids
-        WHERE created_at >= NOW() - INTERVAL '14 days'
-        GROUP BY day
-        ORDER BY day DESC
-        LIMIT 14
-    """)).fetchall()
-
-    pred_count = db.execute(text(
-        "SELECT COUNT(*) FROM prediction_logs WHERE created_at >= NOW() - INTERVAL '7 days'"
-    )).scalar()
-
-    return {
-        "db_stats": {
-            "total_bids":         counts[0] or 0,
-            "g2b_bids":           counts[1] or 0,
-            "new_bids_7d":        counts[2] or 0,
-            "total_results":      counts[3] or 0,
-            "total_competitors":  counts[4] or 0,
-            "total_users":        counts[5] or 0,
-            "active_keywords":    counts[6] or 0,
-            "feature_store":      counts[7] or 0,
-        },
-        "collector": {
-            "enabled": os.getenv("COLLECT_ENABLED", "false").lower() == "true",
-            "last_g2b_collect": last_g2b,
-        },
-        "ml_stats": {
-            "predictions_7d": pred_count or 0,
-        },
-        "daily_collection": [
-            {"date": str(r[0]), "count": r[1]} for r in daily
-        ],
-    }
+    return _admin_svc.get_system_status(db)
 
 
 @router.get("/ml/status")
@@ -907,15 +754,7 @@ def collection_logs(
     db: Session = Depends(get_db),
     _: User = Depends(require_role("admin")),
 ):
-    from datetime import datetime, timedelta
-    cutoff = datetime.utcnow() - timedelta(days=days)
-    return (
-        db.query(CollectionLog)
-        .filter(CollectionLog.collected_at >= cutoff)
-        .order_by(CollectionLog.collected_at.desc())
-        .limit(200)
-        .all()
-    )
+    return _admin_svc.get_collection_logs(db, days=days)
 
 
 @router.get("/collection-logs/{log_id}", response_model=CollectionLogOut)
@@ -924,10 +763,7 @@ def collection_log_detail(
     db: Session = Depends(get_db),
     _: User = Depends(require_role("admin")),
 ):
-    log = db.query(CollectionLog).filter(CollectionLog.id == log_id).first()
-    if not log:
-        raise HTTPException(status_code=404, detail="수집 로그를 찾을 수 없습니다.")
-    return log
+    return _admin_svc.get_collection_log_detail(db, log_id)
 
 
 @router.get("/scheduler-jobs")

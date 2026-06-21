@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
+import DashboardTabBar from '@/components/DashboardTabBar'
 import {
   TrendingUp, TrendingDown, Target, Trophy, ShieldCheck, BarChart2, ClipboardList,
   CheckCircle2, XCircle, Clock, AlertTriangle, Activity,
@@ -634,6 +635,9 @@ export default function PerformancePage() {
           <p className="text-sm text-slate-500 mt-0.5">수주 현황 · 투찰 이력 · 패찰 분석</p>
         </div>
       </div>
+
+      {/* 대시보드 탭 네비게이션 */}
+      <DashboardTabBar />
 
       <div className="p-6">
         <Tabs defaultValue={defaultTab} className="space-y-5">

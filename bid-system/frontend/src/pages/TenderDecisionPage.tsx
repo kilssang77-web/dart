@@ -719,6 +719,32 @@ export default function TenderDecisionPage() {
               {/* ── ① AI 종합 의사결정 패널 (GO/PASS) ── */}
               {bidId && <QuickDecisionPanel bidId={bidId} />}
 
+              {/* ── Monte Carlo 정밀 결과 (시뮬레이션 완료 후) ── */}
+              {simulateMut.isPending && (
+                <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm">
+                  <svg className="animate-spin w-4 h-4 text-blue-600 shrink-0" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  <span className="text-blue-700 font-medium">Monte Carlo 30,000회 정밀 계산 중…</span>
+                </div>
+              )}
+              {result?.optimal && !simulateMut.isPending && (
+                <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm flex-wrap">
+                  <Zap className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span className="text-gray-500">Monte Carlo {result.mode === 'real' ? 'C(15,4) 실측' : '30,000회'} 정밀 계산 완료</span>
+                  <span className="font-mono font-bold text-blue-800">{(result.optimal.rate * 100).toFixed(4)}%</span>
+                  <span className="text-gray-400">·</span>
+                  <span className={cn('font-semibold', result.optimal.win_prob >= 0.35 ? 'text-emerald-700' : result.optimal.win_prob >= 0.20 ? 'text-amber-600' : 'text-red-600')}>
+                    낙찰확률 {(result.optimal.win_prob * 100).toFixed(1)}%
+                  </span>
+                  <span className="ml-auto font-semibold text-gray-700">{fmt(result.optimal.amount)}원</span>
+                  <span className={cn('text-xs px-2 py-0.5 rounded font-medium', result.optimal.floor_ok ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700')}>
+                    하한 {result.optimal.floor_ok ? '통과' : '미달'}
+                  </span>
+                </div>
+              )}
+
               {/* ── ② 담합 의심 경고 (최우선 표시) ── */}
               {hotZoneData?.collusion_alert && hotZoneData.collusion_alert.flag !== 'clean' && hotZoneData.collusion_alert.flag !== 'insufficient_data' && (
                 <div className={cn(
@@ -815,58 +841,6 @@ export default function TenderDecisionPage() {
                 </div>
               )}
 
-              {/* ── 지금 넣어야 할 금액 — 시뮬레이션 전부터 보여주는 단일 결론 ── */}
-              {!result && bestRateData && bestRateData.recommended_srate && ctx && (
-                <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-5 shadow-lg text-white border border-slate-600">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Target className="w-4 h-4 text-blue-400" />
-                    <span className="text-xs font-semibold text-slate-300 uppercase tracking-wide">
-                      지금 넣어야 할 금액 — AI 사전 추천
-                    </span>
-                    <span className={cn(
-                      'ml-auto text-[10px] px-2 py-0.5 rounded-full font-medium',
-                      bestRateData.confidence >= 0.7 ? 'bg-emerald-700 text-emerald-200' :
-                      bestRateData.confidence >= 0.4 ? 'bg-amber-700 text-amber-200' :
-                                                        'bg-slate-600 text-slate-300'
-                    )}>
-                      신뢰도 {Math.round(bestRateData.confidence * 100)}%
-                    </span>
-                  </div>
-                  <div className="flex items-end justify-between gap-4 flex-wrap">
-                    <div>
-                      <div className="text-4xl font-bold tracking-tight tabular-nums">
-                        {bestRateData.recommended_price != null ? fmt(bestRateData.recommended_price) : '—'}
-                        <span className="text-xl font-normal text-slate-300 ml-1">원</span>
-                      </div>
-                      <div className="flex items-center gap-3 mt-2 text-sm">
-                        <span className="text-slate-300">사정율</span>
-                        <span className="font-mono font-bold text-blue-300 text-base">
-                          {(bestRateData.recommended_srate * 100).toFixed(4)}%
-                        </span>
-                      </div>
-                    </div>
-                    <div className="text-right space-y-1">
-                      <div className="text-xs text-slate-400">
-                        근거: {
-                          bestRateData.source === 'winner+hotzone' ? '실낙찰+Hot Zone' :
-                          bestRateData.source === 'winner'         ? '실낙찰 분포' :
-                          bestRateData.source === 'hotzone+prism'  ? 'Hot Zone+프리즘' :
-                          bestRateData.source === 'hotzone'        ? 'Hot Zone' :
-                          bestRateData.source === 'prism'          ? '프리즘 통계' :
-                                                                     '통계 추정'
-                        }
-                      </div>
-                      <div className="text-xs text-slate-400">
-                        경쟁 {bestRateData.competition_intensity === 'high' ? '🔴 치열' : bestRateData.competition_intensity === 'low' ? '🟢 여유' : '🟡 보통'}
-                        {bestRateData.avg_competitors > 0 && ` · 평균 ${bestRateData.avg_competitors.toFixed(0)}개사`}
-                      </div>
-                      <div className="text-[10px] text-slate-500">
-                        ↓ 시뮬레이션 완료 후 정밀 보정됩니다
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* ── 공고 정보 (compact) ── */}
               {ctx && (
@@ -898,94 +872,8 @@ export default function TenderDecisionPage() {
                 </div>
               )}
 
-              {/* ── AI 원클릭 최적 투찰율 (BestRateCard) ── */}
-              {ctx && <BestRateCard bidId={ctx.bid_id} baseAmount={ctx.base_amount} />}
-
-              {/* ── A값 포지션 패턴 분석 ── */}
-              {ctx && <PositionPatternCard bidId={ctx.bid_id} baseAmount={ctx.base_amount} />}
-
-              {/* ── AI 최종 결론 — 시뮬레이션 완료 후 단일 결론 배너 ── */}
-              {result && result.optimal && (
-                <div className="bg-gradient-to-br from-emerald-600 to-emerald-700 rounded-xl p-5 shadow-lg text-white">
-                  <div className="flex items-center gap-2 mb-3">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-200" />
-                    <span className="text-sm font-semibold text-emerald-100">AI 최종 결론 — Monte Carlo {result.mode === 'real' ? 'C(15,4) 실측' : '30,000회 추정'}</span>
-                  </div>
-                  <div className="flex items-end justify-between gap-4 flex-wrap">
-                    <div>
-                      <div className="text-4xl font-bold tracking-tight">
-                        {(result.optimal.rate * 100).toFixed(4)}%
-                      </div>
-                      <div className="text-sm text-emerald-200 mt-1">최적 투찰율 (기초대비)</div>
-                      <div className="text-2xl font-semibold mt-2">{fmt(result.optimal.amount)}원</div>
-                    </div>
-                    <div className="text-right space-y-2">
-                      <div>
-                        <div className="text-3xl font-bold text-amber-300">{(result.optimal.win_prob * 100).toFixed(1)}%</div>
-                        <div className="text-xs text-emerald-200">낙찰 예상 확률</div>
-                      </div>
-                      <div className={cn('inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium',
-                        result.optimal.floor_ok ? 'bg-emerald-500 text-white' : 'bg-red-400 text-white')}>
-                        {result.optimal.floor_ok ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
-                        낙찰하한 {result.optimal.floor_ok ? '통과' : '미달'}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-3 pt-3 border-t border-emerald-500 text-xs text-emerald-200">
-                    ↓ 아래 전략 카드에서 공격/균형/보수 전략 중 선택 후 투찰 기록을 남겨주세요
-                  </div>
-                </div>
-              )}
-
-              {/* ── 시뮬레이션 결과 (자동 실행) ── */}
-              {simulateMut.isPending && (
-                <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-6 text-white shadow-lg animate-pulse">
-                  <div className="flex items-center gap-3">
-                    <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    <div>
-                      <div className="font-semibold text-blue-100">Monte Carlo 시뮬레이션 실행 중...</div>
-                      <div className="text-sm text-blue-200 mt-0.5">30,000회 반복으로 최적 투찰률을 계산하고 있습니다</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {result && (
                 <>
-                  {/* 최적 투찰가 Hero */}
-                  <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-6 text-white shadow-lg">
-                    <div className="flex items-center justify-between flex-wrap gap-4">
-                      <div>
-                        <div className="text-blue-200 text-sm mb-1">
-                          AI 최적 투찰가 ({result.mode === 'real' ? '실측 C(15,4) 전수' : '추정 Monte Carlo 30,000회'})
-                        </div>
-                        {result.optimal && result.optimal.amount ? (
-                          <>
-                            <div className="text-4xl font-bold tracking-tight">
-                              {fmt(result.optimal.amount)}
-                              <span className="text-xl ml-2">원</span>
-                            </div>
-                            <div className="flex items-center gap-4 mt-2 text-blue-100 text-sm">
-                              <span>투찰율(기초대비) <strong className="text-white font-mono">{ratePct(result.optimal.rate)}</strong></span>
-                              <span>낙찰확률 <strong className="text-amber-300 text-base">{(result.optimal.win_prob * 100).toFixed(1)}%</strong></span>
-                              <span>낙찰하한 {result.optimal.floor_ok ? <CheckCircle2 className="w-4 h-4 inline text-emerald-300" /> : <AlertCircle className="w-4 h-4 inline text-red-300" />}</span>
-                            </div>
-                          </>
-                        ) : (
-                          <div className="text-blue-200 text-sm">최적 구간을 산출할 수 없습니다.</div>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        <div className="text-blue-200 text-xs mb-1">기초금액</div>
-                        <div className="text-xl font-semibold">{(result.base_amount / 1e8).toFixed(2)}억</div>
-                        <div className="text-blue-200 text-xs mt-1">낙찰하한율 {pct(result.floor_rate)}</div>
-                      </div>
-                    </div>
-                  </div>
-
                   {/* 3전략 카드 */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     {Object.entries(result.strategies).map(([key, s]) => {
@@ -1045,6 +933,24 @@ export default function TenderDecisionPage() {
                     : '시뮬레이션 실행 중 오류가 발생했습니다.'}
                   <button onClick={() => simulateMut.mutate({})} className="ml-auto text-xs underline">재시도</button>
                 </div>
+              )}
+
+              {/* ── AI 원클릭 최적 투찰율 (collapsible) ── */}
+              {ctx && (
+                <Collapsible title="AI 원클릭 최적 투찰율" icon={Target} iconColor="text-blue-500" defaultOpen={false} badge="best-rate">
+                  <div className="pt-3">
+                    <BestRateCard bidId={ctx.bid_id} baseAmount={ctx.base_amount} />
+                  </div>
+                </Collapsible>
+              )}
+
+              {/* ── A값 포지션 패턴 (collapsible) ── */}
+              {ctx && (
+                <Collapsible title="A값 포지션 패턴 분석" icon={BarChart3} iconColor="text-violet-500" defaultOpen={false}>
+                  <div className="pt-3">
+                    <PositionPatternCard bidId={ctx.bid_id} baseAmount={ctx.base_amount} />
+                  </div>
+                </Collapsible>
               )}
 
               {/* ── 실증 낙찰 분포 (collapsible) ── */}

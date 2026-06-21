@@ -41,7 +41,7 @@ def simulate_yejung_bimodal(
         high_shift: 저→고 예가 중심 이동 폭 (기본 0.008 = 0.8%p)
     """
     if rng is None:
-        rng = np.random.default_rng(42)
+        rng = np.random.default_rng()
 
     sigma = max(0.002, min(srate_std, 0.010))
     n_high = int(n_sim * high_mix)
@@ -94,7 +94,7 @@ def simulate_yejung(
         shape (n_sim,) 사정률 배열
     """
     if rng is None:
-        rng = np.random.default_rng(42)
+        rng = np.random.default_rng()
 
     sigma = max(0.002, min(srate_std, 0.010))
 
@@ -145,7 +145,7 @@ def monte_carlo_win_prob(
         valid_ratio : 유효 입찰 비율 (하한 이상 & 예가 이하)
     """
     if rng is None:
-        rng = np.random.default_rng(42)
+        rng = np.random.default_rng()
 
     n = len(srate_dist)
     if n_sim != n:
@@ -211,7 +211,7 @@ def monte_carlo_win_prob_empirical(
     실제 클러스터링·비대칭 분포를 그대로 반영해 확률 정확도를 높인다.
     """
     if rng is None:
-        rng = np.random.default_rng(42)
+        rng = np.random.default_rng()
 
     n = len(srate_dist)
     if n_sim != n:
@@ -270,7 +270,7 @@ def monte_carlo_win_prob_gmm(
     from .competitor_cluster import sample_competitor_rates, get_cluster_params
 
     if rng is None:
-        rng = np.random.default_rng(42)
+        rng = np.random.default_rng()
 
     params = gmm_params or get_cluster_params()
     n = len(srate_dist)
