@@ -353,14 +353,16 @@ async def _run_retrain(pool: asyncpg.Pool, predictor: LGBMPredictor):
         await _redis.set("ml:retrain_started_at", _now(), ex=86400)
 
     end_dt   = date.today()
-    # walk-forward 분할: 최근 2년 train / 최근 6~9개월 val(180일) / 최근 90일 test
-    # val 180일(≈126 거래일) 보장 — build_features 최소 62행 요건 충족
-    train_end   = (end_dt - timedelta(days=270)).isoformat()
-    val_start   = (end_dt - timedelta(days=270)).isoformat()
-    val_end     = (end_dt - timedelta(days=90)).isoformat()
+    # auto_retrain.py와 동일한 6년 학습 / 12개월 검증 / 3개월 테스트 분할
+    # val 기간이 well-backfilled 구간(2025-04-27~)을 사용하여 build_features 최소 62행 보장
+    _train_years = int(os.environ.get("ML_RETRAIN_TRAIN_YEARS", "6"))
+    _val_months  = int(os.environ.get("ML_RETRAIN_VAL_MONTHS",  "12"))
     test_start  = (end_dt - timedelta(days=90)).isoformat()
     test_end    = end_dt.isoformat()
-    train_start = (end_dt - timedelta(days=730)).isoformat()
+    val_end     = (end_dt - timedelta(days=91)).isoformat()
+    val_start   = (end_dt - timedelta(days=90 + _val_months * 30)).isoformat()
+    train_end   = (end_dt - timedelta(days=90 + _val_months * 30 + 1)).isoformat()
+    train_start = (end_dt - timedelta(days=365 * _train_years)).isoformat()
 
     cmd = [
         sys.executable, "/app/walk_forward_train.py",
