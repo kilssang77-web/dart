@@ -21,8 +21,12 @@ def _pct(current: float, entry: float) -> float:
     return round((current - entry) / entry * 100, 3) if entry else 0.0
 
 
-async def _get_price_at(db, redis, code: str, ts: datetime) -> float | None:
-    """ts 시각 가장 가까운 가격 조회 — tick_data → daily_bars 순"""
+async def _get_price_at(db, redis, code: str, ts: datetime, strict_daily: bool = False) -> float | None:
+    """ts 시각 가장 가까운 가격 조회 — tick_data → daily_bars 순.
+
+    strict_daily=True 시 daily_bars 조회에서 target 날짜와 1일 이상 차이나는
+    가격은 반환하지 않음 (데이터 미수집 시 오염 방지).
+    """
     try:
         # 1) Redis 현재가 (실시간 근접)
         now = datetime.now(_KST)
@@ -43,12 +47,14 @@ async def _get_price_at(db, redis, code: str, ts: datetime) -> float | None:
 
         # 3) daily_bars
         row = await db.fetchrow(
-            """SELECT close FROM daily_bars
+            """SELECT close, date FROM daily_bars
                WHERE code=$1 AND date <= $2::DATE
                ORDER BY date DESC LIMIT 1""",
             code, ts.date(),
         )
         if row:
+            if strict_daily and (ts.date() - row["date"]).days > 1:
+                return None  # target 날짜 데이터 미수집 — 다음 사이클에서 재시도
             return float(row["close"])
     except Exception as e:
         logger.debug(f"price lookup error {code}: {e}")
@@ -121,7 +127,7 @@ async def run_once(db, redis) -> int:
             if row[col_t] is None:
                 ts = await _add_trading_days(db, code, signal_t, days)
                 if ts <= now:
-                    p = await _get_price_at(db, redis, code, ts)
+                    p = await _get_price_at(db, redis, code, ts, strict_daily=True)
                     if p:
                         updates[col_r] = _pct(p, entry)
                         updates[col_t] = ts
