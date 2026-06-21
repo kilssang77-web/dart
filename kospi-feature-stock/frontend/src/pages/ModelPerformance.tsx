@@ -11,10 +11,11 @@ import {
   marketApi,
   type ModelMetrics, type KafkaLag, type ShapExplain,
   type PerformanceTrendPoint, type EventPerformance, type ModelHistoryItem,
-  type RetrainStatus,
+  type RetrainStatus, type FeedbackStats,
 } from '@/api/market'
 import { fmt } from '@/lib/utils'
 import { EVENT_LABELS } from '@/components/ui/Badge'
+import { AlertTriangle } from 'lucide-react'
 
 const LAG_WARN  = 500
 const LAG_ERROR = 2000
@@ -159,6 +160,13 @@ export function ModelPerformance() {
     queryFn:  marketApi.getModelHistory,
     staleTime: 600_000,
   })
+  const { data: feedbackStats } = useQuery<FeedbackStats>({
+    queryKey: ['feedback-stats'],
+    queryFn:  marketApi.getFeedbackStats,
+    staleTime: 300_000,
+  })
+  const MIN_RELIABLE_SAMPLES = 21
+  const lowReliability = feedbackStats !== undefined && (feedbackStats.complete ?? 0) < MIN_RELIABLE_SAMPLES
 
   const featureData = metrics?.feature_importance
     ? Object.entries(metrics.feature_importance)
@@ -182,6 +190,19 @@ export function ModelPerformance() {
 
   return (
     <div className="p-6 space-y-5">
+
+      {/* ── 신뢰도 경고 배너 ── */}
+      {lowReliability && (
+        <div className="flex items-start gap-3 px-4 py-3 rounded-lg border bg-yellow-500/10 border-yellow-500/30 text-yellow-300">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+          <div className="text-xs leading-relaxed">
+            <span className="font-semibold">성과 데이터 부족 — 신뢰도 낮음.</span>
+            {' '}추적 완료 추천이 {feedbackStats?.complete ?? 0}건({MIN_RELIABLE_SAMPLES}건 미만)으로,
+            승률·수익률 통계가 불안정할 수 있습니다.
+            누적 데이터가 쌓일수록 정확도가 높아집니다.
+          </div>
+        </div>
+      )}
 
       {/* ── Kafka Lag ── */}
       {kafkaLag && (

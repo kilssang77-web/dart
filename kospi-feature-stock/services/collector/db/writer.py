@@ -122,8 +122,8 @@ async def write_tick(pool: asyncpg.Pool, ticks: list[dict]) -> None:
         async with pool.acquire() as conn:
             await conn.executemany(
                 """
-                INSERT INTO tick_data (time, code, price, volume, amount, change_rate, is_buy)
-                VALUES (NOW(), $1, $2, $3, $4, $5, $6)
+                INSERT INTO tick_data (time, code, price, volume, amount, change_rate, bid_ask_ratio, is_buy)
+                VALUES (NOW(), $1, $2, $3, $4, $5, $6, $7)
                 """,
                 [
                     (
@@ -132,6 +132,7 @@ async def write_tick(pool: asyncpg.Pool, ticks: list[dict]) -> None:
                         int(t.get("volume", 0)),
                         int(t.get("amount", 0)),
                         float(t.get("change_rate", 0)),
+                        _safe_float(t.get("bid_ask_ratio")),
                         t.get("is_buy"),
                     )
                     for t in ticks

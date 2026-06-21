@@ -39,16 +39,25 @@ def format_buy_signal(msg: dict) -> str:
     risk        = msg.get("risk_score", 0)
     created_at  = _fmt_dt(msg.get("created_at", ""))
 
+    # rationale JSON에서 rec_score 추출 (없으면 success_prob 기반 표시)
+    rationale   = msg.get("rationale") or {}
+    rec_score   = rationale.get("rec_score") if isinstance(rationale, dict) else None
+
     upside   = _fmt_pct(entry, target)
     downside = _fmt_pct(entry, stop)
 
     name_line = f"&#128204; 종목: <b>{name}</b>  (<code>{code}</code>)\n" if name != code else f"&#128204; 종목: <b>{code}</b>\n"
 
+    if rec_score is not None:
+        score_line = f"&#127919; 추천점수: <b>{int(rec_score)}점</b>  (<code>성공확률 {prob * 100:.0f}%</code>)\n"
+    else:
+        score_line = f"&#127919; 성공확률: <b>{prob * 100:.0f}%</b>\n"
+
     return (
         f"<b>&#128640; 매수 추천 알림</b>\n"
         f"\n"
         f"{name_line}"
-        f"&#127919; 성공확률: <b>{prob * 100:.0f}%</b>\n"
+        f"{score_line}"
         f"\n"
         f"&#128176; 매수가(진입): <b>{_fmt_price(entry)}원</b>\n"
         f"&#127937; 목표가(매도): <b>{_fmt_price(target)}원</b>  (<code>{upside}</code>)\n"

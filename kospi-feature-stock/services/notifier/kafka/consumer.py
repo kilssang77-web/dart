@@ -109,14 +109,17 @@ class NotifierConsumer:
             logger.debug(f"[SIGNAL] dedup skip code={code} ({_DEDUP_TTL_SIGNAL}s 이내 발송됨)")
             return
 
-        logger.info(f"[SIGNAL] code={code} name={name} prob={prob:.3f} — sending Telegram")
+        rationale  = data.get("rationale") or {}
+        rec_score  = rationale.get("rec_score") if isinstance(rationale, dict) else None
+        title_score = f"{int(rec_score)}점" if rec_score is not None else f"{prob*100:.0f}%"
+        logger.info(f"[SIGNAL] code={code} name={name} prob={prob:.3f} rec_score={rec_score} — sending Telegram")
         text = format_buy_signal(data)
         ok   = await self._sender.send_message(
             text,
             msg_type="signal",
             code=code,
             name=name,
-            title=f"{name} 매수 신호 ({prob*100:.0f}%)",
+            title=f"{name} 매수 신호 ({title_score})",
         )
         if ok:
             await _mark_sent(self._redis, dedup_key, _DEDUP_TTL_SIGNAL)

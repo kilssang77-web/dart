@@ -8,11 +8,17 @@ from .auth import KISAuthManager, KISConfig
 
 logger = logging.getLogger(__name__)
 
-# H0STCNT0 / H0NXCNT0 필드 인덱스 — 두 TR 모두 0~21 동일 구조
+# H0STCNT0 / H0NXCNT0 필드 인덱스 (0-based) — 두 TR 모두 동일 구조
+# 0=종목코드 1=체결시간 2=현재가 3=전일대비부호 4=전일대비 5=전일대비율
+# 6=가중평균가 7=시가 8=고가 9=저가 10=매도호가1 11=매수호가1
+# 12=체결거래량(단건) 13=누적거래량 14=누적거래대금
+# 15=매도체결건수 16=매수체결건수 17=순매수체결건수 18=체결강도
+# 19=총매도수량잔량률 20=체결구분 21=매수매도구분(1=매수,5=매도)
 _TICK_FIELDS = {
-    "code": 0, "time": 1, "price": 2, "prev_close": 3,
+    "code": 0, "time": 1, "price": 2, "sign": 3,
     "change": 4, "change_rate": 5, "open": 7, "high": 8, "low": 9,
-    "cum_volume": 12, "cum_amount": 13, "bid_ask_ratio": 19,
+    "tick_volume": 12, "cum_volume": 13, "cum_amount": 14,
+    "exec_strength": 18, "bid_ask_ratio": 19,
     "is_buy_flag": 21,
 }
 
@@ -145,8 +151,15 @@ class KISWebSocketClient:
     def _parse(self, raw: str) -> dict | None:
         if raw.startswith("{"):
             data = json.loads(raw)
-            if data.get("header", {}).get("tr_id") == "PINGPONG":
+            tr_id = data.get("header", {}).get("tr_id", "")
+            if tr_id == "PINGPONG":
                 return None
+            body = data.get("body", {})
+            if body.get("rt_cd", "0") != "0":
+                logger.warning(
+                    "KIS WS 구독 오류 [%s]: %s (%s)",
+                    tr_id, body.get("msg1", ""), body.get("msg_cd", ""),
+                )
             return None
 
         parts = raw.split("|")
