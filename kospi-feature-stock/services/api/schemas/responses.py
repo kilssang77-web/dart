@@ -84,6 +84,11 @@ class PerformanceStatsResponse(BaseModel):
     success_rate: float
 
 
+class NewsStockLink(BaseModel):
+    code: str
+    name: str
+
+
 class NewsItem(BaseModel):
     id: int
     source: Optional[str] = None
@@ -94,5 +99,6 @@ class NewsItem(BaseModel):
     sentiment_score: Optional[float] = None
     category: Optional[str] = None
     keywords: list[str] = []
-    codes: list[str] = []
+    codes: list[str] = []          # 하위 호환 유지
+    stock_links: list[NewsStockLink] = []
     corp_name: Optional[str] = None

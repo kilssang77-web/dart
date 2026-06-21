@@ -118,15 +118,33 @@ async def get_trending_themes(
 @router.get("/clusters")
 async def get_theme_clusters(
     redis: redis_lib.Redis = Depends(get_redis),
+    db: asyncpg.Pool = Depends(get_db),
 ):
-    """ThemeClusterer가 생성한 K-Means 동적 테마 클러스터 반환."""
+    """ThemeClusterer가 생성한 K-Means 동적 테마 클러스터 반환.
+    stock_codes에 해당하는 종목명을 DB에서 조회해 stock_links(code+name)로 보강.
+    """
     try:
         raw = await redis.get("themes:clusters")
         updated_at = await redis.get("themes:updated_at")
         if raw:
+            clusters = orjson.loads(raw)
+            # 전체 code 집합 수집 후 일괄 조회 (N+1 방지)
+            all_codes = list({c for cl in clusters for c in cl.get("stock_codes", [])})
+            name_map: dict[str, str] = {}
+            if all_codes:
+                rows = await db.fetch(
+                    "SELECT code, name FROM stocks WHERE code = ANY($1::text[])",
+                    all_codes,
+                )
+                name_map = {r["code"]: r["name"] for r in rows}
+            for cl in clusters:
+                cl["stock_links"] = [
+                    {"code": c, "name": name_map.get(c, c)}
+                    for c in cl.get("stock_codes", [])
+                ]
             return {
-                "clusters":    orjson.loads(raw),
-                "updated_at":  updated_at.decode() if updated_at else None,
+                "clusters":   clusters,
+                "updated_at": updated_at.decode() if updated_at else None,
             }
     except Exception as e:
         logger.warning(f"themes:clusters redis error: {e}")

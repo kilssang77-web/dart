@@ -281,7 +281,17 @@ function NewsTab() {
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-sm text-[var(--fg)] leading-snug">{item.title}</div>
                 <div className="flex items-center flex-wrap gap-2 mt-2">
-                  {item.codes && item.codes.length > 0 && (
+                  {(item.stock_links ?? []).length > 0 ? (
+                    <div className="flex gap-1 flex-wrap">
+                      {item.stock_links!.map((s) => (
+                        <button key={s.code}
+                          onClick={() => nav(`/search?code=${s.code}`)}
+                          className="text-xs px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-colors">
+                          {s.name}
+                        </button>
+                      ))}
+                    </div>
+                  ) : item.codes && item.codes.length > 0 ? (
                     <div className="flex gap-1 flex-wrap">
                       {item.codes.map((code) => (
                         <button key={code}
@@ -291,7 +301,7 @@ function NewsTab() {
                         </button>
                       ))}
                     </div>
-                  )}
+                  ) : null}
                   {item.keywords?.slice(0, 3).map((k) => (
                     <span key={k} className="text-xs px-1.5 py-0.5 rounded bg-[var(--border)] text-[var(--muted)]">{k}</span>
                   ))}

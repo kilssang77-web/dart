@@ -18,6 +18,18 @@ logger = logging.getLogger("recommender")
 _RECOVERY_HOURS   = int(os.environ.get("REC_RECOVERY_HOURS",   "24"))
 # 동일 종목 재추천 억제 쿨다운 (분, 0=비활성) — 이벤트 타입과 무관하게 종목 단위로 적용
 _COOLDOWN_MINUTES = int(os.environ.get("REC_COOLDOWN_MINUTES", "60"))
+
+_KST = timezone(timedelta(hours=9))
+
+def _is_trading_day() -> bool:
+    """한국 거래일 여부: 월~금 09:00~15:30 KST. 공휴일은 별도 관리하지 않음."""
+    now_kst = datetime.now(_KST)
+    dow = now_kst.weekday()   # 0=월, 5=토, 6=일
+    if dow >= 5:
+        return False
+    hour = now_kst.hour
+    minute = now_kst.minute
+    return (hour > 9 or (hour == 9 and minute >= 0)) and (hour < 15 or (hour == 15 and minute <= 35))
 # 당일 세션 진입가 앵커 유효 시간 (시간)
 _ANCHOR_HOURS     = int(os.environ.get("REC_ANCHOR_HOURS",     "8"))
 # 앵커 가격과 현재가 허용 괴리율 (초과 시 앵커 무시)
@@ -56,6 +68,9 @@ class RecommenderService:
                     continue
                 event = orjson.loads(msg["data"])
                 if not event or not event.get("code"):
+                    continue
+                if not _is_trading_day():
+                    logger.debug(f"Non-trading skip: {event.get('code')} {event.get('event_type')}")
                     continue
                 try:
                     event_id = await self._save_feature_event(event)

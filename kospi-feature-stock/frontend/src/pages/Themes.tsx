@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { clsx } from 'clsx'
 import { Layers, TrendingUp, BarChart2, ChevronRight, ArrowUp, ArrowDown, Minus } from 'lucide-react'
 import { http } from '@/api/client'
@@ -16,11 +17,17 @@ interface TrendingTheme {
   source:      'news' | 'sector'
 }
 
+interface StockLink {
+  code: string
+  name: string
+}
+
 interface ThemeCluster {
   cluster_id:  number
   keywords:    string[]
   news_count:  number
   stock_codes: string[]
+  stock_links?: StockLink[]
   trend?:      'rising' | 'falling' | 'stable'
 }
 
@@ -253,6 +260,11 @@ function ThemeCard({ theme: t, maxCount, selected, onClick }: {
 
 // ── AI 클러스터 카드 ──────────────────────────────────────────────────────────
 function ClusterCard({ cluster: c }: { cluster: ThemeCluster }) {
+  const [expanded, setExpanded] = useState(false)
+  const nav = useNavigate()
+  const links = c.stock_links ?? []
+  const stockCount = links.length || c.stock_codes.length
+
   return (
     <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-3 space-y-2">
       <div className="flex items-center justify-between">
@@ -261,7 +273,17 @@ function ClusterCard({ cluster: c }: { cluster: ThemeCluster }) {
             {c.cluster_id + 1}
           </span>
           <span className="text-xs text-[var(--muted)]">
-            뉴스 {c.news_count}건 · 종목 {c.stock_codes.length}개
+            뉴스 {c.news_count}건 ·{' '}
+            {stockCount > 0 ? (
+              <button
+                onClick={() => setExpanded((v) => !v)}
+                className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2 transition-colors"
+              >
+                종목 {stockCount}개
+              </button>
+            ) : (
+              <span>종목 0개</span>
+            )}
           </span>
         </div>
         {c.trend && (
@@ -280,10 +302,28 @@ function ClusterCard({ cluster: c }: { cluster: ThemeCluster }) {
           </span>
         ))}
       </div>
-      {c.stock_codes.length > 0 && (
-        <div className="text-xs text-[var(--muted)] font-mono">
-          {c.stock_codes.slice(0, 5).join(' · ')}
-          {c.stock_codes.length > 5 && ` 외 ${c.stock_codes.length - 5}개`}
+      {expanded && stockCount > 0 && (
+        <div className="flex flex-wrap gap-1 pt-1 border-t border-[var(--border)]">
+          {links.length > 0
+            ? links.map((s) => (
+                <button
+                  key={s.code}
+                  onClick={() => nav(`/search?code=${s.code}`)}
+                  className="text-xs px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-colors"
+                >
+                  {s.name}
+                </button>
+              ))
+            : c.stock_codes.map((code) => (
+                <button
+                  key={code}
+                  onClick={() => nav(`/search?code=${code}`)}
+                  className="text-xs px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-colors font-mono"
+                >
+                  {code}
+                </button>
+              ))
+          }
         </div>
       )}
     </div>

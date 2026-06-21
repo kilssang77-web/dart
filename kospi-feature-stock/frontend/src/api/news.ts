@@ -1,8 +1,14 @@
 import { http } from './client'
 
+export interface NewsStockLink {
+  code: string
+  name: string
+}
+
 export interface NewsItem {
   id:               number
   codes?:           string[]
+  stock_links?:     NewsStockLink[]
   corp_name?:       string
   title:            string
   content?:         string

@@ -31,6 +31,12 @@ _NEWS_SELECT = """
             SELECT nsl.code FROM news_stock_links nsl WHERE nsl.news_id = n.id LIMIT 5
         ) AS codes,
         (
+            SELECT json_agg(json_build_object('code', s.code, 'name', s.name) ORDER BY nsl.id)
+            FROM news_stock_links nsl
+            JOIN stocks s ON s.code = nsl.code
+            WHERE nsl.news_id = n.id LIMIT 5
+        ) AS stock_links_raw,
+        (
             SELECT s.name FROM news_stock_links nsl
             JOIN stocks s ON s.code = nsl.code
             WHERE nsl.news_id = n.id LIMIT 1
@@ -49,6 +55,14 @@ def _parse_news_rows(rows) -> list[NewsItem]:
             except Exception as e:
                 logger.warning(f"news keywords parse error id={d.get('id')}: {e}")
                 d["keywords"] = []
+        raw_links = d.pop("stock_links_raw", None)
+        if raw_links:
+            if isinstance(raw_links, str):
+                try:
+                    raw_links = json.loads(raw_links)
+                except Exception:
+                    raw_links = []
+            d["stock_links"] = [{"code": x["code"], "name": x["name"]} for x in (raw_links or [])]
         result.append(NewsItem(**d))
     return result
 
