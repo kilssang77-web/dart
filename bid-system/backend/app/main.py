@@ -36,6 +36,21 @@ async def lifespan(app: FastAPI):
         finally:
             db.close()
 
+    # admin 비밀번호를 .env 값으로 항상 동기화 — DB 직접 수정 등으로 불일치 발생 시 재시작으로 복구
+    _sync_db = SessionLocal()
+    try:
+        from .models import User
+        from .common.security import hash_password, verify_password
+        _admin = _sync_db.query(User).filter(User.email == settings.first_admin_email).first()
+        if _admin and not verify_password(settings.first_admin_password, _admin.hashed_password):
+            _admin.hashed_password = hash_password(settings.first_admin_password)
+            _sync_db.commit()
+            logger.info("admin 비밀번호를 .env 설정 값으로 동기화 완료 (%s)", settings.first_admin_email)
+    except Exception as _sync_err:
+        logger.warning("admin 비밀번호 동기화 실패 (무시): %s", _sync_err)
+    finally:
+        _sync_db.close()
+
     # ML 엔진 미리 초기화 (첫 번째 추천 호출 지연 방지)
     try:
         from .ml.engine import get_engine

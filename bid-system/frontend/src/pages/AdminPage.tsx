@@ -1063,7 +1063,7 @@ export default function AdminPage() {
                   <Card className="bg-white border-slate-200 shadow-sm overflow-hidden">
                     <CardHeader className="border-b border-slate-100 pb-3">
                       <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                        <BarChart2 className="h-4 w-4 text-indigo-600" />유형별 수집 통계 (최근 {logDays}일)
+                        <BarChart2 className="h-4 w-4 text-indigo-600" />유형별 누적 수집 통계 (최근 {logDays}일 합산)
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-0">
@@ -1072,8 +1072,8 @@ export default function AdminPage() {
                           <TableRow className="bg-slate-50 border-b border-slate-200">
                             <TableHead className="text-slate-600 font-semibold">수집 유형</TableHead>
                             <TableHead className="text-center text-slate-600 font-semibold">실행 횟수</TableHead>
-                            <TableHead className="text-center text-slate-600 font-semibold text-emerald-700">성공</TableHead>
-                            <TableHead className="text-center text-slate-600 font-semibold text-red-600">실패</TableHead>
+                            <TableHead className="text-center text-slate-600 font-semibold text-emerald-700">누적 성공 건수</TableHead>
+                            <TableHead className="text-center text-slate-600 font-semibold text-red-600">누적 실패 건수</TableHead>
                             <TableHead className="text-right text-slate-600 font-semibold">평균 소요(초)</TableHead>
                             <TableHead className="text-right text-slate-600 font-semibold">성공률</TableHead>
                             <TableHead className="text-right text-slate-600 font-semibold">마지막 수집</TableHead>

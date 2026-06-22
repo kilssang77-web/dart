@@ -193,8 +193,9 @@ class MyBidFeedbackService:
                         historical_df=hist_before,
                         yega_features=_yega_ml,
                     )
-                    feats["target_rate"] = float(winner_rate)
-                    feats["is_winner"]   = True
+                    feats["target_rate"]   = float(winner_rate)
+                    feats["is_winner"]     = True
+                    feats["bid_open_date"] = bid_open_date
                     records.append(feats)
                 except Exception:
                     pass

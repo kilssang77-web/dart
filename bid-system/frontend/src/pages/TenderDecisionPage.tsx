@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { decisionApi, journalApi } from '@/api'
 import type { BidContext, SimulateBidResponse, ZoneItem, JournalOut, AgencyWinHistogram, CompetitorPredictionResponse, HotZoneResponse, BestRateResponse } from '@/types'
@@ -10,7 +10,7 @@ import QuickDecisionPanel from '@/components/QuickDecisionPanel'
 import {
   Search, Target, Zap, TrendingUp, Shield, AlertCircle, CheckCircle2,
   Info, Users, X, BookOpen, ClipboardCheck, Trophy, ChevronRight, ChevronLeft,
-  BarChart3, Award, ChevronDown, ChevronUp,
+  BarChart3, Award, ChevronDown, ChevronUp, ArrowLeft, List,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -425,6 +425,7 @@ function Collapsible({ title, icon: Icon, iconColor, defaultOpen = false, badge,
 ───────────────────────────────────────────────────────────── */
 export default function TenderDecisionPage() {
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
 
   const [step, setStep] = useState(1)
   const [maxReached, setMaxReached] = useState(1)
@@ -651,15 +652,24 @@ export default function TenderDecisionPage() {
     <div className="flex flex-col h-full min-h-0 bg-gray-50">
       {/* 헤더 */}
       <div className="bg-white border-b px-6 py-3 flex items-center gap-3 shrink-0">
-        <Target className="w-5 h-5 text-blue-600" />
-        <div className="flex-1">
+        <button
+          onClick={() => navigate('/bids')}
+          className="flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-blue-600 px-2.5 py-1.5 border border-gray-200 rounded-lg hover:bg-blue-50 hover:border-blue-200 transition-colors shrink-0"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <List className="w-3.5 h-3.5" />
+          공고 목록
+        </button>
+        <div className="w-px h-4 bg-gray-200 shrink-0" />
+        <Target className="w-5 h-5 text-blue-600 shrink-0" />
+        <div className="flex-1 min-w-0">
           <h1 className="text-base font-bold text-gray-900">AI 투찰 결정</h1>
           {bidTitle && <p className="text-xs text-gray-400 truncate max-w-lg">{bidTitle}</p>}
         </div>
         {bidId && (
           <button
             onClick={resetAll}
-            className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 px-3 py-1.5 border rounded-lg hover:bg-gray-50"
+            className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 px-3 py-1.5 border rounded-lg hover:bg-gray-50 shrink-0"
           >
             <Search className="w-3.5 h-3.5" />
             새 공고 선택
