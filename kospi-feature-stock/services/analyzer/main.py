@@ -344,7 +344,7 @@ class AnalyzerService:
                 title,
                 content,
                 data.get("url"),
-                orjson.dumps(data.get("themes", [])).decode(),
+                orjson.dumps(data.get("themes") or []).decode(),
                 sentiment["sentiment_score"],
                 vec_str,
             )
@@ -397,9 +397,10 @@ class AnalyzerService:
 
 
     async def _post_change_updater_loop(self):
-        """매 시간 공시 사후 수익률(post_1d/3d_change)을 daily_bars에서 자동 채운다.
+        """매 시간 공시 사후 수익률(post_1h/1d/3d_change)을 자동 채운다.
 
         disclosed_at 기준:
+          - post_1h_change: 공시 후 1시간 시점 tick_data 가격 vs 공시 당시 종가
           - post_1d_change: 공시 다음 거래일 종가 vs 당일 종가
           - post_3d_change: 공시 후 3거래일 종가 vs 당일 종가
         """
@@ -415,12 +416,16 @@ class AnalyzerService:
         rows = await self._db.fetch(
             """
             SELECT d.rcept_no, d.code,
-                   d.disclosed_at::date AS disc_date
+                   d.disclosed_at::date AS disc_date,
+                   d.disclosed_at       AS disc_ts,
+                   d.post_1h_change,
+                   d.post_1d_change,
+                   d.post_3d_change
             FROM disclosures d
             WHERE d.code IS NOT NULL
               AND d.disclosed_at >= NOW() - INTERVAL '90 days'
-              AND d.disclosed_at < NOW() - INTERVAL '2 days'
-              AND (d.post_1d_change IS NULL OR d.post_3d_change IS NULL)
+              AND d.disclosed_at < NOW() - INTERVAL '2 hours'
+              AND (d.post_1h_change IS NULL OR d.post_1d_change IS NULL OR d.post_3d_change IS NULL)
             ORDER BY d.disclosed_at ASC
             LIMIT 500
             """,
@@ -432,48 +437,74 @@ class AnalyzerService:
         for row in rows:
             code      = row["code"]
             disc_date = row["disc_date"]
+            disc_ts   = row["disc_ts"]
             rcept_no  = row["rcept_no"]
 
-            bars = await self._db.fetch(
-                """
-                SELECT date::TEXT, close
-                FROM daily_bars
-                WHERE code = $1
-                  AND date BETWEEN $2 AND ($2 + INTERVAL '10 days')::date
-                ORDER BY date ASC
-                LIMIT 6
-                """,
-                code, disc_date,
-            )
-            if len(bars) < 2:
-                continue
+            # ── post_1h_change: tick_data 기반 (공시 후 1시간) ─────────
+            chg_1h = None
+            if row["post_1h_change"] is None:
+                try:
+                    target_ts = disc_ts + timedelta(hours=1)
+                    base_row = await self._db.fetchrow(
+                        """SELECT price FROM tick_data
+                           WHERE code=$1 AND time <= $2
+                           ORDER BY time DESC LIMIT 1""",
+                        code, disc_ts,
+                    )
+                    after_row = await self._db.fetchrow(
+                        """SELECT price FROM tick_data
+                           WHERE code=$1 AND time >= $2 AND time <= $3
+                           ORDER BY time ASC LIMIT 1""",
+                        code, disc_ts, target_ts,
+                    )
+                    if base_row and after_row:
+                        bp = float(base_row["price"])
+                        ap = float(after_row["price"])
+                        if bp > 0:
+                            chg_1h = round((ap - bp) / bp * 100, 2)
+                except Exception as e:
+                    logger.debug(f"[PostChange] 1h tick 조회 실패 {code}: {e}")
 
-            base_close = float(bars[0]["close"])
-            if base_close <= 0:
-                continue
+            # ── post_1d/3d_change: daily_bars 기반 ─────────────────────
+            chg_1d = None
+            chg_3d = None
+            if row["post_1d_change"] is None or row["post_3d_change"] is None:
+                bars = await self._db.fetch(
+                    """
+                    SELECT date::TEXT, close
+                    FROM daily_bars
+                    WHERE code = $1
+                      AND date BETWEEN $2 AND ($2 + INTERVAL '10 days')::date
+                    ORDER BY date ASC
+                    LIMIT 6
+                    """,
+                    code, disc_date,
+                )
+                if len(bars) >= 2:
+                    base_close = float(bars[0]["close"])
+                    if base_close > 0:
+                        post_1d = float(bars[1]["close"]) if len(bars) > 1 else None
+                        post_3d = float(bars[3]["close"]) if len(bars) > 3 else None
+                        chg_1d = round((post_1d - base_close) / base_close * 100, 2) if post_1d else None
+                        chg_3d = round((post_3d - base_close) / base_close * 100, 2) if post_3d else None
 
-            post_1d = float(bars[1]["close"]) if len(bars) > 1 else None
-            post_3d = float(bars[3]["close"]) if len(bars) > 3 else None
-
-            chg_1d = round((post_1d - base_close) / base_close * 100, 2) if post_1d else None
-            chg_3d = round((post_3d - base_close) / base_close * 100, 2) if post_3d else None
-
-            if chg_1d is None and chg_3d is None:
+            if chg_1h is None and chg_1d is None and chg_3d is None:
                 continue
 
             await self._db.execute(
                 """
                 UPDATE disclosures
-                   SET post_1d_change = COALESCE($2, post_1d_change),
-                       post_3d_change = COALESCE($3, post_3d_change)
+                   SET post_1h_change = COALESCE($2, post_1h_change),
+                       post_1d_change = COALESCE($3, post_1d_change),
+                       post_3d_change = COALESCE($4, post_3d_change)
                  WHERE rcept_no = $1
                 """,
-                rcept_no, chg_1d, chg_3d,
+                rcept_no, chg_1h, chg_1d, chg_3d,
             )
             updated += 1
 
         if updated:
-            logger.info(f"[PostChange] {updated}건 post_1d/3d_change 업데이트 완료")
+            logger.info(f"[PostChange] {updated}건 post_1h/1d/3d_change 업데이트 완료")
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ from dart.disclosure_poller import DARTPoller
 from dart.kind_poller import KINDPoller
 from kafka.producer import KafkaProducerWrapper
 from db.writer import write_tick, write_minute_bars, write_daily_bars, write_supply_demand
-from news.naver_crawler import NaverNewsCrawler
+from news.news_collector import MultiSourceNewsCollector as NaverNewsCrawler
 from news.rss_crawler import RssNewsCrawler
 from batch_scanner import BatchScanner
 

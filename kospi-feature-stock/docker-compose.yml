@@ -369,7 +369,7 @@ services:
     environment:
       ML_SERVICE_URL: "http://ml:8001"
       REC_COOLDOWN_MINUTES: "60"      # 종목당 Redis 단기 쿨다운 (분)
-      REC_PERF_MIN_PROB: "0.55"       # 성과추적 등록 최소 확률 (Telegram과 독립)
+      REC_PERF_MIN_PROB: "0.30"       # 성과추적 등록 최소 확률 (추천 최소확률과 동일 기준)
       REC_RECOVERY_HOURS: "24"        # 재시작 시 미처리 이벤트 복구 범위 (시간)
     volumes:
       - ./services/recommender:/app
