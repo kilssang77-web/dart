@@ -504,6 +504,13 @@ export default function TenderDecisionPage() {
     staleTime: 10 * 60 * 1000,
   })
 
+  const { data: pqFloorData } = useQuery<import('@/types').PqFloorResponse>({
+    queryKey: ['pq-floor', bidId],
+    queryFn: () => decisionApi.pqFloor(bidId!),
+    enabled: bidId !== null,
+    staleTime: 30 * 60 * 1000,
+  })
+
   const parsedCompetitorRates = (): number[] | null => {
     if (!competitorRateText.trim()) return null
     const raw = competitorRateText
@@ -755,6 +762,126 @@ export default function TenderDecisionPage() {
                 </div>
               )}
 
+              {/* ── P1: 확보예가 BidScore 카드 ── */}
+              {result?.bid_score && !simulateMut.isPending && (() => {
+                const bs = result.bid_score!
+                const bm = result.bid_score_benchmark
+                const diff = bm ? +(bs.pct - bm.avg_pct).toFixed(1) : null
+                const beatsPct = bm
+                  ? bs.pct >= bm.p75_pct ? '상위25%' : bs.pct >= bm.p50_pct ? '상위50%' : bs.pct >= bm.p25_pct ? '하위50%' : '하위25%'
+                  : null
+                return (
+                  <div className={cn(
+                    'rounded-xl border p-3 text-sm',
+                    bs.grade === '우수' ? 'bg-emerald-50 border-emerald-200' :
+                    bs.grade === '보통' ? 'bg-amber-50 border-amber-200' :
+                    'bg-red-50 border-red-200'
+                  )}>
+                    {/* 첫 줄: 점수 + 등급 */}
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-base">🎯</span>
+                        <span className="font-semibold text-gray-700">확보예가 BidScore</span>
+                        {result.mode === 'real' && (
+                          <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">실측</span>
+                        )}
+                      </div>
+                      <div className={cn(
+                        'text-xl font-bold font-mono shrink-0',
+                        bs.grade === '우수' ? 'text-emerald-700' :
+                        bs.grade === '보통' ? 'text-amber-700' : 'text-red-700'
+                      )}>
+                        {bs.score}
+                        <span className="text-sm font-normal text-gray-400"> / {bs.max_score}</span>
+                      </div>
+                      <div className={cn(
+                        'text-xs px-2 py-0.5 rounded-full font-semibold shrink-0',
+                        bs.grade === '우수' ? 'bg-emerald-100 text-emerald-700' :
+                        bs.grade === '보통' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                      )}>
+                        {bs.grade} ({bs.pct}%)
+                      </div>
+                      <span className="text-xs text-gray-500 flex-1 min-w-0">{bs.description}</span>
+                    </div>
+                    {/* 둘째 줄: 벤치마크 비교 */}
+                    {bm && bm.sample_count >= 5 && (
+                      <div className="mt-2 pt-2 border-t border-dashed border-gray-200 flex items-center gap-2 flex-wrap text-xs">
+                        <span className="text-gray-500">
+                          {bm.scope === 'agency' ? '이 기관' : bm.scope === 'similar_agency' ? '유사 기관' : '전국'} 과거 낙찰 평균
+                        </span>
+                        <span className="font-mono font-semibold text-gray-700">{bm.avg_pct}%</span>
+                        <span className="text-gray-400">({bm.sample_count}건)</span>
+                        <span className="text-gray-300">│</span>
+                        <span className="text-gray-500">내 점수</span>
+                        <span className={cn(
+                          'font-mono font-semibold',
+                          diff !== null && diff > 0 ? 'text-emerald-600' : 'text-red-500'
+                        )}>
+                          {bs.pct}%
+                          {diff !== null && (
+                            <span className="ml-1 text-[10px]">
+                              ({diff > 0 ? '+' : ''}{diff}%p)
+                            </span>
+                          )}
+                        </span>
+                        {beatsPct && (
+                          <span className={cn(
+                            'px-1.5 py-0.5 rounded text-[10px] font-semibold',
+                            beatsPct === '상위25%' ? 'bg-emerald-100 text-emerald-700' :
+                            beatsPct === '상위50%' ? 'bg-sky-100 text-sky-700' :
+                            beatsPct === '하위50%' ? 'bg-amber-100 text-amber-700' :
+                            'bg-red-100 text-red-600'
+                          )}>
+                            {beatsPct}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+
+              {/* ── P2: PQ 적격심사 하한선 경고 배너 ── */}
+              {pqFloorData?.applicable && pqFloorData.verdict !== 'PASS' && !simulateMut.isPending && (
+                <div className={cn(
+                  'rounded-xl border p-3 flex items-start gap-3 text-sm',
+                  pqFloorData.verdict === 'FAIL'
+                    ? 'bg-red-50 border-red-300'
+                    : 'bg-amber-50 border-amber-300'
+                )}>
+                  <AlertCircle className={cn(
+                    'w-4 h-4 mt-0.5 shrink-0',
+                    pqFloorData.verdict === 'FAIL' ? 'text-red-500' : 'text-amber-500'
+                  )} />
+                  <div className="flex-1 min-w-0">
+                    <div className={cn(
+                      'font-semibold',
+                      pqFloorData.verdict === 'FAIL' ? 'text-red-700' : 'text-amber-700'
+                    )}>
+                      {pqFloorData.verdict === 'FAIL' ? '⛔ PQ 적격심사 통과 불가' : '⚠️ PQ 적격심사 주의 필요'}
+                    </div>
+                    <div className="flex items-center gap-3 mt-1 flex-wrap">
+                      {pqFloorData.pq_floor_rate && (
+                        <span className="font-mono font-bold text-gray-800">
+                          최저 투찰율: {(pqFloorData.pq_floor_rate * 100).toFixed(4)}%
+                        </span>
+                      )}
+                      <span className="text-xs text-gray-500">
+                        통과 확률 {(pqFloorData.pass_prob * 100).toFixed(0)}% · {pqFloorData.criteria_type.replace('local_under50','지방계약법50억미만').replace('local_over50','지방계약법50억이상').replace('national_under100','국가계약법100억미만')}
+                      </span>
+                    </div>
+                    {pqFloorData.warning && (
+                      <div className="text-xs text-gray-600 mt-1">{pqFloorData.warning}</div>
+                    )}
+                    {result?.optimal?.rate && pqFloorData.pq_floor_rate && result.optimal.rate < pqFloorData.pq_floor_rate && (
+                      <div className="mt-2 text-xs font-semibold text-red-600">
+                        ⚠️ 현재 추천 투찰율 {(result.optimal.rate * 100).toFixed(4)}% 가 PQ 하한 {(pqFloorData.pq_floor_rate * 100).toFixed(4)}% 보다 낮습니다
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* ── ② 담합 의심 경고 (최우선 표시) ── */}
               {hotZoneData?.collusion_alert && hotZoneData.collusion_alert.flag !== 'clean' && hotZoneData.collusion_alert.flag !== 'insufficient_data' && (
                 <div className={cn(
@@ -927,6 +1054,34 @@ export default function TenderDecisionPage() {
                                 </span>
                               </div>
                             )}
+                            {s.bid_score && (() => {
+                              const sbs = s.bid_score!
+                              const bm = result.bid_score_benchmark
+                              const diff = bm ? +(sbs.pct - bm.avg_pct).toFixed(1) : null
+                              return (
+                                <div className="pt-1 border-t border-dashed space-y-0.5">
+                                  <div className="flex justify-between text-xs">
+                                    <span className="text-gray-500">확보예가</span>
+                                    <span className={cn(
+                                      'font-mono font-semibold',
+                                      sbs.grade === '우수' ? 'text-emerald-600' :
+                                      sbs.grade === '보통' ? 'text-amber-600' : 'text-red-600'
+                                    )}>
+                                      {sbs.score}/{sbs.max_score}
+                                      <span className="text-[10px] text-gray-400 ml-1">({sbs.pct}%)</span>
+                                    </span>
+                                  </div>
+                                  {bm && bm.sample_count >= 5 && diff !== null && (
+                                    <div className="flex justify-between text-[10px] text-gray-400">
+                                      <span>과거 평균</span>
+                                      <span className={diff > 0 ? 'text-emerald-500' : 'text-red-400'}>
+                                        {bm.avg_pct}% ({diff > 0 ? '+' : ''}{diff}%p)
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })()}
                           </div>
                         </div>
                       )

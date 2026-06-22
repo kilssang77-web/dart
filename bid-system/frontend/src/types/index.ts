@@ -1398,6 +1398,7 @@ export interface StrategyResult {
   valid_ratio:     number
   label:           string
   expected_profit: number | null
+  bid_score?:      BidScoreResult
 }
 
 export interface SimulateBidRequest {
@@ -1407,13 +1408,30 @@ export interface SimulateBidRequest {
   n_sim:            number
 }
 
+export interface BidScoreBenchmark {
+  sample_count: number
+  avg_pct:      number
+  p25_pct:      number
+  p50_pct:      number
+  p75_pct:      number
+  scope:        'agency' | 'similar_agency' | 'national'
+}
+
+export interface BidScoreResult {
+  score:       number
+  max_score:   number
+  pct:         number
+  grade:       '우수' | '보통' | '불리'
+  description: string
+}
+
 export interface SimulateBidResponse {
   bid_id:           number
   base_amount:      number
   floor_rate:       number
   srate_center:     number
   srate_std:        number
-  mode:             'real' | 'estimated'
+  mode:             'real' | 'estimated' | 'estimated_bimodal'
   pred_log_id:      number | null
   yega_candidates:  { idx: number; amount: number; rate: number }[]
   top_combinations: { combo: number[]; amount: number; rate: number; prob: number }[]
@@ -1422,6 +1440,20 @@ export interface SimulateBidResponse {
   strategies:       Record<string, StrategyResult>
   optimal:          { rate: number; amount: number; win_prob: number; srate: number; floor_ok: boolean }
   histogram:        { bin_center: number; count: number; prob: number }[]
+  bid_score:           BidScoreResult | null
+  bid_score_benchmark: BidScoreBenchmark | null
+}
+
+export interface PqFloorResponse {
+  bid_id:          number
+  applicable:      boolean
+  pq_floor_rate:   number | null
+  pq_floor_amount: number | null
+  verdict:         'PASS' | 'FAIL' | 'UNCERTAIN' | 'NOT_APPLICABLE'
+  pass_prob:       number
+  score_breakdown: Record<string, unknown>
+  criteria_type:   string
+  warning:         string | null
 }
 
 export interface AgencyWinHistogramBin {

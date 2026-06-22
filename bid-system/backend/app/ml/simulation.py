@@ -568,3 +568,75 @@ def scan_zones_from_dist(
     top10 = sorted(valid_zones, key=lambda z: z["win_prob"], reverse=True)[:10]
     return zones, top10
 
+
+def calc_bid_score(
+    srate_dist: np.ndarray,
+    our_bid_rate: float,
+    floor_rate: float,
+) -> dict:
+    """
+    BidScore 계산 — 1365개(또는 n_sim개) 조합 중 낙찰 가능 조합 수.
+
+    낙찰 가능 조건:
+      floor_rate × srate  ≤  our_bid_rate  ≤  srate
+      (실질 낙찰하한가 이상 & 예정가격 이하)
+
+    실측 모드(C(15,4)=1365)에서 정확하고, 추정 모드에서는 기대값 근사.
+
+    Returns:
+        score      : 낙찰 가능 조합 수
+        max_score  : 전체 조합 수 (실측=1365, 추정=n_sim)
+        pct        : score / max_score × 100 (%)
+        grade      : "우수" / "보통" / "불리"
+        description: 한 줄 해석 문자열
+    """
+    effective_floor = floor_rate * srate_dist
+    valid = (our_bid_rate >= effective_floor) & (our_bid_rate <= srate_dist)
+    score = int(valid.sum())
+    max_score = len(srate_dist)
+    pct = round(score / max_score * 100, 1) if max_score > 0 else 0.0
+
+    unit = f"{max_score}개 조합" if max_score == 1365 else f"{max_score}회 시뮬레이션"
+    if pct >= 50.0:
+        grade = "우수"
+        description = f"{unit} 중 {score}개 낙찰 가능 — 매우 유리한 투찰율"
+    elif pct >= 25.0:
+        grade = "보통"
+        description = f"{unit} 중 {score}개 낙찰 가능 — 평균 수준"
+    else:
+        grade = "불리"
+        description = f"{unit} 중 {score}개 낙찰 가능 — 투찰율 상향 검토 필요"
+
+    return {
+        "score":       score,
+        "max_score":   max_score,
+        "pct":         pct,
+        "grade":       grade,
+        "description": description,
+    }
+
+
+def calc_bid_score_benchmark(
+    srate_dist: np.ndarray,
+    winner_rates: np.ndarray,
+    floor_rate: float,
+) -> dict:
+    """
+    동일 기관/금액대 과거 낙찰자 BidScore 벤치마크 계산.
+
+    과거 낙찰자 투찰율 각각에 대해 calc_bid_score를 적용하여
+    분포(평균, 사분위)를 반환한다.
+    우리 점수와 비교해 "평균보다 높음/낮음" 판단에 사용.
+    """
+    scores = np.array([
+        calc_bid_score(srate_dist, float(r), floor_rate)["pct"]
+        for r in winner_rates
+    ])
+    return {
+        "sample_count": int(len(scores)),
+        "avg_pct":      round(float(np.mean(scores)), 1),
+        "p25_pct":      round(float(np.percentile(scores, 25)), 1),
+        "p50_pct":      round(float(np.median(scores)), 1),
+        "p75_pct":      round(float(np.percentile(scores, 75)), 1),
+    }
+

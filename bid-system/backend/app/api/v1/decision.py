@@ -6,7 +6,7 @@ from ...models import User
 from ...schemas import (
     BidContextResponse, PersonalBiasInfo, SimulateBidRequest, SimulateBidResponse,
     AgencyWinHistogramResponse, WinProbCurveResponse,
-    PositionAnalysisResponse, QuickDecisionResponse,
+    PositionAnalysisResponse, QuickDecisionResponse, PqFloorResponse,
 )
 from ...services import DecisionService
 from ...common.security import get_current_user
@@ -80,6 +80,19 @@ def get_quick_decision(
 ):
     """1화면 의사결정 집계 — GO/PASS 판정 + 권장투찰금액 + 낙찰확률 + 근거."""
     result = svc.get_quick_decision(db, bid_id, user_id=current_user.id)
+    if not result:
+        raise HTTPException(status_code=404, detail="bid not found")
+    return result
+
+
+@router.get("/{bid_id}/pq-floor", response_model=PqFloorResponse)
+def get_pq_floor(
+    bid_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """P2: PQ 적격심사 기준 최저 투찰율 — CompanyProfile 자동 연동."""
+    result = svc.get_pq_floor(db, bid_id)
     if not result:
         raise HTTPException(status_code=404, detail="bid not found")
     return result

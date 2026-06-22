@@ -396,6 +396,103 @@ class DecisionService:
         except Exception as _e:
             logger.warning(f"prediction_logs_v2 저장 실패: {_e}")
 
+        # P1: 확보예가 BidScore — 최적 투찰율 기준으로 계산
+        bid_score_data = None
+        try:
+            from .ml.simulation import calc_bid_score
+            _opt_rate = optimal.get("rate") if optimal else None
+            if _opt_rate:
+                bid_score_data = calc_bid_score(srate_dist, _opt_rate, floor_rate)
+                # 각 전략에도 BidScore 추가
+                for _k, _r in [("aggressive", rate_agg), ("balanced", rate_bal), ("conservative", rate_con)]:
+                    if _k in strategies:
+                        _bs = calc_bid_score(srate_dist, _r, floor_rate)
+                        strategies[_k]["bid_score"] = _bs
+        except Exception as _bs_err:
+            logger.warning(f"BidScore 계산 실패 (무시): {_bs_err}")
+
+        # P1 Benchmark: 동일 기관/금액대 과거 낙찰자 BidScore 분포
+        bid_score_benchmark = None
+        try:
+            from sqlalchemy import text as _text
+
+            _AGENCY_TYPE_KW = [
+                "교육청", "교육지원청", "시청", "군청", "구청", "도청",
+                "공사", "공단", "대학교", "대학", "공기업", "공공기관",
+            ]
+
+            def _extract_agency_type(name: str) -> str | None:
+                for kw in _AGENCY_TYPE_KW:
+                    if kw in name:
+                        return kw
+                return None
+
+            _agency_name = b.agency.name if b.agency else None
+            if _agency_name and base_amount > 0:
+                _amount_min = int(base_amount * 0.5)
+                _amount_max = int(base_amount * 2.0)
+                _base_sql = """
+                    SELECT ip.base_ratio
+                    FROM inpo21c_participants ip
+                    JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = ip.inpo21c_bid_id
+                    WHERE ip.is_winner = TRUE
+                      AND ip.base_ratio BETWEEN 0.80 AND 1.05
+                      AND ib.base_amount BETWEEN :amount_min AND :amount_max
+                """
+
+                # 1차: 기관명 정확 매칭 또는 prefix 6자 매칭
+                _agency_prefix = _agency_name[:6] if len(_agency_name) >= 6 else _agency_name
+                _rows = db.execute(_text(_base_sql + """
+                      AND (TRIM(ib.agency_name) = TRIM(:agency_name)
+                           OR TRIM(ib.agency_name) LIKE :agency_like)
+                      AND ib.open_datetime >= NOW() - INTERVAL '2 years'
+                    LIMIT 400
+                """), {
+                    "agency_name": _agency_name,
+                    "agency_like": f"%{_agency_prefix}%",
+                    "amount_min":  _amount_min,
+                    "amount_max":  _amount_max,
+                }).fetchall()
+                _scope = "agency"
+
+                # 2차 폴백: 기관 종류(교육청/시청/공사 등) 키워드 매칭
+                if len(_rows) < 5:
+                    _kw = _extract_agency_type(_agency_name)
+                    if _kw:
+                        _rows = db.execute(_text(_base_sql + """
+                              AND ib.agency_name LIKE :kw_like
+                              AND ib.open_datetime >= NOW() - INTERVAL '3 years'
+                            LIMIT 400
+                        """), {
+                            "kw_like":   f"%{_kw}%",
+                            "amount_min": _amount_min,
+                            "amount_max": _amount_max,
+                        }).fetchall()
+                        _scope = "similar_agency"
+
+                # 3차 폴백: 금액대 전국 평균
+                if len(_rows) < 5:
+                    _rows = db.execute(_text(_base_sql + """
+                          AND ib.open_datetime >= NOW() - INTERVAL '2 years'
+                        LIMIT 400
+                    """), {
+                        "amount_min": _amount_min,
+                        "amount_max": _amount_max,
+                    }).fetchall()
+                    _scope = "national"
+
+                _winner_rates = _np.array([
+                    float(r[0]) for r in _rows if r[0] is not None
+                ])
+                if len(_winner_rates) >= 5:
+                    from .ml.simulation import calc_bid_score_benchmark
+                    bid_score_benchmark = calc_bid_score_benchmark(
+                        srate_dist, _winner_rates, floor_rate
+                    )
+                    bid_score_benchmark["scope"] = _scope
+        except Exception as _bsb_err:
+            logger.warning(f"BidScore 벤치마크 계산 실패 (무시): {_bsb_err}")
+
         return {
             "bid_id":           bid_id,
             "base_amount":      base_amount,
@@ -411,6 +508,8 @@ class DecisionService:
             "strategies":       strategies,
             "optimal":          optimal,
             "histogram":        histogram,
+            "bid_score":           bid_score_data,
+            "bid_score_benchmark": bid_score_benchmark,
         }
 
     def get_win_prob_curve(self, db: Session, bid_id: int) -> dict:
@@ -858,4 +957,79 @@ class DecisionService:
             "best_rate_source":     best_source,
             "position_top4":        position_top4,
             "floor_rate":           floor_rate,
+        }
+
+    def get_pq_floor(self, db: Session, bid_id: int) -> dict:
+        """P2: PQ 적격심사 기준 최저 투찰율 계산 — CompanyProfile 자동 연동."""
+        from .ml.qualification import check_qualification
+        from .models import CompanyProfile
+
+        b = db.query(Bid).filter(Bid.id == bid_id).first()
+        if not b:
+            return {}
+
+        base_amount = b.base_amount or 0
+        # 추정가격 1억 미만은 PQ 적격심사 미해당
+        if base_amount < 100_000_000:
+            return {
+                "bid_id":          bid_id,
+                "applicable":      False,
+                "pq_floor_rate":   None,
+                "pq_floor_amount": None,
+                "verdict":         "NOT_APPLICABLE",
+                "pass_prob":       1.0,
+                "score_breakdown": {},
+                "criteria_type":   "none",
+                "warning":         None,
+            }
+
+        # 사정율 예측
+        agency_id  = b.agency_id  or 0
+        industry_id = b.industry_id or 0
+        features = load_srate_stats(db, agency_id, industry_id, 0, base_amount)
+        ep = predict_srate(features, base_amount)
+        srate_center = ep["srate_range"]["center"]
+        srate_std = features.get("agency_srate_std") or features.get("global_srate_std") or 0.012
+
+        # CompanyProfile에서 PQ 입력값 추출
+        prof = db.query(CompanyProfile).first()
+        our_experience  = 0
+        annual_revenue  = 0
+        workforce_count = 0
+        if prof:
+            annual_revenue  = int(prof.annual_revenue or 0)
+            workforce_count = int(prof.workforce_count or 0)
+            for cap in (prof.construction_capabilities or []):
+                if isinstance(cap, dict):
+                    our_experience = max(our_experience, int(cap.get("performance", 0) or 0))
+
+        result = check_qualification(
+            base_amount=base_amount,
+            estimated_price_center=srate_center,
+            estimated_price_std=srate_std,
+            our_experience=our_experience,
+            annual_revenue=annual_revenue,
+            workforce_count=workforce_count,
+        )
+
+        pq_floor_rate = None
+        if result.min_pass_amount and base_amount > 0:
+            pq_floor_rate = round(result.min_pass_amount / base_amount, 6)
+
+        warning = None
+        if result.verdict == "FAIL":
+            warning = f"적격심사 통과 확률 {result.pass_prob:.0%} — 이 공고는 PQ 통과가 어렵습니다"
+        elif result.verdict == "UNCERTAIN" and pq_floor_rate:
+            warning = f"PQ 최저 통과 투찰율 {pq_floor_rate*100:.4f}% — 이 이하 투찰 시 낙찰 후 계약 취소 위험"
+
+        return {
+            "bid_id":          bid_id,
+            "applicable":      True,
+            "pq_floor_rate":   pq_floor_rate,
+            "pq_floor_amount": result.min_pass_amount,
+            "verdict":         result.verdict,
+            "pass_prob":       result.pass_prob,
+            "score_breakdown": result.score_breakdown,
+            "criteria_type":   result.criteria_type,
+            "warning":         warning,
         }

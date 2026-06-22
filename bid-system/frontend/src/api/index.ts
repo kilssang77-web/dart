@@ -495,6 +495,9 @@ export const decisionApi = {
 
   quickDecision: (bidId: number): Promise<import('../types').QuickDecisionResponse> =>
     api.get(`/bids/${bidId}/quick-decision`).then((r) => r.data),
+
+  pqFloor: (bidId: number): Promise<import('../types').PqFloorResponse> =>
+    api.get(`/bids/${bidId}/pq-floor`).then((r) => r.data),
 }
 
 export const journalApi = {

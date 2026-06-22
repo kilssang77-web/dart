@@ -1366,6 +1366,23 @@ class ZoneItem(BaseModel):
     floor_ok:    bool
 
 
+class BidScoreResult(BaseModel):
+    score:       int
+    max_score:   int
+    pct:         float
+    grade:       str    # "우수" / "보통" / "불리"
+    description: str
+
+
+class BidScoreBenchmark(BaseModel):
+    sample_count: int
+    avg_pct:      float
+    p25_pct:      float
+    p50_pct:      float
+    p75_pct:      float
+    scope:        str   # "agency" | "similar_agency" | "national"
+
+
 class SimulateBidResponse(BaseModel):
     bid_id:           int
     base_amount:      int
@@ -1381,6 +1398,20 @@ class SimulateBidResponse(BaseModel):
     strategies:       dict
     optimal:          dict
     histogram:        List[dict]
+    bid_score:           Optional[BidScoreResult]    = None   # P1: 확보예가 점수
+    bid_score_benchmark: Optional[BidScoreBenchmark] = None  # P1: 과거 낙찰자 벤치마크
+
+
+class PqFloorResponse(BaseModel):
+    bid_id:          int
+    applicable:      bool             # PQ 해당 공사 여부 (1억 미만 등은 비해당)
+    pq_floor_rate:   Optional[float]  # 최저 통과 투찰율 (기초금액 대비)
+    pq_floor_amount: Optional[int]    # 최저 통과 투찰금액 (원)
+    verdict:         str              # PASS / FAIL / UNCERTAIN / NOT_APPLICABLE
+    pass_prob:       float
+    score_breakdown: dict
+    criteria_type:   str
+    warning:         Optional[str]    # 추천값이 하한 아래일 때 경고 메시지
 
 
 class AgencyWinHistogramBin(BaseModel):
