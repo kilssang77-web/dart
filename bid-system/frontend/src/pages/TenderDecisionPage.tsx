@@ -1152,10 +1152,10 @@ export default function TenderDecisionPage() {
                                     />
                                   )}
                                 </div>
-                                <span className="font-mono text-indigo-700 w-20 text-right shrink-0">
+                                <span className="font-mono text-indigo-700 w-40 text-right shrink-0 whitespace-nowrap overflow-hidden">
                                   {c.p25_pct?.toFixed(4)}%~{c.p75_pct?.toFixed(4)}%
                                 </span>
-                                <span className={cn('w-8 text-right shrink-0 font-semibold', aggrColor)}>{aggrLabel}</span>
+                                <span className={cn('w-10 text-right shrink-0 font-semibold', aggrColor)}>{aggrLabel}</span>
                               </div>
                               <div className="hidden group-hover:flex ml-6 text-[10px] text-gray-400 gap-3">
                                 <span>평균 {c.avg_rate_pct.toFixed(4)}%</span>
