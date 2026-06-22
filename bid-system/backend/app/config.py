@@ -13,6 +13,7 @@ class Settings(BaseSettings):
 
     first_admin_email: str = "admin@bid.local"
     first_admin_password: str = "admin1234"
+    force_reset_admin_password: bool = False  # true 시 재시작 때 DB 비밀번호를 .env 값으로 강제 동기화
     seed_demo_data: bool = True
 
     g2b_api_key: str = ""
