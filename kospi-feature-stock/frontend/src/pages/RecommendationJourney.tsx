@@ -1,5 +1,9 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
+
+const PerformanceTracking = lazy(() =>
+  import('./PerformanceTracking').then((m) => ({ default: m.PerformanceTracking }))
+)
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
 import { TrendingUp, Target, BrainCircuit, Info, RefreshCw, CheckCircle2, AlertCircle, AlertTriangle, Loader2, Clock, ChevronRight } from 'lucide-react'
@@ -317,6 +321,7 @@ function FeedbackRetrainPanel() {
 // ── 메인 페이지 ───────────────────────────────────────────────────────────────
 export function RecommendationJourney() {
   const nav = useNavigate()
+  const [tab,         setTab]         = useState<'journey' | 'stats'>('journey')
   const [days,        setDays]        = useState(30)
   const [eventFilter, setEventFilter] = useState('')
   const [showSummary, setShowSummary] = useState(false)
@@ -391,6 +396,34 @@ export function RecommendationJourney() {
 
   return (
     <div className="p-5 space-y-5 max-w-[1800px]">
+
+      {/* 탭 전환 */}
+      <div className="flex rounded-lg overflow-hidden border border-[var(--border)] w-fit">
+        {([['journey', '추천 여정'], ['stats', '성과 상세 통계']] as const).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={clsx(
+              'px-4 py-2 text-sm font-medium transition-colors',
+              tab === key
+                ? 'bg-cyan-500/20 text-cyan-400'
+                : 'text-[var(--muted)] hover:text-[var(--fg)] hover:bg-[var(--border)]'
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* 성과 상세 통계 탭 */}
+      {tab === 'stats' && (
+        <Suspense fallback={<div className="h-48 flex items-center justify-center text-[var(--muted)] text-sm">로딩 중…</div>}>
+          <PerformanceTracking />
+        </Suspense>
+      )}
+
+      {/* 추천 여정 탭 */}
+      {tab === 'journey' && <>
 
       {/* 페이지 설명 */}
       <div className="flex items-start justify-between gap-4">
@@ -677,6 +710,8 @@ export function RecommendationJourney() {
           </div>
         )}
       </div>
+
+      </> /* journey tab end */}
 
     </div>
   )

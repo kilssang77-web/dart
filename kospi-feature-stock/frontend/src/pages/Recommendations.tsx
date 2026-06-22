@@ -516,14 +516,20 @@ function RecCard({
             {showDetail && (
               <div className="mt-2 space-y-1.5">
                 {rec.rationale.sim_count != null && rec.rationale.sim_count > 0 && (
-                  <div className="text-xs text-[var(--muted)]">
-                    유사 사례 <span className="text-[var(--fg)] font-semibold">{rec.rationale.sim_count}건</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onOpen() }}
+                    className="flex items-center gap-1 text-xs text-[var(--muted)] hover:text-purple-400 transition-colors group"
+                    title="유사사례 상세 보기"
+                  >
+                    <span>유사 사례</span>
+                    <span className="text-[var(--fg)] font-semibold group-hover:text-purple-400">{rec.rationale.sim_count}건</span>
                     {rec.rationale.avg_sim_return != null && (
-                      <span className={clsx('ml-1 font-semibold', rec.rationale.avg_sim_return >= 0 ? 'text-red-400' : 'text-blue-400')}>
+                      <span className={clsx('font-semibold', rec.rationale.avg_sim_return >= 0 ? 'text-red-400' : 'text-blue-400')}>
                         · 평균 {rec.rationale.avg_sim_return >= 0 ? '+' : ''}{rec.rationale.avg_sim_return.toFixed(1)}%
                       </span>
                     )}
-                  </div>
+                    <span className="ml-1 text-purple-400 opacity-0 group-hover:opacity-100 transition-opacity">→ 보기</span>
+                  </button>
                 )}
                 {rec.rationale.risk_factors && rec.rationale.risk_factors.length > 0 && (
                   <div className="flex flex-wrap gap-1">

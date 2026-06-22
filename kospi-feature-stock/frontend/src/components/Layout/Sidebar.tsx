@@ -4,7 +4,7 @@ import { clsx } from 'clsx'
 import {
   LayoutDashboard, TrendingUp, Search, Newspaper,
   FlaskConical, Settings2, Activity, Bell, Star,
-  ChevronLeft, ChevronRight, X,
+  ChevronLeft, ChevronRight, X, BarChart2, ServerCog,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { featuresApi } from '@/api/features'
@@ -38,8 +38,10 @@ function buildNavGroups(badge?: string): NavGroup[] {
     },
     {
       items: [
-        { to: '/backtest', icon: <FlaskConical size={15} />, label: '백테스트' },
-        { to: '/settings', icon: <Settings2 size={15} />,    label: '설정' },
+        { to: '/backtest',      icon: <FlaskConical size={15} />, label: '백테스트' },
+        { to: '/performance',   icon: <BarChart2 size={15} />,    label: '모델 성능' },
+        { to: '/system-health', icon: <ServerCog size={15} />,    label: '시스템 헬스' },
+        { to: '/settings',      icon: <Settings2 size={15} />,    label: '설정' },
       ],
     },
   ]
