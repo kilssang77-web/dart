@@ -285,7 +285,7 @@ services:
         --test-start  2025-01-01 --test-end  2025-12-31
         --smote
         --max-codes 500
-        --model-dir /models
+        --model-dir /models/lgbm
     profiles:
       - tools
     restart: "no"
