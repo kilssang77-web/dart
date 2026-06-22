@@ -9,7 +9,7 @@ import { useIsMobile } from '@/hooks/useMediaQuery'
 import { stocksApi, type FinancialItem } from '@/api/stocks'
 import { featuresApi } from '@/api/features'
 import { recommendationsApi } from '@/api/recommendations'
-import { watchlistApi } from '@/api/watchlist'
+import { watchlistApi, type WatchlistItem } from '@/api/watchlist'
 import { http } from '@/api/client'
 import { CandleChart } from '@/components/charts/CandleChart'
 import { Badge, ActionBadge, MarketBadge } from '@/components/ui/Badge'
@@ -113,6 +113,40 @@ function PriceStat({ label, value, color }: { label: string; value?: number | nu
   )
 }
 
+function WatchlistRow({ item, active, onClick }: {
+  item: WatchlistItem; active: boolean; onClick: () => void
+}) {
+  const chg = item.change_rate ?? 0
+  const up = chg > 0; const dn = chg < 0
+  return (
+    <div
+      onClick={onClick}
+      className={clsx(
+        'flex items-center justify-between px-3 py-2 border-b border-[var(--border)]/40',
+        'hover:bg-[var(--border)]/25 cursor-pointer transition-colors',
+        active && 'bg-cyan-500/10 border-l-2 border-l-cyan-500',
+      )}
+    >
+      <div className="min-w-0">
+        <div className="text-xs font-semibold text-[var(--fg)] truncate max-w-[120px]">{item.name}</div>
+        <div className="text-[10px] text-[var(--muted)]">{item.code}</div>
+      </div>
+      <div className="text-right shrink-0 ml-1.5">
+        {item.current_price != null && (
+          <div className="text-xs font-semibold tabular text-[var(--fg)]">
+            {item.current_price.toLocaleString()}
+          </div>
+        )}
+        <div className={clsx('text-[10px] tabular font-medium',
+          up ? 'text-red-400' : dn ? 'text-blue-400' : 'text-[var(--muted)]'
+        )}>
+          {item.change_rate != null ? `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%` : '—'}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function OpinionText({ text }: { text: string }) {
   return (
     <div className="space-y-1.5 text-sm text-[var(--fg)] leading-relaxed">
@@ -169,6 +203,17 @@ export function StockSearch() {
     staleTime: 60_000,
   })
   const { data: stock } = useQuery({ queryKey: ['stock-detail', selCode], queryFn: () => stocksApi.getDetail(selCode), enabled: !!selCode })
+
+  // URL 파라미터로 진입 시(외부 메뉴에서 클릭) 최근 검색 목록에 자동 추가
+  useEffect(() => {
+    if (!selCode || !stock) return
+    setRecent((prev) => {
+      if (prev[0]?.code === selCode) return prev
+      const next = [{ code: selCode, name: stock.name }, ...prev.filter((r) => r.code !== selCode)].slice(0, MAX_RECENT)
+      persistLS(RECENT_KEY, next)
+      return next
+    })
+  }, [selCode, stock])
   const barsLimit = period === 'D' ? 120 : period === 'W' ? 260 : 780
   const { data: barsRaw } = useQuery({ queryKey: ['bars', selCode, period], queryFn: () => stocksApi.getDailyBars(selCode, barsLimit), enabled: !!selCode })
   const { data: quote } = useQuery({ queryKey: ['quote', selCode], queryFn: () => stocksApi.getQuote(selCode), enabled: !!selCode, refetchInterval: 10_000 })
@@ -208,7 +253,15 @@ export function StockSearch() {
     staleTime: 3_600_000,
   })
 
-  const isFav = favs.some((f) => f.code === selCode)
+  const { data: watchlist = [] } = useQuery({
+    queryKey:        ['watchlist'],
+    queryFn:         () => watchlistApi.list(),
+    refetchInterval: 60_000,
+    staleTime:       30_000,
+  })
+
+  // 서버 관심종목 기준 (localStorage favs 는 레거시 보조용)
+  const isFav = watchlist.some((w) => w.code === selCode)
 
   function persistLS(key: string, val: unknown) { localStorage.setItem(key, JSON.stringify(val)) }
 
@@ -274,11 +327,19 @@ export function StockSearch() {
             </select>
           </div>
           <div className="flex-1 overflow-y-auto">
-            {!query && favs.length > 0 && (<>
+            {!query && watchlist.length > 0 && (<>
               <div className="px-3 py-2 text-xs font-semibold text-[var(--muted)] uppercase tracking-widest flex items-center justify-between">
-                <span className="flex items-center gap-1"><Star size={9} />관심종목</span><span className="tabular">{favs.length}</span>
+                <span className="flex items-center gap-1"><Star size={9} className="text-yellow-400" />관심종목</span>
+                <span className="tabular">{watchlist.length}</span>
               </div>
-              {favs.map((f) => <ListRow key={f.code} code={f.code} name={f.name} active={selCode === f.code} onClick={() => selectCode(f.code, f.name)} />)}
+              {watchlist.map((item) => (
+                <WatchlistRow
+                  key={item.code}
+                  item={item}
+                  active={selCode === item.code}
+                  onClick={() => selectCode(item.code, item.name)}
+                />
+              ))}
             </>)}
             {!query && (<>
               <div className="px-3 py-2 text-xs font-semibold text-[var(--muted)] uppercase tracking-widest flex items-center justify-between">

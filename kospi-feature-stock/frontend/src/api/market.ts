@@ -49,12 +49,22 @@ export interface ForeignFlowResponse {
   inst_buy:    ForeignFlowItem[]
 }
 
+export interface ThemeStockLink {
+  code:       string
+  name:       string
+  change_pct: number | null
+  is_rising:  boolean | null
+}
+
 export interface TrendingTheme {
-  theme:       string
-  count:       number
-  stock_count: number
-  avg_score:   number
-  source:      'news' | 'sector'
+  theme:         string
+  count:         number
+  stock_count:   number
+  avg_score:     number
+  source:        'news' | 'sector'
+  stock_links?:  ThemeStockLink[]
+  rising_count:  number
+  falling_count: number
 }
 
 interface TrendingThemesResponse {

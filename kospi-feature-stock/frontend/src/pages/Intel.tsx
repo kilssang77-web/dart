@@ -354,30 +354,154 @@ function NewsTab() {
   )
 }
 
+// ── 테마 카드 (종목 토글 + 상승 필터) ───────────────────────────────────────
+function ThemeCard({ theme }: { theme: import('@/api/market').TrendingTheme }) {
+  const [expanded,    setExpanded]    = useState(false)
+  const [risingOnly,  setRisingOnly]  = useState(false)
+  const nav   = useNavigate()
+  const links = theme.stock_links ?? []
+
+  // 실제 주가 방향 (daily_bars close vs open)
+  const rising  = theme.rising_count  ?? 0
+  const falling = theme.falling_count ?? 0
+  const total   = rising + falling
+  const priceLabel =
+    total === 0       ? '데이터없음' :
+    rising  > falling ? `상승 ${rising}↑` :
+    falling > rising  ? `하락 ${falling}↓` : '혼조'
+  const priceColor =
+    total === 0       ? 'text-[var(--muted)]' :
+    rising  > falling ? 'text-red-400' :
+    falling > rising  ? 'text-blue-400' : 'text-yellow-400'
+  const priceBg =
+    total === 0       ? 'bg-[var(--border)] border-[var(--border)]' :
+    rising  > falling ? 'bg-red-500/10 border-red-500/20' :
+    falling > rising  ? 'bg-blue-500/10 border-blue-500/20' : 'bg-yellow-500/10 border-yellow-500/20'
+
+  const visibleLinks = risingOnly ? links.filter((s) => s.is_rising === true) : links
+
+  return (
+    <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 hover:border-cyan-500/30 transition-colors space-y-3">
+      {/* 헤더 */}
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-1.5">
+          <Hash size={12} className={theme.source === 'news' ? 'text-cyan-400' : 'text-purple-400'} />
+          <span className="text-sm font-bold text-[var(--fg)]">{theme.theme}</span>
+        </div>
+        <span className={clsx('text-xs px-1.5 py-0.5 rounded border font-semibold', priceColor, priceBg)}>
+          {priceLabel}
+        </span>
+      </div>
+
+      {/* 메타 */}
+      <div className="flex items-center justify-between text-xs text-[var(--muted)]">
+        <div className="flex items-center gap-2">
+          {links.length > 0 ? (
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2 transition-colors"
+            >
+              종목 {theme.stock_count}개
+            </button>
+          ) : (
+            <span>종목 {theme.stock_count}개</span>
+          )}
+          {/* 상승 / 하락 카운트 미니 요약 */}
+          {total > 0 && (
+            <span className="text-[10px] tabular">
+              <span className="text-red-400">{rising}↑</span>
+              <span className="text-[var(--border)] mx-0.5">/</span>
+              <span className="text-blue-400">{falling}↓</span>
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <BarChart2 size={10} />
+          <span className="tabular">avg {theme.avg_score.toFixed(2)}</span>
+        </div>
+      </div>
+
+      {/* 종목 칩 (토글) */}
+      {expanded && (
+        <div className="pt-1 border-t border-[var(--border)] space-y-2">
+          {/* 상승만 필터 토글 */}
+          {links.some((s) => s.is_rising !== null) && (
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setRisingOnly((v) => !v)}
+                className={clsx(
+                  'text-[10px] px-2 py-0.5 rounded border font-semibold transition-colors',
+                  risingOnly
+                    ? 'bg-red-500/20 text-red-400 border-red-500/40'
+                    : 'text-[var(--muted)] border-[var(--border)] hover:text-[var(--fg)]'
+                )}
+              >
+                {risingOnly ? '상승만 ✓' : '상승만 보기'}
+              </button>
+              {risingOnly && visibleLinks.length === 0 && (
+                <span className="text-[10px] text-[var(--muted)]">상승 종목 없음</span>
+              )}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-1">
+            {visibleLinks.map((s) => (
+              <button
+                key={s.code}
+                onClick={() => nav(`/search?code=${s.code}`)}
+                className={clsx(
+                  'text-xs px-1.5 py-0.5 rounded border transition-colors flex items-center gap-1',
+                  s.is_rising === true
+                    ? 'bg-red-500/10 text-red-400 border-red-500/20 hover:bg-red-500/20'
+                    : s.is_rising === false
+                    ? 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20'
+                    : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20 hover:bg-cyan-500/20'
+                )}
+              >
+                {s.name}
+                {s.change_pct != null && (
+                  <span className="tabular text-[10px] opacity-80">
+                    {s.change_pct >= 0 ? '+' : ''}{s.change_pct.toFixed(1)}%
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 타입 배지 + 건수 */}
+      <div className="flex items-center justify-between">
+        <span className={clsx('text-xs px-1.5 py-0.5 rounded border',
+          theme.source === 'news'
+            ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
+            : 'bg-purple-500/10 text-purple-400 border-purple-500/20'
+        )}>
+          {theme.source === 'news' ? '뉴스 테마' : '섹터'}
+        </span>
+        <span className="text-xs text-[var(--muted)] tabular">{theme.count}건</span>
+      </div>
+    </div>
+  )
+}
+
 // ── 테마 탭 ──────────────────────────────────────────────────────────────────
 function ThemesTab() {
-  const nav = useNavigate()
-
   const { data: themes, isLoading } = useQuery({
     queryKey:        ['themes-intel'],
     queryFn:         marketApi.getThemes,
     refetchInterval: 600_000,
   })
 
-  // 중복 제거 + 상승 테마 우선 정렬
   const sortedThemes = useMemo(() => {
     if (!themes) return []
     const deduped = themes.filter((t, i, arr) => arr.findIndex((x) => x.theme === t.theme) === i)
-    return [...deduped].sort((a, b) => {
-      // avg_score 높은 순 정렬 (상승 테마 우선)
-      return b.avg_score - a.avg_score
-    })
+    return [...deduped].sort((a, b) => b.avg_score - a.avg_score)
   }, [themes])
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-[var(--muted)]">뉴스 기반 K-Means 동적 테마 클러스터 · avg_score 높은 순</p>
+        <p className="text-xs text-[var(--muted)]">뉴스 기반 테마 · 신호강도 높은 순 · 종목 클릭 시 종목 검색 · 배지=당일 주가 방향(일봉) · 빨강=상승 파랑=하락</p>
         <span className="text-xs text-[var(--muted)]">{sortedThemes.length}개 테마</span>
       </div>
 
@@ -394,49 +518,7 @@ function ThemesTab() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {sortedThemes.map((theme) => {
-          // 상승/하락/안정 추세 판단 (avg_score 기준)
-          const trend = theme.avg_score >= 0.5 ? '상승' : theme.avg_score >= 0.3 ? '안정' : '하락'
-          const trendColor = trend === '상승' ? 'text-red-400' : trend === '안정' ? 'text-yellow-400' : 'text-blue-400'
-          const trendBg = trend === '상승' ? 'bg-red-500/10 border-red-500/20' : trend === '안정' ? 'bg-yellow-500/10 border-yellow-500/20' : 'bg-blue-500/10 border-blue-500/20'
-
-          return (
-            <div key={theme.theme}
-              className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 hover:border-cyan-500/30 transition-colors">
-              {/* 헤더 */}
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-1.5">
-                  <Hash size={12} className={theme.source === 'news' ? 'text-cyan-400' : 'text-purple-400'} />
-                  <span className="text-sm font-bold text-[var(--fg)]">{theme.theme}</span>
-                </div>
-                <span className={clsx('text-xs px-1.5 py-0.5 rounded border font-semibold', trendColor, trendBg)}>
-                  {trend}
-                </span>
-              </div>
-
-              {/* 메타 */}
-              <div className="flex items-center justify-between text-xs text-[var(--muted)] mb-3">
-                <span>종목 {theme.stock_count}개</span>
-                <div className="flex items-center gap-1.5">
-                  <BarChart2 size={10} />
-                  <span className="tabular">avg {theme.avg_score.toFixed(2)}</span>
-                </div>
-              </div>
-
-              {/* 타입 배지 + 건수 */}
-              <div className="flex items-center justify-between">
-                <span className={clsx('text-xs px-1.5 py-0.5 rounded border',
-                  theme.source === 'news'
-                    ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
-                    : 'bg-purple-500/10 text-purple-400 border-purple-500/20'
-                )}>
-                  {theme.source === 'news' ? '뉴스 테마' : '섹터'}
-                </span>
-                <span className="text-xs text-[var(--muted)] tabular">{theme.count}건</span>
-              </div>
-            </div>
-          )
-        })}
+        {sortedThemes.map((theme) => <ThemeCard key={theme.theme} theme={theme} />)}
         {!isLoading && !sortedThemes.length && (
           <div className="col-span-full py-16 text-center text-[var(--muted)] text-sm">테마 데이터가 없습니다</div>
         )}

@@ -5,7 +5,7 @@
 """
 import logging
 from fastapi import APIRouter, Depends, Query
-from deps import get_db, get_redis
+from deps import get_db, get_redis, enrich_live_prices
 import asyncpg
 import redis.asyncio as redis_lib
 import orjson
@@ -23,26 +23,36 @@ _TRACKED_THEMES = [
 @router.get("/trending")
 async def get_trending_themes(
     hours: int = Query(default=72, ge=1, le=168),
-    db: asyncpg.Pool = Depends(get_db),
+    db:    asyncpg.Pool       = Depends(get_db),
+    redis: redis_lib.Redis    = Depends(get_redis),
 ):
     """최근 N시간 내 테마별 탐지 건수 + 평균 시그널 점수."""
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
 
+    # 테마 뉴스 → 그 뉴스에 주요 등장한 종목(relevance>=0.6) → 해당 종목의 최고 신호 점수
+    # relevance < 0.6: 본문 1회 언급(0.45) 또는 미등장(0.20) → 제외
+    # relevance >= 0.6: 제목 포함(0.70+) 또는 본문 3회 이상(0.60) → 해당 테마 주요 종목으로 간주
     rows = await db.fetch(
         """
         SELECT
             n.themes,
-            fe.code,
-            fe.signal_score,
-            fe.detected_at
-        FROM feature_events fe
-        JOIN news_stock_links nsl ON nsl.code = fe.code
-        JOIN news n ON n.id = nsl.news_id
-        WHERE fe.detected_at >= $1
+            nsl.code,
+            fe_agg.max_score AS signal_score,
+            n.published_at   AS detected_at
+        FROM news n
+        JOIN news_stock_links nsl ON nsl.news_id = n.id
+            AND nsl.relevance >= 0.6
+        JOIN (
+            SELECT code, MAX(signal_score) AS max_score
+            FROM feature_events
+            WHERE detected_at >= $1
+            GROUP BY code
+        ) fe_agg ON fe_agg.code = nsl.code
+        WHERE n.published_at >= $1
           AND n.themes IS NOT NULL
           AND n.themes != '[]'::jsonb
-        ORDER BY fe.detected_at DESC
-        LIMIT 2000
+        ORDER BY n.published_at DESC
+        LIMIT 5000
         """,
         since,
     )
@@ -53,10 +63,11 @@ async def get_trending_themes(
         themes = orjson.loads(row["themes"]) if isinstance(row["themes"], (str, bytes)) else (row["themes"] or [])
         for theme in themes:
             if theme not in theme_stats:
-                theme_stats[theme] = {"count": 0, "scores": [], "codes": set()}
+                theme_stats[theme] = {"count": 0, "scores": [], "codes": {}}
             theme_stats[theme]["count"] += 1
             theme_stats[theme]["scores"].append(float(row["signal_score"] or 0))
-            theme_stats[theme]["codes"].add(row["code"])
+            code = row["code"]
+            theme_stats[theme]["codes"][code] = theme_stats[theme]["codes"].get(code, 0) + 1
 
     # 테마별 이벤트 수(DB에서 직접 집계) — 뉴스 연결 없는 경우도 포함
     event_rows = await db.fetch(
@@ -75,13 +86,18 @@ async def get_trending_themes(
     for row in event_rows:
         sector = row["sector"] or "기타"
         if sector not in sector_stats:
-            sector_stats[sector] = {"count": 0, "scores": [], "codes": set()}
+            sector_stats[sector] = {"count": 0, "scores": [], "codes": {}}
         sector_stats[sector]["count"] += 1
         sector_stats[sector]["scores"].append(float(row["signal_score"] or 0))
-        sector_stats[sector]["codes"].add(row["code"])
+        code = row["code"]
+        sector_stats[sector]["codes"][code] = sector_stats[sector]["codes"].get(code, 0) + 1
 
     result: list[dict] = []
     seen: set[str] = set()
+
+    # 이벤트 빈도 기준 상위 10개 코드 추출 (이름 조회용)
+    def _top_codes(codes_freq: dict, n: int = 10) -> list[str]:
+        return [c for c, _ in sorted(codes_freq.items(), key=lambda x: -x[1])[:n]]
 
     for theme, stat in sorted(theme_stats.items(), key=lambda x: -x[1]["count"]):
         scores = stat["scores"]
@@ -91,6 +107,7 @@ async def get_trending_themes(
             "stock_count":  len(stat["codes"]),
             "avg_score":    round(sum(scores) / len(scores), 3) if scores else 0,
             "source":       "news",
+            "_codes":       _top_codes(stat["codes"]),
         })
         seen.add(theme)
 
@@ -104,14 +121,72 @@ async def get_trending_themes(
             "stock_count":  len(stat["codes"]),
             "avg_score":    round(sum(scores) / len(scores), 3) if scores else 0,
             "source":       "sector",
+            "_codes":       _top_codes(stat["codes"]),
         })
         seen.add(sector)
 
     result.sort(key=lambda x: -x["count"])
+    result = result[:20]
+
+    all_codes = list({c for item in result for c in item["_codes"]})
+
+    # 종목명 + 등락률 일괄 조회 → Redis 실시간 현재가 보정
+    name_map: dict[str, str] = {}
+    price_map: dict[str, dict] = {}   # code → {change_pct, is_rising}
+    if all_codes:
+        name_rows = await db.fetch(
+            "SELECT code, name FROM stocks WHERE code = ANY($1::text[])", all_codes
+        )
+        name_map = {r["code"]: r["name"] for r in name_rows}
+
+        # daily_bars.change_rate: 전일 종가 대비 등락률 (표준 기준)
+        price_rows = await db.fetch(
+            """
+            SELECT DISTINCT ON (code)
+                code,
+                close::int     AS current_price,
+                COALESCE(change_rate, 0)::float AS change_rate
+            FROM daily_bars
+            WHERE code = ANY($1::text[])
+            ORDER BY code, date DESC
+            """,
+            all_codes,
+        )
+        # Redis quote:{code} 로 실시간 보정 (장중 현재가 반영)
+        price_dicts = [dict(r) for r in price_rows]
+        await enrich_live_prices(
+            redis, price_dicts,
+            price_field="current_price",
+            rate_field="change_rate",
+        )
+        for d in price_dicts:
+            cp = d.get("change_rate") or 0.0
+            price_map[d["code"]] = {"change_pct": round(cp, 2), "is_rising": cp >= 0}
+
+    for item in result:
+        codes = item.pop("_codes")
+        links = []
+        rising = falling = 0
+        for c in codes:
+            pd = price_map.get(c, {})
+            cp = pd.get("change_pct")
+            is_r = pd.get("is_rising", None)
+            links.append({
+                "code":       c,
+                "name":       name_map.get(c, c),
+                "change_pct": cp,
+                "is_rising":  is_r,
+            })
+            if is_r is True:  rising  += 1
+            elif is_r is False: falling += 1
+        item["stock_links"]   = links
+        item["rising_count"]  = rising
+        item["falling_count"] = falling
+
     return {
         "hours":   hours,
         "since":   since.isoformat(),
-        "themes":  result[:20],
+        "themes":  result,
     }
 
 

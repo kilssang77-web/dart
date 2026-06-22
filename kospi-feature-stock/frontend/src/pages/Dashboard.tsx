@@ -548,12 +548,12 @@ export function Dashboard() {
 
   const { data: topRecs } = useQuery({
     queryKey:        ['top-recs'],
-    queryFn:         () => recommendationsApi.list({ min_prob: 0.30, hours: 24, limit: 10 }),
+    queryFn:         () => recommendationsApi.list({ action: 'BUY', min_prob: 0.30, hours: 72, limit: 100, dedupe: true }),
     refetchInterval: 60_000,
   })
 
   const { data: perf } = useQuery({
-    queryKey:        ['performance-30d'],
+    queryKey:        ['perf-30'],
     queryFn:         () => recommendationsApi.getPerformance(30),
     refetchInterval: 300_000,
   })
@@ -583,7 +583,7 @@ export function Dashboard() {
   })
 
   const isRt = (indexLive as any)?.source === 'realtime'
-  const buyCount = topRecs?.filter((r) => r.action === 'BUY').length
+  const buyCount = topRecs?.length
 
   // ML 모드 추론 (최근 추천 중 첫 번째 신호 기준)
   const mlMode = topRecs?.find((r) => r.rationale?.model_mode)?.rationale?.model_mode

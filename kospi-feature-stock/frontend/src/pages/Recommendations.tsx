@@ -724,9 +724,14 @@ export function Recommendations() {
             const d = rec.fe_detected_at ?? rec.created_at
             return !!d && d.slice(0, 10) === todayKST
           }
-          // 오늘 카드를 앞으로, 각 그룹 내에서는 API 순서 유지
-          const todayRecs = recs.filter(isToday)
-          const olderRecs = recs.filter((r) => !isToday(r))
+          // 표시 점수(rec_score → probToScore 폴백) 기준 내림차순 정렬 후 그룹 분리
+          const scored = [...recs].sort((a, b) => {
+            const sa = a.rationale?.rec_score ?? probToScore(a.success_prob)
+            const sb = b.rationale?.rec_score ?? probToScore(b.success_prob)
+            return sb - sa
+          })
+          const todayRecs = scored.filter(isToday)
+          const olderRecs = scored.filter((r) => !isToday(r))
           const todayCount = todayRecs.length
 
           return [...todayRecs, ...olderRecs].map((rec, idx) => {
