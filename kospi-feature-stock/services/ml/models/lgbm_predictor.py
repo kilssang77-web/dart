@@ -126,7 +126,10 @@ class LGBMPredictor:
             path = self.model_dir / name
             if path.exists():
                 try:
-                    setattr(self, attr, joblib.load(str(path)))
+                    import warnings
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore", message=".*unpickle.*")
+                        setattr(self, attr, joblib.load(str(path)))
                     logger.info(f"Calibrator loaded: {path}")
                 except Exception as e:
                     logger.warning(f"Failed to load calibrator {path}: {e}")

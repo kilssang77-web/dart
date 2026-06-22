@@ -121,15 +121,17 @@ def _try_load_models():
 
     # Isotonic calibrators
     try:
-        import joblib
+        import joblib, warnings
         ecp = model_path / "entry_calibrator.pkl"
         rcp = model_path / "risk_calibrator.pkl"
-        if ecp.exists():
-            _entry_cal = joblib.load(str(ecp))
-            logger.info("[MLClient] entry_calibrator loaded")
-        if rcp.exists():
-            _risk_cal = joblib.load(str(rcp))
-            logger.info("[MLClient] risk_calibrator loaded")
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*unpickle.*")
+            if ecp.exists():
+                _entry_cal = joblib.load(str(ecp))
+                logger.info("[MLClient] entry_calibrator loaded")
+            if rcp.exists():
+                _risk_cal = joblib.load(str(rcp))
+                logger.info("[MLClient] risk_calibrator loaded")
     except Exception as e:
         logger.warning(f"[MLClient] calibrator load error: {e}")
 
@@ -314,6 +316,15 @@ def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: li
     foreign_net_ratio = foreign_net_today / (volumes[0] + 1)
     inst_net_ratio    = inst_net_today    / (volumes[0] + 1)
 
+    # 신규 수급 피처
+    foreign_hold_rate = _safe(sd_rows[0].get("foreign_hold_rate")) if sd_rows else 0.0
+    expert_net_5d = sum(
+        _safe(r.get("pension_net")) + _safe(r.get("insurance_net"))
+        + _safe(r.get("trust_net")) + _safe(r.get("bank_net"))
+        for r in sd_rows[:5]
+    )
+    prog_arb_net_5d = sum(_safe(r.get("prog_arbitrage_net")) for r in sd_rows[:5])
+
     # ── 공시 ──
     disc_sentiment = 0.0
     has_favorable  = 0.0
@@ -436,7 +447,10 @@ async def get_ml_result(event: dict, db: asyncpg.Pool, redis=None) -> MLResult:
             )
             sd_rows = await conn.fetch(
                 """
-                SELECT foreign_net, inst_net FROM supply_demand
+                SELECT foreign_net, inst_net, foreign_hold_rate,
+                       pension_net, insurance_net, trust_net, bank_net,
+                       prog_arbitrage_net
+                FROM supply_demand
                 WHERE code=$1 ORDER BY date DESC LIMIT 20
                 """,
                 code,

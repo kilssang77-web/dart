@@ -80,7 +80,13 @@ async def load_daily_bars(pool: asyncpg.Pool, start, end, codes: list[str] | Non
             d.bb_upper, d.bb_lower, d.ma5, d.ma20, d.ma60, d.atr14,
             d.market_cap,
             COALESCE(sd.foreign_net, d.foreign_net_buy) AS foreign_net,
-            COALESCE(sd.inst_net,    d.inst_net_buy)    AS inst_net
+            COALESCE(sd.inst_net,    d.inst_net_buy)    AS inst_net,
+            sd.foreign_hold_rate,
+            COALESCE(sd.pension_net,       0) AS pension_net,
+            COALESCE(sd.insurance_net,     0) AS insurance_net,
+            COALESCE(sd.trust_net,         0) AS trust_net,
+            COALESCE(sd.bank_net,          0) AS bank_net,
+            COALESCE(sd.prog_arbitrage_net,0) AS prog_arbitrage_net
         FROM daily_bars d
         LEFT JOIN supply_demand sd ON sd.code=d.code AND sd.date=d.date
         WHERE d.date BETWEEN $1::date AND $2::date
@@ -220,6 +226,12 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
         opens   = grp["open"].astype(float).values
         f_nets  = grp["foreign_net"].astype(float).fillna(0).values
         i_nets  = grp["inst_net"].astype(float).fillna(0).values
+        fhr_arr = grp["foreign_hold_rate"].astype(float).fillna(0).values if "foreign_hold_rate" in grp.columns else np.zeros(len(grp))
+        pen_arr = grp["pension_net"].astype(float).fillna(0).values if "pension_net" in grp.columns else np.zeros(len(grp))
+        ins_arr = grp["insurance_net"].astype(float).fillna(0).values if "insurance_net" in grp.columns else np.zeros(len(grp))
+        tru_arr = grp["trust_net"].astype(float).fillna(0).values if "trust_net" in grp.columns else np.zeros(len(grp))
+        ban_arr = grp["bank_net"].astype(float).fillna(0).values if "bank_net" in grp.columns else np.zeros(len(grp))
+        prg_arr = grp["prog_arbitrage_net"].astype(float).fillna(0).values if "prog_arbitrage_net" in grp.columns else np.zeros(len(grp))
 
         # Pre-extract disclosure data for this code (O(log N) per row via searchsorted)
         disc_code_df = disc_by_code.get(code)
@@ -319,6 +331,12 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
                 else:
                     break
             foreign_cumnet_streak = float(_fstreak)
+
+            # 신규 수급 피처 (외인보유율 · 전문가군 · 프로그램매매)
+            fhr = float(fhr_arr[i])
+            _lo5 = max(0, i - 4)
+            expert_net_5d   = float((pen_arr[_lo5:i+1] + ins_arr[_lo5:i+1] + tru_arr[_lo5:i+1] + ban_arr[_lo5:i+1]).sum())
+            prog_arb_net_5d = float(prg_arr[_lo5:i+1].sum())
 
             sv_arr = grp["short_sell_vol"].iloc[max(0,i-9):i+1].astype(float).fillna(0).values
             short_r = sv_arr[-1]/volumes[i] if volumes[i] else 0.0
@@ -488,6 +506,9 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
                 "news_sentiment_7d": news_s7, "news_count_7d": news_c7,
                 "per": per_v, "pbr": pbr_v, "roe": roe_v, "debt_ratio": debt_r,
                 "log_market_cap": log_market_cap,
+                "foreign_hold_rate": fhr,
+                "expert_net_5d": expert_net_5d,
+                "prog_arb_net_5d": prog_arb_net_5d,
                 "__code": code, "__date": date_val, "__close": c,
             }
             rows_feat.append(feat)

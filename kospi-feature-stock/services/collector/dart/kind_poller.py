@@ -132,10 +132,10 @@ class KINDPoller:
             try:
                 time_text  = cols[0].get_text(strip=True)
                 code_text  = cols[1].get_text(strip=True)
-                corp_text  = cols[2].get_text(strip=True)
-                title_el   = cols[3].find("a") or cols[3]
+                title_el   = cols[2].find("a") or cols[2]  # 공시 제목(링크) in cols[2]
                 title_text = title_el.get_text(strip=True)
                 href       = title_el.get("href", "") if title_el.name == "a" else ""
+                corp_text  = cols[3].get_text(strip=True)  # 법인명 in cols[3]
                 type_text  = cols[4].get_text(strip=True) if len(cols) > 4 else ""
             except Exception:
                 continue

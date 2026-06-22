@@ -44,6 +44,9 @@ DEFAULT_FEATURE_COLUMNS: list[str] = [
     "news_sentiment_7d", "news_count_7d",
     "per", "pbr", "roe", "debt_ratio",
     "log_market_cap",
+    "foreign_hold_rate",
+    "expert_net_5d",
+    "prog_arb_net_5d",
 ]
 
 
