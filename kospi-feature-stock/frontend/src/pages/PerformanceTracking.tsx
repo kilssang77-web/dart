@@ -9,6 +9,7 @@ import {
   type ActivePerformanceItem,
   type HistoryPerformanceItem,
   type PerformanceSummary,
+  type EventPerformanceItem,
 } from '@/api/recommendations'
 import { fmt, pctColor, probToScore, scoreBarColor } from '@/lib/utils'
 
@@ -71,6 +72,12 @@ export function PerformanceTracking() {
     queryKey: ['perf-history', historyDays],
     queryFn:  () => recommendationsApi.getPerformanceHistory(historyDays, 200),
     staleTime: 120_000,
+  })
+
+  const { data: byEvent = [] } = useQuery<EventPerformanceItem[]>({
+    queryKey:        ['perf-by-event', historyDays],
+    queryFn:         () => recommendationsApi.getPerformanceByEvent(historyDays),
+    refetchInterval: 300_000,
   })
 
   const returnDist = history.reduce<Record<string, number>>((acc, h) => {
@@ -155,6 +162,56 @@ export function PerformanceTracking() {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
+          </CardBody>
+        </Card>
+      )}
+
+      {/* 신호 유형별 실적 */}
+      {byEvent.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              <span className="flex items-center gap-1.5">
+                <TrendingUp size={14} className="text-cyan-400" />
+                신호 유형별 실적
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardBody>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-[var(--muted)] border-b border-[var(--border)]">
+                    <th className="text-left py-2 font-medium">신호 유형</th>
+                    <th className="text-right py-2 font-medium">총건</th>
+                    <th className="text-right py-2 font-medium">평가완료</th>
+                    <th className="text-right py-2 font-medium">승률</th>
+                    <th className="text-right py-2 font-medium">평균 1일</th>
+                    <th className="text-right py-2 font-medium">평균 5일</th>
+                    <th className="text-right py-2 font-medium">평균 10일</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--border)]">
+                  {byEvent.map((ev) => (
+                    <tr key={ev.event_type} className="hover:bg-white/5">
+                      <td className="py-2 font-mono text-[var(--fg)]">{ev.event_type}</td>
+                      <td className="py-2 text-right tabular text-[var(--muted)]">{ev.total}</td>
+                      <td className="py-2 text-right tabular text-[var(--muted)]">{ev.evaluated}</td>
+                      <td className="py-2 text-right tabular">
+                        {ev.win_rate != null
+                          ? <span className={clsx('font-semibold', ev.win_rate >= 60 ? 'text-green-400' : ev.win_rate >= 40 ? 'text-yellow-400' : 'text-red-400')}>
+                              {ev.win_rate.toFixed(1)}%
+                            </span>
+                          : <span className="text-[var(--muted)]">—</span>}
+                      </td>
+                      <td className="py-2 text-right"><ReturnCell value={ev.avg_r1d} /></td>
+                      <td className="py-2 text-right"><ReturnCell value={ev.avg_r5d} /></td>
+                      <td className="py-2 text-right"><ReturnCell value={ev.avg_r10d} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </CardBody>
         </Card>
       )}

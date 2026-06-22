@@ -148,7 +148,8 @@ def _safe(v, default=0.0) -> float:
 def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: list = None,
                       news_sentiment: dict | None = None,
                       _kospi_returns: tuple[float, float, float, float, float, float] | None = None,
-                      fin_row: dict | None = None) -> dict:
+                      fin_row: dict | None = None,
+                      is_kosdaq: float = 0.0) -> dict:
     """daily_bars rows(최신 → 과거 순) + 수급 + 공시 + 뉴스감성 → FEATURE_COLUMNS dict."""
     if not rows:
         return {k: 0.0 for k in FEATURE_COLUMNS}
@@ -316,15 +317,6 @@ def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: li
     foreign_net_ratio = foreign_net_today / (volumes[0] + 1)
     inst_net_ratio    = inst_net_today    / (volumes[0] + 1)
 
-    # 신규 수급 피처
-    foreign_hold_rate = _safe(sd_rows[0].get("foreign_hold_rate")) if sd_rows else 0.0
-    expert_net_5d = sum(
-        _safe(r.get("pension_net")) + _safe(r.get("insurance_net"))
-        + _safe(r.get("trust_net")) + _safe(r.get("bank_net"))
-        for r in sd_rows[:5]
-    )
-    prog_arb_net_5d = sum(_safe(r.get("prog_arbitrage_net")) for r in sd_rows[:5])
-
     # ── 공시 ──
     disc_sentiment = 0.0
     has_favorable  = 0.0
@@ -447,9 +439,7 @@ async def get_ml_result(event: dict, db: asyncpg.Pool, redis=None) -> MLResult:
             )
             sd_rows = await conn.fetch(
                 """
-                SELECT foreign_net, inst_net, foreign_hold_rate,
-                       pension_net, insurance_net, trust_net, bank_net,
-                       prog_arbitrage_net
+                SELECT foreign_net, inst_net
                 FROM supply_demand
                 WHERE code=$1 ORDER BY date DESC LIMIT 20
                 """,
@@ -469,6 +459,9 @@ async def get_ml_result(event: dict, db: asyncpg.Pool, redis=None) -> MLResult:
                 WHERE code=$1 ORDER BY year DESC, quarter DESC LIMIT 1
                 """,
                 code,
+            )
+            stock_market_row = await conn.fetchrow(
+                "SELECT market FROM stocks WHERE code=$1", code
             )
             if _kospi_returns is None:
                 kospi_rows = await conn.fetch(
@@ -505,11 +498,13 @@ async def get_ml_result(event: dict, db: asyncpg.Pool, redis=None) -> MLResult:
         except Exception:
             pass
 
+    _is_kosdaq = 1.0 if (stock_market_row and stock_market_row["market"] == "KOSDAQ") else 0.0
     feats = _compute_features(bars, sd, [dict(r) for r in disc_rows],
                               kospi_rows=[dict(r) for r in kospi_rows],
                               news_sentiment=_news_sentiment,
                               _kospi_returns=_kospi_returns,
-                              fin_row=dict(fin_row_rec) if fin_row_rec else None)
+                              fin_row=dict(fin_row_rec) if fin_row_rec else None,
+                              is_kosdaq=_is_kosdaq)
     _atr_ratio = feats.get("atr_ratio", 0.0)
 
     # ── ML 서비스 HTTP 추론 (우선) ──

@@ -63,6 +63,17 @@ export interface PerformanceSummary {
   days:           number
 }
 
+export interface EventPerformanceItem {
+  event_type:    string
+  total:         number
+  evaluated:     number
+  success_count: number
+  win_rate:      number | null
+  avg_r5d:       number | null
+  avg_r1d:       number | null
+  avg_r10d:      number | null
+}
+
 export const recommendationsApi = {
   getById: (recId: number) =>
     http.get<Recommendation>(`/recommendations/by-id/${recId}`).then((r) => r.data),
@@ -90,4 +101,7 @@ export const recommendationsApi = {
 
   getPerformanceSummary: (days = 30) =>
     http.get<PerformanceSummary>('/recommendations/performance/summary', { params: { days } }).then((r) => r.data),
+
+  getPerformanceByEvent: (days = 90) =>
+    http.get<EventPerformanceItem[]>('/recommendations/performance/by-event', { params: { days } }).then((r) => r.data),
 }

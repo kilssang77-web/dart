@@ -202,6 +202,49 @@ async def performance_summary(
     }
 
 
+@router.get("/performance/by-event")
+async def performance_by_event(
+    days: int = Query(default=90, le=365),
+    db: asyncpg.Pool = Depends(get_db),
+):
+    """신호 유형별 성과 집계 (승률, 평균수익률)."""
+    rows = await db.fetch(
+        """
+        SELECT
+            rp.event_type,
+            COUNT(*)                                                        AS total,
+            COUNT(*) FILTER (WHERE rp.r_5d IS NOT NULL)                     AS evaluated,
+            COUNT(*) FILTER (WHERE rp.is_success = TRUE)                    AS success_count,
+            ROUND(AVG(rp.r_5d) FILTER (WHERE rp.r_5d IS NOT NULL)::numeric, 2) AS avg_r5d,
+            ROUND(AVG(rp.r_1d) FILTER (WHERE rp.r_1d IS NOT NULL)::numeric, 2) AS avg_r1d,
+            ROUND(AVG(rp.r_10d) FILTER (WHERE rp.r_10d IS NOT NULL)::numeric, 2) AS avg_r10d,
+            ROUND(
+                100.0 * COUNT(*) FILTER (WHERE rp.is_success = TRUE)
+                / NULLIF(COUNT(*) FILTER (WHERE rp.r_5d IS NOT NULL), 0)
+            , 1) AS win_rate
+        FROM recommendation_performance rp
+        WHERE rp.signal_time >= NOW() - ($1 * INTERVAL '1 day')
+          AND rp.event_type IS NOT NULL
+        GROUP BY rp.event_type
+        ORDER BY COUNT(*) DESC
+        """,
+        days,
+    )
+    return [
+        {
+            "event_type":    r["event_type"],
+            "total":         r["total"],
+            "evaluated":     r["evaluated"],
+            "success_count": r["success_count"],
+            "win_rate":      float(r["win_rate"]) if r["win_rate"] is not None else None,
+            "avg_r5d":       float(r["avg_r5d"]) if r["avg_r5d"] is not None else None,
+            "avg_r1d":       float(r["avg_r1d"]) if r["avg_r1d"] is not None else None,
+            "avg_r10d":      float(r["avg_r10d"]) if r["avg_r10d"] is not None else None,
+        }
+        for r in rows
+    ]
+
+
 @router.get("/by-id/{rec_id}", response_model=RecommendationResponse)
 async def get_by_id(rec_id: int, db: asyncpg.Pool = Depends(get_db)):
     """rec_id(recommendations.id) 기준 단건 조회 — 추천 성과 추적 팝업용."""

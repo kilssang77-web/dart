@@ -18,17 +18,17 @@ logger = logging.getLogger(__name__)
 
 _BASE_PARAMS = {
     "boosting_type": "gbdt",
-    "num_leaves": 63,          # 48 → 63: 복잡한 패턴 학습 확대
-    "max_depth": 8,            # 7 → 8
-    "learning_rate": 0.03,     # 0.02 → 0.03: 학습 속도 균형 (2000라운드 기준)
-    "n_estimators": 2000,      # 5000 → 2000: early_stopping + 합리적 상한선
-    "min_child_samples": 40,   # 50 → 40: 소수 양성 샘플 학습 개선
-    "feature_fraction": 0.75,
-    "bagging_fraction": 0.8,
+    "num_leaves": 127,         # 63 → 127: 더 복잡한 경계면 표현
+    "max_depth": 7,            # 8 → 7: num_leaves로 복잡도 제어
+    "learning_rate": 0.02,     # 0.03 → 0.02: 느린 학습 → 과적합 방지
+    "n_estimators": 3000,      # 2000 → 3000: 느린 LR 보상
+    "min_child_samples": 25,   # 40 → 25: 소수 양성 패턴 더 학습
+    "feature_fraction": 0.7,   # 0.75 → 0.7: 더 강한 랜덤화
+    "bagging_fraction": 0.75,  # 0.8 → 0.75
     "bagging_freq": 5,
-    "reg_alpha": 0.15,         # L1 완화
-    "reg_lambda": 0.15,        # L2 완화
-    "min_split_gain": 0.005,   # 0.01 → 0.005: 분기 기준 완화
+    "reg_alpha": 0.1,          # 0.15 → 0.1: L1 완화
+    "reg_lambda": 0.2,         # 0.15 → 0.2: L2 강화 (과적합 방지)
+    "min_split_gain": 0.0,     # early_stopping이 분기 제어
     "random_state": 42,
     "n_jobs": -1,
     "verbose": -1,

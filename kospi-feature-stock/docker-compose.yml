@@ -283,8 +283,9 @@ services:
         --train-start 2020-01-01 --train-end 2023-12-31
         --val-start   2024-01-01 --val-end   2024-12-31
         --test-start  2025-01-01 --test-end  2025-12-31
+        --label-mode relative
         --smote
-        --max-codes 500
+        --max-codes 600
         --model-dir /models/lgbm
     profiles:
       - tools
