@@ -108,7 +108,8 @@ async def run_once(db, redis) -> int:
            FROM recommendation_performance rp
            JOIN recommendations r ON r.id = rp.rec_id
            WHERE rp.tracking_complete = FALSE
-           LIMIT 200"""
+           ORDER BY rp.signal_time ASC, rp.id ASC
+           LIMIT 500"""
     )
     updated = 0
     now = datetime.now(_KST)
