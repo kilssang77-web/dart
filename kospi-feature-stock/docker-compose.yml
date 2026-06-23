@@ -24,12 +24,14 @@ services:
       postgres
         -c shared_preload_libraries='timescaledb,pg_stat_statements'
         -c max_connections=80
-        -c work_mem=32MB
-        -c maintenance_work_mem=256MB
+        -c work_mem=16MB
+        -c maintenance_work_mem=128MB
         -c shared_buffers=512MB
-        -c effective_cache_size=2GB
+        -c effective_cache_size=1536MB
         -c checkpoint_completion_target=0.9
         -c wal_buffers=16MB
+        -c autovacuum_vacuum_cost_delay=20ms
+        -c autovacuum_max_workers=2
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -37,6 +39,13 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2560m
+          cpus: '2.0'
+        reservations:
+          memory: 1024m
 
   redis:
     image: redis:7-alpine
@@ -53,6 +62,11 @@ services:
       timeout: 3s
       retries: 3
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: '0.3'
 
   # ── Application Services ────────────────────────────────────────────────────
   # ── Collector: 실시간 틱 + 분봉 (WebSocket 중심) ──────────────────────────
@@ -78,6 +92,11 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: '0.3'
 
   # ── Collector: 일봉 수집 + 기술지표 + EOD 수급 ────────────────────────────
   collector-daily:
@@ -103,6 +122,11 @@ services:
       options:
         max-size: "30m"
         max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: '0.3'
 
   # ── Collector: 장중 수급 (30분 간격) ────────────────────────────────────────
   collector-supply:
@@ -122,6 +146,16 @@ services:
       - ./services/collector:/app
     command: ["python", "entrypoints/supply_worker.py"]
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: '0.2'
 
   # ── Collector: 뉴스 + 공시 (DART/KIND) ──────────────────────────────────────
   collector-news:
@@ -146,6 +180,11 @@ services:
       options:
         max-size: "30m"
         max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: '0.3'
 
   # ── Collector: 배치 탐지 (장 마감 후) ───────────────────────────────────────
   collector-batch:
@@ -165,6 +204,16 @@ services:
       - ./services/collector:/app
     command: ["python", "entrypoints/batch_worker.py"]
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: '0.2'
 
   # ── Collector: 재무 데이터 수집 (주 1회) ────────────────────────────────────
   collector-financials:
@@ -189,6 +238,11 @@ services:
       options:
         max-size: "20m"
         max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: '0.2'
 
   # ── Collector: 금융위원회 시가총액 (일 1회, 18:00 KST 이후) ────────────────
   collector-govdata:
@@ -213,6 +267,11 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: '0.2'
 
   # ── Collector: 일봉 재백필 (장외 시간, 매일) ────────────────────────────────
   collector-bars-backfill:
@@ -238,6 +297,11 @@ services:
       options:
         max-size: "20m"
         max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: '0.5'
 
   # ── Collector: 히스토리 백필 (one-shot, profile=tools) ──────────────────────
   collector-backfill:
@@ -307,6 +371,16 @@ services:
     volumes:
       - ./services/detector:/app
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: '0.3'
 
   analyzer:
     build:
@@ -325,6 +399,18 @@ services:
       - ./services/analyzer:/app
       - model_cache:/models
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 1536m
+          cpus: '1.0'
+        reservations:
+          memory: 512m
 
   ml:
     build:
@@ -353,6 +439,16 @@ services:
       retries: 5
       start_period: 60s
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "30m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: '1.0'
 
   recommender:
     build:
@@ -369,13 +465,23 @@ services:
     env_file: .env
     environment:
       ML_SERVICE_URL: "http://ml:8001"
-      REC_COOLDOWN_MINUTES: "60"      # 종목당 Redis 단기 쿨다운 (분)
-      REC_PERF_MIN_PROB: "0.30"       # 성과추적 등록 최소 확률 (추천 최소확률과 동일 기준)
-      REC_RECOVERY_HOURS: "24"        # 재시작 시 미처리 이벤트 복구 범위 (시간)
+      REC_COOLDOWN_MINUTES: "60"
+      REC_PERF_MIN_PROB: "0.30"
+      REC_RECOVERY_HOURS: "24"
     volumes:
       - ./services/recommender:/app
       - model_cache:/models
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "30m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: '0.5'
 
   notifier:
     build:
@@ -399,6 +505,11 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: '0.2'
 
   api:
     build:
@@ -419,6 +530,16 @@ services:
       - ./services/api:/app
       - model_cache:/models
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "30m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: '0.5'
 
   # ── ML: 자동 월별 재학습 (매월 28일 00:00 KST) ─────────────────────────────
   ml-autoretrain:
@@ -451,6 +572,11 @@ services:
       options:
         max-size: "20m"
         max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: '0.2'
 
   prometheus:
     image: prom/prometheus:v2.52.0
@@ -467,6 +593,16 @@ services:
       - api
       - ml
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: '0.2'
 
   grafana:
     image: grafana/grafana:10.4.2
@@ -483,6 +619,16 @@ services:
     depends_on:
       - prometheus
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: '0.2'
 
 volumes:
   postgres_data:
