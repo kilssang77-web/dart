@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from main import StockCollector, load_all_stocks
 from kis.govdata_client import fetch_stock_prices
+from holiday_sync import sync_holidays
 
 logging.basicConfig(
     level=logging.INFO,
@@ -87,9 +88,35 @@ async def _apply(svc: StockCollector, target_date: date, items: list[dict]) -> N
     )
 
 
+async def _sync_holidays_if_needed(svc: StockCollector) -> None:
+    """현재 연도·다음 연도 공휴일이 Redis에 없으면 API에서 동기화."""
+    now_year = datetime.now(_KST).year
+    years_to_check = [now_year, now_year + 1]
+    missing = []
+    for year in years_to_check:
+        cached = await svc.redis.get(f"krx:holidays:{year}")
+        if not cached:
+            missing.append(year)
+
+    if not missing:
+        logger.info(f"[govdata] 공휴일 캐시 확인 완료: {years_to_check} 모두 존재")
+        return
+
+    logger.info(f"[govdata] 공휴일 동기화 시작 (미캐시 연도: {missing})")
+    try:
+        result = await sync_holidays(missing, svc.db, svc.redis)
+        for year, count in result.items():
+            logger.info(f"[govdata] {year}년 공휴일 {count}건 동기화")
+    except Exception as e:
+        logger.error(f"[govdata] 공휴일 동기화 실패: {e}", exc_info=True)
+
+
 async def run():
     svc = StockCollector()
     await svc.setup()
+
+    # 기동 시 공휴일 동기화 (캐시 미존재 연도만)
+    await _sync_holidays_if_needed(svc)
 
     while True:
         now_kst = datetime.now(_KST)
@@ -116,6 +143,10 @@ async def run():
                 logger.error("[govdata] 최근 7일 데이터 없음")
         except Exception as e:
             logger.error(f"[govdata] 실행 오류: {e}", exc_info=True)
+
+        # 12월에 다음 해 공휴일 미리 확보 (force=False → 이미 있으면 스킵)
+        if now_kst.month == 12:
+            await _sync_holidays_if_needed(svc)
 
         await asyncio.sleep(_SLEEP_SECONDS)
 

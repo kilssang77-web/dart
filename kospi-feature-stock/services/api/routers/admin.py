@@ -1,10 +1,13 @@
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks, Query
+from pydantic import BaseModel
+from typing import Optional
 import asyncpg
 import redis.asyncio as redis_lib
 import asyncio
 import json
 import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from deps import get_db, get_redis
 
@@ -480,3 +483,159 @@ async def force_refresh_stats(
     """Redis 탐지 통계 즉시 강제 갱신 (관리자용)."""
     background_tasks.add_task(_run_refresh_stats, db, redis)
     return {"status": "started", "message": "Redis 탐지 통계 갱신이 백그라운드에서 시작되었습니다"}
+
+
+# ── 백필 이력 / 스케줄 현황 ────────────────────────────────────────────────────
+
+class BackfillJob(BaseModel):
+    id: int
+    job_type: str
+    triggered_by: str
+    status: str
+    target_count: Optional[int]
+    success_count: Optional[int]
+    skip_count: Optional[int]
+    fail_count: Optional[int]
+    rows_added: Optional[int]
+    started_at: str
+    finished_at: Optional[str]
+    error_msg: Optional[str]
+
+
+class BackfillStatus(BaseModel):
+    current_job: Optional[BackfillJob]
+    last_completed: Optional[BackfillJob]
+    last_run_redis: Optional[str]
+    trigger_pending: bool
+
+
+class ScheduleStatus(BaseModel):
+    bars_backfill_last: Optional[str]
+    financials_last: Optional[str]
+    govdata_last: Optional[str]
+    stats_last_refresh: Optional[str]
+
+
+def _row_to_job(row) -> BackfillJob:
+    """asyncpg Record → BackfillJob 변환."""
+    def _iso(v):
+        if v is None:
+            return None
+        if hasattr(v, "isoformat"):
+            return v.isoformat()
+        return str(v)
+
+    return BackfillJob(
+        id=row["id"],
+        job_type=row["job_type"],
+        triggered_by=row["triggered_by"],
+        status=row["status"],
+        target_count=row["target_count"],
+        success_count=row["success_count"],
+        skip_count=row["skip_count"],
+        fail_count=row["fail_count"],
+        rows_added=row["rows_added"],
+        started_at=_iso(row["started_at"]) or "",
+        finished_at=_iso(row["finished_at"]),
+        error_msg=row["error_msg"],
+    )
+
+
+def _decode(v) -> Optional[str]:
+    """Redis bytes → str 변환."""
+    if v is None:
+        return None
+    return v.decode() if isinstance(v, bytes) else str(v)
+
+
+@router.get("/backfill-status", response_model=BackfillStatus)
+async def get_backfill_status(
+    db: asyncpg.Pool = Depends(get_db),
+    redis: redis_lib.Redis = Depends(get_redis),
+):
+    """현재 실행 중인 백필 작업 상태 + 마지막 완료 작업."""
+    async with db.acquire() as conn:
+        current_row = await conn.fetchrow(
+            "SELECT * FROM backfill_history WHERE status IN ('running', 'pending') "
+            "ORDER BY started_at DESC LIMIT 1"
+        )
+        last_row = await conn.fetchrow(
+            "SELECT * FROM backfill_history WHERE status NOT IN ('running', 'pending') "
+            "ORDER BY started_at DESC LIMIT 1"
+        )
+
+    current_job = _row_to_job(current_row) if current_row else None
+    last_completed = _row_to_job(last_row) if last_row else None
+
+    last_run_redis = _decode(await redis.get("bars_backfill:last"))
+    trigger_pending = await redis.exists("backfill:trigger:bars") > 0
+
+    return BackfillStatus(
+        current_job=current_job,
+        last_completed=last_completed,
+        last_run_redis=last_run_redis,
+        trigger_pending=trigger_pending,
+    )
+
+
+@router.get("/backfill-history", response_model=list[BackfillJob])
+async def get_backfill_history(
+    limit: int = Query(default=20, ge=1, le=100),
+    db: asyncpg.Pool = Depends(get_db),
+):
+    """백필 작업 이력 최근 N개 조회."""
+    async with db.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT * FROM backfill_history ORDER BY started_at DESC LIMIT $1",
+            limit,
+        )
+    return [_row_to_job(r) for r in rows]
+
+
+@router.post("/backfill/trigger")
+async def trigger_backfill(
+    job_type: str = Query(default="bars", description="백필 대상 (bars / financials / govdata)"),
+    db: asyncpg.Pool = Depends(get_db),
+    redis: redis_lib.Redis = Depends(get_redis),
+):
+    """수동 백필 트리거: Redis 키 설정 + DB에 pending 레코드 삽입."""
+    # Redis 트리거 키 세팅 (워커가 폴링 후 실행)
+    trigger_key = f"backfill:trigger:{job_type}"
+    await redis.set(trigger_key, "1", ex=3600)
+
+    # DB에 pending 레코드 삽입
+    async with db.acquire() as conn:
+        row_id = await conn.fetchval(
+            """INSERT INTO backfill_history (job_type, triggered_by, status)
+               VALUES ($1, 'manual', 'pending') RETURNING id""",
+            job_type,
+        )
+
+    logger.info(f"Manual backfill triggered: job_type={job_type}, history_id={row_id}")
+    return {
+        "status": "triggered",
+        "job_type": job_type,
+        "history_id": row_id,
+        "message": f"백필 트리거 전송 완료 (Redis key: {trigger_key})",
+    }
+
+
+@router.get("/schedule-status", response_model=ScheduleStatus)
+async def get_schedule_status(
+    redis: redis_lib.Redis = Depends(get_redis),
+):
+    """각 워커의 마지막 실행 시각 (Redis 키 기반)."""
+    keys = [
+        "bars_backfill:last",
+        "financials:last_run",
+        "govdata:last_run",
+        "stats:last_refresh",
+    ]
+    vals = await redis.mget(*keys)
+
+    return ScheduleStatus(
+        bars_backfill_last=_decode(vals[0]),
+        financials_last=_decode(vals[1]),
+        govdata_last=_decode(vals[2]),
+        stats_last_refresh=_decode(vals[3]),
+    )

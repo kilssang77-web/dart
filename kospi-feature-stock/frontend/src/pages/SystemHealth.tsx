@@ -1,12 +1,23 @@
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
 import {
   CheckCircle2, XCircle, AlertTriangle, Cpu, Database,
-  Radio, Activity, Clock, RefreshCw,
+  Radio, Activity, Clock, RefreshCw, History, CalendarClock,
+  Play,
 } from 'lucide-react'
-import { adminApi, type SystemStatus } from '@/api/admin'
+import {
+  adminApi,
+  type SystemStatus,
+  type BackfillJob,
+  type BackfillStatus,
+  type ScheduleStatus,
+} from '@/api/admin'
 import { StatCard, Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card'
+import { Badge } from '@/components/ui/Badge'
 import { fmt } from '@/lib/utils'
+
+// ── 공통 헬퍼 컴포넌트 ──────────────────────────────────────────────────────────
 
 function StatusDot({ ok }: { ok: boolean }) {
   return (
@@ -61,26 +72,64 @@ function isStale(dateStr: string | null, maxHours = 25): boolean {
   return Date.now() - new Date(dateStr).getTime() > maxHours * 3600_000
 }
 
-export function SystemHealth() {
-  const { data, isLoading, dataUpdatedAt, refetch, isFetching } = useQuery<SystemStatus>({
-    queryKey:        ['system-status'],
-    queryFn:         adminApi.getSystemStatus,
-    refetchInterval: 60_000,
-  })
+// ── 백필 status Badge ─────────────────────────────────────────────────────────
 
+type BackfillStatus2 = BackfillJob['status']
+
+function statusVariant(s: BackfillStatus2) {
+  if (s === 'done')    return 'green'
+  if (s === 'running') return 'cyan'
+  if (s === 'pending') return 'yellow'
+  if (s === 'failed')  return 'red'
+  return 'gray'
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  running: '실행 중',
+  done:    '완료',
+  failed:  '실패',
+  pending: '대기',
+  skipped: '건너뜀',
+}
+
+function BackfillStatusBadge({ status }: { status: BackfillJob['status'] }) {
+  return (
+    <Badge variant={statusVariant(status)}>
+      {STATUS_LABEL[status] ?? status}
+    </Badge>
+  )
+}
+
+// ── 소요 시간 계산 ─────────────────────────────────────────────────────────────
+
+function elapsed(started: string, finished: string | null): string {
+  const end = finished ? new Date(finished) : new Date()
+  const ms  = end.getTime() - new Date(started).getTime()
+  if (ms < 0) return '—'
+  const s = Math.floor(ms / 1000)
+  if (s < 60)     return `${s}초`
+  if (s < 3600)   return `${Math.floor(s / 60)}분 ${s % 60}초`
+  return `${Math.floor(s / 3600)}시간 ${Math.floor((s % 3600) / 60)}분`
+}
+
+// ── 탭1: 시스템 헬스 (기존 내용) ─────────────────────────────────────────────
+
+function HealthTab({ data, isLoading, dataUpdatedAt, refetch, isFetching }: {
+  data?: SystemStatus
+  isLoading: boolean
+  dataUpdatedAt: number
+  refetch: () => void
+  isFetching: boolean
+}) {
   const ml   = data?.ml
   const dat  = data?.data
   const svc  = data?.services
   const lags = data?.kafka_lag ?? {}
 
   return (
-    <div className="p-6 space-y-5">
-      {/* 헤더 */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-bold text-[var(--fg)] flex items-center gap-2">
-          <Activity size={18} className="text-cyan-400" />
-          시스템 헬스 대시보드
-        </h1>
+    <div className="space-y-5">
+      {/* 갱신 버튼 */}
+      <div className="flex justify-end">
         <button
           onClick={() => refetch()}
           disabled={isFetching}
@@ -194,6 +243,358 @@ export function SystemHealth() {
           </CardBody>
         </Card>
       </div>
+    </div>
+  )
+}
+
+// ── 탭2: 백필 이력 ────────────────────────────────────────────────────────────
+
+function BackfillTab() {
+  const queryClient = useQueryClient()
+
+  const { data: statusData, isLoading: statusLoading } = useQuery<BackfillStatus>({
+    queryKey:        ['backfill-status'],
+    queryFn:         adminApi.getBackfillStatus,
+    refetchInterval: 15_000,
+  })
+
+  const { data: history, isLoading: histLoading, refetch: refetchHist, isFetching: histFetching } =
+    useQuery<BackfillJob[]>({
+      queryKey:        ['backfill-history'],
+      queryFn:         () => adminApi.getBackfillHistory(20),
+      refetchInterval: 30_000,
+    })
+
+  const triggerMut = useMutation({
+    mutationFn: (job_type: string) => adminApi.triggerBackfill(job_type),
+    onSuccess: () => {
+      alert('백필 트리거가 전송되었습니다.')
+      queryClient.invalidateQueries({ queryKey: ['backfill-status'] })
+      queryClient.invalidateQueries({ queryKey: ['backfill-history'] })
+    },
+    onError: (e: Error) => {
+      alert(`트리거 실패: ${e.message}`)
+    },
+  })
+
+  return (
+    <div className="space-y-5">
+      {/* 현재 상태 카드 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5">
+              <Activity size={14} className="text-cyan-400" /> 현재 작업 상태
+            </CardTitle>
+          </CardHeader>
+          <CardBody>
+            {statusLoading ? (
+              <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-8 skeleton rounded" />)}</div>
+            ) : statusData ? (
+              <div>
+                {statusData.current_job ? (
+                  <>
+                    <DataRow label="작업 유형"   value={statusData.current_job.job_type} />
+                    <DataRow label="상태"        value={STATUS_LABEL[statusData.current_job.status] ?? statusData.current_job.status} />
+                    <DataRow label="트리거"      value={statusData.current_job.triggered_by} />
+                    <DataRow label="시작 시각"   value={fmt.smartTime(statusData.current_job.started_at)} />
+                    <DataRow label="소요 시간"   value={elapsed(statusData.current_job.started_at, statusData.current_job.finished_at)} />
+                  </>
+                ) : (
+                  <p className="text-sm text-[var(--muted)] py-2">실행 중인 작업 없음</p>
+                )}
+                <div className="pt-2 flex items-center gap-2 text-xs text-[var(--muted)]">
+                  <span>Redis 마지막 실행:</span>
+                  <span className="font-mono text-[var(--fg)]">{statusData.last_run_redis ?? '—'}</span>
+                </div>
+                {statusData.trigger_pending && (
+                  <div className="mt-2 flex items-center gap-1.5 text-xs text-yellow-400">
+                    <AlertTriangle size={11} />
+                    트리거 대기 중 (워커 폴링 예정)
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-[var(--muted)]">데이터 없음</p>
+            )}
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5">
+              <Play size={14} className="text-cyan-400" /> 수동 트리거
+            </CardTitle>
+          </CardHeader>
+          <CardBody>
+            <p className="text-xs text-[var(--muted)] mb-4">
+              Redis 키를 설정하여 워커가 다음 폴링 시 백필을 실행하도록 트리거합니다.
+            </p>
+            <div className="flex flex-col gap-2">
+              {(['bars', 'financials', 'govdata'] as const).map((jt) => (
+                <button
+                  key={jt}
+                  onClick={() => triggerMut.mutate(jt)}
+                  disabled={triggerMut.isPending}
+                  className={clsx(
+                    'flex items-center justify-between px-3 py-2 rounded-lg border text-sm',
+                    'border-[var(--border)] bg-[var(--bg)] hover:border-cyan-500/50 hover:bg-cyan-500/5',
+                    'transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
+                  )}
+                >
+                  <span className="font-mono text-[var(--fg)]">{jt}</span>
+                  <span className="text-xs text-cyan-400 flex items-center gap-1">
+                    <Play size={11} />
+                    트리거
+                  </span>
+                </button>
+              ))}
+            </div>
+            {triggerMut.isPending && (
+              <p className="text-xs text-[var(--muted)] mt-2 flex items-center gap-1">
+                <RefreshCw size={11} className="animate-spin" />
+                전송 중...
+              </p>
+            )}
+          </CardBody>
+        </Card>
+      </div>
+
+      {/* 이력 테이블 */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-1.5">
+              <History size={14} className="text-cyan-400" /> 백필 이력 (최근 20건)
+            </CardTitle>
+            <button
+              onClick={() => refetchHist()}
+              disabled={histFetching}
+              className="flex items-center gap-1 text-xs text-[var(--muted)] hover:text-[var(--fg)] transition-colors"
+            >
+              <RefreshCw size={11} className={histFetching ? 'animate-spin' : ''} />
+              새로고침
+            </button>
+          </div>
+        </CardHeader>
+        <CardBody className="px-0 pb-0 pt-3">
+          {histLoading ? (
+            <div className="px-5 space-y-2">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-10 skeleton rounded" />)}</div>
+          ) : !history || history.length === 0 ? (
+            <p className="px-5 pb-5 text-sm text-[var(--muted)]">이력 없음 — 백필 작업이 실행된 적 없습니다.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-[var(--border)]">
+                    {['#', '유형', '상태', '트리거', '대상', '성공', '건너뜀', '실패', '행추가', '시작', '소요'].map((h) => (
+                      <th key={h} className="px-3 py-2 text-left text-[var(--muted)] font-medium whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((job) => (
+                    <tr key={job.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--card-hover,var(--card))] transition-colors">
+                      <td className="px-3 py-2.5 text-[var(--muted)] tabular">{job.id}</td>
+                      <td className="px-3 py-2.5 font-mono text-[var(--fg)] whitespace-nowrap">{job.job_type}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        <BackfillStatusBadge status={job.status} />
+                      </td>
+                      <td className="px-3 py-2.5 text-[var(--muted)]">{job.triggered_by}</td>
+                      <td className="px-3 py-2.5 tabular text-[var(--fg)]">{job.target_count?.toLocaleString() ?? '—'}</td>
+                      <td className="px-3 py-2.5 tabular text-green-400">{job.success_count?.toLocaleString() ?? '—'}</td>
+                      <td className="px-3 py-2.5 tabular text-yellow-400">{job.skip_count?.toLocaleString() ?? '—'}</td>
+                      <td className="px-3 py-2.5 tabular text-red-400">{job.fail_count?.toLocaleString() ?? '—'}</td>
+                      <td className="px-3 py-2.5 tabular text-cyan-400">{job.rows_added?.toLocaleString() ?? '—'}</td>
+                      <td className="px-3 py-2.5 text-[var(--muted)] whitespace-nowrap">{fmt.smartTime(job.started_at)}</td>
+                      <td className="px-3 py-2.5 text-[var(--muted)] whitespace-nowrap">{elapsed(job.started_at, job.finished_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardBody>
+      </Card>
+    </div>
+  )
+}
+
+// ── 탭3: 스케줄 현황 ──────────────────────────────────────────────────────────
+
+interface ScheduleItem {
+  label: string
+  key: keyof ScheduleStatus
+  description: string
+  expectedInterval: string
+}
+
+const SCHEDULE_ITEMS: ScheduleItem[] = [
+  { label: '일봉 백필',       key: 'bars_backfill_last', description: 'collector-bars 워커 — daily_bars 갱신',   expectedInterval: '매일 17:00 KST' },
+  { label: '재무 데이터',     key: 'financials_last',    description: 'collector 재무제표 수집 작업',             expectedInterval: '분기별 / 이벤트성' },
+  { label: '정부 데이터',     key: 'govdata_last',       description: '금융위원회 API 종목 마스터 갱신',          expectedInterval: '매일 08:00 KST' },
+  { label: 'Redis 통계 갱신', key: 'stats_last_refresh', description: '탐지 통계 Redis 키 갱신 (종목별 7개 키)', expectedInterval: '매일 09:00 KST' },
+]
+
+function ScheduleCard({ item, value }: { item: ScheduleItem; value: string | null }) {
+  const staleHours = 30
+  const stale = isStale(value, staleHours)
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-1.5 text-sm">
+            <CalendarClock size={13} className="text-cyan-400" />
+            {item.label}
+          </CardTitle>
+          {value ? (
+            stale
+              ? <Badge variant="yellow"><AlertTriangle size={10} className="mr-1 inline" />지연</Badge>
+              : <Badge variant="green"><CheckCircle2 size={10} className="mr-1 inline" />정상</Badge>
+          ) : (
+            <Badge variant="gray">미수집</Badge>
+          )}
+        </div>
+      </CardHeader>
+      <CardBody>
+        <p className="text-xs text-[var(--muted)] mb-3">{item.description}</p>
+        <div className="space-y-1">
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-[var(--muted)]">마지막 실행</span>
+            <span className={clsx('text-xs font-mono', stale ? 'text-yellow-400' : 'text-[var(--fg)]')}>
+              {value ? fmt.smartTime(value) : '—'}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-[var(--muted)]">예정 주기</span>
+            <span className="text-xs text-[var(--muted)]">{item.expectedInterval}</span>
+          </div>
+        </div>
+      </CardBody>
+    </Card>
+  )
+}
+
+function ScheduleTab() {
+  const { data, isLoading, refetch, isFetching } = useQuery<ScheduleStatus>({
+    queryKey:        ['schedule-status'],
+    queryFn:         adminApi.getScheduleStatus,
+    refetchInterval: 60_000,
+  })
+
+  return (
+    <div className="space-y-5">
+      <div className="flex justify-end">
+        <button
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="flex items-center gap-1.5 text-xs text-[var(--muted)] hover:text-[var(--fg)] transition-colors"
+        >
+          <RefreshCw size={12} className={isFetching ? 'animate-spin' : ''} />
+          새로고침
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-36 skeleton rounded-xl" />)}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {SCHEDULE_ITEMS.map((item) => (
+            <ScheduleCard
+              key={item.key}
+              item={item}
+              value={data ? data[item.key] : null}
+            />
+          ))}
+        </div>
+      )}
+
+      {data && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5 text-sm">
+              <Clock size={13} className="text-cyan-400" /> Redis 원시 값 (디버그용)
+            </CardTitle>
+          </CardHeader>
+          <CardBody>
+            <div className="font-mono text-xs text-[var(--muted)] space-y-1">
+              <div className="flex gap-3"><span className="w-48 shrink-0">bars_backfill:last</span><span className="text-[var(--fg)]">{data.bars_backfill_last ?? '(없음)'}</span></div>
+              <div className="flex gap-3"><span className="w-48 shrink-0">financials:last_run</span><span className="text-[var(--fg)]">{data.financials_last ?? '(없음)'}</span></div>
+              <div className="flex gap-3"><span className="w-48 shrink-0">govdata:last_run</span><span className="text-[var(--fg)]">{data.govdata_last ?? '(없음)'}</span></div>
+              <div className="flex gap-3"><span className="w-48 shrink-0">stats:last_refresh</span><span className="text-[var(--fg)]">{data.stats_last_refresh ?? '(없음)'}</span></div>
+            </div>
+          </CardBody>
+        </Card>
+      )}
+    </div>
+  )
+}
+
+// ── 탭 헤더 ───────────────────────────────────────────────────────────────────
+
+type Tab = 'health' | 'backfill' | 'schedule'
+
+const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+  { id: 'health',   label: '시스템 헬스',  icon: <Activity size={13} /> },
+  { id: 'backfill', label: '백필 이력',    icon: <History size={13} /> },
+  { id: 'schedule', label: '스케줄 현황',  icon: <CalendarClock size={13} /> },
+]
+
+// ── 메인 페이지 ───────────────────────────────────────────────────────────────
+
+export function SystemHealth() {
+  const [tab, setTab] = useState<Tab>('health')
+
+  const { data, isLoading, dataUpdatedAt, refetch, isFetching } = useQuery<SystemStatus>({
+    queryKey:        ['system-status'],
+    queryFn:         adminApi.getSystemStatus,
+    refetchInterval: 60_000,
+  })
+
+  return (
+    <div className="p-6 space-y-5">
+      {/* 헤더 */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-bold text-[var(--fg)] flex items-center gap-2">
+          <Activity size={18} className="text-cyan-400" />
+          시스템 헬스 대시보드
+        </h1>
+      </div>
+
+      {/* 탭 헤더 */}
+      <div className="flex items-center gap-1 border-b border-[var(--border)]">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={clsx(
+              'flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors',
+              tab === t.id
+                ? 'border-cyan-400 text-cyan-400'
+                : 'border-transparent text-[var(--muted)] hover:text-[var(--fg)]',
+            )}
+          >
+            {t.icon}
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 탭 콘텐츠 */}
+      {tab === 'health' && (
+        <HealthTab
+          data={data}
+          isLoading={isLoading}
+          dataUpdatedAt={dataUpdatedAt}
+          refetch={refetch}
+          isFetching={isFetching}
+        />
+      )}
+      {tab === 'backfill' && <BackfillTab />}
+      {tab === 'schedule' && <ScheduleTab />}
     </div>
   )
 }

@@ -22,18 +22,30 @@ def _pct(current: float, entry: float) -> float:
 
 
 async def _get_price_at(db, redis, code: str, ts: datetime, strict_daily: bool = False) -> float | None:
-    """ts 시각 가장 가까운 가격 조회 — tick_data → daily_bars 순.
+    """ts 시각 가장 가까운 가격 조회 — Redis → tick_data → daily_bars 순.
 
     strict_daily=True 시 daily_bars 조회에서 target 날짜와 1일 이상 차이나는
     가격은 반환하지 않음 (데이터 미수집 시 오염 방지).
     """
     try:
-        # 1) Redis 현재가 (실시간 근접)
+        # 1) Redis 현재가 (ts가 현재 기준 1시간 이내인 경우)
         now = datetime.now(_KST)
         if abs((ts - now).total_seconds()) < 3600:
             raw = await redis.get(f"quote:{code}")
             if raw:
-                return float(orjson.loads(raw).get("price", 0)) or None
+                p = float(orjson.loads(raw).get("price", 0)) or None
+                if p:
+                    return p
+            # quote: 키 TTL(30분) 만료 시 → stats:last_price 폴백
+            # detector가 TTL 없이 항상 최신 체결가 유지하므로 장중엔 항상 유효
+            raw_lp = await redis.get(f"stats:{code}:last_price")
+            if raw_lp:
+                try:
+                    lp = float(raw_lp)
+                    if lp > 0:
+                        return lp
+                except (ValueError, TypeError):
+                    pass
 
         # 2) tick_data (분봉 이내)
         row = await db.fetchrow(
@@ -191,4 +203,4 @@ async def tracker_loop(db, redis) -> None:
                 logger.info(f"[perf_tracker] updated {n} records")
         except Exception as e:
             logger.error(f"[perf_tracker] error: {e}")
-        await asyncio.sleep(3600)  # 1시간마다
+        await asyncio.sleep(1800)  # 30분마다 (1h/3h 추적 정밀도 향상)

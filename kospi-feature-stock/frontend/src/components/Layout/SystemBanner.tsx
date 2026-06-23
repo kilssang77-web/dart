@@ -2,13 +2,26 @@ import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, XCircle, Info } from 'lucide-react'
 import { adminApi, type SystemStatus } from '@/api/admin'
 
-function isStale(dateStr: string | null, maxHours = 25): boolean {
+// 마지막으로 일봉 수집이 완료됐어야 할 거래일 날짜(YYYY-MM-DD) 반환
+// - EOD 수집 완료 기준: 16:30 KST
+// - 주말(토·일) skip
+function _lastExpectedBarDate(): string {
+  const KST = 9 * 3600_000
+  const kst = new Date(Date.now() + KST)
+  const h = kst.getUTCHours()
+  const m = kst.getUTCMinutes()
+
+  let d = new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate()))
+  if (h < 16 || (h === 16 && m < 30)) d.setUTCDate(d.getUTCDate() - 1)
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1)
+
+  return d.toISOString().slice(0, 10)
+}
+
+function isStale(dateStr: string | null): boolean {
   if (!dateStr) return true
-  // date-only 문자열(YYYY-MM-DD)은 EOD 수집 완료 시각 16:30 KST 기준으로 파싱
-  const parsed = dateStr.includes('T')
-    ? new Date(dateStr)
-    : new Date(dateStr + 'T16:30:00+09:00')
-  return Date.now() - parsed.getTime() > maxHours * 3600_000
+  const barDate = dateStr.includes('T') ? dateStr.slice(0, 10) : dateStr
+  return barDate < _lastExpectedBarDate()
 }
 
 export function SystemBanner() {
@@ -31,8 +44,11 @@ export function SystemBanner() {
     warnings.push({ level: 'warn', msg: `패턴 벡터 커버리지 ${data.data.pattern_vector_coverage.toFixed(1)}% — 유사종목 검색 정확도가 낮습니다.` })
   }
 
-  if (isStale(data.data.latest_daily_bar, 25)) {
-    warnings.push({ level: 'warn', msg: '일봉 데이터가 25시간 이상 갱신되지 않았습니다.' })
+  if (isStale(data.data.latest_daily_bar)) {
+    const lastDate = data.data.latest_daily_bar
+      ? data.data.latest_daily_bar.slice(0, 10)
+      : '알 수 없음'
+    warnings.push({ level: 'warn', msg: `일봉 데이터 미갱신 — 마지막: ${lastDate}` })
   }
 
   if (!data.services.redis) {

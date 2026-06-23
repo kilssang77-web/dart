@@ -1,11 +1,12 @@
-﻿import { Sun, Moon, Bell, RefreshCw, Menu } from 'lucide-react'
+﻿import { Sun, Moon, Bell, RefreshCw, Menu, Database } from 'lucide-react'
 import { useThemeStore } from '@/store/theme'
 import { useRealtimeStore } from '@/store/realtime'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, useQuery } from '@tanstack/react-query'
 import { useState, useEffect } from 'react'
 import { clsx } from 'clsx'
 import { useSidebarStore } from '@/store/sidebar'
 import { useIsMobile } from '@/hooks/useMediaQuery'
+import { adminApi, type SystemStatus } from '@/api/admin'
 
 interface TopBarProps {
   title:     string
@@ -20,6 +21,14 @@ export function TopBar({ title, subtitle }: TopBarProps) {
   const isMobile = useIsMobile()
   const [refreshing, setRefreshing] = useState(false)
   const [colorblind, setColorblind] = useState(() => localStorage.getItem('colorblind') === '1')
+
+  const { data: sysStatus } = useQuery<SystemStatus>({
+    queryKey:        ['system-status'],
+    queryFn:         adminApi.getSystemStatus,
+    refetchInterval: 300_000,
+    retry:           false,
+  })
+  const latestBar = sysStatus?.data.latest_daily_bar?.slice(0, 10) ?? null
 
   useEffect(() => {
     document.body.classList.toggle('colorblind-mode', colorblind)
@@ -68,6 +77,17 @@ export function TopBar({ title, subtitle }: TopBarProps) {
             {isConnected ? 'LIVE' : '—'}
           </span>
         </div>
+
+        {/* 일봉 마지막 갱신 */}
+        {latestBar && (
+          <div
+            className="hidden md:flex items-center gap-1 px-2 py-1 rounded-md text-[var(--muted)]"
+            title="최신 일봉 데이터 날짜"
+          >
+            <Database size={11} />
+            <span className="text-xs">{latestBar}</span>
+          </div>
+        )}
 
         {/* 새로고침 */}
         <button

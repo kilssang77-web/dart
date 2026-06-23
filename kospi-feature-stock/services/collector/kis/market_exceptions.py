@@ -9,18 +9,36 @@ import asyncpg
 
 logger = logging.getLogger(__name__)
 
-# 공휴일 데이터 (DB의 kr_holidays 테이블이 주 데이터, 여기는 폴백)
+# 공휴일 세트 — load_holidays_from_db() 로 갱신, 없으면 폴백 사용
 _HOLIDAYS_FALLBACK: set[date] = {
     date(2025, 1, 1), date(2025, 1, 28), date(2025, 1, 29), date(2025, 1, 30),
     date(2025, 3, 1), date(2025, 5, 5), date(2025, 5, 6), date(2025, 6, 6),
     date(2025, 8, 15), date(2025, 10, 3), date(2025, 10, 5),
     date(2025, 10, 6), date(2025, 10, 7), date(2025, 10, 9), date(2025, 12, 25),
+    date(2026, 1, 1), date(2026, 1, 27), date(2026, 1, 28), date(2026, 1, 29),
+    date(2026, 1, 30), date(2026, 3, 2), date(2026, 5, 5), date(2026, 5, 25),
+    date(2026, 6, 6), date(2026, 8, 17), date(2026, 9, 24), date(2026, 9, 25),
+    date(2026, 9, 26), date(2026, 10, 9), date(2026, 12, 25),
 }
+
+_holidays: set[date] = set(_HOLIDAYS_FALLBACK)
+
+
+async def load_holidays_from_db(db: asyncpg.Pool) -> None:
+    """DB kr_holidays에서 공휴일 읽어 _holidays 갱신. 서비스 기동 시 1회 호출."""
+    global _holidays
+    try:
+        rows = await db.fetch("SELECT holiday_date FROM kr_holidays")
+        if rows:
+            _holidays = {r["holiday_date"] for r in rows}
+            logger.info(f"[market_exceptions] DB에서 공휴일 {len(_holidays)}건 로드")
+    except Exception as e:
+        logger.warning(f"[market_exceptions] DB 공휴일 로드 실패, 폴백 사용: {e}")
 
 
 def is_trading_day(d: Optional[date] = None) -> bool:
     d = d or date.today()
-    return d.weekday() < 5 and d not in _HOLIDAYS_FALLBACK
+    return d.weekday() < 5 and d not in _holidays
 
 
 def prev_trading_day(d: Optional[date] = None) -> date:

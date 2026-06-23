@@ -134,6 +134,31 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"is_success backfill error: {e}")
 
+    # backfill_history 테이블 자동 생성 (idempotent)
+    for _bfsql in [
+        """CREATE TABLE IF NOT EXISTS backfill_history (
+            id            BIGSERIAL PRIMARY KEY,
+            job_type      VARCHAR(50)  NOT NULL,
+            triggered_by  VARCHAR(20)  NOT NULL DEFAULT 'auto',
+            status        VARCHAR(20)  NOT NULL DEFAULT 'running',
+            target_count  INT,
+            success_count INT,
+            skip_count    INT,
+            fail_count    INT,
+            rows_added    BIGINT,
+            started_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+            finished_at   TIMESTAMPTZ,
+            error_msg     TEXT,
+            meta          JSONB
+        )""",
+        """CREATE INDEX IF NOT EXISTS idx_backfill_history_type_started
+            ON backfill_history(job_type, started_at DESC)""",
+    ]:
+        try:
+            await app.state.db.execute(_bfsql)
+        except Exception:
+            pass
+
     # 성과 추적 워커 시작
     import asyncio
     _tracker_task = asyncio.create_task(tracker_loop(app.state.db, app.state.redis))

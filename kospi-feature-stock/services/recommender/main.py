@@ -1,4 +1,5 @@
 ﻿import asyncio
+import json
 import logging
 import os
 import traceback
@@ -63,12 +64,44 @@ _KRX_HOLIDAYS: frozenset[tuple[int, int, int]] = frozenset({
 })
 
 
+# 런타임 공휴일 세트 — 기동 시 Redis에서 갱신, 없으면 _KRX_HOLIDAYS 사용
+_krx_holidays_dynamic: set[tuple[int, int, int]] = set(_KRX_HOLIDAYS)
+
+
+async def _refresh_holiday_cache(redis: redis_lib.Redis) -> None:
+    """Redis krx:holidays:{year} 에서 공휴일 읽어 _krx_holidays_dynamic 갱신.
+    하드코딩 _KRX_HOLIDAYS 와 합집합하여 KRX 자체 휴장일(연말 등)도 보완.
+    """
+    global _krx_holidays_dynamic
+    loaded: set[tuple[int, int, int]] = set()
+    now_year = datetime.now(_KST).year
+
+    for year in [now_year - 1, now_year, now_year + 1]:
+        try:
+            raw = await redis.get(f"krx:holidays:{year}")
+            if raw:
+                date_strs: list[str] = json.loads(raw)
+                for ds in date_strs:
+                    loaded.add((int(ds[:4]), int(ds[5:7]), int(ds[8:10])))
+        except Exception as e:
+            logger.warning(f"[recommender] Redis 공휴일 로드 실패 {year}: {e}")
+
+    if loaded:
+        _krx_holidays_dynamic = loaded | set(_KRX_HOLIDAYS)
+        logger.info(
+            f"[recommender] 공휴일 캐시 갱신: "
+            f"API {len(loaded)}건 + 하드코딩 보완 → 총 {len(_krx_holidays_dynamic)}건"
+        )
+    else:
+        logger.warning("[recommender] Redis 공휴일 미확보 — 하드코딩 데이터 사용")
+
+
 def _is_trading_day() -> bool:
     """한국 거래일 여부: 월~금 + KRX 비거래일 제외 + 09:00~15:35 KST."""
     now_kst = datetime.now(_KST)
     if now_kst.weekday() >= 5:          # 토·일
         return False
-    if (now_kst.year, now_kst.month, now_kst.day) in _KRX_HOLIDAYS:
+    if (now_kst.year, now_kst.month, now_kst.day) in _krx_holidays_dynamic:
         return False
     hour, minute = now_kst.hour, now_kst.minute
     return (hour > 9 or (hour == 9 and minute >= 0)) and (hour < 15 or (hour == 15 and minute <= 35))
@@ -94,6 +127,10 @@ class RecommenderService:
 
     async def run(self):
         await self.setup()
+
+        # 기동 시 Redis에서 공휴일 캐시 갱신
+        await _refresh_holiday_cache(self._redis)
+
         from entry_recommender import EntryRecommender
         recommender = EntryRecommender()
 
