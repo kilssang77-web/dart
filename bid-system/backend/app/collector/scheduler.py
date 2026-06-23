@@ -717,14 +717,14 @@ def create_scheduler() -> BackgroundScheduler:
 
     scheduler.add_job(
         run_freq_rebuild_job,
-        trigger=CronTrigger(day_of_week="sun", hour=4, minute=0, timezone="Asia/Seoul"),
+        trigger=CronTrigger(day_of_week="sun", hour=6, minute=0, timezone="Asia/Seoul"),
         id="freq_rebuild_weekly",
-        name="발주기관 빈도표+전략 재계산 (매주 일 04:00 KST)",
+        name="발주기관 빈도표+전략 재계산 (매주 일 06:00 KST)",
         replace_existing=True,
         max_instances=1,
     )
-    # 전국 낙찰 수집: 화·목·일 03:30 KST (주 3회 — 커버리지 갭 최소화)
-    for dow, hh, mm in (("tue", 3, 30), ("thu", 3, 30), ("sun", 4, 30)):
+    # 전국 낙찰 수집: 화·목·일 05:30 KST (주 3회 — fstock 백필 피크 타임 이후)
+    for dow, hh, mm in (("tue", 5, 30), ("thu", 5, 30), ("sun", 5, 30)):
         scheduler.add_job(
             run_inpo21c_national_job,
             trigger=CronTrigger(day_of_week=dow, hour=hh, minute=mm, timezone="Asia/Seoul"),
