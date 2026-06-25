@@ -113,11 +113,11 @@ async def performance_active(
 
 @router.get("/performance/history")
 async def performance_history(
-    days: int = Query(default=30, le=180),
-    limit: int = Query(default=100, le=500),
+    days: int = Query(default=365, le=3650),
+    limit: int = Query(default=200, le=1000),
     db: asyncpg.Pool = Depends(get_db),
 ):
-    """완료된 추천 성과 이력."""
+    """완료된 추천 성과 이력 (날짜 필터 없이 전체, days 파라미터는 summary용)."""
     rows = await db.fetch(
         """
         SELECT
@@ -133,11 +133,10 @@ async def performance_history(
         JOIN recommendation_performance rp ON rp.rec_id = rec.id
         LEFT JOIN stocks s ON s.code = rec.code
         WHERE rp.r_5d IS NOT NULL
-          AND rec.created_at >= NOW() - ($1 * INTERVAL '1 day')
         ORDER BY rec.created_at DESC
-        LIMIT $2
+        LIMIT $1
         """,
-        days, limit,
+        limit,
     )
     return [
         {
@@ -165,7 +164,7 @@ async def performance_history(
 
 @router.get("/performance/summary")
 async def performance_summary(
-    days: int = Query(default=30, le=365),
+    days: int = Query(default=365, le=3650),
     db: asyncpg.Pool = Depends(get_db),
 ):
     """추천 성과 집계 요약."""

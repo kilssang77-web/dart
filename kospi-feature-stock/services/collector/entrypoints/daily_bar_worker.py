@@ -32,7 +32,7 @@ async def run():
 
     logger.info(f"[daily] Starting daily_bar + supply_demand EOD for {len(all_codes)} stocks")
 
-    # 시작 시 백필 (일봉 누락 종목)
+    # 백필은 _daily_bars_done 이벤트 대기 후 시작 (EOD 루프와 API 경합 방지)
     asyncio.create_task(svc._backfill_daily_bars(all_codes))
 
     await asyncio.gather(

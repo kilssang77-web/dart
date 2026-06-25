@@ -13,7 +13,7 @@ import {
 } from '@/api/recommendations'
 import { fmt, pctColor, probToScore, scoreBarColor } from '@/lib/utils'
 
-type HistoryDays = 7 | 30 | 90 | 180
+type HistoryDays = 30 | 90 | 180 | 365
 
 const TOOLTIP_STYLE = {
   background: 'var(--card)', border: '1px solid var(--border)',
@@ -54,7 +54,7 @@ function StatusBadge({ hit_target, hit_stop, is_success }: {
 }
 
 export function PerformanceTracking() {
-  const [historyDays, setHistoryDays] = useState<HistoryDays>(30)
+  const [historyDays, setHistoryDays] = useState<HistoryDays>(365)
 
   const { data: summary } = useQuery<PerformanceSummary>({
     queryKey:        ['perf-summary', historyDays],
@@ -70,7 +70,7 @@ export function PerformanceTracking() {
 
   const { data: history = [], isLoading: historyLoading } = useQuery<HistoryPerformanceItem[]>({
     queryKey: ['perf-history', historyDays],
-    queryFn:  () => recommendationsApi.getPerformanceHistory(historyDays, 200),
+    queryFn:  () => recommendationsApi.getPerformanceHistory(historyDays, 500),
     staleTime: 120_000,
   })
 
@@ -105,7 +105,7 @@ export function PerformanceTracking() {
           <Target size={15} className="text-cyan-400" /> 추천 성과 추적
         </span>
         <div className="flex gap-1 ml-auto">
-          {([7, 30, 90, 180] as HistoryDays[]).map((d) => (
+          {([30, 90, 180, 365] as HistoryDays[]).map((d) => (
             <button key={d} onClick={() => setHistoryDays(d)}
               className={clsx(
                 'px-3 py-1 rounded text-xs font-medium transition-colors',

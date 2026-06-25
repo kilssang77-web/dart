@@ -431,10 +431,28 @@ class RecommenderService:
                 feature_event_id,
             )
             # BUY 신호 확정 시 성과 추적 초기 row 등록
-            # REC_PERF_MIN_PROB 는 Telegram min_prob 와 독립적으로 설정
+            # telegram:config Redis 키의 실효 임계값과 동기화
             if rec_id and rec.get("action") == "BUY":
-                perf_min_prob = float(os.environ.get("REC_PERF_MIN_PROB", "0.55"))
-                if rec.get("success_prob", 0) >= perf_min_prob:
+                perf_max_risk = float(os.environ.get("REC_MAX_RISK", "0.60"))
+                perf_min_rr   = float(os.environ.get("REC_MIN_RISK_REWARD", "2.0"))
+                # telegram:config 에 설정된 min_prob 를 우선 사용 (없으면 env 기본값)
+                _tg_cfg_raw = await self._redis.get("telegram:config")
+                if _tg_cfg_raw:
+                    try:
+                        import orjson as _oj
+                        _tg_cfg = _oj.loads(_tg_cfg_raw)
+                        perf_min_prob = float(_tg_cfg.get("min_prob", os.environ.get("REC_PERF_MIN_PROB", "0.55")))
+                        perf_max_risk = float(_tg_cfg.get("max_risk", perf_max_risk))
+                        perf_min_rr   = float(_tg_cfg.get("min_risk_reward", perf_min_rr))
+                    except Exception:
+                        perf_min_prob = float(os.environ.get("REC_PERF_MIN_PROB", "0.55"))
+                else:
+                    perf_min_prob = float(os.environ.get("REC_PERF_MIN_PROB", "0.55"))
+                if (
+                    rec.get("success_prob", 0)      >= perf_min_prob
+                    and rec.get("risk_score", 1)    <= perf_max_risk
+                    and rec.get("risk_reward_ratio", 0) >= perf_min_rr
+                ):
                     rationale = rec["rationale"]
                     event_type = (
                         rationale.get("event_type") if isinstance(rationale, dict)
@@ -453,7 +471,8 @@ class RecommenderService:
                 else:
                     logger.debug(
                         f"[PERF_TRACK] skip {rec['code']} prob={rec.get('success_prob',0):.3f} "
-                        f"< threshold={perf_min_prob:.3f}"
+                        f"risk={rec.get('risk_score',0):.3f} rr={rec.get('risk_reward_ratio',0):.2f} "
+                        f"(thresholds: prob>={perf_min_prob} risk<={perf_max_risk} rr>={perf_min_rr})"
                     )
 
     async def _publish_redis(self, rec: dict):

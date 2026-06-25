@@ -212,6 +212,17 @@ function SystemHealthCard() {
   )
 }
 
+// 텔레그램 최소 확률 슬라이더 전용 변환 — 실제 ML 출력 범위 37.3%~62.7%
+const TG_MIN = 0.373
+const TG_MAX = 0.627
+const TG_RANGE = TG_MAX - TG_MIN
+function tgProbToScore(p: number): number {
+  return Math.min(100, Math.max(1, Math.round(((Math.min(p, TG_MAX) - TG_MIN) / TG_RANGE) * 99 + 1)))
+}
+function tgScoreToProb(s: number): number {
+  return parseFloat((TG_MIN + ((s - 1) / 99) * TG_RANGE).toFixed(3))
+}
+
 // ── 텔레그램 설정 ────────────────────────────────────────────────────────────
 function TelegramSection() {
   const qc = useQueryClient()
@@ -249,8 +260,8 @@ function TelegramSection() {
     )
   }
 
-  const score     = probToScore(draft.min_prob)
-  const barCls    = scoreBarColor(score)
+  const score     = tgProbToScore(draft.min_prob)
+  const barCls    = scoreBarColor(probToScore(draft.min_prob))
   const textColor = barCls.replace('bg-', 'text-')
 
   return (
@@ -291,16 +302,16 @@ function TelegramSection() {
           value={score}
           onChange={(e) => {
             const s = Number(e.target.value)
-            setDraft({ ...draft, min_prob: parseFloat(scoreToProb(s).toFixed(3)) })
+            setDraft({ ...draft, min_prob: tgScoreToProb(s) })
           }}
           className="w-full accent-cyan-400"
         />
         <div className="flex justify-between text-[10px] text-[var(--muted)] mt-1">
-          <span>1점 <span className="opacity-60">(ML 37.3%)</span></span>
-          <span className="text-yellow-400">31점</span>
-          <span className="text-orange-400">51점</span>
-          <span className="text-green-400">70점</span>
-          <span>100점 <span className="opacity-60">(ML 62.7%)</span></span>
+          <span>1점 <span className="opacity-60">(37.3%)</span></span>
+          <span className="text-yellow-400">25점</span>
+          <span className="text-orange-400">50점</span>
+          <span className="text-green-400">75점</span>
+          <span>100점 <span className="opacity-60">(62.7%)</span></span>
         </div>
       </div>
 

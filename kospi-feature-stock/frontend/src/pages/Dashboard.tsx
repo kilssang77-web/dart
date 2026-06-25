@@ -1,9 +1,9 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, Link } from 'react-router-dom'
 import {
   TrendingUp, TrendingDown, Minus, ArrowUpRight, ArrowDownRight,
-  Zap, BarChart3, Target, FileText, Users, Clock,
+  Zap, BarChart3, Target, FileText, Users, Clock, History,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { featuresApi } from '@/api/features'
@@ -495,6 +495,52 @@ function MoversRow({ movers }: { movers: MarketMovers | undefined }) {
   )
 }
 
+// ── 최근 검색 위젯 ───────────────────────────────────────────────────────────
+function RecentSearchesWidget() {
+  const nav = useNavigate()
+  const [recent, setRecent] = useState<Array<{ code: string; name: string }>>([])
+
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('recent_stocks') || 'null')
+      if (Array.isArray(stored)) setRecent(stored.slice(0, 8))
+    } catch { /* skip */ }
+  }, [])
+
+  if (!recent.length) return null
+
+  return (
+    <Card>
+      <CardHeader className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <History size={14} className="text-cyan-400" />
+          <CardTitle>최근 검색</CardTitle>
+        </div>
+        <button
+          onClick={() => nav('/search')}
+          className="text-xs text-cyan-400 hover:text-cyan-300 transition-colors"
+        >
+          종목 검색 →
+        </button>
+      </CardHeader>
+      <CardBody className="pt-2">
+        <div className="flex flex-wrap gap-2">
+          {recent.map((s) => (
+            <button
+              key={s.code}
+              onClick={() => nav(`/search?code=${s.code}`)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg)] hover:bg-[var(--border)]/40 hover:border-cyan-500/40 transition-colors"
+            >
+              <span className="text-xs font-semibold text-[var(--fg)] truncate max-w-[80px]">{s.name}</span>
+              <span className="text-[10px] text-[var(--muted)] font-mono">{s.code}</span>
+            </button>
+          ))}
+        </div>
+      </CardBody>
+    </Card>
+  )
+}
+
 // ── 메인 Dashboard ────────────────────────────────────────────────────────────
 export function Dashboard() {
   const [liveSignals, setLiveSignals] = useState<Array<{
@@ -637,6 +683,9 @@ export function Dashboard() {
           />
         </div>
       </div>
+
+      {/* ── 최근 검색 ───────────────────────────────────────────────── */}
+      <RecentSearchesWidget />
 
       {/* ── 하단: 상승/하락 Movers ──────────────────────────────────── */}
       <MoversRow movers={movers} />

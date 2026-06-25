@@ -700,7 +700,7 @@ class StockCollector:
 
             logger.info(f"[DailyBar] Starting daily bar collection for {len(codes)} stocks")
             total = 0
-            start = (datetime.now() - timedelta(days=5)).strftime("%Y%m%d")
+            start = (datetime.now(_KST) - timedelta(days=5)).strftime("%Y%m%d")
 
             for code in codes:
                 try:
@@ -803,10 +803,14 @@ class StockCollector:
         logger.info(f"[SD-Backfill] Done: success={success}, empty={empty}, error={fail}")
 
     async def _backfill_daily_bars(self, codes: list[str]):
-        """시작 시 과거 {BACKFILL_DAYS}일 일봉 백필.
-        daily_bars 데이터가 없는 종목만 대상으로 함.
-        """
-        await asyncio.sleep(15)
+        """일봉 수집(_daily_bars_done) 완료 후 누락 종목 과거 {BACKFILL_DAYS}일 백필."""
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(self._daily_bars_done.wait()), timeout=7200
+            )
+        except asyncio.TimeoutError:
+            logger.warning("[Backfill] _daily_bars_done 2시간 대기 초과 — 강제 진행")
+        await asyncio.sleep(5)
 
         try:
             async with self.db.acquire() as conn:
@@ -829,8 +833,8 @@ class StockCollector:
             f"[Backfill] Starting {BACKFILL_DAYS}-day backfill for "
             f"{len(to_backfill)}/{len(codes)} stocks without data"
         )
-        end   = datetime.now().strftime("%Y%m%d")
-        start = (datetime.now() - timedelta(days=BACKFILL_DAYS)).strftime("%Y%m%d")
+        end   = datetime.now(_KST).strftime("%Y%m%d")
+        start = (datetime.now(_KST) - timedelta(days=BACKFILL_DAYS)).strftime("%Y%m%d")
         total = 0
 
         for i, code in enumerate(to_backfill):

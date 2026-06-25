@@ -561,6 +561,7 @@ export function Recommendations() {
     queryFn:         () => recommendationsApi.list({
       action:   filter === 'ALL' ? undefined : filter,
       min_prob: minProb,
+      hours:    72,
       limit:    100,
       dedupe,
     }),
@@ -580,10 +581,10 @@ export function Recommendations() {
     staleTime: 30_000,
   })
 
-  // 탭 필터와 무관하게 BUY 신호 수를 항상 동일 기준으로 표시
+  // 탭 필터와 무관하게 BUY 신호 수를 항상 동일 기준으로 표시 (Dashboard와 동일: hours=72)
   const { data: buyRecs } = useQuery({
     queryKey:        ['recs-buy-count', minProb],
-    queryFn:         () => recommendationsApi.list({ action: 'BUY', min_prob: minProb, limit: 100, dedupe: true }),
+    queryFn:         () => recommendationsApi.list({ action: 'BUY', min_prob: minProb, hours: 72, limit: 100, dedupe: true }),
     refetchInterval: 60_000,
   })
 

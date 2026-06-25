@@ -140,8 +140,48 @@ class ThemeClusterer:
         except Exception as e:
             logger.warning(f"[ThemeCluster] 스냅쌏 저장 실패: {e}")
 
+        # 개별 뉴스 themes 컬럼 갱신 (클러스터 키워드 기록)
+        try:
+            await self._write_themes_to_news(ids, labels, themes)
+        except Exception as e:
+            logger.warning(f"[ThemeCluster] news.themes 갱신 실패: {e}")
+
         logger.info(f"[ThemeCluster] {len(themes)}개 테마 발견 (총 {len(vecs)}건 뉴스)")
         return themes
+
+    async def _write_themes_to_news(
+        self,
+        ids: list[int],
+        labels: "np.ndarray",
+        themes: list[Theme],
+    ) -> None:
+        """각 뉴스 레코드에 소속 클러스터의 키워드를 themes 컬럼에 기록.
+        MIN_NEWS_PER_CLUSTER 미달 클러스터 = 유효 테마 없음 → [] 유지.
+        """
+        # cluster_id → keywords 매핑 (유효 테마만)
+        cid_to_kw: dict[int, list[str]] = {t.cluster_id: t.keywords for t in themes}
+
+        # (news_id, themes_json) 배치 구성
+        batch: list[tuple[int, str]] = []
+        for news_id, label in zip(ids, labels):
+            kw = cid_to_kw.get(int(label))
+            if kw:
+                batch.append((news_id, orjson.dumps(kw[:5]).decode()))
+
+        if not batch:
+            return
+
+        # 배치 UPDATE — 한 번에 최대 2000건
+        chunk_size = 2000
+        for i in range(0, len(batch), chunk_size):
+            chunk = batch[i : i + chunk_size]
+            news_ids = [r[0] for r in chunk]
+            themes_vals = [r[1] for r in chunk]
+            await self.db.executemany(
+                "UPDATE news SET themes=$2 WHERE id=$1",
+                [(nid, tv) for nid, tv in zip(news_ids, themes_vals)],
+            )
+        logger.debug(f"[ThemeCluster] news.themes 갱신: {len(batch)}건")
 
     async def _load_news_embeddings(self, since: datetime) -> list:
         return await self.db.fetch(
