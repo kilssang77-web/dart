@@ -45,8 +45,8 @@ DEFAULT_FEATURE_COLUMNS: list[str] = [
     "per", "pbr", "roe", "debt_ratio",
     "log_market_cap",
     "is_kosdaq",
-    # 단면 랭크 피처 (같은 날 종목간 상대 순위 0~1)
-    "rank_return_5d", "rank_vol_ratio", "rank_foreign_net", "rank_rsi14",
+    # 단면 랭크 피처 (같은 날 종목간 상대 순위 0~1) — top-20 유효 피처만 유지
+    "rank_foreign_net", "rank_rsi14",
 ]
 
 
