@@ -506,9 +506,10 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
     out = pd.concat(chunk_frames, ignore_index=True) if chunk_frames else pd.DataFrame()
 
     # Cross-sectional rank features — 같은 날짜 내 상대 순위 (0~1)
-    # rank_foreign_net(2위), rank_rsi14(18위) — top-20 유효 피처만 유지
     if not out.empty and "__date" in out.columns:
         for _col, _rank_col in [
+            ("return_5d",         "rank_return_5d"),
+            ("vol_ratio_20d",     "rank_vol_ratio"),
             ("foreign_net_ratio", "rank_foreign_net"),
             ("rsi14",             "rank_rsi14"),
         ]:
