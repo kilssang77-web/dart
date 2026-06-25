@@ -395,11 +395,13 @@ def run_journal_auto_fill_job() -> None:
     db = SessionLocal()
     try:
         # sucsfbidRate 오인으로 winner_rate > 0.97 저장된 레코드 초기화
+        # note IS NULL: 수동/이관 등록 레코드(note 있음)는 제외
         reset_cnt = db.execute(text("""
             UPDATE bid_journal
             SET winner_rate = NULL, rate_gap = NULL, result = NULL,
                 our_rank = NULL, total_bidders = NULL, updated_at = NOW()
             WHERE winner_rate > 0.97
+              AND note IS NULL
         """)).rowcount
         if reset_cnt:
             db.commit()
