@@ -138,6 +138,24 @@ def run_inpo21c_job() -> None:
         db.close()
 
 
+def run_auto_register_job() -> None:
+    """inpo21c 수집 완료 후 우리 회사 참여 건 자동 등록 (매일 20:30 KST)."""
+    from app.database import SessionLocal
+    from app.journal_service import auto_register_from_inpo21c
+    from sqlalchemy import text as _t
+
+    db = SessionLocal()
+    try:
+        admin = db.execute(_t("SELECT id FROM users WHERE role='admin' LIMIT 1")).fetchone()
+        user_id = admin[0] if admin else 1
+        result = auto_register_from_inpo21c(db, user_id)
+        logger.info("자동 이력 등록 완료: %s", result)
+    except Exception as exc:
+        logger.error("자동 이력 등록 실패: %s", exc)
+    finally:
+        db.close()
+
+
 def run_inpo21c_national_job() -> None:
     """inpo21c 전국 낙찰 결과 수집 (매주 일요일 03:30 KST — 맞춤설정 비의존, 전국 커버리지)."""
     from app.database import SessionLocal
@@ -686,6 +704,14 @@ def create_scheduler() -> BackgroundScheduler:
         trigger=CronTrigger(hour=20, minute=0, timezone="Asia/Seoul"),
         id="collect_inpo21c_daily",
         name="inpo21c 전참여자+예가 수집 (매일 20:00 KST)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        run_auto_register_job,
+        trigger=CronTrigger(hour=20, minute=30, timezone="Asia/Seoul"),
+        id="auto_register_inpo21c_daily",
+        name="inpo21c 참여 이력 자동 등록 (매일 20:30 KST)",
         replace_existing=True,
         max_instances=1,
     )
