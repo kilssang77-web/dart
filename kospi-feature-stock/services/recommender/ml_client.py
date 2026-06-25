@@ -391,6 +391,12 @@ def _compute_features(rows: list, sd_rows: list, disc_rows: list, kospi_rows: li
     _mc = _safe(rows[0].get("market_cap"), 0.0) if rows else 0.0
     log_market_cap = math.log(_mc) if _mc > 0 else 0.0
 
+    # ── 단면 랭크 피처 (추론 시 단일 종목 → 중립값 0.5 사용) ──
+    rank_return_5d  = 0.5
+    rank_vol_ratio  = 0.5
+    rank_foreign_net = 0.5
+    rank_rsi14      = 0.5
+
     return {k: locals().get(k, 0.0) for k in FEATURE_COLUMNS}
 
 
