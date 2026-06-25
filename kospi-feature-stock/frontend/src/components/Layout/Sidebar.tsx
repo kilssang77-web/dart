@@ -4,7 +4,7 @@ import { clsx } from 'clsx'
 import {
   LayoutDashboard, TrendingUp, Search, Newspaper,
   FlaskConical, Settings2, Activity, Bell, Star,
-  ChevronLeft, ChevronRight, X, BarChart2, ServerCog,
+  ChevronLeft, ChevronRight, X, BarChart2, ServerCog, History,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { featuresApi } from '@/api/features'
@@ -32,6 +32,7 @@ function buildNavGroups(badge?: string): NavGroup[] {
         { to: '/intel',           icon: <Newspaper size={15} />,      label: '공시/뉴스' },
         { to: '/search',          icon: <Search size={15} />,         label: '종목 검색' },
         { to: '/watchlist',       icon: <Star size={15} />,           label: '관심종목' },
+        { to: '/similar-cases',   icon: <History size={15} />,        label: '유사사례' },
         { to: '/rec-journey',     icon: <Activity size={15} />,       label: '성과 추적' },
         { to: '/notifications',   icon: <Bell size={15} />,           label: '발송 이력' },
       ],

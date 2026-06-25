@@ -8,6 +8,7 @@ class RecommendationResponse(BaseModel):
     id: int
     created_at: str
     fe_detected_at: Optional[str] = None
+    feature_event_id: Optional[int] = None
     code: str
     name: str
     market: str

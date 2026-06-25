@@ -126,44 +126,49 @@ class KINDPoller:
 
         for row in rows:
             cols = row.find_all("td")
-            if len(cols) < 5:
+            if len(cols) < 4:
                 continue
 
             try:
-                time_text  = cols[0].get_text(strip=True)
-                code_text  = cols[1].get_text(strip=True)
-                title_el   = cols[2].find("a") or cols[2]  # 공시 제목(링크) in cols[2]
+                time_text = cols[0].get_text(strip=True)
+
+                # cols[1]: 회사명 + 시장구분
+                c1_link = cols[1].find("a")
+                corp_text = (
+                    c1_link.get("title", "").strip() or c1_link.get_text(strip=True)
+                    if c1_link else cols[1].get_text(strip=True)
+                )
+                market_img = cols[1].find("img")
+                market_type = market_img.get("alt", "") if market_img else ""  # 코스피/코스닥
+
+                # cols[2]: 공시 제목 + rcept_no (openDisclsViewer onclick)
+                title_el   = cols[2].find("a") or cols[2]
                 title_text = title_el.get_text(strip=True)
-                href       = title_el.get("href", "") if title_el.name == "a" else ""
-                corp_text  = cols[3].get_text(strip=True)  # 법인명 in cols[3]
-                type_text  = cols[4].get_text(strip=True) if len(cols) > 4 else ""
+                onclick2   = title_el.get("onclick", "") if title_el.name == "a" else ""
+                rcept_m    = re.search(r"openDisclsViewer\('(\d+)'", onclick2)
+                uid        = f"kind_{rcept_m.group(1)}" if rcept_m else f"kind_{corp_text}_{time_text}_{title_text[:30]}"
+
+                # cols[3]: 제출인 (공시 작성자)
+                submitter = cols[3].get_text(strip=True)
             except Exception:
                 continue
 
             if not title_text or not corp_text:
                 continue
 
-            # 종목코드 정제 (6자리 숫자)
-            code_match = re.search(r"\d{6}", code_text)
-            code = code_match.group() if code_match else None
-
-            # 공시 URL
-            url = (_KIND_BASE + href) if href and not href.startswith("http") else href
-
-            # 고유 ID (corp + time + title 해시)
-            uid = f"kind_{corp_text}_{time_text}_{title_text[:30]}"
-
             disclosed_at = self._parse_time(time_text)
 
             items.append({
                 "rcept_no":        uid,
-                "code":            code,
+                "code":            None,          # analyzer에서 stocks 테이블로 조회
                 "corp_name":       corp_text,
+                "submitter":       submitter,
+                "market_type":     market_type,   # 코스피/코스닥
                 "disclosed_at":    disclosed_at,
                 "report_type":     "KIND",
-                "disclosure_type": type_text,
+                "disclosure_type": "",
                 "title":           title_text,
-                "url":             url,
+                "url":             "",
                 "source":          "KIND",
                 "category":        "neutral",
                 "sentiment_score": 0.0,

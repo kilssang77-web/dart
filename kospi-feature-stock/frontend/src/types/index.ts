@@ -33,6 +33,7 @@ export interface Recommendation {
   id:                  number
   created_at:          string
   fe_detected_at?:     string
+  feature_event_id?:   number
   code:                string
   name:                string
   market:              string

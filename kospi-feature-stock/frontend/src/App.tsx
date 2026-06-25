@@ -23,6 +23,7 @@ const Watchlist      = lazy(() => import('./pages/Watchlist').then((m) => ({ def
 const SystemHealth         = lazy(() => import('./pages/SystemHealth').then((m) => ({ default: m.SystemHealth })))
 const NotificationHistory  = lazy(() => import('./pages/NotificationHistory').then((m) => ({ default: m.NotificationHistory })))
 const RecJourney           = lazy(() => import('./pages/RecommendationJourney').then((m) => ({ default: m.RecommendationJourney })))
+const SimilarCases         = lazy(() => import('./pages/SimilarCases').then((m) => ({ default: m.SimilarCases })))
 
 const META: Record<string, { title: string; subtitle?: string }> = {
   '/':               { title: '대시보드',    subtitle: '실시간 특징주 현황 요약' },
@@ -38,6 +39,7 @@ const META: Record<string, { title: string; subtitle?: string }> = {
   '/system-health':  { title: '시스템 헬스',  subtitle: 'ML 모델 · DB · Kafka · 데이터 신선도 전체 현황' },
   '/notifications':  { title: '발송 이력',   subtitle: '텔레그램 발송 내역 · 매수신호 · 공시' },
   '/rec-journey':    { title: '성과 추적',    subtitle: '매수 추천 시점 이후 시간대별 주가 여정 · ML 재학습 피드백' },
+  '/similar-cases':  { title: '유사사례',    subtitle: '과거 동일 패턴 종목 · 이벤트 기준 수익률 비교' },
 }
 
 function Spinner() {
@@ -131,12 +133,12 @@ export default function App() {
               <Route path="/system-health"   element={<SystemHealth />} />
               <Route path="/notifications"   element={<NotificationHistory />} />
               <Route path="/rec-journey"    element={<RecJourney />} />
+              <Route path="/similar-cases"          element={<SimilarCases />} />
+              <Route path="/similar-cases/:eventId" element={<SimilarCases />} />
               {/* 제거된 라우트 → 리다이렉트 */}
               <Route path="/disclosures"     element={<Navigate to="/intel" replace />} />
               <Route path="/news"            element={<Navigate to="/intel" replace />} />
               <Route path="/themes"          element={<Navigate to="/intel" replace />} />
-              <Route path="/similar-cases"         element={<Navigate to="/search" replace />} />
-              <Route path="/similar-cases/:eventId" element={<Navigate to="/search" replace />} />
               <Route path="/hts"             element={<Navigate to="/" replace />} />
               <Route path="/bootstrap"       element={<Navigate to="/" replace />} />
               <Route path="/tracking"        element={<Navigate to="/" replace />} />

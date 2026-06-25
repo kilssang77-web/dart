@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
 import { Search, X, Clock, Trash2, ChevronRight, TrendingUp, TrendingDown, Minus, Star, StarOff, BarChart2, ShoppingCart, BookOpen, History, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
@@ -565,6 +565,7 @@ export function StockSearch() {
 
 // ── 유사사례 탭 ─────────────────────────────────────────────────────────────
 function SimilarTab({ code, events }: { code: string; events?: FeatureEvent[] }) {
+  const nav = useNavigate()
   // 최근 이벤트 중 첫 번째를 유사사례 조회에 사용
   const latestEvent = events?.[0]
 
@@ -589,9 +590,17 @@ function SimilarTab({ code, events }: { code: string; events?: FeatureEvent[] })
     <div className="space-y-3">
       {/* 기준 이벤트 */}
       <div className="bg-[var(--card)] border border-cyan-500/20 rounded-xl p-4">
-        <div className="flex items-center gap-2 mb-1">
-          <History size={14} className="text-cyan-400" />
-          <span className="text-sm font-semibold text-[var(--fg)]">유사사례 기준 이벤트</span>
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <History size={14} className="text-cyan-400" />
+            <span className="text-sm font-semibold text-[var(--fg)]">유사사례 기준 이벤트</span>
+          </div>
+          <button
+            onClick={() => nav(`/similar-cases/${latestEvent.id}`)}
+            className="text-xs text-purple-400 hover:text-purple-300 transition-colors flex items-center gap-1"
+          >
+            상세 분석 →
+          </button>
         </div>
         <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
           <Badge eventType={latestEvent.event_type} size="sm" />

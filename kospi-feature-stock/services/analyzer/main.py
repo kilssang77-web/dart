@@ -251,6 +251,16 @@ class AnalyzerService:
         sentiment_score = clf["sentiment_score"]
 
         async with self._db.acquire() as conn:
+            # KIND 공시: corp_name으로 종목코드 조회 (code=None)
+            resolved_code = data.get("code")
+            if not resolved_code and data.get("corp_name"):
+                row_code = await conn.fetchrow(
+                    "SELECT code FROM stocks WHERE name = $1 LIMIT 1",
+                    data["corp_name"],
+                )
+                if row_code:
+                    resolved_code = row_code["code"]
+
             await conn.execute(
                 """
                 INSERT INTO disclosures (
@@ -262,6 +272,7 @@ class AnalyzerService:
                     embedding, raw_json
                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::vector,$17)
                 ON CONFLICT (rcept_no) DO UPDATE SET
+                    code            = COALESCE(EXCLUDED.code, disclosures.code),
                     category        = EXCLUDED.category,
                     sentiment_score = EXCLUDED.sentiment_score,
                     keywords        = EXCLUDED.keywords,
@@ -273,7 +284,7 @@ class AnalyzerService:
                     contract_period = COALESCE(EXCLUDED.contract_period,  disclosures.contract_period)
                 """,
                 rcept_no,
-                data.get("code"),
+                resolved_code,
                 data.get("corp_name"),
                 disclosed_dt,
                 data.get("report_type"),
@@ -290,12 +301,25 @@ class AnalyzerService:
                 vec_str,
                 orjson.dumps(data).decode(),
             )
+            # is_flagged: 등록된 keyword 필터와 제목 매칭
+            await conn.execute(
+                """
+                UPDATE disclosures SET is_flagged = (
+                    EXISTS (
+                        SELECT 1 FROM disclosure_filters
+                        WHERE type = 'keyword'
+                          AND $1 ILIKE '%' || value || '%'
+                    )
+                ) WHERE rcept_no = $2 AND is_flagged = FALSE
+                """,
+                title, rcept_no,
+            )
         logger.info(f"Disclosure saved: {rcept_no} [{clf['category']}]")
 
         # disclosure-analyzed 채널에 발행: notifier가 소비
         analyzed = {
             "rcept_no":        rcept_no,
-            "code":            data.get("code"),
+            "code":            resolved_code,
             "corp_name":       data.get("corp_name"),
             "title":           title,
             "report_type":     data.get("report_type"),

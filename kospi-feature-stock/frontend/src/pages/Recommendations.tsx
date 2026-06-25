@@ -331,6 +331,7 @@ function RecCard({
   onSignalModal: () => void
   onNav:        (code: string) => void
 }) {
+  const nav = useNavigate()
   const [showDetail, setShowDetail] = useState(false)
 
   return (
@@ -517,9 +518,16 @@ function RecCard({
               <div className="mt-2 space-y-1.5">
                 {rec.rationale.sim_count != null && rec.rationale.sim_count > 0 && (
                   <button
-                    onClick={(e) => { e.stopPropagation(); onOpen() }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (rec.feature_event_id) {
+                        nav(`/similar-cases/${rec.feature_event_id}`)
+                      } else {
+                        onOpen()
+                      }
+                    }}
                     className="flex items-center gap-1 text-xs text-[var(--muted)] hover:text-purple-400 transition-colors group"
-                    title="유사사례 상세 보기"
+                    title="유사사례 전용 페이지에서 보기"
                   >
                     <span>유사 사례</span>
                     <span className="text-[var(--fg)] font-semibold group-hover:text-purple-400">{rec.rationale.sim_count}건</span>

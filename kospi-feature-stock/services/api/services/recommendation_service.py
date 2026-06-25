@@ -84,6 +84,7 @@ class RecommendationService:
                     r.expected_hold_days, r.success_prob, r.expected_return,
                     r.risk_score, r.risk_reward_ratio,
                     r.rationale, r.similar_cases,
+                    r.feature_event_id,
                     COALESCE(db.close, r.entry_price)  AS current_price,
                     COALESCE(db.change_rate, 0)        AS current_change_rate,
                     (COALESCE(fe.detected_at, r.created_at) AT TIME ZONE 'Asia/Seoul')::TEXT AS fe_detected_at,
@@ -107,7 +108,7 @@ class RecommendationService:
                    entry_price, target_price, stop_loss_price,
                    expected_hold_days, success_prob, expected_return,
                    risk_score, risk_reward_ratio, rationale, similar_cases, rec_count,
-                   current_price, current_change_rate, fe_detected_at
+                   feature_event_id, current_price, current_change_rate, fe_detected_at
             FROM base WHERE rn = 1
             ORDER BY success_prob DESC
             LIMIT {limit_ph}
@@ -122,6 +123,7 @@ class RecommendationService:
                 r.expected_hold_days, r.success_prob, r.expected_return,
                 r.risk_score, r.risk_reward_ratio,
                 r.rationale, r.similar_cases,
+                r.feature_event_id,
                 1 AS rec_count,
                 COALESCE(db.close, r.entry_price)  AS current_price,
                 COALESCE(db.change_rate, 0)        AS current_change_rate,
