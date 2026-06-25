@@ -5,11 +5,11 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { journalApi } from '@/api'
-import type { JournalOut, JournalResultRequest, JournalStats } from '@/types'
+import type { JournalOut, JournalResultRequest, JournalStats, ManualJournalRequest } from '@/types'
 import {
   BookOpen, Trophy, AlertCircle, CheckCircle2, Clock,
   TrendingUp, ClipboardCheck, ChevronDown, ChevronUp,
-  Filter, BarChart2,
+  Filter, BarChart2, PlusCircle, X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -214,9 +214,185 @@ function JournalRow({ journal }: { journal: JournalOut }) {
   )
 }
 
+function ManualJournalModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient()
+  const [form, setForm] = useState<{
+    announcement_no: string
+    submitted_rate: string
+    result: '낙찰' | '패찰'
+    actual_srate: string
+    winner_rate: string
+    our_rank: string
+    total_bidders: string
+    note: string
+  }>({
+    announcement_no: '', submitted_rate: '', result: '낙찰',
+    actual_srate: '', winner_rate: '', our_rank: '', total_bidders: '', note: '',
+  })
+
+  const mut = useMutation({
+    mutationFn: (req: ManualJournalRequest) => journalApi.createManual(req),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['journal-list'] })
+      qc.invalidateQueries({ queryKey: ['journal-stats'] })
+      onClose()
+    },
+  })
+
+  const handleSubmit = () => {
+    if (!form.announcement_no.trim() || !form.submitted_rate) return
+    const req: ManualJournalRequest = {
+      announcement_no: form.announcement_no.trim(),
+      submitted_rate: parseFloat(form.submitted_rate) / 100,
+      result: form.result,
+      actual_srate: form.actual_srate ? parseFloat(form.actual_srate) / 100 : undefined,
+      winner_rate: form.winner_rate ? parseFloat(form.winner_rate) / 100 : undefined,
+      our_rank: form.our_rank ? parseInt(form.our_rank) : undefined,
+      total_bidders: form.total_bidders ? parseInt(form.total_bidders) : undefined,
+      note: form.note || undefined,
+    }
+    mut.mutate(req)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <PlusCircle className="w-5 h-5 text-blue-600" />
+            <h2 className="text-base font-bold text-gray-900">과거 투찰 이력 등록</h2>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg">
+            <X className="w-4 h-4 text-gray-400" />
+          </button>
+        </div>
+        <p className="text-xs text-gray-500 mb-4 bg-blue-50 rounded-lg p-3">
+          시스템 외부에서 투찰한 건을 등록합니다. 낙찰 건도 포함하여 AI 학습 데이터로 활용됩니다.
+        </p>
+
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">공고번호 <span className="text-red-500">*</span></label>
+            <input
+              type="text"
+              placeholder="예: R26BK01234567"
+              value={form.announcement_no}
+              onChange={e => setForm(p => ({ ...p, announcement_no: e.target.value }))}
+              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">투찰률 (%) <span className="text-red-500">*</span></label>
+              <input
+                type="number"
+                step="0.0001"
+                placeholder="예: 90.2300"
+                value={form.submitted_rate}
+                onChange={e => setForm(p => ({ ...p, submitted_rate: e.target.value }))}
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">결과 <span className="text-red-500">*</span></label>
+              <select
+                value={form.result}
+                onChange={e => setForm(p => ({ ...p, result: e.target.value as '낙찰' | '패찰' }))}
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="낙찰">낙찰</option>
+                <option value="패찰">패찰</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">사정율 (%)</label>
+              <input
+                type="number"
+                step="0.0001"
+                placeholder="예: 90.1234"
+                value={form.actual_srate}
+                onChange={e => setForm(p => ({ ...p, actual_srate: e.target.value }))}
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">낙찰률 (%)</label>
+              <input
+                type="number"
+                step="0.0001"
+                placeholder="예: 90.0500"
+                value={form.winner_rate}
+                onChange={e => setForm(p => ({ ...p, winner_rate: e.target.value }))}
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">우리 순위</label>
+              <input
+                type="number"
+                placeholder="예: 3"
+                value={form.our_rank}
+                onChange={e => setForm(p => ({ ...p, our_rank: e.target.value }))}
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">총 참여사 수</label>
+              <input
+                type="number"
+                placeholder="예: 15"
+                value={form.total_bidders}
+                onChange={e => setForm(p => ({ ...p, total_bidders: e.target.value }))}
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">메모</label>
+            <input
+              type="text"
+              placeholder="선택 사항"
+              value={form.note}
+              onChange={e => setForm(p => ({ ...p, note: e.target.value }))}
+              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+
+        {mut.isError && (
+          <div className="mt-3 text-xs text-red-600 bg-red-50 rounded-lg p-2">
+            등록 실패: {(mut.error as Error)?.message || '서버 오류'}
+          </div>
+        )}
+
+        <div className="flex gap-2 mt-5">
+          <button
+            onClick={onClose}
+            className="flex-1 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+          >
+            취소
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={!form.announcement_no.trim() || !form.submitted_rate || mut.isPending}
+            className="flex-1 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+          >
+            {mut.isPending ? '등록 중...' : '등록'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function JournalHistoryPage() {
   const [resultFilter, setResultFilter] = useState<ResultFilter>('')
   const [page, setPage] = useState(1)
+  const [showManualModal, setShowManualModal] = useState(false)
 
   const { data: listData, isLoading } = useQuery({
     queryKey: ['journal-list', resultFilter, page],
@@ -251,11 +427,20 @@ export default function JournalHistoryPage() {
     <div className="flex flex-col h-full min-h-0 bg-gray-50">
       <div className="bg-white border-b px-6 py-4 flex items-center gap-3 shrink-0">
         <BookOpen className="w-6 h-6 text-amber-600" />
-        <div>
+        <div className="flex-1">
           <h1 className="text-lg font-bold text-gray-900">투찰 이력 분석</h1>
           <p className="text-xs text-gray-500">실전 투찰 기록 · AI 피드백 루프 현황</p>
         </div>
+        <button
+          onClick={() => setShowManualModal(true)}
+          className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700"
+        >
+          <PlusCircle className="w-3.5 h-3.5" />
+          과거 이력 등록
+        </button>
       </div>
+
+      {showManualModal && <ManualJournalModal onClose={() => setShowManualModal(false)} />}
 
       <div className="flex-1 overflow-auto p-6">
         <div className="max-w-5xl mx-auto space-y-6">

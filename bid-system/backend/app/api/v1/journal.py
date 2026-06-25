@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from ...database import get_db
-from ...schemas import JournalCreateRequest, JournalResultRequest, JournalOut
+from ...schemas import JournalCreateRequest, JournalResultRequest, JournalOut, ManualJournalRequest
 from ...services import JournalService
 from ...common.security import get_current_user
 
@@ -28,6 +28,16 @@ def create_journal(
 ):
     """투찰률 확정 후 저널 기록. pred_log_id로 AI추천과 연결."""
     return _svc.create(db, user.id, req)
+
+
+@router.post("/manual", response_model=JournalOut)
+def create_manual_journal(
+    req: ManualJournalRequest,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """시스템 외부 투찰 건 수동 등록. 공고번호 + 투찰률 + 결과를 한 번에 기록."""
+    return _svc.create_manual(db, user.id, req)
 
 
 @router.put("/{journal_id}/result", response_model=JournalOut)

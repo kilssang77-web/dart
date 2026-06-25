@@ -523,4 +523,7 @@ export const journalApi = {
 
   recommendationEffect: (tolerance = 0.003) =>
     api.get('/journal/recommendation-effect', { params: { tolerance } }).then((r) => r.data as import('../types').RecommendationEffect),
+
+  createManual: (req: import('../types').ManualJournalRequest): Promise<import('../types').JournalOut> =>
+    api.post('/journal/manual', req).then((r) => r.data),
 }

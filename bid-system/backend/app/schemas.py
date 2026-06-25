@@ -1475,6 +1475,19 @@ class JournalResultRequest(BaseModel):
     note:           Optional[str]   = None
 
 
+class ManualJournalRequest(BaseModel):
+    """시스템 외부 투찰 건 수동 등록 — 공고번호 기반으로 bid 조회/생성 후 저널 + 결과 즉시 기록"""
+    announcement_no: str
+    submitted_rate:  float
+    submitted_amount: Optional[int]   = None
+    result:           str              # 낙찰/패찰
+    actual_srate:     Optional[float] = None
+    winner_rate:      Optional[float] = None
+    our_rank:         Optional[int]   = None
+    total_bidders:    Optional[int]   = None
+    note:             Optional[str]   = None
+
+
 class JournalOut(BaseModel):
     model_config = {"from_attributes": True}
 

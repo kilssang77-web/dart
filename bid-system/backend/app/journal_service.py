@@ -338,3 +338,86 @@ def _sync_actual_outcome(db: Session, journal: "BidJournal") -> None:
     except Exception as exc:
         db.rollback()
         logger.error("actual_bid_outcomes 동기화 실패 journal#%d: %s", journal.id, exc)
+
+
+def _manual_create(svc_self, db: Session, user_id: int, req) -> "BidJournal":
+    """JournalService.create_manual 구현 — _sync_actual_outcome 이후에 정의."""
+    from .models import BidJournal, Bid
+    from datetime import datetime as _dt
+
+    VALID_RESULTS = {"낙찰", "패찰", "무효", "취소"}
+    if req.result not in VALID_RESULTS:
+        from fastapi import HTTPException
+        raise HTTPException(400, f"result는 {VALID_RESULTS} 중 하나여야 합니다.")
+
+    ann_no = req.announcement_no.strip()
+    bid = db.query(Bid).filter(Bid.announcement_no == ann_no).first()
+
+    if not bid:
+        bid = Bid(
+            announcement_no=ann_no,
+            title=f"[수동등록] {ann_no}",
+            status="closed",
+        )
+        db.add(bid)
+        db.flush()
+        logger.info("수동 stub bid 생성: announcement_no=%s bid_id=%d", ann_no, bid.id)
+
+    pred_srate_center = None
+    if bid.base_amount:
+        try:
+            from .ml.assessment import load_srate_stats, predict_srate
+            features = load_srate_stats(
+                db,
+                agency_id=getattr(bid, "agency_id", None),
+                industry_id=getattr(bid, "industry_id", None),
+                region_id=getattr(bid, "region_id", None),
+                base_amount=int(bid.base_amount),
+            )
+            ep = predict_srate(features, int(bid.base_amount))
+            pred_srate_center = float(ep["srate_range"]["center"])
+        except Exception as e:
+            logger.warning("수동 등록 pred_srate_center 계산 실패: %s", e)
+
+    srate_error = None
+    if req.actual_srate and pred_srate_center:
+        srate_error = round(float(req.actual_srate) - float(pred_srate_center), 6)
+
+    rate_gap = None
+    if req.winner_rate and req.submitted_rate:
+        rate_gap = round(float(req.winner_rate) - float(req.submitted_rate), 6)
+
+    submitted_amount = req.submitted_amount
+    if not submitted_amount and req.submitted_rate and bid.base_amount:
+        submitted_amount = int(round(float(req.submitted_rate) * bid.base_amount))
+
+    obj = BidJournal(
+        bid_id=bid.id,
+        user_id=user_id,
+        announcement_no=ann_no,
+        submitted_at=_dt.now(),
+        submitted_rate=req.submitted_rate,
+        submitted_amount=submitted_amount,
+        pred_srate_center=pred_srate_center,
+        result=req.result,
+        opened_at=_dt.now(),
+        actual_srate=req.actual_srate,
+        winner_rate=req.winner_rate,
+        our_rank=req.our_rank,
+        total_bidders=req.total_bidders,
+        rate_gap=rate_gap,
+        srate_error=srate_error,
+        note=req.note,
+    )
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+
+    _sync_actual_outcome(db, obj)
+
+    logger.info("수동 저널 등록 완료: journal#%d bid#%d %s result=%s",
+                obj.id, bid.id, ann_no, req.result)
+    return obj
+
+
+JournalService.create_manual = _manual_create

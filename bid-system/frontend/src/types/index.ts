@@ -1515,6 +1515,18 @@ export interface JournalResultRequest {
   note?:          string | null
 }
 
+export interface ManualJournalRequest {
+  announcement_no:  string
+  submitted_rate:   number
+  submitted_amount?: number | null
+  result:           '낙찰' | '패찰' | '무효' | '취소'
+  actual_srate?:    number | null
+  winner_rate?:     number | null
+  our_rank?:        number | null
+  total_bidders?:   number | null
+  note?:            string | null
+}
+
 export interface JournalOut {
   id:                 number
   bid_id:             number
