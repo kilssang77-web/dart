@@ -26,6 +26,23 @@ async def lifespan(app: FastAPI):
     except Exception as _create_err:
         logger.warning(f"create_all 일부 실패 (테이블 중복 등, 무시): {_create_err}")
 
+    # bids 테이블 신규 컬럼 마이그레이션 (ALTER TABLE IF NOT EXISTS)
+    _mig_db = SessionLocal()
+    try:
+        from sqlalchemy import text as _mt
+        for col_sql in [
+            "ALTER TABLE bids ADD COLUMN IF NOT EXISTS construction_work_div VARCHAR(200)",
+            "ALTER TABLE bids ADD COLUMN IF NOT EXISTS joint_supply_bid VARCHAR(10)",
+            "ALTER TABLE bids ADD COLUMN IF NOT EXISTS participant_limit VARCHAR(10)",
+        ]:
+            _mig_db.execute(_mt(col_sql))
+        _mig_db.commit()
+    except Exception as _mig_err:
+        logger.warning("bids 컬럼 마이그레이션 실패 (무시): %s", _mig_err)
+        _mig_db.rollback()
+    finally:
+        _mig_db.close()
+
     if settings.seed_demo_data:
         db = SessionLocal()
         try:

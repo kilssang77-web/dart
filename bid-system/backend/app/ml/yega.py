@@ -12,6 +12,49 @@ C(15,4) = 1,365개 모든 조합의 평균을 계산 → 빈도 분포
 from itertools import combinations
 from collections import Counter
 from typing import Optional, List
+import threading
+from datetime import datetime, timedelta
+
+# 전국 pos_weights 캐시 (24h TTL — 전국 데이터는 서서히 변한다)
+_national_cache: dict = {"weights": None, "expires": None}
+_national_lock = threading.Lock()
+
+
+def _get_national_pos_weights(db) -> Optional[List[float]]:
+    """전국 inpo21c_yega is_selected 빈도 → pos_weights (24h 캐시)."""
+    from sqlalchemy import text as _text
+
+    now = datetime.now()
+    if _national_cache["weights"] is not None and _national_cache["expires"] and _national_cache["expires"] > now:
+        return _national_cache["weights"]
+
+    with _national_lock:
+        if _national_cache["weights"] is not None and _national_cache["expires"] and _national_cache["expires"] > now:
+            return _national_cache["weights"]
+        try:
+            rows = db.execute(_text("""
+                SELECT yega_no, COUNT(*) AS cnt
+                FROM inpo21c_yega
+                WHERE is_selected = TRUE
+                GROUP BY yega_no
+                ORDER BY yega_no
+            """)).fetchall()
+            total = sum(r[1] for r in rows) if rows else 0
+            if total < 50:
+                return None
+            raw = {r[0]: r[1] / total for r in rows}
+            uniform = 1.0 / 15
+            n_obs = total // 4
+            # 전국 데이터는 보수적 블렌딩 (개별 기관보다 낮은 alpha)
+            alpha = min(0.45, n_obs / (n_obs + 200))
+            weights = [alpha * raw.get(i, 0.0) + (1 - alpha) * uniform for i in range(1, 16)]
+            s = sum(weights)
+            weights = [w / s for w in weights]
+            _national_cache["weights"] = weights
+            _national_cache["expires"] = now + timedelta(hours=24)
+            return weights
+        except Exception:
+            return None
 
 
 def _round_unit(amount: int) -> int:
@@ -222,16 +265,18 @@ def get_agency_yega_pattern(bid_data: List[dict]) -> dict:
     }
 
 
-def load_inpo21c_yega_stats(db, agency_id: int) -> dict:
+def load_inpo21c_yega_stats(db, agency_id: int, announcement_no: Optional[str] = None) -> dict:
     """
     inpo21c_yega 실측 통계 조회.
     - 기관별 yega spread (base_ratio 분포)
     - position 추첨 빈도 (1~15번 위치별 is_selected 비율)
+    - announcement_no 제공 시 inpo21c_bid_notices에서 실제 예가 범위 조회
 
     Returns:
         spread_half  : 실측 반확산 (default 0.028)
         pos_weights  : 15개 위치별 추첨 가중치 (합=1.0)
         sample_n     : 샘플 수
+        pos_source   : "agency" | "national" | None
     """
     from sqlalchemy import text as _text
 
@@ -254,7 +299,25 @@ def load_inpo21c_yega_stats(db, agency_id: int) -> dict:
         if measured > 0.010:
             spread_half = round(measured, 4)
 
-    # 2. position 추첨 빈도 (is_selected=TRUE 위치별)
+    # 2. announcement_no 제공 시 공고별 실제 예가 범위로 spread_half 덮어쓰기
+    if announcement_no:
+        try:
+            ibn = db.execute(_text("""
+                SELECT yega_range_min, yega_range_max
+                FROM inpo21c_bid_notices
+                WHERE announcement_no LIKE :ano
+                ORDER BY announcement_no
+                LIMIT 1
+            """), {"ano": announcement_no + "%"}).fetchone()
+            if ibn and ibn[1] is not None:
+                # range_min/max는 정수 % 단위 (예: -3, +3 → 0.030)
+                range_abs = max(abs(int(ibn[0] or 0)), abs(int(ibn[1])))
+                if range_abs > 0:
+                    spread_half = round(range_abs / 100.0, 4)
+        except Exception:
+            pass
+
+    # 3. position 추첨 빈도 (is_selected=TRUE 위치별)
     pos_rows = db.execute(_text("""
         SELECT iy.yega_no, COUNT(*) AS cnt
         FROM inpo21c_yega iy
@@ -266,11 +329,11 @@ def load_inpo21c_yega_stats(db, agency_id: int) -> dict:
     """), {"aid": agency_id}).fetchall() if agency_id else []
 
     pos_weights = None
+    pos_source = None
     if pos_rows and sum(r[1] for r in pos_rows) >= 20:
         total = sum(r[1] for r in pos_rows)
         raw   = {r[0]: r[1] / total for r in pos_rows}
         uniform = 1.0 / 15
-        # 관측값과 균등분포 블렌딩 (과적합 방지)
         n_bids = total // 4
         alpha  = min(0.6, n_bids / (n_bids + 30))
         pos_weights = [
@@ -279,10 +342,16 @@ def load_inpo21c_yega_stats(db, agency_id: int) -> dict:
         ]
         s = sum(pos_weights)
         pos_weights = [w / s for w in pos_weights]
+        pos_source = "agency"
+    else:
+        # 기관 데이터 부족 → 전국 실측 빈도 fallback (앞번호 선택 편향 반영)
+        pos_weights = _get_national_pos_weights(db)
+        pos_source = "national" if pos_weights is not None else None
 
     return {
         "spread_half": spread_half,
         "pos_weights": pos_weights,
+        "pos_source":  pos_source,
         "sample_n":    int(spread_row[3]) if spread_row and spread_row[3] else 0,
     }
 

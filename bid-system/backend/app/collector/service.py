@@ -131,6 +131,12 @@ def _upsert_bid(db: Session, notice: BidNotice, agency_id: int) -> tuple[Bid, bo
             bid.contract_method = notice.contract_method
         if notice.bid_method and bid.bid_method is None:
             bid.bid_method = notice.bid_method
+        if notice.construction_work_div and bid.construction_work_div is None:
+            bid.construction_work_div = notice.construction_work_div
+        if notice.joint_supply_bid and bid.joint_supply_bid is None:
+            bid.joint_supply_bid = notice.joint_supply_bid
+        if notice.participant_limit and bid.participant_limit is None:
+            bid.participant_limit = notice.participant_limit
         if bid.industry_id is None and industry_id:
             bid.industry_id = industry_id
         if bid.region_id is None and region_id:
@@ -150,6 +156,9 @@ def _upsert_bid(db: Session, notice: BidNotice, agency_id: int) -> tuple[Bid, bo
         bid_close_date=_parse_datetime(notice.bid_close_date),
         contract_method=notice.contract_method,
         bid_method=notice.bid_method,
+        construction_work_div=notice.construction_work_div,
+        joint_supply_bid=notice.joint_supply_bid,
+        participant_limit=notice.participant_limit,
         status="open",
         source="api",
     )

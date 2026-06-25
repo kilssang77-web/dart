@@ -407,8 +407,9 @@ class HybridRecommendService:
         except Exception as _e:
             logger.debug("inpo21c 실증 분포 조회 실패 (무시): %s", _e)
 
-        _yega_stats  = load_inpo21c_yega_stats(db, req.agency_id or 0)
+        _yega_stats  = load_inpo21c_yega_stats(db, req.agency_id or 0, announcement_no=getattr(req, "announcement_no", None))
         _pos_weights = _yega_stats.get("pos_weights")
+        _spread_half = _yega_stats.get("spread_half", 0.028)
 
         # 복수예가 패턴 ML 피처 주입 (Engine B)
         _yega_ml = _compute_yega_ml_features(_pos_weights)
@@ -429,6 +430,7 @@ class HybridRecommendService:
             empirical_comp_rates=inpo_rates,
             expected_n_comp=expected_n if inpo_rates is not None else 0,
             pos_weights=_pos_weights,
+            spread_half=_spread_half,
         )
         strategies = sim_result["strategies"]
 
@@ -675,7 +677,13 @@ class SingleRecommendService:
         # Monte Carlo 사정율 분포 생성
         import numpy as np
         rng = np.random.default_rng(42)
-        srate_dist = simulate_yejung(base_amt, srate_center, srate_std, n_sim=30_000, rng=rng)
+        _ann_no = req.get("announcement_no") or (bid.announcement_no if bid else None)
+        _ys2 = load_inpo21c_yega_stats(db, req.get("agency_id") or 0, announcement_no=_ann_no)
+        srate_dist = simulate_yejung(
+            base_amt, srate_center, srate_std, n_sim=30_000, rng=rng,
+            pos_weights=_ys2.get("pos_weights"),
+            spread_half=_ys2.get("spread_half", 0.028),
+        )
 
         # 경쟁사 최소 투찰률 분포
         comp = compute_competition_features(

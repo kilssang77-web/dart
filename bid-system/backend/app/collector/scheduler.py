@@ -664,6 +664,27 @@ def run_validation_job() -> None:
         db.close()
 
 
+def run_incomplete_participants_job() -> None:
+    """참가자 수 부족 입찰 전참여자 재수집 (매주 토요일 04:00 KST).
+
+    낙찰자만 있고 전 참여자가 3명 미만인 입찰 건을 재수집하여
+    win_prob_model 학습 데이터 품질을 향상시킨다.
+    """
+    from app.database import SessionLocal
+    from app.collector.inpo21c import collect_incomplete_participants
+
+    db = SessionLocal()
+    try:
+        result = collect_incomplete_participants(db, min_parts=3, max_bids=500)
+        logger.info("incomplete 참가자 재수집 완료: %s", result)
+        if result.get("filled", 0) > 0:
+            _trigger_ml_retrain("incomplete 참가자 재수집 완료")
+    except Exception as exc:
+        logger.error("incomplete 참가자 재수집 실패: %s", exc)
+    finally:
+        db.close()
+
+
 def create_scheduler() -> BackgroundScheduler:
     """BackgroundScheduler 생성 및 작업 등록."""
     scheduler = BackgroundScheduler(timezone="Asia/Seoul")
@@ -811,6 +832,15 @@ def create_scheduler() -> BackgroundScheduler:
         trigger=CronTrigger(hour=22, minute=30, timezone="Asia/Seoul"),
         id="kpi_snapshot_daily",
         name="KPI 스냅샷 일별 갱신 (매일 22:30 KST)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    # 참가자 수 부족 입찰 재수집 (매주 토요일 04:00 KST — win_prob_model 학습 데이터 품질 향상)
+    scheduler.add_job(
+        run_incomplete_participants_job,
+        trigger=CronTrigger(day_of_week="sat", hour=4, minute=0, timezone="Asia/Seoul"),
+        id="incomplete_participants_weekly",
+        name="참가자 수 부족 입찰 재수집 (매주 토 04:00 KST)",
         replace_existing=True,
         max_instances=1,
     )

@@ -91,9 +91,10 @@ def _compute_prism_zones(
     # inpo21c 위치 가중치 로드
     _yega_stats  = load_inpo21c_yega_stats(db, agency_id) if agency_id else {}
     _pos_weights = _yega_stats.get("pos_weights")
+    _spread_half = _yega_stats.get("spread_half", 0.028)
 
     # 사정율 분포 시뮬레이션 (1회만 — 모든 구간 공유)
-    srate_dist = simulate_yejung(base_amount, srate_center, srate_std, n_sim, rng, _pos_weights)
+    srate_dist = simulate_yejung(base_amount, srate_center, srate_std, n_sim, rng, _pos_weights, _spread_half)
 
     # inpo21c 실증 분포
     inpo_rates: Optional[np.ndarray] = None

@@ -25,6 +25,7 @@ def simulate_yejung_bimodal(
     pos_weights: Optional[List[float]] = None,
     high_mix: float = 0.30,
     high_shift: float = 0.008,
+    spread_half: float = 0.028,
 ) -> np.ndarray:
     """
     바이모달 사정율 시뮬레이션.
@@ -52,7 +53,7 @@ def simulate_yejung_bimodal(
 
     def _draw(n: int, center: float, sig: float) -> np.ndarray:
         cands = rng.normal(loc=center, scale=sig, size=(n, 15))
-        cands = np.clip(cands, srate_center - 0.028, srate_center + 0.028)
+        cands = np.clip(cands, srate_center - spread_half, srate_center + spread_half)
         if pos_weights is not None:
             log_w  = np.log(np.maximum(pos_weights, 1e-9))
             gumbel = rng.gumbel(size=(n, 15))
@@ -76,6 +77,7 @@ def simulate_yejung(
     n_sim: int = 30_000,
     rng: Optional[np.random.Generator] = None,
     pos_weights: Optional[List[float]] = None,
+    spread_half: float = 0.028,
 ) -> np.ndarray:
     """
     복수예가 추첨 시뮬레이션 -> 사정률 분포 반환.
@@ -98,9 +100,9 @@ def simulate_yejung(
 
     sigma = max(0.002, min(srate_std, 0.010))
 
-    # inpo21c 실측 spread: p02=-2.77%, p98=2.76% → ±2.8% 클램프
+    # 예가 범위 클램프 (실제 공고 범위 or inpo21c 실측 기본값 ±2.8%)
     candidates = rng.normal(loc=srate_center, scale=sigma, size=(n_sim, 15))
-    candidates = np.clip(candidates, srate_center - 0.028, srate_center + 0.028)
+    candidates = np.clip(candidates, srate_center - spread_half, srate_center + spread_half)
 
     # 4개 위치 선택 — pos_weights 있으면 Gumbel-max trick (가중 비복원 추첨)
     if pos_weights is not None:
@@ -323,6 +325,7 @@ def recommend_with_simulation(
     empirical_comp_rates: Optional[np.ndarray] = None,
     expected_n_comp: int = 0,
     pos_weights: Optional[List[float]] = None,
+    spread_half: float = 0.028,
 ) -> dict:
     """
     Monte Carlo 기반 4전략 추천.
@@ -341,7 +344,7 @@ def recommend_with_simulation(
     rng = np.random.default_rng(42)
     floor_rate_pct = get_floor_rate(industry_name)
 
-    srate_dist    = simulate_yejung(base_amount, srate_center, srate_std, n_sim, rng, pos_weights)
+    srate_dist    = simulate_yejung(base_amount, srate_center, srate_std, n_sim, rng, pos_weights, spread_half)
     floor_abs_p50 = float(np.percentile(srate_dist, 50)) * floor_rate_pct
 
     # ── 4전략 투찰률 설계: 실효 낙찰하한가 = floor_rate_pct × srate_median 기준

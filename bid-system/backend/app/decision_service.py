@@ -56,7 +56,7 @@ class DecisionService:
             or 8
         )
 
-        yega_stats = load_inpo21c_yega_stats(db, agency_id) if agency_id else {}
+        yega_stats = load_inpo21c_yega_stats(db, agency_id, announcement_no=b.announcement_no) if agency_id else {}
         pos_weights = yega_stats.get("pos_weights")
 
         competitor_zones: list = []
@@ -144,8 +144,9 @@ class DecisionService:
             or 0.012
         )
 
-        yega_stats = load_inpo21c_yega_stats(db, agency_id) if agency_id else {}
+        yega_stats = load_inpo21c_yega_stats(db, agency_id, announcement_no=b.announcement_no) if agency_id else {}
         pos_weights = yega_stats.get("pos_weights")
+        spread_half = yega_stats.get("spread_half", 0.028)
 
         n_sim = min(max(req.n_sim, 5_000), 50_000)
         yega_values = req.yega_values
@@ -183,10 +184,11 @@ class DecisionService:
                 srate_dist = simulate_yejung_bimodal(
                     base_amount, srate_center, srate_std, n_sim, rng, pos_weights,
                     high_mix=min(0.40, srate_std * 4),
+                    spread_half=spread_half,
                 )
                 mode = "estimated_bimodal"
             else:
-                srate_dist = simulate_yejung(base_amount, srate_center, srate_std, n_sim, rng, pos_weights)
+                srate_dist = simulate_yejung(base_amount, srate_center, srate_std, n_sim, rng, pos_weights, spread_half)
             yega_res = calc_yega_frequency(base_amount, b.a_value, srate_center)
             candidates = [
                 {"idx": i + 1, "amount": int(c["amount"]), "rate": round(c["rate"], 6)}

@@ -34,6 +34,9 @@ class BidNotice:
     min_bid_rate: float | None = None    # 낙찰하한율 (sucsfbidLwltRate)
     contract_method: str | None = None   # 계약방법 (cntrctMthNm)
     bid_method: str | None = None        # 입찰방식 (bidMethdNm)
+    construction_work_div: str | None = None  # 공사분류 (cnstrtnWorkDivNm)
+    joint_supply_bid: str | None = None       # 공동수급협정입찰여부 (cmmnSpldmdAgrmntBidYn)
+    participant_limit: str | None = None      # 참가제한여부 (prtcptLmttYn)
 
 
 @dataclass
@@ -263,6 +266,9 @@ class NarajangterClient:
             min_bid_rate=_normalize_rate(item.get("sucsfbidLwltRate")),
             contract_method=item.get("cntrctMthNm"),
             bid_method=item.get("bidMethdNm"),
+            construction_work_div=item.get("cnstrtnWorkDivNm"),
+            joint_supply_bid=item.get("cmmnSpldmdAgrmntBidYn"),
+            participant_limit=item.get("prtcptLmttYn"),
             bid_type=bid_type,
             industry_code=item.get("indutyNm") or item.get("prcureThgNm"),
             region_code=item.get("rgstTyNm"),
