@@ -392,3 +392,117 @@ def prism_histogram(
     result["bid_id"]         = bid_id
     result["agency_id"]      = bid.agency_id
     return result
+
+
+@router.get("/{bid_id}/participant-stats")
+def participant_stats(
+    bid_id: int,
+    db: Session = Depends(get_db),
+    _: User     = Depends(get_current_user),
+):
+    """
+    참여자 수 예측 — inpo21c 실증 데이터 기반.
+
+    - current_count   : G2B에서 수집된 현재 참여자수 (개찰 전 0, 개찰 후 실측)
+    - expected        : inpo21c 동일기관 역사 기반 예상 참여자수 통계
+    - competition_level: LOW / MEDIUM / HIGH (예상 경쟁 강도)
+    - is_accepting    : 현재 접수 중 여부
+    """
+    from sqlalchemy import text
+
+    bid = db.query(Bid).filter(Bid.id == bid_id).first()
+    if not bid:
+        raise HTTPException(404, "공고를 찾을 수 없습니다")
+
+    now = datetime.now(tz=timezone.utc)
+    is_accepting = (
+        bid.bid_close_date is not None and
+        bid.bid_close_date.replace(tzinfo=timezone.utc) > now
+    ) if bid.bid_close_date else False
+
+    # 기관명 조회
+    agency = db.query(Agency).filter(Agency.id == bid.agency_id).first() if bid.agency_id else None
+    agency_name = agency.name if agency else None
+
+    # inpo21c 동일 기관 참여자수 분포 (복수예가 공사만)
+    inpo_stats = None
+    if agency_name:
+        row = db.execute(text("""
+            SELECT
+                COUNT(DISTINCT ib.inpo21c_bid_id) AS n_bids,
+                ROUND(AVG(pc.n)::numeric, 1)       AS avg_n,
+                PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY pc.n) AS p25,
+                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY pc.n) AS p50,
+                PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY pc.n) AS p75,
+                MIN(pc.n) AS min_n,
+                MAX(pc.n) AS max_n
+            FROM inpo21c_bids ib
+            JOIN (
+                SELECT inpo21c_bid_id, COUNT(*) AS n
+                FROM inpo21c_participants
+                WHERE company_name != '유찰'
+                GROUP BY inpo21c_bid_id
+                HAVING COUNT(*) >= 2
+            ) pc ON pc.inpo21c_bid_id = ib.inpo21c_bid_id
+            WHERE (
+                TRIM(ib.agency_name) = TRIM(:aname)
+                OR TRIM(ib.agency_name) LIKE '%' || TRIM(:aname) || '%'
+                OR TRIM(:aname) LIKE '%' || TRIM(ib.agency_name) || '%'
+            )
+            AND ib.yega_ratio BETWEEN 87 AND 105
+        """), {"aname": agency_name}).fetchone()
+
+        if row and row[0] and int(row[0]) >= 3:
+            inpo_stats = {
+                "n_bids": int(row[0]),
+                "avg":    float(row[1]) if row[1] else None,
+                "p25":    float(row[2]) if row[2] else None,
+                "p50":    float(row[3]) if row[3] else None,
+                "p75":    float(row[4]) if row[4] else None,
+                "min":    int(row[5]) if row[5] else None,
+                "max":    int(row[6]) if row[6] else None,
+            }
+
+    # 전국 평균 (fallback)
+    global_row = db.execute(text("""
+        SELECT ROUND(AVG(pc.n)::numeric, 1),
+               PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY pc.n)
+        FROM (
+            SELECT inpo21c_bid_id, COUNT(*) AS n
+            FROM inpo21c_participants
+            WHERE company_name != '유찰'
+            GROUP BY inpo21c_bid_id
+            HAVING COUNT(*) BETWEEN 2 AND 100
+        ) pc
+        JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = pc.inpo21c_bid_id
+        WHERE ib.yega_ratio BETWEEN 87 AND 105
+    """)).fetchone()
+    global_avg = float(global_row[0]) if global_row and global_row[0] else 15.0
+    global_median = float(global_row[1]) if global_row and global_row[1] else 12.0
+
+    expected_median = (inpo_stats["p50"] if inpo_stats and inpo_stats["p50"] else global_median)
+
+    # 경쟁 강도 분류
+    if expected_median <= 10:
+        level = "LOW"
+        level_label = "낮음 (소수 경쟁)"
+    elif expected_median <= 30:
+        level = "MEDIUM"
+        level_label = "보통"
+    else:
+        level = "HIGH"
+        level_label = "높음 (다수 경쟁)"
+
+    return {
+        "bid_id":           bid_id,
+        "is_accepting":     is_accepting,
+        "current_count":    int(bid.participant_count) if bid.participant_count else 0,
+        "current_label":    "개찰 완료" if not is_accepting and bid.participant_count else ("접수 중" if is_accepting else "집계 전"),
+        "inpo_stats":       inpo_stats,
+        "global_avg":       global_avg,
+        "expected_median":  expected_median,
+        "competition_level":level,
+        "competition_label":level_label,
+        "data_source":      "inpo21c_agency" if inpo_stats else "inpo21c_global",
+        "agency_name":      agency_name,
+    }

@@ -445,7 +445,7 @@ def predict_srate(features_a: dict, base_amount: int) -> dict:
         try:
             models  = joblib.load(srate_models_path)
             imputer = joblib.load(srate_imputer_path)
-            X = np.array([[features_a.get(c) for c in SRATE_FEATURE_COLS]], dtype=float)
+            X = pd.DataFrame([[features_a.get(c) for c in SRATE_FEATURE_COLS]], columns=SRATE_FEATURE_COLS)
             X_imp = imputer.transform(X)
             preds = {q: float(m.predict(X_imp)[0]) for q, m in models.items()}
             center = preds[0.50]

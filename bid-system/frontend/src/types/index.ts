@@ -1794,3 +1794,26 @@ export interface QuickDecisionResponse {
   floor_rate: number
 }
 
+// ── 실시간 참여자 수 통계 ────────────────────────────────────
+export interface ParticipantStats {
+  bid_id: number
+  is_accepting: boolean
+  current_count: number
+  current_label: string
+  inpo_stats: {
+    n_bids: number
+    avg: number
+    p25: number
+    p50: number
+    p75: number
+    min: number
+    max: number
+  } | null
+  global_avg: number
+  expected_median: number
+  competition_level: 'LOW' | 'MEDIUM' | 'HIGH'
+  competition_label: string
+  data_source: 'inpo21c_agency' | 'inpo21c_global'
+  agency_name: string | null
+}
+

@@ -98,10 +98,12 @@ def train(db, floor_rate: float = _DEFAULT_FLOOR) -> dict:
                 STDDEV(bid_rate::float) AS std_bid_rate
             FROM inpo21c_participants
             WHERE bid_rate BETWEEN 0.80 AND 1.05
+              AND company_name != '유찰'
             GROUP BY inpo21c_bid_id
-            HAVING COUNT(*) >= 3
+            HAVING COUNT(*) BETWEEN 3 AND 100
         ) cnt ON cnt.inpo21c_bid_id = ip.inpo21c_bid_id
         WHERE ip.bid_rate BETWEEN 0.80 AND 1.05
+          AND ip.company_name != '유찰'
           AND ib.yega_ratio BETWEEN 87 AND 105
           AND ABS(ib.yega_ratio - 90.91) > 1.0
     """)).fetchall()

@@ -74,6 +74,8 @@ export const bidsApi = {
     api.get('/bids/upcoming-openings', { params: { days } }).then((r) => r.data),
   yega: (bidId: number): Promise<import('../types').InpoYegaResponse> =>
     api.get(`/bids/${bidId}/yega`).then((r) => r.data),
+  participantStats: (bidId: number): Promise<import('../types').ParticipantStats> =>
+    api.get(`/bids/${bidId}/participant-stats`).then((r) => r.data),
 }
 
 // -- 시장 인텔리전스 --------------------------------------------------

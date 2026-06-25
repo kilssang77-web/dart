@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { decisionApi, journalApi } from '@/api'
-import type { BidContext, SimulateBidResponse, ZoneItem, JournalOut, AgencyWinHistogram, CompetitorPredictionResponse, HotZoneResponse, BestRateResponse } from '@/types'
+import type { BidContext, SimulateBidResponse, ZoneItem, JournalOut, AgencyWinHistogram, CompetitorPredictionResponse, HotZoneResponse, BestRateResponse, ParticipantStats } from '@/types'
 import { bidsApi } from '@/api'
 import BestRateCard from '@/components/BestRateCard'
 import PositionPatternCard from '@/components/PositionPatternCard'
@@ -511,6 +511,13 @@ export default function TenderDecisionPage() {
     staleTime: 30 * 60 * 1000,
   })
 
+  const { data: participantStats } = useQuery<ParticipantStats>({
+    queryKey: ['participant-stats', bidId],
+    queryFn: () => bidsApi.participantStats(bidId!),
+    enabled: bidId !== null,
+    staleTime: 5 * 60 * 1000,
+  })
+
   const parsedCompetitorRates = (): number[] | null => {
     if (!competitorRateText.trim()) return null
     const raw = competitorRateText
@@ -999,6 +1006,88 @@ export default function TenderDecisionPage() {
                         <div className="font-medium text-gray-700 mt-0.5">{val}</div>
                       </div>
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── 실시간 참여자 수 통계 카드 ── */}
+              {participantStats && (
+                <div className={cn(
+                  'rounded-xl border p-4 shadow-sm text-sm',
+                  participantStats.competition_level === 'LOW'
+                    ? 'bg-emerald-50 border-emerald-200'
+                    : participantStats.competition_level === 'HIGH'
+                      ? 'bg-red-50 border-red-200'
+                      : 'bg-amber-50 border-amber-200'
+                )}>
+                  <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <Users className={cn(
+                        'w-4 h-4 shrink-0',
+                        participantStats.competition_level === 'LOW' ? 'text-emerald-500'
+                          : participantStats.competition_level === 'HIGH' ? 'text-red-500'
+                          : 'text-amber-500'
+                      )} />
+                      <span className="font-semibold text-gray-700">경쟁 강도 분석</span>
+                      <span className={cn(
+                        'text-xs px-2 py-0.5 rounded-full font-semibold',
+                        participantStats.competition_level === 'LOW'
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : participantStats.competition_level === 'HIGH'
+                            ? 'bg-red-100 text-red-700'
+                            : 'bg-amber-100 text-amber-700'
+                      )}>
+                        {participantStats.competition_label}
+                      </span>
+                    </div>
+                    {participantStats.is_accepting && participantStats.current_count > 0 && (
+                      <div className="flex items-center gap-1.5 text-xs bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full font-medium">
+                        <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+                        현재 {participantStats.current_count}개사 접수 중
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    <div>
+                      <div className="text-gray-400">예상 중위 참여수</div>
+                      <div className="font-bold text-gray-800 mt-0.5 text-base">
+                        {participantStats.expected_median.toFixed(0)}개사
+                      </div>
+                    </div>
+                    {participantStats.inpo_stats && (
+                      <>
+                        <div>
+                          <div className="text-gray-400">유사 공고 평균</div>
+                          <div className="font-medium text-gray-700 mt-0.5">
+                            {participantStats.inpo_stats.avg.toFixed(1)}개사
+                            <span className="text-gray-400 ml-1">({participantStats.inpo_stats.n_bids}건)</span>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-gray-400">25~75% 구간</div>
+                          <div className="font-medium text-gray-700 mt-0.5">
+                            {participantStats.inpo_stats.p25}~{participantStats.inpo_stats.p75}개사
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-gray-400">최소~최대</div>
+                          <div className="font-medium text-gray-700 mt-0.5">
+                            {participantStats.inpo_stats.min}~{participantStats.inpo_stats.max}개사
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    {!participantStats.inpo_stats && (
+                      <div className="col-span-3">
+                        <div className="text-gray-400">전국 평균</div>
+                        <div className="font-medium text-gray-700 mt-0.5">{participantStats.global_avg.toFixed(1)}개사</div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="mt-2 text-xs text-gray-400">
+                    출처: {participantStats.data_source === 'inpo21c_agency'
+                      ? `${participantStats.agency_name} 유사 공고 실측`
+                      : '전국 inpo21c 통계'}
                   </div>
                 </div>
               )}

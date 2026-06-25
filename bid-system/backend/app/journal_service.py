@@ -15,6 +15,7 @@ class JournalService:
         from .models import BidJournal, Bid
         from .schemas import JournalCreateRequest
         from datetime import datetime as _dt
+        from sqlalchemy import text as _text
 
         b = db.query(Bid).filter(Bid.id == req.bid_id).first()
         ann_no = b.announcement_no if b else None
@@ -27,16 +28,62 @@ class JournalService:
         if not submitted_amount and req.submitted_rate and b and b.base_amount:
             submitted_amount = int(round(float(req.submitted_rate) * b.base_amount))
 
+        # pred_srate_center 자동 보완: 미전달 시 prediction_logs_v2에서 lookup
+        pred_srate_center = req.pred_srate_center
+        pred_win_prob = req.pred_win_prob
+        pred_log_id = req.pred_log_id
+
+        if pred_srate_center is None and req.bid_id:
+            try:
+                # 1순위: prediction_logs_v2 lookup
+                if pred_log_id:
+                    row = db.execute(_text(
+                        "SELECT srate_pred_center, win_prob_center FROM prediction_logs_v2 WHERE id = :lid"
+                    ), {"lid": pred_log_id}).fetchone()
+                else:
+                    row = db.execute(_text(
+                        "SELECT id, srate_pred_center, win_prob_center FROM prediction_logs_v2 "
+                        "WHERE bid_id = :bid AND user_id = :uid ORDER BY created_at DESC LIMIT 1"
+                    ), {"bid": req.bid_id, "uid": user_id}).fetchone()
+                    if row:
+                        pred_log_id = row[0]
+                if row:
+                    srate_col = row[1] if len(row) == 3 else row[0]
+                    prob_col  = row[2] if len(row) == 3 else row[1]
+                    if srate_col is not None:
+                        pred_srate_center = float(srate_col)
+                    if pred_win_prob is None and prob_col is not None:
+                        pred_win_prob = float(prob_col)
+            except Exception as e:
+                logger.warning("prediction_logs_v2 lookup 실패: %s", e)
+
+        # 2순위: prediction_logs_v2에도 없으면 ML 모델로 직접 예측
+        if pred_srate_center is None and b and b.base_amount:
+            try:
+                from .ml.assessment import load_srate_stats, predict_srate
+                features = load_srate_stats(
+                    db,
+                    agency_id=getattr(b, "agency_id", None),
+                    industry_id=getattr(b, "industry_id", None),
+                    region_id=getattr(b, "region_id", None),
+                    base_amount=int(b.base_amount),
+                )
+                ep = predict_srate(features, int(b.base_amount))
+                pred_srate_center = float(ep["srate_range"]["center"])
+                logger.info("journal#new bid_id=%d pred_srate_center 자동 계산: %.4f", req.bid_id, pred_srate_center)
+            except Exception as e:
+                logger.warning("pred_srate_center ML 계산 실패: %s", e)
+
         obj = BidJournal(
             bid_id=req.bid_id,
             user_id=user_id,
             announcement_no=ann_no,
-            predicted_at=_dt.now() if req.pred_log_id else None,
-            pred_log_id=req.pred_log_id,
+            predicted_at=_dt.now() if pred_log_id else None,
+            pred_log_id=pred_log_id,
             recommended_rate=req.recommended_rate,
             recommended_amount=req.recommended_amount,
-            pred_win_prob=req.pred_win_prob,
-            pred_srate_center=req.pred_srate_center,
+            pred_win_prob=pred_win_prob,
+            pred_srate_center=pred_srate_center,
             strategy_chosen=req.strategy_chosen,
             submitted_at=_dt.now(),
             submitted_rate=req.submitted_rate,
@@ -85,6 +132,26 @@ class JournalService:
             obj.winner_name = req.winner_name
         if req.note is not None:
             obj.note = req.note
+
+        # pred_srate_center 미설정 시 ML로 보완 (retroactive)
+        if obj.pred_srate_center is None and obj.bid_id:
+            try:
+                from .models import Bid
+                from .ml.assessment import load_srate_stats, predict_srate
+                b2 = db.query(Bid).filter(Bid.id == obj.bid_id).first()
+                if b2 and b2.base_amount:
+                    features = load_srate_stats(
+                        db,
+                        agency_id=getattr(b2, "agency_id", None),
+                        industry_id=getattr(b2, "industry_id", None),
+                        region_id=getattr(b2, "region_id", None),
+                        base_amount=int(b2.base_amount),
+                    )
+                    ep = predict_srate(features, int(b2.base_amount))
+                    obj.pred_srate_center = float(ep["srate_range"]["center"])
+                    logger.info("record_result: bid_id=%d pred_srate_center 소급 계산 %.4f", obj.bid_id, obj.pred_srate_center)
+            except Exception as e:
+                logger.warning("record_result pred_srate_center 소급 계산 실패: %s", e)
 
         # 파생 필드 계산
         if obj.winner_rate and obj.submitted_rate:

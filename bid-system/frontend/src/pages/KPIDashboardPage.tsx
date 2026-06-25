@@ -360,6 +360,40 @@ export default function KPIDashboardPage() {
       <DashboardTabBar />
 
       <div className="max-w-6xl mx-auto p-6 space-y-6">
+        {/* ── AI 추천 효과 핵심 배너 ── */}
+        {recEffect && recEffect.followed.n >= 3 && recEffect.deviated.n >= 3 && recEffect.lift_pct !== null && (
+          <div className={cn(
+            'rounded-xl border p-4 flex items-center gap-4 flex-wrap',
+            recEffect.lift_pct > 5 ? 'bg-emerald-50 border-emerald-200' :
+            recEffect.lift_pct > 0 ? 'bg-blue-50 border-blue-200' :
+            'bg-amber-50 border-amber-200'
+          )}>
+            <Zap className={cn('w-6 h-6 shrink-0',
+              recEffect.lift_pct > 5 ? 'text-emerald-500' :
+              recEffect.lift_pct > 0 ? 'text-blue-500' : 'text-amber-500'
+            )} />
+            <div className="flex-1 min-w-0">
+              <div className={cn('font-bold text-sm',
+                recEffect.lift_pct > 5 ? 'text-emerald-700' :
+                recEffect.lift_pct > 0 ? 'text-blue-700' : 'text-amber-700'
+              )}>
+                AI 추천 추종 시 낙찰률 {recEffect.lift_pct > 0 ? '+' : ''}{recEffect.lift_pct.toFixed(1)}% 향상
+              </div>
+              <div className="text-xs text-gray-600 mt-0.5">
+                추천 추종 {recEffect.followed.n}건 낙찰률 <strong>{recEffect.followed.win_rate != null ? (recEffect.followed.win_rate * 100).toFixed(1) : '—'}%</strong>
+                {' '}vs 이탈 {recEffect.deviated.n}건 <strong>{recEffect.deviated.win_rate != null ? (recEffect.deviated.win_rate * 100).toFixed(1) : '—'}%</strong>
+              </div>
+            </div>
+            <div className={cn(
+              'text-2xl font-bold tabular-nums shrink-0',
+              recEffect.lift_pct > 5 ? 'text-emerald-700' :
+              recEffect.lift_pct > 0 ? 'text-blue-700' : 'text-amber-700'
+            )}>
+              {recEffect.lift_pct > 0 ? '+' : ''}{recEffect.lift_pct.toFixed(1)}%
+            </div>
+          </div>
+        )}
+
         {/* 경고 알림 */}
         {data?.alerts && data.alerts.length > 0 && (
           <div className="space-y-2">

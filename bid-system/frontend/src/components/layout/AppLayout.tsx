@@ -8,6 +8,7 @@ import {
   Activity, Target, Briefcase, LayoutDashboard, PieChart,
   ChevronRight, ChevronDown, ListChecks, FlaskConical,
   ClipboardCheck, BarChart3, Sparkles, BookOpen,
+  Zap, Building2, LineChart, Layers,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { authApi, notificationsApi } from '@/api'
@@ -16,46 +17,53 @@ import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 
 /* ───────────────────────────────────────────────────────────
-   NAV 구조 (5그룹 최적화)
+   NAV 구조 — 낙찰률 극대화 중심 5그룹
 ─────────────────────────────────────────────────────────── */
 const NAV_GROUPS = [
   {
     label: '핵심 업무',
+    defaultOpen: true,
     items: [
       { to: '/today',        label: '오늘의 업무',     icon: Sparkles },
-      { to: '/dashboard',    label: '대시보드',        icon: LayoutDashboard },
+      { to: '/decision',     label: 'AI 투찰결정',     icon: Zap,    highlight: true },
       { to: '/kpi-dashboard', label: 'KPI 대시보드',  icon: Activity },
     ],
   },
   {
     label: '공고 관리',
+    defaultOpen: false,
     items: [
       { to: '/bids',          label: '공고센터',       icon: Search },
-      { to: '/bid-selection', label: '공고 선별',     icon: Target },
+      { to: '/bid-selection', label: '공고 선별',      icon: Target },
       { to: '/executions',    label: '투찰 실행 관리', icon: ListChecks },
+      { to: '/portfolio',     label: '포트폴리오',     icon: Layers },
     ],
   },
   {
     label: 'AI 분석',
+    defaultOpen: false,
     items: [
-      { to: '/competitors', label: '경쟁사 분석', icon: Users },
+      { to: '/agencies',    label: '발주기관 분석',  icon: Building2 },
+      { to: '/competitors', label: '경쟁사 분석',    icon: Users },
       { to: '/yega',        label: '예가 빈도 분석', icon: TrendingUp },
-      { to: '/backtest',    label: '백테스트 엔진', icon: FlaskConical },
+      { to: '/market-intel',label: '시장 지능',      icon: LineChart },
+      { to: '/backtest',    label: '백테스트 엔진',  icon: FlaskConical },
     ],
   },
   {
-    label: '성과 분석',
+    label: '이력 / 성과',
+    defaultOpen: false,
     items: [
       { to: '/journal-history', label: '투찰 이력 분석', icon: ClipboardCheck },
-      { to: '/statistics',      label: '통계 분석',      icon: PieChart },
-      { to: '/performance',     label: '성과센터',       icon: BarChart3 },
+      { to: '/performance',     label: '성과센터',        icon: BarChart3 },
+      { to: '/statistics',      label: '통계 분석',       icon: PieChart },
     ],
   },
 ]
 
 const ADMIN_ITEMS = [
-  { to: '/keywords',        label: '키워드 관리',   icon: KeyRound },
   { to: '/company-profile', label: '회사 프로파일', icon: Briefcase },
+  { to: '/keywords',        label: '키워드 관리',   icon: KeyRound },
 ]
 
 const ALL_GROUP_KEYS = [...NAV_GROUPS.map(g => g.label), '관리']
@@ -64,12 +72,13 @@ const ALL_GROUP_KEYS = [...NAV_GROUPS.map(g => g.label), '관리']
    단일 NavItem
 ─────────────────────────────────────────────────────────── */
 function NavItem({
-  to, label, icon: Icon, collapsed,
+  to, label, icon: Icon, collapsed, highlight,
 }: {
   to: string
   label: string
   icon: React.ComponentType<{ className?: string }>
   collapsed: boolean
+  highlight?: boolean
 }) {
   const location = useLocation()
   const basePath = to.split('?')[0]
@@ -87,22 +96,31 @@ function NavItem({
         'group relative flex items-center gap-3 rounded-lg transition-all duration-150 select-none',
         collapsed ? 'h-9 w-9 mx-auto justify-center' : 'h-9 px-3',
         isActive
-          ? 'bg-white/[0.12] text-white'
-          : 'text-slate-200 hover:bg-white/[0.08] hover:text-white',
+          ? highlight
+            ? 'bg-blue-600/80 text-white shadow-sm shadow-blue-900/40'
+            : 'bg-white/[0.12] text-white'
+          : highlight
+            ? 'text-blue-300 hover:bg-blue-600/50 hover:text-white'
+            : 'text-slate-200 hover:bg-white/[0.08] hover:text-white',
       )}
     >
       {isActive && !collapsed && (
-        <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-blue-400" />
+        <span className={cn(
+          'absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full',
+          highlight ? 'bg-yellow-400' : 'bg-blue-400',
+        )} />
       )}
       <Icon
         className={cn(
           'shrink-0 transition-colors',
           collapsed ? 'h-[17px] w-[17px]' : 'h-4 w-4',
-          isActive ? 'text-blue-400' : 'text-slate-300 group-hover:text-white',
+          isActive
+            ? highlight ? 'text-yellow-300' : 'text-blue-400'
+            : highlight ? 'text-blue-400 group-hover:text-yellow-300' : 'text-slate-300 group-hover:text-white',
         )}
       />
       {!collapsed && (
-        <span className={cn('truncate text-[13px] leading-none', isActive ? 'font-medium' : 'font-normal')}>
+        <span className={cn('truncate text-[13px] leading-none', isActive || highlight ? 'font-semibold' : 'font-normal')}>
           {label}
         </span>
       )}
@@ -118,7 +136,10 @@ export default function AppLayout() {
   const navigate = useNavigate()
   const [collapsed, setCollapsed] = useState(false)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(
-    () => Object.fromEntries(ALL_GROUP_KEYS.map(k => [k, false]))
+    () => Object.fromEntries(ALL_GROUP_KEYS.map(k => {
+      const group = NAV_GROUPS.find(g => g.label === k)
+      return [k, group?.defaultOpen ?? false]
+    }))
   )
 
   const { data: user } = useQuery({ queryKey: ['me'], queryFn: authApi.me, retry: false })
@@ -247,7 +268,7 @@ export default function AppLayout() {
                 {(isOpen || collapsed) && (
                   <div className="space-y-[2px]">
                     {group.items.map((item) => (
-                      <NavItem key={item.to} {...item} collapsed={collapsed} />
+                      <NavItem key={item.to} {...item} collapsed={collapsed} highlight={item.highlight} />
                     ))}
                   </div>
                 )}
