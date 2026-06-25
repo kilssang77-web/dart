@@ -44,6 +44,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger("walk_forward")
 
+# 이벤트 타입 그룹 (feature_events.event_type → 4개 그룹 + ordinal encoding)
+_EVENT_GROUPS = {
+    "momentum":    {"VOLUME_SURGE", "AMOUNT_SURGE", "LONG_WHITE_CANDLE",
+                    "MORNING_STAR", "HAMMER_CANDLE"},
+    "breakout":    {"BREAKOUT_20D", "BREAKOUT_13W", "BREAKOUT_26W", "BREAKOUT_52W"},
+    "fundamental": {"POST_DISCLOSURE_SURGE", "SUPPLY_ANOMALY"},
+    "vi":          {"VI_TRIGGERED"},
+}
+_ALL_EVENT_TYPES = sorted({t for ts in _EVENT_GROUPS.values() for t in ts})
+_EVENT_TYPE_MAP  = {t: i for i, t in enumerate(_ALL_EVENT_TYPES)}
+
 
 # ── 데이터 로딩 ──────────────────────────────────────────────────────────────
 
@@ -165,6 +176,24 @@ async def load_news_sentiment(pool: asyncpg.Pool, start, end) -> pd.DataFrame:
     return df
 
 
+async def load_feature_events(pool: asyncpg.Pool, start, end) -> pd.DataFrame:
+    """feature_events 테이블 로드 — 이벤트 타입 피처 생성용."""
+    rows = await pool.fetch(
+        """
+        SELECT code, DATE(detected_at) AS date, event_type
+        FROM feature_events
+        WHERE detected_at BETWEEN $1::date AND $2::date
+          AND code IS NOT NULL
+        """,
+        start, end,
+    )
+    if not rows:
+        return pd.DataFrame(columns=["code", "date", "event_type"])
+    df = pd.DataFrame([dict(r) for r in rows])
+    df["date"] = pd.to_datetime(df["date"])
+    return df
+
+
 # ── 피처 엔지니어링 ───────────────────────────────────────────────────────────
 
 def _safe(v, default=0.0):
@@ -178,7 +207,8 @@ def _safe(v, default=0.0):
 
 def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFrame,
                    news_df: pd.DataFrame | None = None,
-                   fin_df: pd.DataFrame | None = None) -> pd.DataFrame:
+                   fin_df: pd.DataFrame | None = None,
+                   feat_events_df: pd.DataFrame | None = None) -> pd.DataFrame:
     """
     daily_bars DataFrame → 특징 행렬 (FEATURE_COLUMNS 기준).
     종목별 순서 정렬 후 롤링 계산.
@@ -206,6 +236,14 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
         _ndf["date"] = pd.to_datetime(_ndf["date"])
         for _nc, _ng in _ndf.groupby("code"):
             news_by_code[_nc] = _ng.sort_values("date").reset_index(drop=True)
+
+    # Pre-group feature events by code for event type feature lookup
+    fevt_by_code: dict = {}
+    if feat_events_df is not None and len(feat_events_df) > 0:
+        _fedf = feat_events_df.copy()
+        _fedf["date"] = pd.to_datetime(_fedf["date"])
+        for _fec, _feg in _fedf.groupby("code"):
+            fevt_by_code[_fec] = _feg.sort_values("date").reset_index(drop=True)
 
     chunk_frames: list[pd.DataFrame] = []
     _float_meta = ("__code", "__date")
@@ -455,6 +493,26 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
                     news_s7 = float(_ng["avg_sentiment"].iloc[_lo:_hi].mean())
                     news_c7 = float(_ng["news_count"].iloc[_lo:_hi].sum())
 
+            # Feature event type (same-day signal type from feature_events table)
+            evt_momentum = evt_breakout = evt_fundamental = evt_vi = 0.0
+            evt_type_enc = -1.0
+            if code in fevt_by_code:
+                _fevg     = fevt_by_code[code]
+                _fev_dates = _fevg["date"].values
+                _ts_fevt   = np.datetime64(_ts)
+                _f_lo      = np.searchsorted(_fev_dates, _ts_fevt, side="left")
+                _f_hi      = np.searchsorted(_fev_dates, _ts_fevt, side="right")
+                if _f_hi > _f_lo:
+                    _fev_types = set(_fevg["event_type"].iloc[_f_lo:_f_hi].tolist())
+                    evt_momentum    = 1.0 if _fev_types & _EVENT_GROUPS["momentum"]    else 0.0
+                    evt_breakout    = 1.0 if _fev_types & _EVENT_GROUPS["breakout"]    else 0.0
+                    evt_fundamental = 1.0 if _fev_types & _EVENT_GROUPS["fundamental"] else 0.0
+                    evt_vi          = 1.0 if _fev_types & _EVENT_GROUPS["vi"]          else 0.0
+                    for _et in _fev_types:
+                        if _et in _EVENT_TYPE_MAP:
+                            evt_type_enc = float(_EVENT_TYPE_MAP[_et])
+                            break
+
             feat = {
                 "return_1d":r1d, "return_3d":r3d, "return_5d":r5d,
                 "ma5_ratio":ma5_r, "ma20_ratio":ma20_r, "ma60_ratio":ma60_r,
@@ -492,6 +550,11 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
                 "per": per_v, "pbr": pbr_v, "roe": roe_v, "debt_ratio": debt_r,
                 "log_market_cap": log_market_cap,
                 "is_kosdaq": is_kosdaq,
+                "event_momentum": evt_momentum,
+                "event_breakout": evt_breakout,
+                "event_fundamental": evt_fundamental,
+                "event_vi": evt_vi,
+                "event_type_enc": evt_type_enc,
                 "__code": code, "__date": date_val, "__close": c,
             }
             rows_feat.append(feat)
@@ -504,7 +567,27 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
             chunk_frames.append(_cdf)
         del rows_feat  # release per-code list
 
-    return pd.concat(chunk_frames, ignore_index=True) if chunk_frames else pd.DataFrame()
+    out = pd.concat(chunk_frames, ignore_index=True) if chunk_frames else pd.DataFrame()
+
+    # Cross-sectional rank features — 같은 날짜 내 상대 순위 (0~1)
+    # 날짜별 종목간 비교 지표로 절대값 왜곡 없이 상대 강도를 포착
+    if not out.empty and "__date" in out.columns:
+        for _col, _rank_col in [
+            ("return_5d",         "rank_return_5d"),
+            ("vol_ratio_20d",     "rank_vol_ratio"),
+            ("foreign_net_ratio", "rank_foreign_net"),
+            ("rsi14",             "rank_rsi14"),
+        ]:
+            if _col in out.columns:
+                out[_rank_col] = (
+                    out.groupby("__date")[_col]
+                    .rank(pct=True)
+                    .astype("float32")
+                )
+            else:
+                out[_rank_col] = np.float32(0.5)
+
+    return out
 
 
 # ── 검증 리포트 ───────────────────────────────────────────────────────────────
@@ -577,10 +660,12 @@ async def main(args):
     kospi_tr = await load_kospi(pool, train_start, train_end)
     kospi_va = await load_kospi(pool, val_start,   val_end)
     kospi_te = await load_kospi(pool, test_start,  test_end)
-    disc_all = await load_disclosures(pool, all_start, all_end)
-    news_all = await load_news_sentiment(pool, all_start, all_end)
-    fin_all  = await load_financials(pool)
+    disc_all  = await load_disclosures(pool, all_start, all_end)
+    news_all  = await load_news_sentiment(pool, all_start, all_end)
+    fin_all   = await load_financials(pool)
+    fevt_all  = await load_feature_events(pool, all_start, all_end)
     await pool.close()
+    logger.info(f"Feature events loaded: {len(fevt_all)} records")
 
     logger.info(f"Raw data: train={len(tr_raw)} val={len(va_raw)} test={len(te_raw)}")
     logger.info(f"News sentiment: {len(news_all)} (code,date) pairs")
@@ -588,9 +673,9 @@ async def main(args):
 
     # 피처 엔지니어링
     logger.info("Building features...")
-    tr_feat = build_features(tr_raw, kospi_tr, disc_all, news_all, fin_all)
-    va_feat = build_features(va_raw, kospi_va, disc_all, news_all, fin_all)
-    te_feat = build_features(te_raw, kospi_te, disc_all, news_all, fin_all)
+    tr_feat = build_features(tr_raw, kospi_tr, disc_all, news_all, fin_all, fevt_all)
+    va_feat = build_features(va_raw, kospi_va, disc_all, news_all, fin_all, fevt_all)
+    te_feat = build_features(te_raw, kospi_te, disc_all, news_all, fin_all, fevt_all)
 
     # 레이블 생성
     if args.label_mode == "relative":
@@ -639,9 +724,17 @@ async def main(args):
     Path(args.model_dir).mkdir(parents=True, exist_ok=True)
     trainer = LGBMTrainer()
 
+    # Optuna 하이퍼파라미터 최적화 (선택적)
+    best_params = None
+    optuna_trials = getattr(args, "optuna_trials", 0)
+    if optuna_trials > 0:
+        logger.info(f"Running Optuna HPO ({optuna_trials} trials)...")
+        best_params = trainer.optimize_hyperparams(Xtr_e, ytr_e, Xva_e, yva_e,
+                                                    n_trials=optuna_trials)
+
     logger.info("Training entry model...")
     entry_model = trainer.train_entry(Xtr_e, ytr_e, Xva_e, yva_e, args.model_dir,
-                                       use_smote=args.smote)
+                                       use_smote=args.smote, params_override=best_params)
     logger.info("Training risk model...")
     risk_model  = trainer.train_risk(Xtr_r, ytr_r, Xva_r, yva_r, args.model_dir)
 
@@ -778,4 +871,6 @@ if __name__ == "__main__":
                         help="거래대금 상위 N개 종목만 사용 (메모리 절감, 기본 600)")
     parser.add_argument("--label-mode",  default="relative", choices=["absolute", "relative"],
                         help="레이블 생성 방식: absolute=절대 수익률 임계, relative=날짜별 상위 20%% 랭크")
+    parser.add_argument("--optuna-trials", type=int, default=0,
+                        help="Optuna HPO 시도 횟수 (0=비활성화, 권장 30~50)")
     asyncio.run(main(parser.parse_args()))

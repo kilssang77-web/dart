@@ -37,6 +37,67 @@ _BASE_PARAMS = {
 
 class LGBMTrainer:
 
+    def optimize_hyperparams(
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        X_val: pd.DataFrame,
+        y_val: pd.Series,
+        n_trials: int = 30,
+    ) -> dict:
+        """Optuna 기반 하이퍼파라미터 탐색. 최적 파라미터 dict 반환."""
+        try:
+            import optuna
+            optuna.logging.set_verbosity(optuna.logging.WARNING)
+        except ImportError:
+            logger.warning("[HPO] optuna not installed — skipping, using default params")
+            return dict(_BASE_PARAMS)
+
+        if y_val.nunique() < 2 or len(X_val) < 50:
+            logger.warning("[HPO] Val set too small for HPO — using default params")
+            return dict(_BASE_PARAMS)
+
+        scale_pos = int((y_train == 0).sum()) / max(int(y_train.sum()), 1)
+
+        def _objective(trial: "optuna.Trial") -> float:
+            params = {
+                "boosting_type": "gbdt",
+                "objective": "binary",
+                "metric": "auc",
+                "num_leaves":        trial.suggest_int("num_leaves", 63, 255),
+                "max_depth":         trial.suggest_int("max_depth", 5, 9),
+                "learning_rate":     trial.suggest_float("learning_rate", 0.01, 0.05, log=True),
+                "n_estimators":      3000,
+                "min_child_samples": trial.suggest_int("min_child_samples", 10, 50),
+                "feature_fraction":  trial.suggest_float("feature_fraction", 0.5, 0.9),
+                "bagging_fraction":  trial.suggest_float("bagging_fraction", 0.6, 0.9),
+                "bagging_freq":      trial.suggest_int("bagging_freq", 3, 7),
+                "reg_alpha":         trial.suggest_float("reg_alpha", 0.0, 0.5),
+                "reg_lambda":        trial.suggest_float("reg_lambda", 0.0, 0.5),
+                "scale_pos_weight":  scale_pos,
+                "random_state": 42,
+                "n_jobs": -1,
+                "verbose": -1,
+            }
+            m = lgb.LGBMClassifier(**params)
+            m.fit(
+                X_train, y_train,
+                eval_set=[(X_val, y_val)],
+                callbacks=[lgb.early_stopping(50, verbose=False),
+                           lgb.log_evaluation(-1)],
+            )
+            prob = m.predict_proba(X_val)[:, 1]
+            return roc_auc_score(y_val, prob)
+
+        study = optuna.create_study(direction="maximize",
+                                    sampler=optuna.samplers.TPESampler(seed=42))
+        study.optimize(_objective, n_trials=n_trials, show_progress_bar=False)
+        logger.info(f"[HPO] Best AUC={study.best_value:.4f}  params={study.best_params}")
+
+        result = dict(_BASE_PARAMS)
+        result.update(study.best_params)
+        return result
+
     def train_entry(
         self,
         X_train: pd.DataFrame,
@@ -45,6 +106,7 @@ class LGBMTrainer:
         y_val: pd.Series,
         model_dir: str = "/models/lgbm",
         use_smote: bool = False,
+        params_override: dict | None = None,
     ) -> lgb.LGBMClassifier:
         pos_count = int(y_train.sum())
         neg_count = int((y_train == 0).sum())
@@ -68,7 +130,7 @@ class LGBMTrainer:
             except Exception as e:
                 logger.warning(f"[Trainer] SMOTE failed: {e}")
 
-        params = dict(_BASE_PARAMS)
+        params = dict(params_override if params_override else _BASE_PARAMS)
         params["objective"] = "binary"
         params["metric"] = ["binary_logloss", "auc"]
         params["scale_pos_weight"] = scale_pos

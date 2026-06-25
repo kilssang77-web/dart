@@ -45,6 +45,11 @@ DEFAULT_FEATURE_COLUMNS: list[str] = [
     "per", "pbr", "roe", "debt_ratio",
     "log_market_cap",
     "is_kosdaq",
+    # 이벤트 타입 피처 (feature_events 조인)
+    "event_momentum", "event_breakout", "event_fundamental", "event_vi",
+    "event_type_enc",
+    # 단면 랭크 피처 (같은 날 종목간 상대 순위 0~1)
+    "rank_return_5d", "rank_vol_ratio", "rank_foreign_net", "rank_rsi14",
 ]
 
 

@@ -351,6 +351,7 @@ services:
         --smote
         --max-codes 600
         --model-dir /models/lgbm
+        --optuna-trials 30
     profiles:
       - tools
     restart: "no"
