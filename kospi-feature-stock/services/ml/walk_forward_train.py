@@ -36,7 +36,7 @@ from sklearn.metrics import (
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from shared.feature_schema import DEFAULT_FEATURE_COLUMNS as FEATURE_COLUMNS
-from models.trainer import LGBMTrainer
+from models.trainer import LGBMTrainer, XGBTrainer
 
 logging.basicConfig(
     level=logging.INFO,
@@ -670,6 +670,13 @@ async def main(args):
                                        use_smote=args.smote, params_override=best_params)
     logger.info("Training risk model...")
     risk_model  = trainer.train_risk(Xtr_r, ytr_r, Xva_r, yva_r, args.model_dir)
+
+    # ── XGBoost 앙상블 보완 모델 ─────────────────────────────────────────────
+    logger.info("Training XGBoost entry model (ensemble complement)...")
+    xgb_trainer = XGBTrainer()
+    xgb_trainer.train_entry(Xtr_e, ytr_e, Xva_e, yva_e, args.model_dir)
+    logger.info("Training XGBoost risk model...")
+    xgb_trainer.train_risk(Xtr_r, ytr_r, Xva_r, yva_r, args.model_dir)
 
     # 검증 리포트
     print("\n" + "="*60)

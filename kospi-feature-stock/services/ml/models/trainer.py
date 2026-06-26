@@ -398,7 +398,7 @@ class LGBMTrainer:
         return entry_labels, risk_labels
 
     @staticmethod
-    def add_event_type_features(df: pd.DataFrame) -> pd.DataFrame:
+    def add_event_type_features(df: pd.DataFrame) -> pd.DataFrame:  # noqa: E302
         """
         event_type 컬럼을 그룹별 one-hot + 순서형 인코딩으로 변환.
         walk_forward_train.py에서 feature DataFrame에 event_type 컬럼이 있을 때 호출.
@@ -421,3 +421,125 @@ class LGBMTrainer:
             df[f"event_{group}"] = df["event_type"].isin(types).astype(int)
         df["event_type_enc"] = df["event_type"].map(_TYPE_MAP).fillna(-1).astype(int)
         return df
+
+
+class XGBTrainer:
+    """XGBoost Entry/Risk 모델 훈련 (LightGBM 앙상블 보완용)."""
+
+    _BASE_PARAMS = {
+        "n_estimators":     1000,
+        "max_depth":        6,
+        "learning_rate":    0.02,
+        "subsample":        0.75,
+        "colsample_bytree": 0.70,
+        "reg_alpha":        0.1,
+        "reg_lambda":       0.2,
+        "min_child_weight": 25,
+        "random_state":     42,
+        "n_jobs":           -1,
+        "eval_metric":      "auc",
+        "early_stopping_rounds": 80,
+        "verbosity":        0,
+    }
+
+    def train_entry(
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        X_val:   pd.DataFrame,
+        y_val:   pd.Series,
+        model_dir: str = "/models/lgbm",
+    ):
+        try:
+            import xgboost as xgb
+        except ImportError:
+            logger.warning("[XGB] xgboost not installed — skipping")
+            return None
+
+        pos = int(y_train.sum())
+        neg = int((y_train == 0).sum())
+        scale_pos = neg / max(pos, 1)
+        logger.info(f"[XGB] Entry: pos={pos} neg={neg} scale_pos_weight={scale_pos:.2f}")
+
+        params = dict(self._BASE_PARAMS)
+        params["scale_pos_weight"] = scale_pos
+        params["objective"] = "binary:logistic"
+
+        model = xgb.XGBClassifier(**params)
+        has_val = len(X_val) >= 30 and y_val.nunique() >= 2
+        if has_val:
+            model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+            prob = model.predict_proba(X_val)[:, 1]
+            auc  = roc_auc_score(y_val, prob)
+        else:
+            no_es = dict(params)
+            no_es.pop("early_stopping_rounds", None)
+            no_es["n_estimators"] = 500
+            model = xgb.XGBClassifier(**no_es)
+            model.fit(X_train, y_train, verbose=False)
+            auc = 0.0
+
+        logger.info(f"[XGB] Entry Val AUC={auc:.4f}")
+
+        # calibrator
+        cal = IsotonicRegression(out_of_bounds="clip")
+        if has_val:
+            cal.fit(model.predict_proba(X_val)[:, 1], np.array(y_val))
+        else:
+            cal.fit(model.predict_proba(X_train)[:, 1], np.array(y_train))
+
+        Path(model_dir).mkdir(parents=True, exist_ok=True)
+        joblib.dump(model, f"{model_dir}/xgb_entry_model.pkl")
+        joblib.dump(cal,   f"{model_dir}/xgb_entry_calibrator.pkl")
+        logger.info(f"[XGB] Entry model saved to {model_dir}/xgb_entry_model.pkl")
+        return model
+
+    def train_risk(
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        X_val:   pd.DataFrame,
+        y_val:   pd.Series,
+        model_dir: str = "/models/lgbm",
+    ):
+        try:
+            import xgboost as xgb
+        except ImportError:
+            logger.warning("[XGB] xgboost not installed — skipping")
+            return None
+
+        pos = int(y_train.sum())
+        neg = int((y_train == 0).sum())
+        scale_pos = neg / max(pos, 1)
+        logger.info(f"[XGB] Risk: pos={pos} neg={neg} scale_pos_weight={scale_pos:.2f}")
+
+        params = dict(self._BASE_PARAMS)
+        params["scale_pos_weight"] = scale_pos
+        params["objective"] = "binary:logistic"
+
+        model = xgb.XGBClassifier(**params)
+        has_val = len(X_val) >= 30 and y_val.nunique() >= 2
+        if has_val:
+            model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+            prob = model.predict_proba(X_val)[:, 1]
+            auc  = roc_auc_score(y_val, prob)
+        else:
+            no_es = dict(params)
+            no_es.pop("early_stopping_rounds", None)
+            no_es["n_estimators"] = 500
+            model = xgb.XGBClassifier(**no_es)
+            model.fit(X_train, y_train, verbose=False)
+            auc = 0.0
+
+        logger.info(f"[XGB] Risk Val AUC={auc:.4f}")
+
+        cal = IsotonicRegression(out_of_bounds="clip")
+        if has_val:
+            cal.fit(model.predict_proba(X_val)[:, 1], np.array(y_val))
+        else:
+            cal.fit(model.predict_proba(X_train)[:, 1], np.array(y_train))
+
+        joblib.dump(model, f"{model_dir}/xgb_risk_model.pkl")
+        joblib.dump(cal,   f"{model_dir}/xgb_risk_calibrator.pkl")
+        logger.info(f"[XGB] Risk model saved to {model_dir}/xgb_risk_model.pkl")
+        return model

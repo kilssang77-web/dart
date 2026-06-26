@@ -2,9 +2,9 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { useEffect } from 'react'
 import { clsx } from 'clsx'
 import {
-  LayoutDashboard, TrendingUp, Search, Newspaper,
-  FlaskConical, Settings2, Activity, Bell, Star,
-  ChevronLeft, ChevronRight, X, BarChart2, ServerCog, History,
+  LayoutDashboard, Search, Activity, Settings2,
+  FlaskConical, BarChart2, ServerCog, History,
+  ChevronLeft, ChevronRight, X, Briefcase, TrendingUp, Newspaper, Bell,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { featuresApi } from '@/api/features'
@@ -19,30 +19,33 @@ interface NavItem {
 }
 
 interface NavGroup {
+  label?: string
   items: NavItem[]
 }
 
-// ── 메뉴 정의 (7항목) ──────────────────────────────────────────────────────
+// ── 메뉴 정의: 핵심 5탭 + 도구 ────────────────────────────────────────────
 function buildNavGroups(badge?: string): NavGroup[] {
   return [
     {
+      label: '핵심',
       items: [
-        { to: '/',                icon: <LayoutDashboard size={15} />, label: '대시보드' },
-        { to: '/recommendations', icon: <TrendingUp size={15} />,     label: '매매 추천', badge },
-        { to: '/intel',           icon: <Newspaper size={15} />,      label: '공시/뉴스' },
-        { to: '/search',          icon: <Search size={15} />,         label: '종목 검색' },
-        { to: '/watchlist',       icon: <Star size={15} />,           label: '관심종목' },
-        { to: '/similar-cases',   icon: <History size={15} />,        label: '유사사례' },
-        { to: '/rec-journey',     icon: <Activity size={15} />,       label: '성과 추적' },
-        { to: '/notifications',   icon: <Bell size={15} />,           label: '발송 이력' },
+        { to: '/',          icon: <LayoutDashboard size={15} />, label: '실시간 탐지', badge },
+        { to: '/analysis',  icon: <Search size={15} />,         label: '종목 분석' },
+        { to: '/positions', icon: <Briefcase size={15} />,      label: '포지션 관리' },
+        { to: '/rec-journey', icon: <Activity size={15} />,     label: '성과 추적' },
+        { to: '/settings',  icon: <Settings2 size={15} />,      label: '설정' },
       ],
     },
     {
+      label: '도구',
       items: [
-        { to: '/backtest',      icon: <FlaskConical size={15} />, label: '백테스트' },
-        { to: '/performance',   icon: <BarChart2 size={15} />,    label: '모델 성능' },
-        { to: '/system-health', icon: <ServerCog size={15} />,    label: '시스템 헬스' },
-        { to: '/settings',      icon: <Settings2 size={15} />,    label: '설정' },
+        { to: '/recommendations', icon: <TrendingUp size={15} />,  label: '매매 추천' },
+        { to: '/intel',           icon: <Newspaper size={15} />,   label: '공시/뉴스' },
+        { to: '/similar-cases',   icon: <History size={15} />,     label: '유사사례' },
+        { to: '/backtest',        icon: <FlaskConical size={15} />, label: '백테스트' },
+        { to: '/performance',     icon: <BarChart2 size={15} />,   label: '모델 성능' },
+        { to: '/system-health',   icon: <ServerCog size={15} />,   label: '시스템 헬스' },
+        { to: '/notifications',   icon: <Bell size={15} />,        label: '발송 이력' },
       ],
     },
   ]
@@ -140,6 +143,11 @@ function SidebarContent({
         {navGroups.map((group, idx) => (
           <div key={idx} className="mb-1">
             {idx > 0 && <div className="mx-2 my-2 border-t border-[var(--border)]/50" />}
+            {group.label && !collapsed && (
+              <div className="px-4 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-widest text-[var(--muted)]/60">
+                {group.label}
+              </div>
+            )}
             {group.items.map((item) => (
               <SidebarNavItem key={item.to} item={item} collapsed={collapsed} />
             ))}

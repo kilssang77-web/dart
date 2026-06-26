@@ -19,6 +19,8 @@ def _make_query(use_ml: bool, has_market: bool) -> tuple[str, str]:
             fe.code,
             DATE(fe.detected_at)::TEXT AS date,
             db.close,
+            db.volume,
+            db.close * db.volume AS amount,
             rec.success_prob AS signal_score
         FROM feature_events fe
         JOIN daily_bars db ON db.code = fe.code AND db.date = DATE(fe.detected_at)
@@ -46,6 +48,8 @@ def _make_query(use_ml: bool, has_market: bool) -> tuple[str, str]:
             fe.code,
             DATE(fe.detected_at)::TEXT AS date,
             db.close,
+            db.volume,
+            db.close * db.volume AS amount,
             fe.signal_score
         FROM feature_events fe
         JOIN daily_bars db ON db.code = fe.code AND db.date = DATE(fe.detected_at)
@@ -70,8 +74,9 @@ async def run_backtest(
     ml_min_prob:   float       = Body(default=0.0),
     stop_loss_pct: float       = Body(default=0.05),
     target_pct:    float       = Body(default=0.10),
-    slippage:      float       = Body(default=0.001),
-    walkforward:   bool        = Body(default=False),
+    slippage:          float       = Body(default=0.0005),
+    walkforward:       bool        = Body(default=False),
+    max_daily_entries: int         = Body(default=0),
     db: asyncpg.Pool = Depends(get_db),
 ):
     start_d = date.fromisoformat(start)
@@ -90,27 +95,29 @@ async def run_backtest(
             params = [types, min_score, s_d, e_d]
         if mkt:
             params.append(mkt)
-        return await db.fetch(q, *params)
+        return await db.fetch(q, *params, timeout=120)
 
     engine = BacktestEngine(
         stop_loss_pct=-stop_loss_pct,
         target_pct=target_pct,
         slippage=max(0.0, min(slippage, 0.02)),
+        max_daily_entries=max(0, max_daily_entries),
     )
 
     params_out = {
-        "event_types":   types,
-        "event_type":    types[0] if len(types) == 1 else None,
-        "start":         start,
-        "end":           end,
-        "min_score":     min_score,
-        "ml_min_prob":   ml_min_prob,
-        "stop_loss_pct": stop_loss_pct,
-        "target_pct":    target_pct,
-        "slippage":      slippage,
-        "market":        mkt,
-        "walkforward":   walkforward,
-        "cost_note":     "round-trip ~0.46% (commission+slippage+sell_tax)",
+        "event_types":      types,
+        "event_type":       types[0] if len(types) == 1 else None,
+        "start":            start,
+        "end":              end,
+        "min_score":        min_score,
+        "ml_min_prob":      ml_min_prob,
+        "stop_loss_pct":    stop_loss_pct,
+        "target_pct":       target_pct,
+        "slippage":         slippage,
+        "market":           mkt,
+        "walkforward":      walkforward,
+        "max_daily_entries": max_daily_entries,
+        "cost_note":        "소형주(<50억) round-trip ~1.13%, 대형주 ~0.43% (거래세 0.3%)",
     }
 
     async def _run_window(s_d: date, e_d: date):

@@ -70,6 +70,9 @@ class PredictionResult:
     model_loaded: bool = False
 
 
+_XGB_WEIGHT  = float(os.environ.get("XGB_ENSEMBLE_WEIGHT", "0.40"))   # XGB 가중치 (LGBM = 1-XGB_WEIGHT)
+
+
 class LGBMPredictor:
 
     def __init__(self, model_dir: str | None = None):
@@ -78,6 +81,10 @@ class LGBMPredictor:
         self._risk:  Optional[lgb.Booster] = None
         self._entry_cal = None
         self._risk_cal  = None
+        self._xgb_entry = None
+        self._xgb_risk  = None
+        self._xgb_entry_cal = None
+        self._xgb_risk_cal  = None
         self.optimal_threshold: float = 0.5  # updated from model_metrics.json after load()
 
     def load(self) -> bool:
@@ -134,6 +141,35 @@ class LGBMPredictor:
                 except Exception as e:
                     logger.warning(f"Failed to load calibrator {path}: {e}")
 
+        # ── XGBoost 앙상블 모델 (선택적 로드) ──────────────────────────────
+        xgb_pairs = [
+            ("xgb_entry_model.pkl", "_xgb_entry", "xgb_entry_calibrator.pkl", "_xgb_entry_cal"),
+            ("xgb_risk_model.pkl",  "_xgb_risk",  "xgb_risk_calibrator.pkl",  "_xgb_risk_cal"),
+        ]
+        for model_file, model_attr, cal_file, cal_attr in xgb_pairs:
+            mpath = self.model_dir / model_file
+            cpath = self.model_dir / cal_file
+            if mpath.exists():
+                try:
+                    import warnings
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore")
+                        setattr(self, model_attr, joblib.load(str(mpath)))
+                    logger.info(f"XGB model loaded: {mpath}")
+                except Exception as e:
+                    logger.warning(f"Failed to load XGB model {mpath}: {e}")
+            if cpath.exists():
+                try:
+                    import warnings
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore")
+                        setattr(self, cal_attr, joblib.load(str(cpath)))
+                except Exception:
+                    pass
+
+        if self._xgb_entry is not None:
+            logger.info(f"Ensemble mode: LGBM×{1-_XGB_WEIGHT:.2f} + XGB×{_XGB_WEIGHT:.2f}")
+
         return loaded
 
     def is_ready(self) -> bool:
@@ -145,8 +181,18 @@ class LGBMPredictor:
         row  = pd.DataFrame([features])
         X    = self._prepare(row)
 
-        prob       = self._infer(self._entry, self._entry_cal, X, default=0.5)
-        risk       = self._infer(self._risk,  self._risk_cal,  X, default=0.4)
+        lgbm_prob = self._infer(self._entry, self._entry_cal, X, default=0.5)
+        lgbm_risk = self._infer(self._risk,  self._risk_cal,  X, default=0.4)
+
+        # XGBoost 앙상블 (모델 있을 때만)
+        if self._xgb_entry is not None:
+            xgb_prob = self._infer_xgb(self._xgb_entry, self._xgb_entry_cal, X, default=0.5)
+            xgb_risk = self._infer_xgb(self._xgb_risk,  self._xgb_risk_cal,  X, default=0.4)
+            prob = (1 - _XGB_WEIGHT) * lgbm_prob + _XGB_WEIGHT * xgb_prob
+            risk = (1 - _XGB_WEIGHT) * lgbm_risk + _XGB_WEIGHT * xgb_risk
+        else:
+            prob, risk = lgbm_prob, lgbm_risk
+
         confidence = float(X.notna().mean().mean())
         hold       = self._hold_days(X, event_type)
 
@@ -172,7 +218,19 @@ class LGBMPredictor:
                 return float(np.clip(calibrator.predict([raw])[0], 0.0, 1.0))
             return raw
         except Exception as e:
-            logger.warning(f"Inference error: {e}")
+            logger.warning(f"LGBM inference error: {e}")
+            return default
+
+    def _infer_xgb(self, model, calibrator, X: pd.DataFrame, default: float) -> float:
+        if model is None:
+            return default
+        try:
+            raw = float(np.clip(model.predict_proba(X)[0, 1], 0.0, 1.0))
+            if calibrator is not None:
+                return float(np.clip(calibrator.predict([raw])[0], 0.0, 1.0))
+            return raw
+        except Exception as e:
+            logger.warning(f"XGB inference error: {e}")
             return default
 
     def _prepare(self, df: pd.DataFrame) -> pd.DataFrame:

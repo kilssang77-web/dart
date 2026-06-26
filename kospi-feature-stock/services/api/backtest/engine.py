@@ -6,9 +6,11 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-_BACKTEST_COMMISSION = float(os.getenv("BACKTEST_COMMISSION", "0.00015"))  # 편도 수수료 0.015%
-_BACKTEST_SLIPPAGE   = float(os.getenv("BACKTEST_SLIPPAGE",   "0.00100"))  # 편도 슬리피지 0.1%
-_BACKTEST_SELL_TAX   = float(os.getenv("BACKTEST_SELL_TAX",   "0.00230"))  # 증권거래세 0.23%
+_BACKTEST_COMMISSION   = float(os.getenv("BACKTEST_COMMISSION",   "0.00015"))  # 편도 수수료 0.015%
+_BACKTEST_SLIPPAGE     = float(os.getenv("BACKTEST_SLIPPAGE",     "0.00050"))  # 대형주 슬리피지 0.05%
+_BACKTEST_SLIPPAGE_SM  = float(os.getenv("BACKTEST_SLIPPAGE_SM",  "0.00400"))  # 소형주 슬리피지 0.4%
+_BACKTEST_SELL_TAX     = float(os.getenv("BACKTEST_SELL_TAX",     "0.00300"))  # 증권거래세 0.3%
+_BACKTEST_SMALL_AMOUNT = float(os.getenv("BACKTEST_SMALL_AMOUNT", "5000000000"))  # 소형주 기준 거래대금 50억
 
 
 @dataclass
@@ -78,28 +80,37 @@ class BacktestResult:
 class BacktestEngine:
     """
     한국 증시 현실 비용 모델:
-      buy  side: commission(0.015%) + slippage(0.1%)          = 0.115%
-      sell side: commission(0.015%) + slippage(0.1%) + tax(0.23%) = 0.345%
-      round-trip total: ~0.46%
+      대형주(거래대금 50억+): buy 0.065% + sell 0.365%  = round-trip ~0.43%
+      소형주(거래대금 50억미만): buy 0.415% + sell 0.715% = round-trip ~1.13%
+      거래세: 0.3% (매도시), 수수료: 0.015% (편도)
     """
 
     def __init__(
         self,
-        stop_loss_pct: float = -0.05,
-        target_pct:    float =  0.10,
-        max_hold_days: int   = 10,
-        commission:    float = _BACKTEST_COMMISSION,
-        slippage:      float = _BACKTEST_SLIPPAGE,
-        sell_tax:      float = _BACKTEST_SELL_TAX,
+        stop_loss_pct:    float = -0.05,
+        target_pct:       float =  0.10,
+        max_hold_days:    int   = 10,
+        max_daily_entries: int  = 0,       # 0 = 무제한
+        commission:       float = _BACKTEST_COMMISSION,
+        slippage:         float = _BACKTEST_SLIPPAGE,
+        slippage_small:   float = _BACKTEST_SLIPPAGE_SM,
+        sell_tax:         float = _BACKTEST_SELL_TAX,
+        small_amount:     float = _BACKTEST_SMALL_AMOUNT,
     ):
-        self.stop_loss_pct = stop_loss_pct
-        self.target_pct    = target_pct
-        self.max_hold_days = max_hold_days
-        self.commission    = commission
-        self.slippage      = slippage
-        self.sell_tax      = sell_tax
-        self._buy_cost  = commission + slippage
-        self._sell_cost = commission + slippage + sell_tax
+        self.stop_loss_pct    = stop_loss_pct
+        self.target_pct       = target_pct
+        self.max_hold_days    = max_hold_days
+        self.max_daily_entries = max_daily_entries
+        self.commission       = commission
+        self.slippage         = slippage
+        self.slippage_small   = slippage_small
+        self.sell_tax         = sell_tax
+        self.small_amount     = small_amount
+
+    def _costs(self, amount: float) -> tuple[float, float]:
+        """거래대금 기반 슬리피지 차등 적용. (buy_cost, sell_cost) 반환."""
+        slip = self.slippage_small if amount < self.small_amount else self.slippage
+        return self.commission + slip, self.commission + slip + self.sell_tax
 
     def run(
         self,
@@ -111,15 +122,31 @@ class BacktestEngine:
             bars_by_code[code] = grp.sort_values("date").reset_index(drop=True)
 
         trades = []
+        daily_counts: dict[str, int] = {}   # date → 당일 진입 수
+
         for _, sig in signals.iterrows():
-            code  = sig["code"]
+            code      = sig["code"]
+            sig_date  = str(sig["date"])
+
+            # 하루 최대 진입 제한
+            if self.max_daily_entries > 0:
+                if daily_counts.get(sig_date, 0) >= self.max_daily_entries:
+                    continue
+                daily_counts[sig_date] = daily_counts.get(sig_date, 0) + 1
+
+            # 거래대금 기반 슬리피지 선택
+            close  = float(sig["close"])
+            volume = float(sig.get("volume", 0) or 0)
+            amount = float(sig.get("amount", close * volume))
+            buy_cost, sell_cost = self._costs(amount)
+
             # 매수 체결가 = 종가 × (1 + 수수료 + 슬리피지)
-            entry  = float(sig["close"]) * (1 + self._buy_cost)
+            entry  = close * (1 + buy_cost)
             target = entry * (1 + self.target_pct)
             stop   = entry * (1 + self.stop_loss_pct)
             trade  = Trade(
                 code=code,
-                entry_date=str(sig["date"]),
+                entry_date=sig_date,
                 entry_price=entry,
                 target_price=target,
                 stop_loss_price=stop,
@@ -131,7 +158,6 @@ class BacktestEngine:
                 trades.append(trade)
                 continue
 
-            sig_date = str(sig["date"])
             future = code_bars[code_bars["date"] >= sig_date]
             for i, (_, row) in enumerate(future.iterrows()):
                 if i == 0:
@@ -141,17 +167,17 @@ class BacktestEngine:
                 c = float(row.get("close", entry))
 
                 if l <= stop:
-                    trade.exit_price = stop   * (1 - self._sell_cost)
+                    trade.exit_price = stop   * (1 - sell_cost)
                     trade.exit_date  = str(row["date"])
                     trade.status     = "loss"
                     break
                 if h >= target:
-                    trade.exit_price = target * (1 - self._sell_cost)
+                    trade.exit_price = target * (1 - sell_cost)
                     trade.exit_date  = str(row["date"])
                     trade.status     = "win"
                     break
                 if i >= self.max_hold_days:
-                    trade.exit_price = c * (1 - self._sell_cost)
+                    trade.exit_price = c * (1 - sell_cost)
                     trade.exit_date  = str(row["date"])
                     trade.status     = "timeout"
                     break

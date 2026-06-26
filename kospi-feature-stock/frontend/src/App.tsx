@@ -24,6 +24,7 @@ const SystemHealth         = lazy(() => import('./pages/SystemHealth').then((m) 
 const NotificationHistory  = lazy(() => import('./pages/NotificationHistory').then((m) => ({ default: m.NotificationHistory })))
 const RecJourney           = lazy(() => import('./pages/RecommendationJourney').then((m) => ({ default: m.RecommendationJourney })))
 const SimilarCases         = lazy(() => import('./pages/SimilarCases').then((m) => ({ default: m.SimilarCases })))
+const PositionManagement   = lazy(() => import('./pages/PositionManagement').then((m) => ({ default: m.PositionManagement })))
 
 const META: Record<string, { title: string; subtitle?: string }> = {
   '/':               { title: '대시보드',    subtitle: '실시간 특징주 현황 요약' },
@@ -40,6 +41,7 @@ const META: Record<string, { title: string; subtitle?: string }> = {
   '/notifications':  { title: '발송 이력',   subtitle: '텔레그램 발송 내역 · 매수신호 · 공시' },
   '/rec-journey':    { title: '성과 추적',    subtitle: '매수 추천 시점 이후 시간대별 주가 여정 · ML 재학습 피드백' },
   '/similar-cases':  { title: '유사사례',    subtitle: '과거 동일 패턴 종목 · 이벤트 기준 수익률 비교' },
+  '/positions':      { title: '포지션 관리', subtitle: '추적 중 포지션 · 보유/손익 현황' },
 }
 
 function Spinner() {
@@ -135,6 +137,7 @@ export default function App() {
               <Route path="/rec-journey"    element={<RecJourney />} />
               <Route path="/similar-cases"          element={<SimilarCases />} />
               <Route path="/similar-cases/:eventId" element={<SimilarCases />} />
+              <Route path="/positions"              element={<PositionManagement />} />
               {/* 제거된 라우트 → 리다이렉트 */}
               <Route path="/disclosures"     element={<Navigate to="/intel" replace />} />
               <Route path="/news"            element={<Navigate to="/intel" replace />} />
