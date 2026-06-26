@@ -71,6 +71,7 @@ async def run():
 
     # Redis 통계 갱신 (tick 컨테이너가 이미 처리했어도 재실행 무해)
     await svc._update_redis_stats(all_codes)
+    await svc.redis.set("stats:last_refresh", datetime.now(timezone.utc).isoformat(), ex=86400 * 2)
 
     # 배치 탐지 실행
     scanner = BatchScanner(svc.db, svc.redis, svc.kafka)

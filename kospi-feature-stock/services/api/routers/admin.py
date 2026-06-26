@@ -567,7 +567,7 @@ async def get_backfill_status(
     current_job = _row_to_job(current_row) if current_row else None
     last_completed = _row_to_job(last_row) if last_row else None
 
-    last_run_redis = _decode(await redis.get("bars_backfill:last"))
+    last_run_redis = _decode(await redis.get("bars_backfill:last_run"))
     trigger_pending = await redis.exists("backfill:trigger:bars") > 0
 
     return BackfillStatus(
@@ -626,9 +626,9 @@ async def get_schedule_status(
 ):
     """각 워커의 마지막 실행 시각 (Redis 키 기반)."""
     keys = [
-        "bars_backfill:last",
+        "bars_backfill:last_run",
         "financials:last_run",
-        "govdata:last_run",
+        "govdata:last_run_date",
         "stats:last_refresh",
     ]
     vals = await redis.mget(*keys)

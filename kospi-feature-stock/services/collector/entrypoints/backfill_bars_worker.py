@@ -73,6 +73,17 @@ async def run_backfill(svc: StockCollector, all_codes: list[str]) -> None:
 
     logger.info(f"[bars-backfill] 재백필 대상: {len(sparse)}개 종목 (최근 1년 250봉 미만)")
 
+    # backfill_history 실행 기록 시작
+    hist_id: int | None = None
+    try:
+        hist_id = await svc.db.fetchval(
+            """INSERT INTO backfill_history (job_type, triggered_by, status, target_count, started_at)
+               VALUES ('bars', 'auto', 'running', $1, NOW()) RETURNING id""",
+            len(sparse),
+        )
+    except Exception as e:
+        logger.warning(f"[bars-backfill] backfill_history INSERT 실패: {e}")
+
     end   = datetime.now().strftime("%Y%m%d")
     start = (datetime.now() - timedelta(days=_BACKFILL_DAYS)).strftime("%Y%m%d")
     total_added  = 0
@@ -123,6 +134,21 @@ async def run_backfill(svc: StockCollector, all_codes: list[str]) -> None:
             )
 
     await svc.redis.set(_REDIS_KEY_LAST, datetime.utcnow().isoformat(), ex=86400 * 2)
+
+    # backfill_history 완료 기록
+    if hist_id is not None:
+        success_count = len(sparse) - zero_count - error_count
+        try:
+            await svc.db.execute(
+                """UPDATE backfill_history
+                   SET status='completed', success_count=$1, skip_count=$2,
+                       fail_count=$3, rows_added=$4, finished_at=NOW()
+                   WHERE id=$5""",
+                success_count, zero_count, error_count, total_added, hist_id,
+            )
+        except Exception as e:
+            logger.warning(f"[bars-backfill] backfill_history UPDATE 실패: {e}")
+
     logger.info(
         f"[bars-backfill] 완료 — {total_added:,}봉 추가 "
         f"/ {zero_count}개 조회불가 / {error_count}개 오류"
