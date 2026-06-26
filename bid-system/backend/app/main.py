@@ -34,6 +34,24 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE bids ADD COLUMN IF NOT EXISTS construction_work_div VARCHAR(200)",
             "ALTER TABLE bids ADD COLUMN IF NOT EXISTS joint_supply_bid VARCHAR(10)",
             "ALTER TABLE bids ADD COLUMN IF NOT EXISTS participant_limit VARCHAR(10)",
+            "ALTER TABLE bid_results ADD COLUMN IF NOT EXISTS draw_no1 SMALLINT",
+            "ALTER TABLE bid_results ADD COLUMN IF NOT EXISTS draw_no2 SMALLINT",
+            "ALTER TABLE bid_results ADD COLUMN IF NOT EXISTS bid_dt TIMESTAMPTZ",
+            """CREATE TABLE IF NOT EXISTS g2b_yega_details (
+                id              SERIAL PRIMARY KEY,
+                announcement_no VARCHAR(60)  NOT NULL,
+                yega_no         SMALLINT     NOT NULL,
+                base_amount     BIGINT,
+                estimated_price BIGINT,
+                yega_total      SMALLINT,
+                yega_price      BIGINT,
+                is_selected     BOOLEAN DEFAULT FALSE,
+                draw_count      SMALLINT,
+                bid_open_dt     TIMESTAMPTZ,
+                created_at      TIMESTAMPTZ DEFAULT now(),
+                UNIQUE(announcement_no, yega_no)
+            )""",
+            "CREATE INDEX IF NOT EXISTS idx_g2b_yega_announcement ON g2b_yega_details(announcement_no)",
         ]:
             _mig_db.execute(_mt(col_sql))
         _mig_db.commit()

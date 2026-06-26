@@ -685,6 +685,74 @@ def run_incomplete_participants_job() -> None:
         db.close()
 
 
+def run_g2b_all_participants_job() -> None:
+    """G2B 전참여자 수집 (매일 19:00 KST — getOpengResultListInfoOpengCompt).
+
+    최근 7일 개찰 완료 공고의 모든 참여자(투찰금액·투찰률·추첨번호)를
+    bid_results에 upsert하고 participant_count를 갱신한다.
+    """
+    from app.database import SessionLocal
+    from app.collector.service import collect_all_participants_g2b
+
+    db = SessionLocal()
+    try:
+        result = collect_all_participants_g2b(db, days_back=7)
+        logger.info("G2B 전참여자 수집 완료: %s", result)
+        if result.get("filled", 0) > 0:
+            _trigger_ml_retrain("G2B 전참여자 수집 완료")
+    except Exception as exc:
+        logger.error("G2B 전참여자 수집 실패: %s", exc)
+    finally:
+        db.close()
+
+
+def run_g2b_yega_job() -> None:
+    """G2B 예비가격 상세 수집 (매일 19:15 KST — getOpengResultListInfoCnstwkPreparPcDetail).
+
+    최근 7일 개찰 완료 공고의 복수예가 15개(추첨여부 포함)를
+    g2b_yega_details 테이블에 upsert한다. ML pos_weights 학습 데이터로 활용.
+    """
+    from app.database import SessionLocal
+    from app.collector.service import collect_g2b_yega_detail
+
+    db = SessionLocal()
+    try:
+        result = collect_g2b_yega_detail(db, days_back=7)
+        logger.info("G2B 예가상세 수집 완료: %s", result)
+    except Exception as exc:
+        logger.error("G2B 예가상세 수집 실패: %s", exc)
+    finally:
+        db.close()
+
+
+def run_backfill_incremental_job() -> None:
+    """G2B 역사 낙찰 데이터 증분 갱신 (매월 2일 02:00 KST).
+    전월 1개월치를 수집해 신규 낙찰 결과를 보완한다.
+    """
+    from app.database import SessionLocal
+    from app.collector.service import backfill_historical_bids
+    from datetime import datetime, timedelta
+
+    db = SessionLocal()
+    try:
+        # 전월 범위
+        today = datetime.now()
+        first_of_this_month = today.replace(day=1)
+        last_month_end = first_of_this_month - timedelta(days=1)
+        last_month_start = last_month_end.replace(day=1)
+        date_from = last_month_start.strftime("%Y-%m-%d")
+        date_to   = last_month_end.strftime("%Y-%m-%d")
+
+        result = backfill_historical_bids(db, date_from=date_from, date_to=date_to)
+        logger.info("역사데이터 증분 갱신 완료: %s", result)
+        if result.get("inserted_results", 0) > 50:
+            _trigger_ml_retrain("월별 백필 완료")
+    except Exception as exc:
+        logger.error("역사데이터 증분 갱신 실패: %s", exc)
+    finally:
+        db.close()
+
+
 def create_scheduler() -> BackgroundScheduler:
     """BackgroundScheduler 생성 및 작업 등록."""
     scheduler = BackgroundScheduler(timezone="Asia/Seoul")
@@ -841,6 +909,33 @@ def create_scheduler() -> BackgroundScheduler:
         trigger=CronTrigger(day_of_week="sat", hour=4, minute=0, timezone="Asia/Seoul"),
         id="incomplete_participants_weekly",
         name="참가자 수 부족 입찰 재수집 (매주 토 04:00 KST)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    # G2B 전참여자 수집 (매일 19:00 KST — 개찰 직후)
+    scheduler.add_job(
+        run_g2b_all_participants_job,
+        trigger=CronTrigger(hour=19, minute=0, timezone="Asia/Seoul"),
+        id="g2b_all_participants_daily",
+        name="G2B 전참여자 수집 (매일 19:00 KST)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    # G2B 예비가격 상세 수집 (매일 19:15 KST)
+    scheduler.add_job(
+        run_g2b_yega_job,
+        trigger=CronTrigger(hour=19, minute=15, timezone="Asia/Seoul"),
+        id="g2b_yega_detail_daily",
+        name="G2B 예비가격 상세 수집 (매일 19:15 KST)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    # 역사 데이터 월별 증분 갱신 (매월 2일 02:00 KST — 전월 데이터 보완)
+    scheduler.add_job(
+        run_backfill_incremental_job,
+        trigger=CronTrigger(day=2, hour=2, minute=0, timezone="Asia/Seoul"),
+        id="backfill_incremental_monthly",
+        name="G2B 역사데이터 증분 갱신 (매월 2일 02:00 KST)",
         replace_existing=True,
         max_instances=1,
     )

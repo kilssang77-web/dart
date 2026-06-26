@@ -117,6 +117,9 @@ class BidResult(Base):
     rank            = Column(SmallInteger, nullable=False)
     is_winner       = Column(Boolean, default=False)
     assessment_rate = Column(Numeric(7, 4))
+    draw_no1        = Column(SmallInteger)   # 복수예가 추첨번호1
+    draw_no2        = Column(SmallInteger)   # 복수예가 추첨번호2
+    bid_dt          = Column(DateTime(timezone=True))  # 투찰일시
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
 
     bid        = relationship("Bid", back_populates="results")

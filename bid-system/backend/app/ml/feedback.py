@@ -241,7 +241,7 @@ def build_kpi_snapshot(
             SELECT result, submitted_rate, actual_srate, predicted_srate,
                    predicted_win_prob, our_rank, total_bidders
             FROM actual_bid_outcomes
-            WHERE DATE(created_at) BETWEEN :start AND :end
+            WHERE DATE(COALESCE(collected_at, created_at)) BETWEEN :start AND :end
               AND result IN ('WON', 'LOST', 'DISQUALIFIED')
               {user_filter}
         """),

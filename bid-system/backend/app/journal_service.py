@@ -223,7 +223,7 @@ class JournalService:
         # 월별 추이
         monthly_rows = db.execute(_text("""
             SELECT
-              TO_CHAR(created_at, 'YYYY-MM')                                          AS month,
+              TO_CHAR(COALESCE(submitted_at, opened_at, created_at), 'YYYY-MM')      AS month,
               COUNT(*)                                                                 AS total,
               COUNT(CASE WHEN result = '낙찰' THEN 1 END)                            AS wins,
               COUNT(CASE WHEN result = '패찰' THEN 1 END)                            AS losses,
@@ -391,16 +391,18 @@ def _manual_create(svc_self, db: Session, user_id: int, req) -> "BidJournal":
     if not submitted_amount and req.submitted_rate and bid.base_amount:
         submitted_amount = int(round(float(req.submitted_rate) * bid.base_amount))
 
+    bid_dt = _dt.combine(req.bid_date, _dt.min.time()) if getattr(req, "bid_date", None) else _dt.now()
+
     obj = BidJournal(
         bid_id=bid.id,
         user_id=user_id,
         announcement_no=ann_no,
-        submitted_at=_dt.now(),
+        submitted_at=bid_dt,
         submitted_rate=req.submitted_rate,
         submitted_amount=submitted_amount,
         pred_srate_center=pred_srate_center,
         result=req.result,
-        opened_at=_dt.now(),
+        opened_at=bid_dt,
         actual_srate=req.actual_srate,
         winner_rate=req.winner_rate,
         our_rank=req.our_rank,
@@ -421,3 +423,157 @@ def _manual_create(svc_self, db: Session, user_id: int, req) -> "BidJournal":
 
 
 JournalService.create_manual = _manual_create
+
+
+def auto_register_from_inpo21c(db: Session, user_id: int) -> dict:
+    """inpo21c 수집 데이터에서 우리 회사 참여 건을 bid_journal에 자동 등록.
+
+    company_profile의 company_name / biz_reg_no 기준으로 inpo21c_participants 전수 조회.
+    이미 bid_journal에 있는 건(announcement_no 기준)은 스킵.
+    스케줄러 및 API 엔드포인트 양쪽에서 호출된다.
+    """
+    from sqlalchemy import text as _t
+    from .models import BidJournal, Bid
+
+    profile = db.execute(_t(
+        "SELECT company_name, biz_reg_no FROM company_profile LIMIT 1"
+    )).fetchone()
+    if not profile:
+        logger.warning("auto_register_from_inpo21c: company_profile 미등록 — 스킵")
+        return {"registered": 0, "skipped_existing": 0, "won": 0, "lost": 0, "total_found": 0, "errors": []}
+
+    comp_name = profile[0] or ""
+    biz_no_raw = (profile[1] or "").replace("-", "")
+    name_kw = comp_name.split()[1] if len(comp_name.split()) > 1 else comp_name
+
+    existing_anos = {r[0] for r in db.execute(_t(
+        "SELECT announcement_no FROM bid_journal WHERE announcement_no IS NOT NULL"
+    )).fetchall()}
+
+    rows = db.execute(_t("""
+        SELECT
+            ip.inpo21c_bid_id,
+            ip.rank,
+            ip.bid_rate,
+            ip.bid_amount,
+            ip.is_winner,
+            ib.announcement_no,
+            ib.open_datetime,
+            ib.yega_ratio,
+            ib.base_amount,
+            ib.title,
+            ib.agency_name,
+            (SELECT ip2.bid_rate FROM inpo21c_participants ip2
+             WHERE ip2.inpo21c_bid_id = ip.inpo21c_bid_id AND ip2.is_winner = true LIMIT 1),
+            (SELECT COUNT(*) FROM inpo21c_participants ip3
+             WHERE ip3.inpo21c_bid_id = ip.inpo21c_bid_id)
+        FROM inpo21c_participants ip
+        JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = ip.inpo21c_bid_id
+        WHERE (ip.company_name ILIKE :name_kw
+               OR ip.biz_reg_no = :biz_raw
+               OR REPLACE(ip.biz_reg_no, '-', '') = :biz_raw)
+        ORDER BY ib.open_datetime DESC
+    """), {"name_kw": f"%{name_kw}%", "biz_raw": biz_no_raw}).fetchall()
+
+    registered = skipped = won = lost = 0
+    errors = []
+
+    for r in rows:
+        (inpo_bid_id, rank, bid_rate, bid_amount, is_winner,
+         ann_no, open_dt, yega_ratio, base_amount, title, agency_name,
+         winner_bid_rate, total_participants) = r
+
+        if ann_no and ann_no in existing_anos:
+            skipped += 1
+            continue
+
+        try:
+            bid = db.query(Bid).filter(Bid.announcement_no == ann_no).first() if ann_no else None
+            if not bid:
+                fallback_agency_id = 8533
+                if agency_name:
+                    ag = db.execute(_t("SELECT id FROM agencies WHERE name = :n LIMIT 1"),
+                                    {"n": agency_name}).fetchone()
+                    if ag:
+                        fallback_agency_id = ag[0]
+                bid = Bid(
+                    announcement_no=ann_no or f"INPO-{inpo_bid_id}",
+                    title=title or f"[자동등록] {ann_no or inpo_bid_id}",
+                    status="closed",
+                    agency_id=fallback_agency_id,
+                    base_amount=base_amount,
+                )
+                db.add(bid)
+                db.flush()
+
+            actual_srate    = float(yega_ratio) / 100 if yega_ratio else None
+            submitted_rate  = float(bid_rate) if bid_rate else None
+            winner_rate     = float(winner_bid_rate) if winner_bid_rate else None
+            result          = "낙찰" if is_winner else "패찰"
+            rate_gap        = round(winner_rate - submitted_rate, 6) if winner_rate and submitted_rate else None
+
+            pred_srate_center = srate_error = None
+            if bid.base_amount:
+                try:
+                    from .ml.assessment import load_srate_stats, predict_srate
+                    features = load_srate_stats(
+                        db,
+                        agency_id=getattr(bid, "agency_id", None),
+                        industry_id=getattr(bid, "industry_id", None),
+                        region_id=getattr(bid, "region_id", None),
+                        base_amount=int(bid.base_amount),
+                    )
+                    ep = predict_srate(features, int(bid.base_amount))
+                    pred_srate_center = float(ep["srate_range"]["center"])
+                    if actual_srate:
+                        srate_error = round(actual_srate - pred_srate_center, 6)
+                except Exception:
+                    pass
+
+            sub_amount = int(bid_amount) if bid_amount else None
+            if not sub_amount and submitted_rate and bid.base_amount:
+                sub_amount = int(round(submitted_rate * bid.base_amount))
+
+            obj = BidJournal(
+                bid_id=bid.id,
+                user_id=user_id,
+                announcement_no=ann_no,
+                submitted_at=open_dt,
+                submitted_rate=submitted_rate,
+                submitted_amount=sub_amount,
+                pred_srate_center=pred_srate_center,
+                result=result,
+                opened_at=open_dt,
+                actual_srate=actual_srate,
+                winner_rate=winner_rate,
+                our_rank=int(rank) if rank else None,
+                total_bidders=int(total_participants) if total_participants else None,
+                rate_gap=rate_gap,
+                srate_error=srate_error,
+                note="[inpo21c 자동등록]",
+            )
+            db.add(obj)
+            db.flush()
+            _sync_actual_outcome(db, obj)
+            db.commit()
+
+            registered += 1
+            won  += int(bool(is_winner))
+            lost += int(not is_winner)
+            if ann_no:
+                existing_anos.add(ann_no)
+
+        except Exception as e:
+            db.rollback()
+            errors.append(f"{ann_no or inpo_bid_id}: {e}")
+
+    logger.info("auto_register_from_inpo21c: 등록=%d(낙찰%d/패찰%d) 스킵=%d 에러=%d",
+                registered, won, lost, skipped, len(errors))
+    return {
+        "registered": registered,
+        "skipped_existing": skipped,
+        "won": won,
+        "lost": lost,
+        "total_found": len(rows),
+        "errors": errors[:10],
+    }

@@ -236,9 +236,17 @@ def _parse_date(s: str | None) -> date | None:
 def _parse_datetime(s: str | None) -> datetime | None:
     if not s:
         return None
-    for fmt in ("%Y%m%d%H%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+    # (format_string, expected_string_length) — len(fmt) ≠ len(output)
+    _DT_FMTS = [
+        ("%Y%m%d%H%M",        12),
+        ("%Y-%m-%d %H:%M:%S", 19),
+        ("%Y-%m-%dT%H:%M:%S", 19),
+        ("%Y-%m-%d",          10),
+        ("%Y%m%d",             8),
+    ]
+    for fmt, strlen in _DT_FMTS:
         try:
-            return datetime.strptime(s[: len(fmt)], fmt).replace(tzinfo=timezone.utc)
+            return datetime.strptime(s[:strlen], fmt).replace(tzinfo=timezone.utc)
         except (ValueError, TypeError):
             continue
     return None
@@ -718,3 +726,408 @@ def collect_scsbid_results(db: Session, days_back: int = 30) -> CollectionLog:
     settings = get_settings()
     client = NarajangterClient(api_key=settings.g2b_api_key)
     return collect_results(db, client, days_back=days_back)
+
+
+def collect_all_participants_g2b(db: Session, days_back: int = 7) -> dict:
+    """
+    getOpengResultListInfoOpengCompt — 개찰완료 전참여자 수집.
+
+    최근 days_back일 이내 개찰된 공사 공고의 모든 참여자(투찰금액·투찰률·추첨번호 포함)를
+    bid_results에 upsert하고, bids.participant_count를 갱신한다.
+    """
+    from app.config import get_settings
+    from app.collector.client import BidParticipant
+
+    settings = get_settings()
+    client = NarajangterClient(api_key=settings.g2b_api_key)
+
+    bgn_dt, end_dt = _date_range(days_back)
+    filled = skipped = fail = 0
+    t0 = time.monotonic()
+
+    from sqlalchemy import text as _t
+    rows = db.execute(
+        _t("SELECT id, announcement_no FROM bids "
+           "WHERE bid_open_date >= NOW() - (:days * INTERVAL '1 day') "
+           "  AND status IN ('closed', 'awarded') AND source = 'api'"),
+        {"days": days_back},
+    ).fetchall()
+
+    for bid_id, announcement_no in rows:
+        try:
+            participants: list[BidParticipant] = client.get_participants_for_bid(announcement_no)
+            if not participants:
+                skipped += 1
+                continue
+
+            seen_competitor_ids: set[int] = set()
+            for p in participants:
+                if not p.competitor_name:
+                    continue
+                competitor = _upsert_competitor(db, p.competitor_name, p.biz_reg_no)
+                if competitor.id in seen_competitor_ids:
+                    continue
+                seen_competitor_ids.add(competitor.id)
+                # bid_results upsert — (bid_id, competitor_id) UniqueConstraint
+                existing = (
+                    db.query(BidResult)
+                    .filter(BidResult.bid_id == bid_id, BidResult.competitor_id == competitor.id)
+                    .first()
+                )
+                if existing:
+                    # 추첨번호·투찰일시 보완
+                    if p.draw_no1 is not None:
+                        existing.draw_no1 = p.draw_no1
+                    if p.draw_no2 is not None:
+                        existing.draw_no2 = p.draw_no2
+                    if p.bid_dt:
+                        existing.bid_dt = _parse_datetime(p.bid_dt)
+                    if p.bid_amount:
+                        existing.bid_amount = p.bid_amount
+                    if p.bid_rate:
+                        existing.bid_rate = p.bid_rate
+                else:
+                    db.add(BidResult(
+                        bid_id=bid_id,
+                        competitor_id=competitor.id,
+                        bid_amount=p.bid_amount or 0,
+                        bid_rate=p.bid_rate or 0,
+                        rank=p.rank or 0,
+                        is_winner=p.is_winner,
+                        draw_no1=p.draw_no1,
+                        draw_no2=p.draw_no2,
+                        bid_dt=_parse_datetime(p.bid_dt),
+                    ))
+
+            # participant_count 갱신
+            bid_obj = db.query(Bid).filter(Bid.id == bid_id).first()
+            if bid_obj:
+                bid_obj.participant_count = len(participants)
+
+            db.commit()
+            filled += 1
+        except Exception as exc:
+            db.rollback()
+            fail += 1
+            logger.warning("전참여자 수집 실패 {}: {}", announcement_no, exc)
+
+    elapsed = time.monotonic() - t0
+    logger.info(
+        "G2B 전참여자 수집 완료: filled={} skipped={} fail={} ({:.1f}s)",
+        filled, skipped, fail, elapsed,
+    )
+    return {"filled": filled, "skipped": skipped, "fail": fail, "elapsed_s": round(elapsed, 1)}
+
+
+def collect_g2b_yega_detail(db: Session, days_back: int = 7) -> dict:
+    """
+    getOpengResultListInfoCnstwkPreparPcDetail — 복수예가 상세 수집 (일괄 페이지네이션).
+
+    날짜 범위로 전체 조회 후, 우리 DB에 있는 공고번호와 매칭된 항목만
+    g2b_yega_details 테이블에 upsert한다.
+    - compnoRsrvtnPrceSno: 복수예가 순번(1~15)
+    - bsisPlnprc: 기초예정가격, drwtYn: 추첨여부
+    """
+    from app.config import get_settings
+    from sqlalchemy import text as _t
+
+    settings = get_settings()
+    client = NarajangterClient(api_key=settings.g2b_api_key)
+
+    bgn_dt, end_dt = _date_range(days_back)
+    inserted = updated = fail = pages = 0
+    t0 = time.monotonic()
+
+    # 우리 DB 공고번호 SET (매칭 필터용)
+    known_rows = db.execute(
+        _t("SELECT announcement_no FROM bids "
+           "WHERE bid_open_date >= NOW() - (:days * INTERVAL '1 day') "
+           "  AND status IN ('closed', 'awarded') AND source = 'api'"),
+        {"days": days_back},
+    ).fetchall()
+    known_nos: set[str] = {r[0] for r in known_rows}
+    if not known_nos:
+        return {"inserted": 0, "updated": 0, "fail": 0, "elapsed_s": 0.0}
+
+    # 페이지네이션
+    num_of_rows = 999
+    page_no = 1
+    while True:
+        try:
+            raw = client._get_results(
+                "getOpengResultListInfoCnstwkPreparPcDetail",
+                {
+                    "inqryDiv": 1,
+                    "inqryBgnDt": bgn_dt,
+                    "inqryEndDt": end_dt,
+                    "pageNo": page_no,
+                    "numOfRows": num_of_rows,
+                },
+            )
+        except Exception as exc:
+            fail += 1
+            logger.warning("G2B 예가상세 페이지 {} 호출 실패: {}", page_no, exc)
+            break
+
+        items_raw = client._extract_items(raw)
+        if not items_raw:
+            break
+        pages += 1
+
+        batch_inserted = batch_updated = 0
+        for item in items_raw:
+            ano = item.get("bidNtceNo", "")
+            if ano not in known_nos:
+                continue
+            sno_raw = item.get("compnoRsrvtnPrceSno")
+            if not sno_raw:
+                continue
+            try:
+                yega_no = int(str(sno_raw).strip())
+            except (ValueError, TypeError):
+                continue
+
+            try:
+                def _si(v):
+                    try: return int(str(v).replace(",", ""))
+                    except: return None
+                db.execute(_t("""
+                    INSERT INTO g2b_yega_details
+                        (announcement_no, yega_no, base_amount, estimated_price,
+                         yega_total, yega_price, is_selected, draw_count, bid_open_dt)
+                    VALUES
+                        (:ano, :no, :base, :est, :total, :price, :sel, :dcnt, :odt)
+                    ON CONFLICT (announcement_no, yega_no) DO UPDATE SET
+                        base_amount     = EXCLUDED.base_amount,
+                        estimated_price = EXCLUDED.estimated_price,
+                        yega_total      = EXCLUDED.yega_total,
+                        yega_price      = EXCLUDED.yega_price,
+                        is_selected     = EXCLUDED.is_selected,
+                        draw_count      = EXCLUDED.draw_count,
+                        bid_open_dt     = EXCLUDED.bid_open_dt
+                """), {
+                    "ano":   ano,
+                    "no":    yega_no,
+                    "base":  _si(item.get("bssamt")),
+                    "est":   _si(item.get("plnprc")),
+                    "total": _si(item.get("totRsrvtnPrceNum")),
+                    "price": _si(item.get("bsisPlnprc")),
+                    "sel":   str(item.get("drwtYn", "N")).upper() == "Y",
+                    "dcnt":  _si(item.get("drwtNum")),
+                    "odt":   _parse_datetime(item.get("rlOpengDt")),
+                })
+                batch_inserted += 1
+            except Exception as exc:
+                fail += 1
+                logger.warning("G2B 예가상세 upsert 실패 {} no={}: {}", ano, yega_no, exc)
+
+        try:
+            db.commit()
+            inserted += batch_inserted
+        except Exception as exc:
+            db.rollback()
+            fail += batch_inserted
+            logger.warning("G2B 예가상세 커밋 실패 page={}: {}", page_no, exc)
+
+        total_count = client._extract_total_count(raw)
+        if page_no * num_of_rows >= total_count:
+            break
+        page_no += 1
+
+    elapsed = time.monotonic() - t0
+    logger.info(
+        "G2B 예가상세 수집 완료: inserted={} fail={} pages={} ({:.1f}s)",
+        inserted, fail, pages, elapsed,
+    )
+    return {"inserted": inserted, "fail": fail, "pages": pages, "elapsed_s": round(elapsed, 1)}
+
+
+def _upsert_agency_by_code(db: Session, code: str | None, name: str) -> Agency:
+    """기관 upsert — code 우선, 없으면 name 기준."""
+    if code:
+        agency = db.query(Agency).filter(Agency.code == code).first()
+        if agency:
+            return agency
+    agency = db.query(Agency).filter(Agency.name == name).first()
+    if agency:
+        if code and not agency.code:
+            agency.code = code
+        return agency
+    agency = Agency(name=name, code=code)
+    db.add(agency)
+    db.flush()
+    return agency
+
+
+def backfill_historical_bids(
+    db: Session,
+    date_from: str = "2022-01-01",
+    date_to: str | None = None,
+    batch_months: int = 1,
+) -> dict:
+    """
+    getScsbidListSttusCnstwkPPSSrch — 역사 낙찰 데이터 백필.
+
+    date_from~date_to 기간을 batch_months 단위로 분할해 순차 수집.
+    기존 bids 레코드가 있으면 bid_result만 보완, 없으면 최소 bid 생성.
+    source='g2b_backfill'로 마킹.
+
+    Returns: {inserted_bids, updated_bids, inserted_results, skipped, fail, elapsed_s}
+    """
+    from app.config import get_settings
+    from app.collector.client import NarajangterClient
+    from sqlalchemy import text as _t
+    from datetime import date
+    import calendar
+
+    settings = get_settings()
+    client = NarajangterClient(api_key=settings.g2b_api_key)
+
+    end_dt = date_to or datetime.now().strftime("%Y-%m-%d")
+    # date 객체로 변환
+    cur = datetime.strptime(date_from, "%Y-%m-%d").date()
+    end = datetime.strptime(end_dt, "%Y-%m-%d").date()
+
+    inserted_bids = updated_bids = inserted_results = skipped = fail = 0
+    t0 = time.monotonic()
+
+    while cur <= end:
+        # 월 범위 계산
+        _, last_day = calendar.monthrange(cur.year, cur.month)
+        chunk_end = min(date(cur.year, cur.month, last_day), end)
+        bgn_str = cur.strftime("%Y%m%d") + "0000"
+        end_str = chunk_end.strftime("%Y%m%d") + "2359"
+        label = cur.strftime("%Y-%m")
+
+        logger.info("백필 수집: {} ({} ~ {})", label, bgn_str, end_str)
+
+        try:
+            for page_items in client.paginate_scsbid_pps_search(bgn_str, end_str):
+                for item in page_items:
+                    ano = item.get("bidNtceNo", "").strip()
+                    try:
+                        if not ano:
+                            skipped += 1
+                            continue
+
+                        # 낙찰률 파싱 — API는 퍼센트형 (e.g. "90.325")
+                        rate_raw = item.get("sucsfbidRate", "")
+                        try:
+                            bid_rate = float(rate_raw)
+                            bid_rate = bid_rate / 100 if bid_rate > 1.5 else bid_rate
+                        except (ValueError, TypeError):
+                            skipped += 1
+                            continue
+                        if bid_rate <= 0 or bid_rate > 1.5:
+                            skipped += 1
+                            continue
+
+                        winner_name = (item.get("bidwinnrNm") or "").strip()
+                        winner_biz  = (item.get("bidwinnrBizno") or "").strip() or None
+                        if not winner_name:
+                            skipped += 1
+                            continue
+
+                        def _si(v):
+                            try: return int(str(v).replace(",", ""))
+                            except: return None
+
+                        bid_amount   = _si(item.get("sucsfbidAmt"))
+                        part_count   = _si(item.get("prtcptCnum"))
+                        open_dt_str  = item.get("rlOpengDt") or item.get("fnlSucsfDate")
+                        open_dt      = _parse_datetime(open_dt_str)
+                        if bid_amount and bid_rate > 0:
+                            est_base = round(bid_amount / bid_rate)
+                        else:
+                            est_base = 0
+
+                        agency_name = (item.get("dminsttNm") or "").strip()
+                        agency_code = (item.get("dminsttCd") or "").strip() or None
+                        if not agency_name:
+                            skipped += 1
+                            continue
+
+                        # savepoint — 실패 시 이 항목만 롤백, 세션 유지
+                        sp = db.begin_nested()
+                        try:
+                            agency = _upsert_agency_by_code(db, agency_code, agency_name)
+
+                            bid = db.query(Bid).filter(Bid.announcement_no == ano).first()
+                            if bid:
+                                if (bid.base_amount or 0) == 0 and est_base > 0:
+                                    bid.base_amount = est_base
+                                if bid.participant_count is None and part_count:
+                                    bid.participant_count = part_count
+                                if bid.bid_open_date is None and open_dt:
+                                    bid.bid_open_date = open_dt
+                                updated_bids += 1
+                            else:
+                                title = (item.get("bidNtceNm") or "").strip()
+                                industry_id = _infer_industry_from_title(db, title)
+                                bid = Bid(
+                                    announcement_no=ano,
+                                    title=title,
+                                    agency_id=agency.id,
+                                    industry_id=industry_id,
+                                    base_amount=est_base,
+                                    bid_open_date=open_dt,
+                                    participant_count=part_count,
+                                    status="closed",
+                                    source="g2b",
+                                )
+                                db.add(bid)
+                                db.flush()
+                                inserted_bids += 1
+
+                            competitor = _upsert_competitor(db, winner_name, winner_biz)
+                            existing_result = (
+                                db.query(BidResult)
+                                .filter(BidResult.bid_id == bid.id, BidResult.competitor_id == competitor.id)
+                                .first()
+                            )
+                            if not existing_result:
+                                db.add(BidResult(
+                                    bid_id=bid.id,
+                                    competitor_id=competitor.id,
+                                    bid_amount=bid_amount or 0,
+                                    bid_rate=bid_rate,
+                                    rank=1,
+                                    is_winner=True,
+                                ))
+                                inserted_results += 1
+                            sp.commit()
+                        except Exception as sp_exc:
+                            sp.rollback()
+                            raise sp_exc
+
+                    except Exception as exc:
+                        fail += 1
+                        logger.debug("백필 항목 실패 {}: {}", ano, exc)
+                        continue
+
+                db.commit()
+
+        except Exception as exc:
+            db.rollback()
+            fail += 1
+            logger.warning("백필 월 {} 실패: {}", label, exc)
+
+        # 다음 월로 이동
+        if cur.month == 12:
+            cur = date(cur.year + 1, 1, 1)
+        else:
+            cur = date(cur.year, cur.month + 1, 1)
+
+    elapsed = time.monotonic() - t0
+    logger.info(
+        "역사 데이터 백필 완료: new_bids={} updated={} new_results={} skipped={} fail={} ({:.1f}s)",
+        inserted_bids, updated_bids, inserted_results, skipped, fail, elapsed,
+    )
+    return {
+        "inserted_bids": inserted_bids,
+        "updated_bids": updated_bids,
+        "inserted_results": inserted_results,
+        "skipped": skipped,
+        "fail": fail,
+        "elapsed_s": round(elapsed, 1),
+    }

@@ -1439,3 +1439,30 @@ def migrate_journal_to_executions(
     db.commit()
     logger.info("journal→executions 이관: created=%d skipped=%d", created, skipped)
     return {"status": "ok", "created": created, "skipped": skipped}
+
+
+@router.post("/backfill/historical")
+def trigger_historical_backfill(
+    background_tasks: BackgroundTasks,
+    date_from: str = "2022-01-01",
+    date_to: str | None = None,
+    _: User = Depends(require_role("admin")),
+):
+    """G2B 역사 낙찰 데이터 백필 (getScsbidListSttusCnstwkPPSSrch) — 백그라운드 실행."""
+    def _run():
+        from ...database import SessionLocal
+        from ...collector.service import backfill_historical_bids
+        _db = SessionLocal()
+        try:
+            result = backfill_historical_bids(_db, date_from=date_from, date_to=date_to)
+            logger.info("역사 백필 완료: %s", result)
+        except Exception as exc:
+            logger.error("역사 백필 실패: %s", exc)
+        finally:
+            _db.close()
+
+    background_tasks.add_task(_run)
+    return {
+        "message": f"역사 데이터 백필 시작됨 ({date_from} ~ {date_to or '오늘'})",
+        "note": "백그라운드 실행 중. /admin/collection-logs 에서 진행 확인",
+    }

@@ -52,6 +52,51 @@ class BidResult:
     is_winner: bool
 
 
+@dataclass
+class BidParticipant:
+    """개찰완료 전참여자 항목 (getOpengResultListInfoOpengCompt)"""
+
+    announcement_no: str
+    bid_ntce_ord: str        # 입찰공고차수
+    rank: int | None         # 개찰순위
+    competitor_name: str
+    biz_reg_no: str | None
+    bid_amount: int | None
+    bid_rate: float | None   # 투찰률 (기초금액 대비)
+    is_winner: bool
+    draw_no1: int | None     # 추첨번호1 (복수예가 추첨 번호)
+    draw_no2: int | None     # 추첨번호2
+    bid_dt: str | None       # 투찰일시
+
+
+@dataclass
+class BidOpeningItem:
+    """개찰결과 목록 항목 (getOpengResultListInfoCnstwk)"""
+
+    announcement_no: str
+    announcement_name: str
+    participant_count: int | None   # 참가업체수
+    bid_open_dt: str | None         # 개찰일시
+    progress_code: str | None       # 진행구분코드명 (낙찰, 유찰 등)
+    has_yega_file: str | None       # 예비가격파일존재여부 (Y/N)
+    agency_name: str | None
+
+
+@dataclass
+class BidYegaItem:
+    """예비가격 상세 항목 (getOpengResultListInfoCnstwkPreparPcDetail)"""
+
+    announcement_no: str
+    base_amount: int | None         # 기초금액
+    estimated_price: int | None     # 예정가격
+    yega_total: int | None          # 총예가건수
+    yega_no: int | None             # 복수예가순번 (1~15)
+    yega_price: int | None          # 기초예정가격 (해당 순번의 금액)
+    is_selected: bool               # 추첨여부 (Y=선택됨)
+    draw_count: int | None          # 추첨횟수
+    bid_open_dt: str | None         # 실개찰일시
+
+
 class NarajangterClient:
     """나라장터 Open API 클라이언트 (공공데이터포털)"""
 
@@ -147,6 +192,71 @@ class NarajangterClient:
                 "inqryBgnDt": inqry_bgn_dt,
                 "inqryEndDt": inqry_end_dt,
                 "pageNo": page_no,
+                "numOfRows": num_of_rows,
+            },
+        )
+
+    def get_opening_results(
+        self,
+        inqry_bgn_dt: str,
+        inqry_end_dt: str,
+        inqry_div: int = 1,
+        page_no: int = 1,
+        num_of_rows: int = _MAX_ROWS,
+    ) -> dict:
+        """개찰결과 공사 목록 조회 (getOpengResultListInfoCnstwk)
+        참가업체수, 예비가격파일존재여부 등 개찰 메타 정보."""
+        return self._get_results(
+            "getOpengResultListInfoCnstwk",
+            {
+                "inqryDiv": inqry_div,
+                "inqryBgnDt": inqry_bgn_dt,
+                "inqryEndDt": inqry_end_dt,
+                "pageNo": page_no,
+                "numOfRows": num_of_rows,
+            },
+        )
+
+    def get_all_participants(
+        self,
+        bid_ntce_no: str,
+        bid_ntce_ord: str = "000",
+        bid_clsfc_no: str = "0",
+        rbid_no: str = "000",
+        num_of_rows: int = 200,
+    ) -> dict:
+        """개찰완료 전참여자 조회 (getOpengResultListInfoOpengCompt).
+        낙찰자 포함 전 투찰 업체의 투찰금액, 투찰률, 추첨번호를 반환."""
+        return self._get_results(
+            "getOpengResultListInfoOpengCompt",
+            {
+                "bidNtceNo": bid_ntce_no,
+                "bidNtceOrd": bid_ntce_ord,
+                "bidClsfcNo": bid_clsfc_no,
+                "rbidNo": rbid_no,
+                "pageNo": 1,
+                "numOfRows": num_of_rows,
+            },
+        )
+
+    def get_yega_detail(
+        self,
+        bid_ntce_no: str,
+        inqry_bgn_dt: str,
+        inqry_end_dt: str,
+        inqry_div: int = 1,
+        num_of_rows: int = 50,
+    ) -> dict:
+        """개찰결과 예비가격 상세 조회 (getOpengResultListInfoCnstwkPreparPcDetail).
+        복수예가 15개 순번별 금액 + 추첨 여부."""
+        return self._get_results(
+            "getOpengResultListInfoCnstwkPreparPcDetail",
+            {
+                "inqryDiv": inqry_div,
+                "inqryBgnDt": inqry_bgn_dt,
+                "inqryEndDt": inqry_end_dt,
+                "bidNtceNo": bid_ntce_no,
+                "pageNo": 1,
                 "numOfRows": num_of_rows,
             },
         )
@@ -307,6 +417,84 @@ class NarajangterClient:
             is_winner=True,
         )
 
+    @staticmethod
+    def _parse_bid_participant(item: dict) -> "BidParticipant":
+        """getOpengResultListInfoOpengCompt 응답 파싱 — 전참여자."""
+        def _si(v):
+            try: return int(str(v).replace(",", ""))
+            except: return None
+        def _sf(v):
+            try: return float(v)
+            except: return None
+        def _rate(v):
+            r = _sf(v)
+            if r is None: return None
+            return r / 100 if r > 1.5 else r
+
+        rank_raw = _si(item.get("opengRank") or item.get("opengRnk"))
+        # 낙찰자 판별: 개찰결과구분명="낙찰" 또는 순위=1 (getOpengResultListInfoOpengCompt)
+        rslt_nm = str(item.get("opengRsltDivNm", "")).strip()
+        is_win = rslt_nm in ("낙찰", "최종낙찰") or (rank_raw == 1 and rslt_nm not in ("개찰완료",))
+        # getOpengResultListInfoOpengCompt 실제 필드명
+        return BidParticipant(
+            announcement_no=item.get("bidNtceNo", ""),
+            bid_ntce_ord=str(item.get("bidNtceOrd", "000")),
+            rank=rank_raw,
+            competitor_name=(
+                item.get("prcbdrNm") or item.get("corpNm") or item.get("bidwinnrNm", "")
+            ),
+            biz_reg_no=(
+                item.get("prcbdrBizno") or item.get("bizRegNo") or item.get("bidwinnrBizno")
+            ),
+            bid_amount=_si(
+                item.get("bidprcAmt") or item.get("bidAmt") or item.get("sucsfbidAmt")
+            ),
+            bid_rate=_rate(
+                item.get("bidprcrt") or item.get("bidrlRt") or item.get("sucsfbidRate")
+            ),
+            is_winner=is_win,
+            draw_no1=_si(item.get("drwtNo1") or item.get("rcmdtnNo1")),
+            draw_no2=_si(item.get("drwtNo2") or item.get("rcmdtnNo2")),
+            bid_dt=item.get("bidprcDt") or item.get("bidDt"),
+        )
+
+    @staticmethod
+    def _parse_opening_item(item: dict) -> "BidOpeningItem":
+        """getOpengResultListInfoCnstwk 응답 파싱."""
+        def _si(v):
+            try: return int(str(v).replace(",", ""))
+            except: return None
+        return BidOpeningItem(
+            announcement_no=item.get("bidNtceNo", ""),
+            announcement_name=item.get("bidNtceNm", ""),
+            participant_count=_si(item.get("prtcptnAmt") or item.get("prticCnt")),
+            bid_open_dt=item.get("opengDt"),
+            progress_code=item.get("prgrssStatDivNm"),
+            has_yega_file=item.get("prearPcFileExistYn"),
+            agency_name=item.get("ntceInsttNm"),
+        )
+
+    @staticmethod
+    def _parse_yega_item(item: dict) -> "BidYegaItem":
+        """getOpengResultListInfoCnstwkPreparPcDetail 응답 파싱.
+        실제 필드명: compnoRsrvtnPrceSno(순번), bssamt(기초금액), bsisPlnprc(기초예정가),
+                    plnprc(예정가격), totRsrvtnPrceNum(총예가수), drwtYn(추첨여부), drwtNum(추첨횟수).
+        """
+        def _si(v):
+            try: return int(str(v).replace(",", ""))
+            except: return None
+        return BidYegaItem(
+            announcement_no=item.get("bidNtceNo", ""),
+            base_amount=_si(item.get("bssamt") or item.get("bssAmt")),
+            estimated_price=_si(item.get("plnprc") or item.get("presmptPrce")),
+            yega_total=_si(item.get("totRsrvtnPrceNum") or item.get("totPrearPcCnt")),
+            yega_no=_si(item.get("compnoRsrvtnPrceSno") or item.get("mltiPrearPcOdr")),
+            yega_price=_si(item.get("bsisPlnprc") or item.get("bssPrearPc")),
+            is_selected=str(item.get("drwtYn") or item.get("priceChosYn", "N")).upper() == "Y",
+            draw_count=_si(item.get("drwtNum") or item.get("chosNmpr")),
+            bid_open_dt=item.get("rlOpengDt") or item.get("rlaOpengDt"),
+        )
+
     # ------------------------------------------------------------------ #
     # 내부 HTTP                                                            #
     # ------------------------------------------------------------------ #
@@ -362,6 +550,71 @@ class NarajangterClient:
             if not items_raw:
                 break
             yield [self._parse_notice(item, bid_type) for item in items_raw]
+            total = self._extract_total_count(raw)
+            if page_no * num_of_rows >= total:
+                break
+            page_no += 1
+
+    def paginate_opening_results(
+        self,
+        inqry_bgn_dt: str,
+        inqry_end_dt: str,
+        inqry_div: int = 1,
+    ) -> Generator[list["BidOpeningItem"], None, None]:
+        """개찰결과 목록 전체 페이지 순회 (getOpengResultListInfoCnstwk)."""
+        num_of_rows = _MAX_ROWS
+        page_no = 1
+        while True:
+            raw = self.get_opening_results(inqry_bgn_dt, inqry_end_dt, inqry_div, page_no, num_of_rows)
+            items_raw = self._extract_items(raw)
+            if not items_raw:
+                break
+            yield [self._parse_opening_item(item) for item in items_raw]
+            total = self._extract_total_count(raw)
+            if page_no * num_of_rows >= total:
+                break
+            page_no += 1
+
+    def get_participants_for_bid(self, announcement_no: str) -> list["BidParticipant"]:
+        """입찰공고번호로 개찰완료 전참여자 목록 조회."""
+        raw = self.get_all_participants(announcement_no)
+        items_raw = self._extract_items(raw)
+        return [self._parse_bid_participant(item) for item in items_raw]
+
+    def get_yega_for_bid(
+        self, announcement_no: str, inqry_bgn_dt: str, inqry_end_dt: str
+    ) -> list["BidYegaItem"]:
+        """입찰공고번호로 예비가격 상세 목록 조회."""
+        raw = self.get_yega_detail(announcement_no, inqry_bgn_dt, inqry_end_dt)
+        items_raw = self._extract_items(raw)
+        return [self._parse_yega_item(item) for item in items_raw]
+
+    def paginate_scsbid_pps_search(
+        self,
+        inqry_bgn_dt: str,
+        inqry_end_dt: str,
+        inqry_div: int = 1,
+        num_of_rows: int = 999,
+    ) -> Generator[list[dict], None, None]:
+        """getScsbidListSttusCnstwkPPSSrch 전체 페이지 순회 — 낙찰결과 고급검색.
+        raw dict 리스트를 yield (파싱 없이 원시 반환)."""
+        page_no = 1
+        while True:
+            raw = self._get_results(
+                "getScsbidListSttusCnstwkPPSSrch",
+                {
+                    "inqryDiv": inqry_div,
+                    "inqryBgnDt": inqry_bgn_dt,
+                    "inqryEndDt": inqry_end_dt,
+                    "pageNo": page_no,
+                    "numOfRows": num_of_rows,
+                    "type": "json",
+                },
+            )
+            items = self._extract_items(raw)
+            if not items:
+                break
+            yield items
             total = self._extract_total_count(raw)
             if page_no * num_of_rows >= total:
                 break
