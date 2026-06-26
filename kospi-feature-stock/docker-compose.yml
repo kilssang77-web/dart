@@ -10,7 +10,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01_init.sql
@@ -52,7 +52,7 @@ services:
     container_name: fstock-redis
     command: redis-server /usr/local/etc/redis/redis.conf
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
       - ./infra/redis/redis.conf:/usr/local/etc/redis/redis.conf
@@ -426,9 +426,9 @@ services:
     env_file: .env
     environment:
       SERVICE_NAME: ml
-      ML_API_PORT: "8001"
+      ML_API_PORT: "${ML_API_PORT:-8001}"
     ports:
-      - "8001:8001"
+      - "${ML_API_PORT:-8001}:8001"
     volumes:
       - ./services/ml:/app
       - model_cache:/models
@@ -495,9 +495,9 @@ services:
     env_file: .env
     environment:
       SERVICE_NAME: notifier
-      NOTIFIER_PORT: "8003"
+      NOTIFIER_PORT: "${NOTIFIER_PORT:-8003}"
     ports:
-      - "8003:8003"
+      - "${NOTIFIER_PORT:-8003}:8003"
     volumes:
       - ./services/notifier:/app
     restart: unless-stopped
@@ -518,7 +518,7 @@ services:
       dockerfile: Dockerfile
     container_name: fstock-api
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -583,7 +583,7 @@ services:
     image: prom/prometheus:v2.52.0
     container_name: fstock-prometheus
     ports:
-      - "9090:9090"
+      - "${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
@@ -609,7 +609,7 @@ services:
     image: grafana/grafana:10.4.2
     container_name: fstock-grafana
     ports:
-      - "3001:3000"
+      - "${GRAFANA_PORT:-3001}:3000"
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
