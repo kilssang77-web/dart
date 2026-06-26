@@ -382,7 +382,10 @@ function BackfillTab() {
           {histLoading ? (
             <div className="px-5 space-y-2">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-10 skeleton rounded" />)}</div>
           ) : !history || history.length === 0 ? (
-            <p className="px-5 pb-5 text-sm text-[var(--muted)]">이력 없음 — 백필 작업이 실행된 적 없습니다.</p>
+            <div className="px-5 pb-5 space-y-2">
+              <p className="text-sm text-[var(--muted)]">이력 없음 — bars_backfill 워커가 장외 시간(22:00~06:00 KST)에 최초 실행되면 기록됩니다.</p>
+              <p className="text-xs text-[var(--muted)]/60">수동 실행이 필요하면 우측 상단 <strong>수동 트리거</strong> 카드를 사용하세요.</p>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
@@ -428,18 +431,18 @@ interface ScheduleItem {
   key: keyof ScheduleStatus
   description: string
   expectedInterval: string
+  staleHours: number
 }
 
 const SCHEDULE_ITEMS: ScheduleItem[] = [
-  { label: '일봉 백필',       key: 'bars_backfill_last', description: 'collector-bars 워커 — daily_bars 갱신',   expectedInterval: '매일 17:00 KST' },
-  { label: '재무 데이터',     key: 'financials_last',    description: 'collector 재무제표 수집 작업',             expectedInterval: '분기별 / 이벤트성' },
-  { label: '정부 데이터',     key: 'govdata_last',       description: '금융위원회 API 종목 마스터 갱신',          expectedInterval: '매일 08:00 KST' },
-  { label: 'Redis 통계 갱신', key: 'stats_last_refresh', description: '탐지 통계 Redis 키 갱신 (종목별 7개 키)', expectedInterval: '매일 09:00 KST' },
+  { label: '일봉 백필',       key: 'bars_backfill_last', description: 'bars_backfill 워커 — daily_bars 누락봉 보완',    expectedInterval: '매일 22:00~06:00 KST', staleHours: 30 },
+  { label: '재무 데이터',     key: 'financials_last',    description: 'financials 워커 — KIS 재무제표 7일 주기 수집',   expectedInterval: '7일 주기',             staleHours: 200 },
+  { label: '정부 데이터',     key: 'govdata_last',       description: 'govdata 워커 — 금융위원회 API 종목 마스터 갱신', expectedInterval: '매일 18:00 KST',       staleHours: 30 },
+  { label: 'Redis 통계 갱신', key: 'stats_last_refresh', description: '탐지 통계 Redis 키 갱신 (종목별 7개 키)',        expectedInterval: '수동 또는 자동 갱신', staleHours: 48 },
 ]
 
 function ScheduleCard({ item, value }: { item: ScheduleItem; value: string | null }) {
-  const staleHours = 30
-  const stale = isStale(value, staleHours)
+  const stale = isStale(value, item.staleHours)
 
   return (
     <Card>

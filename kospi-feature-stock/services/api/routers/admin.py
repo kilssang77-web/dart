@@ -731,8 +731,9 @@ async def trigger_backfill(
 @router.get("/schedule-status", response_model=ScheduleStatus)
 async def get_schedule_status(
     redis: redis_lib.Redis = Depends(get_redis),
+    db: asyncpg.Pool = Depends(get_db),
 ):
-    """각 워커의 마지막 실행 시각 (Redis 키 기반)."""
+    """각 워커의 마지막 실행 시각 (Redis 키 기반, 없으면 DB 추정)."""
     keys = [
         "bars_backfill:last_run",
         "financials:last_run",
@@ -741,9 +742,38 @@ async def get_schedule_status(
     ]
     vals = await redis.mget(*keys)
 
+    bars_last      = _decode(vals[0])
+    financials_last = _decode(vals[1])
+    govdata_last   = _decode(vals[2])
+    stats_last     = _decode(vals[3])
+
+    # Redis 키 소실 시 DB에서 추정값 복구 (재시작·FLUSHDB 등)
+    async with db.acquire() as conn:
+        if not bars_last:
+            max_bar = await conn.fetchval("SELECT MAX(date)::text FROM daily_bars")
+            if max_bar:
+                bars_last = f"{max_bar}T22:00:00"  # 해당 일 장외 백필 시각 추정
+                await redis.set("bars_backfill:last_run", bars_last, ex=3600)
+
+        if not financials_last:
+            max_fin = await conn.fetchval("SELECT MAX(updated_at)::text FROM stocks")
+            if max_fin:
+                financials_last = max_fin[:19]
+                await redis.set("financials:last_run", financials_last, ex=3600)
+
+        if not govdata_last:
+            max_sd = await conn.fetchval("SELECT MAX(date)::text FROM supply_demand")
+            if max_sd:
+                govdata_last = max_sd
+                await redis.set("govdata:last_run_date", govdata_last, ex=3600)
+
+    if not stats_last:
+        stats_last = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
+        await redis.set("stats:last_refresh", stats_last, ex=3600)
+
     return ScheduleStatus(
-        bars_backfill_last=_decode(vals[0]),
-        financials_last=_decode(vals[1]),
-        govdata_last=_decode(vals[2]),
-        stats_last_refresh=_decode(vals[3]),
+        bars_backfill_last=bars_last,
+        financials_last=financials_last,
+        govdata_last=govdata_last,
+        stats_last_refresh=stats_last,
     )
