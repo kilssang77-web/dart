@@ -315,6 +315,142 @@ class RecommenderService:
         except Exception:
             pass
 
+    async def _get_market_regime(self) -> dict | None:
+        """KOSPI MA20 기준 시장 국면 판단. Redis 캐시 우선(30분 TTL)."""
+        CACHE_KEY = "market:regime"
+        try:
+            cached = await self._redis.get(CACHE_KEY)
+            if cached:
+                return json.loads(cached)
+        except Exception:
+            pass
+
+        try:
+            async with self._db.acquire() as conn:
+                rows = await conn.fetch(
+                    "SELECT close FROM daily_bars WHERE code='0001' ORDER BY date DESC LIMIT 25"
+                )
+            if not rows or len(rows) < 5:
+                return None
+
+            closes = [float(r["close"]) for r in rows]
+            kospi_price = closes[0]
+            ma20 = sum(closes[:20]) / min(20, len(closes))
+            pct  = (kospi_price - ma20) / ma20 * 100
+
+            bear_thr = float(os.environ.get("REGIME_BEAR_THRESHOLD", "-3.0"))
+            bull_thr = float(os.environ.get("REGIME_BULL_THRESHOLD", "-0.5"))
+            if pct < bear_thr:
+                phase = "bear"
+            elif pct < bull_thr:
+                phase = "neutral"
+            else:
+                phase = "bull"
+
+            result = {
+                "phase":         phase,
+                "kospi_price":   round(kospi_price, 2),
+                "ma20":          round(ma20, 2),
+                "pct_from_ma20": round(pct, 2),
+            }
+            try:
+                await self._redis.set(CACHE_KEY, json.dumps(result), ex=1800)
+            except Exception:
+                pass
+            return result
+        except Exception as e:
+            logger.warning(f"[REGIME] 시장 국면 조회 실패: {e}")
+            return None
+
+    async def _get_theme_boost(self, code: str, sector: str | None) -> dict:
+        """활성 테마 여부 확인 + 테마 역전 감지.
+        Returns: {boost, themes, reversal, reversal_note}
+        """
+        CACHE_KEY = f"theme:boost:{code}"
+        try:
+            cached = await self._redis.get(CACHE_KEY)
+            if cached:
+                return json.loads(cached)
+        except Exception:
+            pass
+
+        result: dict = {"boost": 0.0, "themes": [], "reversal": False, "reversal_note": None}
+        try:
+            since = datetime.now(timezone.utc) - timedelta(hours=72)
+            async with self._db.acquire() as conn:
+                # 해당 종목의 최근 테마 뉴스 (relevance 0.6 이상)
+                theme_rows = await conn.fetch(
+                    """
+                    SELECT n.themes, COUNT(*) AS cnt
+                    FROM news n
+                    JOIN news_stock_links nsl ON nsl.news_id = n.id
+                    WHERE nsl.code = $1
+                      AND nsl.relevance >= 0.6
+                      AND n.published_at >= $2
+                      AND n.themes IS NOT NULL AND n.themes != '[]'::jsonb
+                    GROUP BY n.themes
+                    ORDER BY cnt DESC
+                    LIMIT 10
+                    """,
+                    code, since,
+                )
+                theme_counts: dict[str, int] = {}
+                for row in theme_rows:
+                    raw = row["themes"]
+                    themes = json.loads(raw) if isinstance(raw, (str, bytes)) else (raw or [])
+                    for t in themes:
+                        theme_counts[t] = theme_counts.get(t, 0) + int(row["cnt"])
+
+                if not theme_counts and sector:
+                    # 섹터 활성도 폴백: 동일 섹터 탐지 건수
+                    sector_cnt = await conn.fetchval(
+                        """
+                        SELECT COUNT(*) FROM feature_events fe
+                        JOIN stocks s ON s.code = fe.code
+                        WHERE s.sector = $1 AND fe.detected_at >= $2
+                        """,
+                        sector, since,
+                    )
+                    if sector_cnt and sector_cnt >= 5:
+                        result["boost"] = 0.02
+                        result["themes"] = [sector]
+                else:
+                    top_themes = sorted(theme_counts.items(), key=lambda x: -x[1])[:3]
+                    active_themes = [t for t, c in top_themes if c >= 2]
+                    if active_themes:
+                        boost = min(0.05, len(active_themes) * 0.02)
+                        result["boost"] = round(boost, 3)
+                        result["themes"] = active_themes
+
+                        # 테마 역전 감지: theme_snapshots velocity < -0.1
+                        snap_rows = await conn.fetch(
+                            """
+                            SELECT DISTINCT ON (theme_name)
+                                theme_name, velocity, momentum_score
+                            FROM theme_snapshots
+                            WHERE theme_name = ANY($1::text[])
+                              AND snap_date >= CURRENT_DATE - INTERVAL '7 days'
+                            ORDER BY theme_name, snap_date DESC
+                            """,
+                            active_themes,
+                        )
+                        reversal_themes = [
+                            r["theme_name"] for r in snap_rows
+                            if r["velocity"] is not None and float(r["velocity"]) < -0.1
+                        ]
+                        if reversal_themes:
+                            result["reversal"] = True
+                            result["reversal_note"] = f"테마 역전 주의: {', '.join(reversal_themes)} (모멘텀 하락)"
+                            result["boost"] = 0.0
+        except Exception as e:
+            logger.warning(f"[THEME] 테마 부스트 조회 실패 {code}: {e}")
+
+        try:
+            await self._redis.set(CACHE_KEY, json.dumps(result), ex=900)
+        except Exception:
+            pass
+        return result
+
     async def _generate(self, event: dict, recommender, use_anchor: bool = True) -> dict | None:
         from ml_client import get_ml_result, get_similar_cases
 
@@ -327,6 +463,7 @@ class RecommenderService:
                 if current and abs(current - stored) / stored <= _ANCHOR_BAND:
                     anchor_price = stored
 
+        regime       = await self._get_market_regime()
         ml_result    = await get_ml_result(event, self._db, redis=self._redis)
         cases, stats = await get_similar_cases(event, self._db)
         rec = recommender.recommend(event, ml_result, stats, cases, anchor_price=anchor_price)
@@ -335,34 +472,71 @@ class RecommenderService:
         if rec.action == "BUY" and use_anchor:
             await self._set_anchor(rec.code, rec.entry_price)
 
-        # 종목명/시장 조회
-        stock_name, stock_market = rec.code, ""
+        # ── 시장 국면(Market Regime) 필터 ─────────────────────────────
+        action       = rec.action
+        success_prob = rec.success_prob
+        regime_note: str | None = None
+        if regime:
+            pct   = regime.get("pct_from_ma20", 0.0)
+            phase = regime.get("phase", "neutral")
+            if phase == "bear" and action == "BUY":
+                action      = "WAIT"
+                regime_note = f"하락장 진입 억제 (KOSPI MA20 대비 {pct:.1f}%)"
+                logger.info(f"[REGIME] Bear filter: {rec.code} BUY→WAIT (KOSPI {pct:.1f}% vs MA20)")
+            elif phase == "neutral" and action == "BUY":
+                success_prob = round(success_prob * 0.88, 4)
+                regime_note  = f"중립장 확률 조정 (KOSPI MA20 대비 {pct:.1f}%)"
+
+        # 종목명/시장/섹터 조회
+        stock_name, stock_market, stock_sector = rec.code, "", None
         try:
             async with self._db.acquire() as _conn:
-                row = await _conn.fetchrow("SELECT name, market FROM stocks WHERE code=$1", rec.code)
+                row = await _conn.fetchrow("SELECT name, market, sector FROM stocks WHERE code=$1", rec.code)
                 if row:
                     stock_name   = row["name"]
                     stock_market = row["market"] or ""
+                    stock_sector = row["sector"]
         except Exception:
             pass
+
+        # ── 테마 활성도 보너스 + 역전 감지 ─────────────────────────────
+        theme_info = await self._get_theme_boost(rec.code, stock_sector)
+        theme_boost   = theme_info.get("boost", 0.0)
+        theme_reversal = theme_info.get("reversal", False)
+        theme_reversal_note = theme_info.get("reversal_note")
+        active_themes = theme_info.get("themes", [])
+
+        if theme_boost > 0 and action == "BUY":
+            success_prob = round(min(0.95, success_prob + theme_boost), 4)
+            logger.info(f"[THEME] {rec.code} 테마 활성 보너스: +{theme_boost:.3f} (테마: {active_themes})")
+
+        rationale = {
+            **rec.rationale,
+            "market_regime":      regime,
+            "regime_note":        regime_note,
+            "theme_boost":        theme_boost,
+            "active_themes":      active_themes,
+            "theme_reversal":     theme_reversal,
+            "theme_reversal_note": theme_reversal_note,
+        }
 
         return {
             "code":               rec.code,
             "name":               stock_name,
             "market":             stock_market,
             "created_at":         datetime.now(timezone.utc),
-            "action":             rec.action,
+            "action":             action,
             "entry_price":        rec.entry_price,
             "entry_price_low":    rec.entry_price_low,
             "entry_price_high":   rec.entry_price_high,
             "target_price":       rec.target_price,
             "stop_loss_price":    rec.stop_loss_price,
             "expected_hold_days": rec.expected_hold_days,
-            "success_prob":       rec.success_prob,
+            "success_prob":       success_prob,
             "expected_return":    rec.expected_return,
             "risk_score":         rec.risk_score,
             "risk_reward_ratio":  rec.risk_reward_ratio,
-            "rationale":          rec.rationale,
+            "rationale":          rationale,
             "similar_cases":      rec.similar_cases,
         }
 

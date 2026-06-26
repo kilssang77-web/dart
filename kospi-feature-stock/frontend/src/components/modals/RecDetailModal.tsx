@@ -193,6 +193,28 @@ function RecNarrative({ rec }: { rec: Recommendation }) {
   if (risks.length > 0) {
     sentences.push(<span key="risk"> 주의 위험 요소: {risks.map((r, i) => <span key={i}>{i > 0 ? ', ' : ''}<B>{r}</B></span>)}. 손절 원칙을 반드시 지키세요.</span>)
   }
+  const gapPct     = rec.rationale?.gap_pct
+  const pullbackE  = rec.rationale?.pullback_entry
+  const gapFilt    = rec.rationale?.gap_filtered
+  if (gapFilt && gapPct != null) {
+    sentences.push(<span key="gap" style={{color:'var(--amber, #f59e0b)'}}> 당일 {gapPct.toFixed(1)}% 급등으로 <B>갭업 과매수 대기</B> 상태입니다.{pullbackE ? <> 풀백 예상 진입가 <B>{pullbackE.toLocaleString()}원</B>대 (38.2% 되돌림).</> : null}</span>)
+  }
+  const regime     = rec.rationale?.market_regime
+  const regimeNote = rec.rationale?.regime_note
+  if (regime && regime.phase && regime.phase !== 'bull') {
+    const label = regime.phase === 'bear' ? '하락장' : '중립장'
+    const pctStr = regime.pct_from_ma20 != null ? `${regime.pct_from_ma20 > 0 ? '+' : ''}${regime.pct_from_ma20.toFixed(1)}%` : ''
+    sentences.push(<span key="regime" style={{color: regime.phase === 'bear' ? '#f87171' : '#fbbf24'}}> 시장 국면: <B>{label}</B> (KOSPI MA20 대비 {pctStr}). {regimeNote ?? ''}</span>)
+  }
+  const activeThemes    = rec.rationale?.active_themes
+  const themeBoost      = rec.rationale?.theme_boost
+  const themeReversal   = rec.rationale?.theme_reversal
+  const themeRevNote    = rec.rationale?.theme_reversal_note
+  if (themeReversal && themeRevNote) {
+    sentences.push(<span key="theme-rev" style={{color:'#f87171'}}> ⚠ {themeRevNote}</span>)
+  } else if (activeThemes && activeThemes.length > 0 && themeBoost && themeBoost > 0) {
+    sentences.push(<span key="theme-boost" style={{color:'#34d399'}}> 활성 테마: <B>{activeThemes.join(', ')}</B> (확률 +{(themeBoost * 100).toFixed(0)}pt 보너스 적용)</span>)
+  }
   return <>{sentences}</>
 }
 

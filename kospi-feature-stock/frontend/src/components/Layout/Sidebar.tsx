@@ -5,6 +5,7 @@ import {
   LayoutDashboard, Search, Activity, Settings2,
   FlaskConical, BarChart2, ServerCog, History,
   ChevronLeft, ChevronRight, X, Briefcase, TrendingUp, Newspaper, Bell,
+  Radio, Star, BookOpen,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { featuresApi } from '@/api/features'
@@ -23,30 +24,42 @@ interface NavGroup {
   items: NavItem[]
 }
 
-// ── 메뉴 정의: 핵심 5탭 + 도구 ────────────────────────────────────────────
+// ── 메뉴 정의: 4그룹 구조 ────────────────────────────────────────────────
 function buildNavGroups(badge?: string): NavGroup[] {
   return [
     {
-      label: '핵심',
+      label: '실전매매',
       items: [
-        { to: '/',          icon: <LayoutDashboard size={15} />, label: '실시간 탐지', badge },
-        { to: '/analysis',  icon: <Search size={15} />,         label: '종목 분석' },
-        { to: '/positions', icon: <Briefcase size={15} />,      label: '포지션 관리' },
-        { to: '/rec-journey', icon: <Activity size={15} />,     label: '성과 추적' },
-        { to: '/settings',  icon: <Settings2 size={15} />,      label: '설정' },
+        { to: '/',              icon: <LayoutDashboard size={15} />, label: '대시보드',   badge },
+        { to: '/recommendations', icon: <TrendingUp size={15} />,   label: '매매 추천' },
+        { to: '/positions',     icon: <Briefcase size={15} />,      label: '포지션 관리' },
+        { to: '/watchlist',     icon: <Star size={15} />,           label: '관심종목' },
+        { to: '/notifications', icon: <Bell size={15} />,           label: '발송 이력' },
       ],
     },
     {
-      label: '도구',
+      label: '분석도구',
       items: [
-        { to: '/search',          icon: <Search size={15} />,      label: '종목 검색' },
-        { to: '/recommendations', icon: <TrendingUp size={15} />,  label: '매매 추천' },
-        { to: '/intel',           icon: <Newspaper size={15} />,   label: '공시/뉴스' },
-        { to: '/similar-cases',   icon: <History size={15} />,     label: '유사사례' },
-        { to: '/backtest',        icon: <FlaskConical size={15} />, label: '백테스트' },
-        { to: '/performance',     icon: <BarChart2 size={15} />,   label: '모델 성능' },
-        { to: '/system-health',   icon: <ServerCog size={15} />,   label: '시스템 헬스' },
-        { to: '/notifications',   icon: <Bell size={15} />,        label: '발송 이력' },
+        { to: '/analysis',      icon: <Search size={15} />,         label: '종목 분석' },
+        { to: '/rec-journey',   icon: <Activity size={15} />,       label: '성과 추적' },
+        { to: '/similar-cases', icon: <History size={15} />,        label: '유사사례' },
+        { to: '/backtest',      icon: <FlaskConical size={15} />,   label: '백테스트' },
+        { to: '/performance',   icon: <BarChart2 size={15} />,      label: '모델 성능' },
+      ],
+    },
+    {
+      label: '시장현황',
+      items: [
+        { to: '/features',      icon: <Radio size={15} />,          label: '특징주 탐지' },
+        { to: '/intel',         icon: <Newspaper size={15} />,      label: '공시/뉴스/테마' },
+        { to: '/search',        icon: <BookOpen size={15} />,       label: '종목 검색' },
+      ],
+    },
+    {
+      label: '시스템',
+      items: [
+        { to: '/system-health', icon: <ServerCog size={15} />,      label: '시스템 헬스' },
+        { to: '/settings',      icon: <Settings2 size={15} />,      label: '설정' },
       ],
     },
   ]

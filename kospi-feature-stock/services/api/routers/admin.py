@@ -230,6 +230,113 @@ async def bootstrap_status(
     }
 
 
+@router.get("/data-quality")
+async def data_quality(
+    db:    asyncpg.Pool    = Depends(get_db),
+    redis: redis_lib.Redis = Depends(get_redis),
+):
+    """데이터 품질 대시보드: 일봉 완성도·수급 커버리지·ML 신뢰도.
+    Redis에 5분 캐시하여 대용량 COUNT DISTINCT 쿼리 반복 수행을 방지."""
+    _cache_key = "cache:data_quality"
+    _model_dir = Path(os.environ.get("LGBM_MODEL_DIR", "/models/lgbm"))
+
+    # Redis 캐시 확인
+    try:
+        cached = await redis.get(_cache_key)
+        if cached:
+            return json.loads(cached)
+    except Exception:
+        pass
+
+    async with db.acquire() as conn:
+        # 빠른 집계: approximate_row_count + COUNT DISTINCT (인덱스 활용)
+        stats = await conn.fetchrow(
+            """
+            SELECT
+                (SELECT COUNT(*) FROM stocks WHERE is_active)                                   AS active_stocks,
+                (SELECT COUNT(DISTINCT code) FROM daily_bars WHERE date >= CURRENT_DATE - 7)    AS bars_last7d,
+                (SELECT MAX(date)::TEXT FROM daily_bars)                                        AS latest_bar,
+                (SELECT COUNT(DISTINCT code) FROM daily_bars WHERE date >= CURRENT_DATE - 1)    AS bars_today,
+                (SELECT COUNT(DISTINCT code) FROM supply_demand WHERE date >= CURRENT_DATE - 7) AS sd_last7d,
+                (SELECT COUNT(DISTINCT code) FROM supply_demand WHERE date >= CURRENT_DATE - 30)AS sd_last30d,
+                (SELECT MAX(date)::TEXT FROM supply_demand)                                     AS latest_sd,
+                approximate_row_count('feature_events')                                         AS event_count
+            """
+        )
+
+        # 벡터 커버리지 — Redis 캐시(stats:vector_count) 우선, 없으면 approximate
+        vec_count_raw = int(stats["event_count"] or 0)
+        vec_count_filled_raw = await conn.fetchval(
+            "SELECT COUNT(*) FROM feature_events WHERE pattern_vector IS NOT NULL LIMIT 5000"
+        )
+
+        sd_missing = None  # 아래에서 active - sd_30d 로 계산
+        missing_bars: list = []  # 샘플은 별도 엔드포인트로 분리 (성능)
+
+    active     = int(stats["active_stocks"] or 0)
+    bars_7d    = int(stats["bars_last7d"]   or 0)
+    bars_today = int(stats["bars_today"]    or 0)
+    sd_7d      = int(stats["sd_last7d"]     or 0)
+    sd_30d     = int(stats["sd_last30d"]    or 0)
+    ev_count   = int(stats["event_count"]   or 0)
+    vec_filled = int(vec_count_filled_raw or 0)
+    vec_count  = int(vec_count_raw or 0)
+    vec_pct    = round(vec_filled / min(vec_count, 5000) * 100, 1) if vec_count > 0 and vec_filled < 5000 else (100.0 if vec_filled >= 5000 else 0.0)
+
+    # ML 신뢰도
+    ml_metrics: dict = {}
+    if (_model_dir / "model_metrics.json").exists():
+        try:
+            ml_metrics = json.loads((_model_dir / "model_metrics.json").read_text())
+        except Exception:
+            pass
+
+    model_age_days: int | None = None
+    if ml_metrics.get("trained_at"):
+        try:
+            trained = datetime.fromisoformat(ml_metrics["trained_at"].replace("Z", "+00:00"))
+            model_age_days = (datetime.now(timezone.utc) - trained).days
+        except Exception:
+            pass
+
+    result = {
+        "bar_completeness": {
+            "active_stocks":       active,
+            "bars_last7d_stocks":  bars_7d,
+            "bars_today_stocks":   bars_today,
+            "coverage_7d_pct":     round(bars_7d / active * 100, 1) if active > 0 else 0.0,
+            "coverage_today_pct":  round(bars_today / active * 100, 1) if active > 0 else 0.0,
+            "latest_bar_date":     stats["latest_bar"],
+            "missing_bars_sample": [],
+            "missing_bars_count":  max(0, active - bars_7d),
+        },
+        "supply_coverage": {
+            "coverage_7d_stocks":  sd_7d,
+            "coverage_30d_stocks": sd_30d,
+            "coverage_7d_pct":     round(sd_7d  / active * 100, 1) if active > 0 else 0.0,
+            "coverage_30d_pct":    round(sd_30d / active * 100, 1) if active > 0 else 0.0,
+            "latest_sd_date":      stats["latest_sd"],
+            "missing_stocks":      max(0, active - sd_30d),
+        },
+        "ml_confidence": {
+            "model_loaded":        (_model_dir / "entry_model.lgb").exists(),
+            "auc":                 ml_metrics.get("auc"),
+            "f1":                  ml_metrics.get("f1"),
+            "trained_at":          ml_metrics.get("trained_at"),
+            "model_age_days":      model_age_days,
+            "feature_count":       ml_metrics.get("feature_count"),
+            "train_samples":       ml_metrics.get("train_samples"),
+            "threshold":           ml_metrics.get("optimal_threshold"),
+            "vector_coverage_pct": vec_pct,
+        },
+    }
+    try:
+        await redis.set(_cache_key, json.dumps(result), ex=300)
+    except Exception:
+        pass
+    return result
+
+
 @router.post("/bootstrap/load-stocks")
 async def run_load_stocks(
     background_tasks: BackgroundTasks,

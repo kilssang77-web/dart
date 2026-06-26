@@ -74,6 +74,38 @@ export interface BootstrapStatus {
   overall_ok: boolean
 }
 
+export interface DataQuality {
+  bar_completeness: {
+    active_stocks:       number
+    bars_last7d_stocks:  number
+    bars_today_stocks:   number
+    coverage_7d_pct:     number
+    coverage_today_pct:  number
+    latest_bar_date:     string | null
+    missing_bars_count:  number
+    missing_bars_sample: { code: string; name: string; sector: string | null; last_bar_date: string | null }[]
+  }
+  supply_coverage: {
+    coverage_7d_stocks:  number
+    coverage_30d_stocks: number
+    coverage_7d_pct:     number
+    coverage_30d_pct:    number
+    latest_sd_date:      string | null
+    missing_stocks:      number
+  }
+  ml_confidence: {
+    model_loaded:         boolean
+    auc:                  number | null
+    f1:                   number | null
+    trained_at:           string | null
+    model_age_days:       number | null
+    feature_count:        number | null
+    train_samples:        number | null
+    threshold:            number | null
+    vector_coverage_pct:  number
+  }
+}
+
 export const adminApi = {
   getSystemStatus:    () => http.get<SystemStatus>('/admin/system-status').then(r => r.data),
   getBootstrapStatus: () => http.get<BootstrapStatus>('/admin/bootstrap-status').then(r => r.data),
@@ -90,4 +122,5 @@ export const adminApi = {
   triggerBackfill:    (job_type: string) =>
     http.post('/admin/backfill/trigger', null, { params: { job_type } }).then(r => r.data),
   getScheduleStatus:  () => http.get<ScheduleStatus>('/admin/schedule-status').then(r => r.data),
+  getDataQuality:     () => http.get<DataQuality>('/admin/data-quality').then(r => r.data),
 }

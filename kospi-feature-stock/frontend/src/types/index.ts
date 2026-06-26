@@ -75,6 +75,15 @@ export interface RationaleDetail {
   confidence_score?:    number
   confidence_warnings?: string[]
   rec_score?:           number
+  gap_pct?:             number
+  gap_filtered?:        boolean
+  pullback_entry?:      number | null
+  market_regime?:       { phase: string; kospi_price: number | null; ma20: number | null; pct_from_ma20: number | null } | null
+  regime_note?:         string | null
+  theme_boost?:         number
+  active_themes?:       string[]
+  theme_reversal?:      boolean
+  theme_reversal_note?: string | null
 }
 
 export interface SimilarCase {

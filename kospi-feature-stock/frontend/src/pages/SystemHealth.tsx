@@ -4,7 +4,7 @@ import { clsx } from 'clsx'
 import {
   CheckCircle2, XCircle, AlertTriangle, Cpu, Database,
   Radio, Activity, Clock, RefreshCw, History, CalendarClock,
-  Play,
+  Play, ShieldCheck,
 } from 'lucide-react'
 import {
   adminApi,
@@ -12,6 +12,7 @@ import {
   type BackfillJob,
   type BackfillStatus,
   type ScheduleStatus,
+  type DataQuality,
 } from '@/api/admin'
 import { StatCard, Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -533,14 +534,205 @@ function ScheduleTab() {
   )
 }
 
+// ── 탭4: 데이터 품질 ─────────────────────────────────────────────────────────
+
+function CoverageBar({ pct, warn = 90, danger = 70 }: { pct: number; warn?: number; danger?: number }) {
+  const color = pct >= warn ? 'bg-green-400' : pct >= danger ? 'bg-yellow-400' : 'bg-red-400'
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-2 bg-[var(--border)] rounded-full overflow-hidden">
+        <div className={clsx('h-full rounded-full', color)} style={{ width: `${Math.min(100, pct)}%` }} />
+      </div>
+      <span className={clsx('text-xs font-bold tabular w-12 text-right',
+        pct >= warn ? 'text-green-400' : pct >= danger ? 'text-yellow-400' : 'text-red-400'
+      )}>{pct.toFixed(1)}%</span>
+    </div>
+  )
+}
+
+function DataQualityTab() {
+  const { data, isLoading, refetch, isFetching } = useQuery<DataQuality>({
+    queryKey:        ['data-quality'],
+    queryFn:         adminApi.getDataQuality,
+    refetchInterval: 120_000,
+  })
+
+  const bars = data?.bar_completeness
+  const sd   = data?.supply_coverage
+  const ml   = data?.ml_confidence
+
+  return (
+    <div className="space-y-5">
+      <div className="flex justify-end">
+        <button
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="flex items-center gap-1.5 text-xs text-[var(--muted)] hover:text-[var(--fg)] transition-colors"
+        >
+          <RefreshCw size={12} className={isFetching ? 'animate-spin' : ''} />
+          새로고침
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* 일봉 완성도 */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5 text-sm">
+              <Database size={14} className="text-cyan-400" /> 일봉 완성도
+            </CardTitle>
+            {bars && (
+              <span className={clsx('text-xs font-semibold',
+                bars.coverage_7d_pct >= 90 ? 'text-green-400' : bars.coverage_7d_pct >= 70 ? 'text-yellow-400' : 'text-red-400'
+              )}>
+                {bars.coverage_7d_pct.toFixed(1)}%
+              </span>
+            )}
+          </CardHeader>
+          <CardBody>
+            {isLoading ? (
+              <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-8 skeleton rounded" />)}</div>
+            ) : bars ? (
+              <div className="space-y-3">
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-[var(--muted)]">7일 내 일봉 보유 종목</span>
+                    <span className="text-[var(--fg)] tabular">{bars.bars_last7d_stocks.toLocaleString()} / {bars.active_stocks.toLocaleString()}</span>
+                  </div>
+                  <CoverageBar pct={bars.coverage_7d_pct} />
+                </div>
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-[var(--muted)]">당일 일봉 보유 종목</span>
+                    <span className="text-[var(--fg)] tabular">{bars.bars_today_stocks.toLocaleString()} / {bars.active_stocks.toLocaleString()}</span>
+                  </div>
+                  <CoverageBar pct={bars.coverage_today_pct} />
+                </div>
+                <DataRow label="최신 일봉" value={bars.latest_bar_date} stale={isStale(bars.latest_bar_date, 25)} />
+                {bars.missing_bars_count > 0 && (
+                  <div className="mt-2 p-2.5 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+                    <div className="flex items-center gap-1.5 text-xs text-yellow-400 font-semibold mb-1.5">
+                      <AlertTriangle size={11} />
+                      결측 종목 {bars.missing_bars_count.toLocaleString()}개
+                    </div>
+                    {bars.missing_bars_sample.slice(0, 5).map((s) => (
+                      <div key={s.code} className="flex justify-between text-[10px] text-[var(--muted)] py-0.5">
+                        <span>{s.name} ({s.code})</span>
+                        <span>{s.last_bar_date ?? '없음'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-[var(--muted)]">데이터 없음</p>
+            )}
+          </CardBody>
+        </Card>
+
+        {/* 수급 커버리지 */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5 text-sm">
+              <Activity size={14} className="text-cyan-400" /> 수급 커버리지
+            </CardTitle>
+            {sd && (
+              <span className={clsx('text-xs font-semibold',
+                sd.coverage_30d_pct >= 90 ? 'text-green-400' : sd.coverage_30d_pct >= 70 ? 'text-yellow-400' : 'text-red-400'
+              )}>
+                {sd.coverage_30d_pct.toFixed(1)}%
+              </span>
+            )}
+          </CardHeader>
+          <CardBody>
+            {isLoading ? (
+              <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-8 skeleton rounded" />)}</div>
+            ) : sd ? (
+              <div className="space-y-3">
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-[var(--muted)]">7일 수급 보유 종목</span>
+                    <span className="text-[var(--fg)] tabular">{sd.coverage_7d_stocks.toLocaleString()}</span>
+                  </div>
+                  <CoverageBar pct={sd.coverage_7d_pct} />
+                </div>
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-[var(--muted)]">30일 수급 보유 종목</span>
+                    <span className="text-[var(--fg)] tabular">{sd.coverage_30d_stocks.toLocaleString()}</span>
+                  </div>
+                  <CoverageBar pct={sd.coverage_30d_pct} />
+                </div>
+                <DataRow label="최신 수급" value={sd.latest_sd_date} stale={isStale(sd.latest_sd_date, 25)} />
+                {sd.missing_stocks > 0 && (
+                  <div className="text-xs text-yellow-400 flex items-center gap-1.5 mt-1">
+                    <AlertTriangle size={11} />
+                    수급 미수집 {sd.missing_stocks.toLocaleString()}개 종목
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-[var(--muted)]">데이터 없음</p>
+            )}
+          </CardBody>
+        </Card>
+
+        {/* ML 신뢰도 */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5 text-sm">
+              <Cpu size={14} className="text-cyan-400" /> ML 신뢰도
+            </CardTitle>
+            {ml && (
+              <span className={clsx('text-xs font-semibold',
+                ml.model_loaded
+                  ? (ml.auc != null && ml.auc >= 0.60 ? 'text-green-400' : 'text-yellow-400')
+                  : 'text-red-400'
+              )}>
+                {ml.model_loaded ? (ml.auc != null ? `AUC ${ml.auc.toFixed(4)}` : '로드됨') : '미로드'}
+              </span>
+            )}
+          </CardHeader>
+          <CardBody>
+            {isLoading ? (
+              <div className="space-y-2">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-8 skeleton rounded" />)}</div>
+            ) : ml ? (
+              <div>
+                <DataRow label="모델 상태"     value={ml.model_loaded ? '로드됨' : '미로드'} stale={!ml.model_loaded} />
+                <DataRow label="AUC"           value={ml.auc != null ? ml.auc.toFixed(4) : null} />
+                <DataRow label="F1"            value={ml.f1 != null ? ml.f1.toFixed(4) : null} />
+                <DataRow label="임계값"        value={ml.threshold != null ? ml.threshold.toFixed(3) : null} />
+                <DataRow label="피처 수"       value={ml.feature_count?.toLocaleString() ?? null} />
+                <DataRow label="학습 샘플"     value={ml.train_samples?.toLocaleString() ?? null} />
+                <DataRow label="모델 나이"     value={ml.model_age_days != null ? `${ml.model_age_days}일` : null}
+                  stale={ml.model_age_days != null && ml.model_age_days > 14} />
+                <div className="mt-2">
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-[var(--muted)]">벡터 커버리지</span>
+                    <span className="text-[var(--fg)] tabular">{ml.vector_coverage_pct.toFixed(1)}%</span>
+                  </div>
+                  <CoverageBar pct={ml.vector_coverage_pct} warn={75} danger={30} />
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-[var(--muted)]">데이터 없음</p>
+            )}
+          </CardBody>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
 // ── 탭 헤더 ───────────────────────────────────────────────────────────────────
 
-type Tab = 'health' | 'backfill' | 'schedule'
+type Tab = 'health' | 'backfill' | 'schedule' | 'quality'
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'health',   label: '시스템 헬스',  icon: <Activity size={13} /> },
   { id: 'backfill', label: '백필 이력',    icon: <History size={13} /> },
   { id: 'schedule', label: '스케줄 현황',  icon: <CalendarClock size={13} /> },
+  { id: 'quality',  label: '데이터 품질',  icon: <ShieldCheck size={13} /> },
 ]
 
 // ── 메인 페이지 ───────────────────────────────────────────────────────────────
@@ -595,6 +787,7 @@ export function SystemHealth() {
       )}
       {tab === 'backfill' && <BackfillTab />}
       {tab === 'schedule' && <ScheduleTab />}
+      {tab === 'quality'  && <DataQualityTab />}
     </div>
   )
 }
