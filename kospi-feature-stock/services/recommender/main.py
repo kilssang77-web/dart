@@ -378,28 +378,32 @@ class RecommenderService:
         try:
             since = datetime.now(timezone.utc) - timedelta(hours=72)
             async with self._db.acquire() as conn:
-                # 해당 종목의 최근 테마 뉴스 (relevance 0.6 이상)
+                # 해당 종목의 최근 테마 뉴스 — 개별 테마 원소 단위로 집계
                 theme_rows = await conn.fetch(
                     """
-                    SELECT n.themes, COUNT(*) AS cnt
+                    SELECT elem AS theme, COUNT(*) AS cnt
                     FROM news n
                     JOIN news_stock_links nsl ON nsl.news_id = n.id
+                    , jsonb_array_elements_text(n.themes) AS elem
                     WHERE nsl.code = $1
-                      AND nsl.relevance >= 0.6
+                      AND nsl.relevance >= 0.5
                       AND n.published_at >= $2
                       AND n.themes IS NOT NULL AND n.themes != '[]'::jsonb
-                    GROUP BY n.themes
+                      AND LENGTH(elem) >= 2
+                      AND elem NOT IN (
+                          'href','target','blank','v.daum.net','_blank','javascript',
+                          'daum','naver','kakao','Blog','Naver','USA',
+                          '머니투데이','연합뉴스','이데일리','헤럴드경제','한국경제',
+                          '뉴스1','조선비즈','서울경제','매일경제','파이낸셜뉴스',
+                          '상한','하한','증시','주가','종목','거래량','주식','매매'
+                      )
+                    GROUP BY elem
                     ORDER BY cnt DESC
                     LIMIT 10
                     """,
                     code, since,
                 )
-                theme_counts: dict[str, int] = {}
-                for row in theme_rows:
-                    raw = row["themes"]
-                    themes = json.loads(raw) if isinstance(raw, (str, bytes)) else (raw or [])
-                    for t in themes:
-                        theme_counts[t] = theme_counts.get(t, 0) + int(row["cnt"])
+                theme_counts: dict[str, int] = {row["theme"]: int(row["cnt"]) for row in theme_rows}
 
                 if not theme_counts and sector:
                     # 섹터 활성도 폴백: 동일 섹터 탐지 건수
@@ -416,10 +420,12 @@ class RecommenderService:
                         result["themes"] = [sector]
                 else:
                     top_themes = sorted(theme_counts.items(), key=lambda x: -x[1])[:3]
-                    active_themes = [t for t, c in top_themes if c >= 2]
+                    active_themes = [t for t, c in top_themes if c >= 1]
                     if active_themes:
-                        boost = min(0.05, len(active_themes) * 0.02)
-                        result["boost"] = round(boost, 3)
+                        # 기사 2건 이상 언급 테마: +2% / 1건: +1%, 최대 3%
+                        boost = sum(0.02 if c >= 2 else 0.01 for _, c in top_themes if c >= 1)
+                        boost = round(min(0.03, boost), 3)
+                        result["boost"] = boost
                         result["themes"] = active_themes
 
                         # 테마 역전 감지: theme_snapshots velocity < -0.1
