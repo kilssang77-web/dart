@@ -346,6 +346,7 @@ async def get_spread_history(
         theme, days,
     )
     result = []
+    all_lead_codes: set[str] = set()
     for r in rows:
         d = dict(r)
         for col in ("lead_codes", "top_codes"):
@@ -353,7 +354,22 @@ async def get_spread_history(
                 d[col] = [c.strip() for c in d[col].split(",") if c.strip()]
             else:
                 d[col] = []
+        all_lead_codes.update(d["lead_codes"])
         result.append(d)
+
+    name_map: dict[str, str] = {}
+    if all_lead_codes:
+        name_rows = await db.fetch(
+            "SELECT code, name FROM stocks WHERE code = ANY($1::text[])",
+            list(all_lead_codes),
+        )
+        name_map = {r["code"]: r["name"] for r in name_rows}
+
+    for d in result:
+        d["lead_links"] = [
+            {"code": c, "name": name_map.get(c, c)} for c in d["lead_codes"]
+        ]
+
     return {"theme": theme, "days": days, "history": result}
 
 

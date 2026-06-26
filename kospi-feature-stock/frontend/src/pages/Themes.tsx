@@ -59,6 +59,7 @@ interface ThemeHistoryItem {
   momentum_score: number | null
   velocity:       number | null
   lead_codes:     string[]
+  lead_links:     { code: string; name: string }[]
   top_codes:      string[]
 }
 
@@ -339,6 +340,7 @@ const TOOLTIP_STYLE = {
 function ThemeDetailPanel({ theme, detail, isLoading, hours }: {
   theme: string; detail: ThemeDetail | null; isLoading: boolean; hours: number
 }) {
+  const nav = useNavigate()
   const { data: histData } = useQuery({
     queryKey: ['theme-history', theme],
     queryFn:  () => themesApi.spreadHistory(theme, 30),
@@ -396,13 +398,18 @@ function ThemeDetailPanel({ theme, detail, isLoading, hours }: {
                   </AreaChart>
                 </ResponsiveContainer>
                 {/* 리드 종목 표시 */}
-                {hist[hist.length - 1]?.lead_codes.length > 0 && (
+                {(hist[hist.length - 1]?.lead_links ?? hist[hist.length - 1]?.lead_codes ?? []).length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-2">
                     <span className="text-[10px] text-[var(--muted)] mr-1">리드 종목:</span>
-                    {hist[hist.length - 1].lead_codes.map((code) => (
-                      <span key={code} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-400">
-                        {code}
-                      </span>
+                    {(hist[hist.length - 1].lead_links?.length
+                      ? hist[hist.length - 1].lead_links
+                      : hist[hist.length - 1].lead_codes.map((c) => ({ code: c, name: c }))
+                    ).map((s) => (
+                      <button key={s.code}
+                        onClick={() => nav(`/search?code=${s.code}`)}
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25 transition-colors">
+                        {s.name}
+                      </button>
                     ))}
                   </div>
                 )}

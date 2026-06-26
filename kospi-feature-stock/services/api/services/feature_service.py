@@ -219,7 +219,8 @@ class FeatureService:
                             (fe.detected_at AT TIME ZONE 'Asia/Seoul')::TEXT AS detected_at,
                             ROUND((1 - (fe.pattern_vector <=> $1::vector))::NUMERIC, 4) AS vec_sim,
                             fe.result_1d, fe.result_3d, fe.result_5d,
-                            COALESCE(s.sector, '-') AS sector
+                            COALESCE(s.sector, '-') AS sector,
+                            COALESCE(s.name, fe.code) AS name
                         FROM feature_events fe
                         LEFT JOIN stocks s ON s.code = fe.code
                         WHERE fe.code != $2
@@ -229,6 +230,7 @@ class FeatureService:
                         LIMIT $3
                         """,
                         event["pattern_vector"], event["code"], top_k * 4,
+                        timeout=60,
                     )
             if candidates:
                 src_event_type = event["event_type"] or ""
@@ -252,12 +254,14 @@ class FeatureService:
         rows = await self.db.fetch(
             """
             SELECT
-                id, code, (detected_at AT TIME ZONE 'Asia/Seoul')::TEXT AS detected_at, event_type,
+                fe.id, fe.code, (fe.detected_at AT TIME ZONE 'Asia/Seoul')::TEXT AS detected_at, fe.event_type,
                 NULL::numeric AS similarity,
-                result_1d, result_3d, result_5d, signal_score
-            FROM feature_events
-            WHERE code = $1 AND id != $2
-            ORDER BY detected_at DESC
+                fe.result_1d, fe.result_3d, fe.result_5d, fe.signal_score,
+                COALESCE(s.name, fe.code) AS name
+            FROM feature_events fe
+            LEFT JOIN stocks s ON s.code = fe.code
+            WHERE fe.code = $1 AND fe.id != $2
+            ORDER BY fe.detected_at DESC
             LIMIT $3
             """,
             event["code"], event_id, top_k,

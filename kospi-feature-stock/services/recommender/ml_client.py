@@ -645,14 +645,16 @@ async def get_similar_cases(event: dict, db: asyncpg.Pool) -> tuple[list, dict]:
                     await conn.execute("SET LOCAL hnsw.ef_search = 100")
                     rows = await conn.fetch(
                         """
-                        SELECT id, code, detected_at::TEXT, event_type,
-                               ROUND((1 - (pattern_vector <=> $2::vector))::NUMERIC, 4) AS similarity,
-                               result_1d, result_3d, result_5d
-                        FROM feature_events
-                        WHERE code != $1
-                          AND pattern_vector IS NOT NULL
-                          AND result_5d IS NOT NULL
-                        ORDER BY pattern_vector <=> $2::vector
+                        SELECT fe.id, fe.code, fe.detected_at::TEXT, fe.event_type,
+                               ROUND((1 - (fe.pattern_vector <=> $2::vector))::NUMERIC, 4) AS similarity,
+                               fe.result_1d, fe.result_3d, fe.result_5d,
+                               COALESCE(s.name, fe.code) AS name
+                        FROM feature_events fe
+                        LEFT JOIN stocks s ON s.code = fe.code
+                        WHERE fe.code != $1
+                          AND fe.pattern_vector IS NOT NULL
+                          AND fe.result_5d IS NOT NULL
+                        ORDER BY fe.pattern_vector <=> $2::vector
                         LIMIT 50
                         """,
                         code,
@@ -662,14 +664,16 @@ async def get_similar_cases(event: dict, db: asyncpg.Pool) -> tuple[list, dict]:
             else:
                 rows = await conn.fetch(
                     """
-                    SELECT id, code, detected_at::TEXT, event_type,
+                    SELECT fe.id, fe.code, fe.detected_at::TEXT, fe.event_type,
                            NULL::NUMERIC AS similarity,
-                           result_1d, result_3d, result_5d
-                    FROM feature_events
-                    WHERE code != $1
-                      AND event_type = $2
-                      AND result_5d IS NOT NULL
-                    ORDER BY detected_at DESC
+                           fe.result_1d, fe.result_3d, fe.result_5d,
+                           COALESCE(s.name, fe.code) AS name
+                    FROM feature_events fe
+                    LEFT JOIN stocks s ON s.code = fe.code
+                    WHERE fe.code != $1
+                      AND fe.event_type = $2
+                      AND fe.result_5d IS NOT NULL
+                    ORDER BY fe.detected_at DESC
                     LIMIT 50
                     """,
                     code,

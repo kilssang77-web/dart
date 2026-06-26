@@ -12,6 +12,23 @@ from schemas.responses import (
 _MAX_PROB = 0.95
 
 
+async def _enrich_similar_cases_names(db: asyncpg.Pool, dicts: list[dict]) -> None:
+    """similar_cases 항목에 name이 없는 경우 stocks 테이블에서 일괄 보완."""
+    codes: set[str] = set()
+    for d in dicts:
+        for sc in (d.get("similar_cases") or []):
+            if isinstance(sc, dict) and not sc.get("name") and sc.get("code"):
+                codes.add(sc["code"])
+    if not codes:
+        return
+    rows = await db.fetch("SELECT code, name FROM stocks WHERE code = ANY($1::text[])", list(codes))
+    name_map = {r["code"]: r["name"] for r in rows}
+    for d in dicts:
+        for sc in (d.get("similar_cases") or []):
+            if isinstance(sc, dict) and not sc.get("name") and sc.get("code"):
+                sc["name"] = name_map.get(sc["code"], sc["code"])
+
+
 def _parse_json_fields(d: dict) -> dict:
     for key in ("rationale", "similar_cases"):
         if isinstance(d.get(key), str):
@@ -143,8 +160,10 @@ class RecommendationService:
         cache_key = f"recs:{action}:{market}:{code}:{min_prob}:{limit}:{dedupe}"
         rows  = await cached_fetch(self.redis, self.db, cache_key, query, *params, ttl=60)
         dicts = [dict(r) for r in rows]
+        [_parse_json_fields(d) for d in dicts]
+        await _enrich_similar_cases_names(self.db, dicts)
         await enrich_live_prices(self.redis, dicts, price_field="current_price", rate_field="current_change_rate")
-        return [RecommendationResponse(**_parse_json_fields(d)) for d in dicts]
+        return [RecommendationResponse(**d) for d in dicts]
 
     async def performance_stats(self, days: int) -> PerformanceStatsResponse:
         row = await self.db.fetchrow(
@@ -198,6 +217,8 @@ class RecommendationService:
             code.upper(), hours,
         )
         dicts = [dict(r) for r in rows]
+        [_parse_json_fields(d) for d in dicts]
+        await _enrich_similar_cases_names(self.db, dicts)
         await enrich_live_prices(self.redis, dicts, price_field="current_price", rate_field="current_change_rate")
-        items = [SignalItem(**_parse_json_fields(d)) for d in dicts]
+        items = [SignalItem(**d) for d in dicts]
         return CodeSignalsResponse(total_count=len(items), signals=items)

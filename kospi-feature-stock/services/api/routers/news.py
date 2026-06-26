@@ -31,14 +31,14 @@ _NEWS_SELECT = """
             SELECT nsl.code FROM news_stock_links nsl WHERE nsl.news_id = n.id LIMIT 5
         ) AS codes,
         (
-            SELECT json_agg(json_build_object('code', s.code, 'name', s.name) ORDER BY nsl.news_id, nsl.code)
+            SELECT json_agg(json_build_object('code', nsl.code, 'name', COALESCE(s.name, nsl.code)) ORDER BY nsl.code)
             FROM news_stock_links nsl
-            JOIN stocks s ON s.code = nsl.code
+            LEFT JOIN stocks s ON s.code = nsl.code
             WHERE nsl.news_id = n.id LIMIT 5
         ) AS stock_links_raw,
         (
-            SELECT s.name FROM news_stock_links nsl
-            JOIN stocks s ON s.code = nsl.code
+            SELECT COALESCE(s.name, nsl.code) FROM news_stock_links nsl
+            LEFT JOIN stocks s ON s.code = nsl.code
             WHERE nsl.news_id = n.id LIMIT 1
         ) AS corp_name
     FROM news n

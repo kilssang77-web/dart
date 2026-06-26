@@ -71,7 +71,7 @@ function OverlayChart({
       if (!c.bars || c.bars.length === 0) return
       result.push({
         key:   `case-${i}`,
-        label: `${c.code} (${c.detected_at?.slice(0, 10)})`,
+        label: `${c.name ?? c.code} (${c.detected_at?.slice(0, 10)})`,
         color: COLORS[i % COLORS.length],
         data:  normalizeBars(c.bars, c.detected_at),
       })

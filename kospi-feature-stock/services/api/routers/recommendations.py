@@ -53,7 +53,10 @@ async def get_buy_signals(
         """,
         min_prob,
     )
-    return [RecommendationResponse(**_parse_json_fields(dict(r))) for r in rows]
+    from services.recommendation_service import _enrich_similar_cases_names
+    dicts = [_parse_json_fields(dict(r)) for r in rows]
+    await _enrich_similar_cases_names(db, dicts)
+    return [RecommendationResponse(**d) for d in dicts]
 
 
 @router.get("/stats/performance", response_model=PerformanceStatsResponse)
@@ -267,7 +270,10 @@ async def get_by_id(rec_id: int, db: asyncpg.Pool = Depends(get_db)):
     )
     if not row:
         raise HTTPException(404, "No recommendation found")
-    return RecommendationResponse(**_parse_json_fields(dict(row)))
+    from services.recommendation_service import _enrich_similar_cases_names
+    d = _parse_json_fields(dict(row))
+    await _enrich_similar_cases_names(db, [d])
+    return RecommendationResponse(**d)
 
 
 @router.get("/{code}/signals", response_model=CodeSignalsResponse)
@@ -303,4 +309,7 @@ async def get_latest(code: str, db: asyncpg.Pool = Depends(get_db)):
     )
     if not row:
         raise HTTPException(404, "No recommendation found")
-    return RecommendationResponse(**_parse_json_fields(dict(row)))
+    from services.recommendation_service import _enrich_similar_cases_names
+    d = _parse_json_fields(dict(row))
+    await _enrich_similar_cases_names(db, [d])
+    return RecommendationResponse(**d)
