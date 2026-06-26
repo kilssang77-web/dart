@@ -46,7 +46,8 @@ class PyKRXProvider(DataProvider):
     async def get_daily_bars(self, code: str, days: int) -> list[dict]:
         """종목 코드의 최근 days일 일봉 데이터를 반환한다.
 
-        반환 dict 키: date, open, high, low, close, volume, change_rate
+        반환 dict 키: code, date, open, high, low, close, volume, amount, change_rate
+        write_daily_bars와 동일한 포맷 — KIS 결과와 호환.
         """
         try:
             from pykrx import stock as krx
@@ -67,14 +68,27 @@ class PyKRXProvider(DataProvider):
             for idx, row in df.tail(days).iterrows():
                 try:
                     change_rate = float(row.get("등락률", row.get("Change", 0.0)) or 0.0)
+                    close = int(row.get("종가", row.get("Close", 0)))
+                    volume = int(row.get("거래량", row.get("Volume", 0)))
+                    # 거래대금(원) — pykrx가 제공하면 사용, 없으면 close×volume 추정
+                    raw_amt = row.get("거래대금", row.get("Amount", None))
+                    if raw_amt is not None:
+                        try:
+                            amount = int(raw_amt)
+                        except (TypeError, ValueError):
+                            amount = close * volume
+                    else:
+                        amount = close * volume
                     bars.append(
                         {
+                            "code": code,
                             "date": idx.strftime("%Y-%m-%d"),
                             "open": int(row.get("시가", row.get("Open", 0))),
                             "high": int(row.get("고가", row.get("High", 0))),
                             "low": int(row.get("저가", row.get("Low", 0))),
-                            "close": int(row.get("종가", row.get("Close", 0))),
-                            "volume": int(row.get("거래량", row.get("Volume", 0))),
+                            "close": close,
+                            "volume": volume,
+                            "amount": amount,
                             "change_rate": round(change_rate, 2),
                         }
                     )

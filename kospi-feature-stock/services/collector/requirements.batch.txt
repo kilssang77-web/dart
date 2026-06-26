@@ -12,3 +12,4 @@ orjson==3.10.3
 lz4==4.3.3
 pandas>=2.2.0
 pandas-ta>=0.3.14b
+pykrx>=1.0.47

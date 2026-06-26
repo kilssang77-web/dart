@@ -185,6 +185,9 @@ class StockCollector:
         self.news     = NaverNewsCrawler()
         self.news_rss = RssNewsCrawler()
 
+        from data_providers.pykrx_provider import PyKRXProvider
+        self._pykrx = PyKRXProvider()
+
         self._tick_queue: asyncio.Queue = asyncio.Queue(maxsize=10000)
         self._daily_bars_done = asyncio.Event()   # 일봉+stats 완료 신호
 
@@ -702,16 +705,24 @@ class StockCollector:
             total = 0
             start = (datetime.now(_KST) - timedelta(days=5)).strftime("%Y%m%d")
 
+            pykrx_fallback = 0
             for code in codes:
                 try:
                     bars = await self.rest.get_daily_bars(code, start, today)
+                    if not bars:
+                        bars = await self._pykrx.get_daily_bars(code, 7)
+                        if bars:
+                            pykrx_fallback += 1
                     n = await write_daily_bars(self.db, bars)
                     total += n
                 except Exception as e:
                     logger.error(f"DailyBar {code}: {e}")
                 await asyncio.sleep(0.3)
 
-            logger.info(f"[DailyBar] Written {total} rows for {len(codes)} stocks")
+            logger.info(
+                f"[DailyBar] Written {total} rows for {len(codes)} stocks"
+                + (f" (pykrx fallback: {pykrx_fallback})" if pykrx_fallback else "")
+            )
 
             # KOSPI/KOSDAQ 지수 일봉 수집
             for mkt_code in ["0001", "1001"]:
@@ -836,10 +847,17 @@ class StockCollector:
         end   = datetime.now(_KST).strftime("%Y%m%d")
         start = (datetime.now(_KST) - timedelta(days=BACKFILL_DAYS)).strftime("%Y%m%d")
         total = 0
+        pykrx_fallback = 0
 
         for i, code in enumerate(to_backfill):
             try:
                 bars = await self.rest.get_daily_bars(code, start, end)
+                if not bars:
+                    # KIS 응답이 비었으면 pykrx로 재시도 (상장폐지·ETC 종목 등)
+                    bars = await self._pykrx.get_daily_bars(code, BACKFILL_DAYS)
+                    if bars:
+                        pykrx_fallback += 1
+                        logger.debug(f"[Backfill] {code}: KIS 빈 응답 → pykrx fallback ({len(bars)}행)")
                 n = await write_daily_bars(self.db, bars)
                 total += n
             except Exception as e:
@@ -848,7 +866,10 @@ class StockCollector:
             if (i + 1) % 100 == 0:
                 logger.info(f"[Backfill] Progress {i+1}/{len(to_backfill)}, {total} rows so far")
 
-        logger.info(f"[Backfill] Complete — {total} rows for {len(to_backfill)} stocks")
+        logger.info(
+            f"[Backfill] Complete — {total} rows for {len(to_backfill)} stocks"
+            + (f", pykrx fallback {pykrx_fallback}건" if pykrx_fallback else "")
+        )
 
         # KOSPI/KOSDAQ 지수 백필
         for mkt_code in ["0001", "1001"]:
