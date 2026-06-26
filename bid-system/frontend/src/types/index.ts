@@ -1829,3 +1829,59 @@ export interface ParticipantStats {
   agency_name: string | null
 }
 
+// Phase 2 — 사전규격
+export interface PreSpecNotice {
+  id: number
+  pre_spec_no: string
+  title: string | null
+  order_agency: string | null
+  demand_agency: string | null
+  estimated_amount: number | null
+  industry_name: string | null
+  reg_date: string | null
+  end_date: string | null
+  bid_announcement_no: string | null
+  bid_id: number | null
+  matched_at: string | null
+  bid_title: string | null
+  bid_open_date: string | null
+  is_matched: boolean
+}
+
+export interface PreSpecSummary {
+  total: number
+  matched: number
+  agencies: number
+  total_amount: number
+  days_back: number
+}
+
+// Phase 3 — 계약정보
+export interface BidContract {
+  id: number
+  unty_cntrct_no: string | null
+  dcsn_cntrct_no: string | null
+  announcement_no: string | null
+  contract_name: string | null
+  agency_name: string | null
+  total_amount: number | null
+  this_amount: number | null
+  contract_date: string | null
+  start_date: string | null
+  completion_date: string | null
+  final_completion_date: string | null
+  joint_contract: string | null
+  contract_method: string | null
+  bid_id: number | null
+  company_list: { corpNm?: string; bizRegNo?: string }[]
+}
+
+export interface ContractSummary {
+  total: number
+  matched_bids: number
+  joint_count: number
+  total_amount: number
+  avg_duration_days: number | null
+  days_back: number
+}
+

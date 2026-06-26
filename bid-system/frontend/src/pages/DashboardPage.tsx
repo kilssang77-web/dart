@@ -9,9 +9,9 @@ import {
 import {
   FileText, Users, TrendingUp, TrendingDown, Activity, ArrowUp, ArrowDown,
   Trophy, Building2, Zap, Star, Info, LayoutDashboard, Target, Bell, ChevronRight,
-  Clock, AlertTriangle, CheckCircle2,
+  Clock, AlertTriangle, CheckCircle2, FileSearch,
 } from 'lucide-react'
-import { statsApi, bidsApi, journalApi } from '@/api'
+import { statsApi, bidsApi, journalApi, preSpecApi } from '@/api'
 import type { OverviewStatsWithChange, Bid, TopSrateTrend, BidRecommendItem, UpcomingOpening, JournalStats } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -173,6 +173,12 @@ export default function DashboardPage() {
     queryKey: ['journal-stats-dash'],
     queryFn: () => journalApi.stats(),
     staleTime: 120_000,
+  })
+
+  const { data: preSpecSummary } = useQuery({
+    queryKey: ['pre-spec-summary-dash', 14],
+    queryFn: () => preSpecApi.summary(14),
+    staleTime: 300_000,
   })
 
   const trend = (overview?.monthly_trend ?? []).map((d) => ({
@@ -587,6 +593,51 @@ export default function DashboardPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* 수주 예보 미니 패널 */}
+        {preSpecSummary && (preSpecSummary.total > 0 || preSpecSummary.matched > 0) && (
+          <Card className="bg-white border-slate-200 shadow-sm">
+            <CardHeader className="px-5 pt-4 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <FileSearch className="h-4 w-4 text-violet-500" />
+                <CardTitle className="text-sm font-semibold text-slate-800">수주 예보 — 사전규격</CardTitle>
+                <span className="bg-slate-100 text-slate-500 border border-slate-200 text-xs font-semibold px-2 py-0.5 rounded-md ml-auto">
+                  최근 14일
+                </span>
+                <button
+                  onClick={() => navigate('/pre-spec')}
+                  className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-1"
+                >
+                  전체 보기 <ChevronRight className="w-3 h-3" />
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="text-center p-3 bg-violet-50 rounded-lg">
+                  <div className="text-xl font-bold text-violet-700 tabular-nums">{preSpecSummary.total.toLocaleString()}</div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">사전규격 등록</div>
+                </div>
+                <div className="text-center p-3 bg-emerald-50 rounded-lg">
+                  <div className="text-xl font-bold text-emerald-600 tabular-nums">{preSpecSummary.matched.toLocaleString()}</div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">공고 매핑 완료</div>
+                </div>
+                <div className="text-center p-3 bg-blue-50 rounded-lg">
+                  <div className="text-xl font-bold text-blue-600 tabular-nums">{preSpecSummary.agencies.toLocaleString()}</div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">발주기관 수</div>
+                </div>
+                <div className="text-center p-3 bg-amber-50 rounded-lg">
+                  <div className="text-xl font-bold text-amber-600 tabular-nums">
+                    {preSpecSummary.total_amount != null
+                      ? (preSpecSummary.total_amount / 1e8).toFixed(0) + '억'
+                      : '-'}
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">총 추정금액</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* 월별 추이 */}
         <Card className="bg-white border-slate-200 shadow-sm">

@@ -527,3 +527,34 @@ export const journalApi = {
   createManual: (req: import('../types').ManualJournalRequest): Promise<import('../types').JournalOut> =>
     api.post('/journal/manual', req).then((r) => r.data),
 }
+
+// Phase 2 — 사전규격 API
+export const preSpecApi = {
+  list: (params?: {
+    order_agency?: string
+    industry?: string
+    days_back?: number
+    matched_only?: boolean
+    page?: number
+    size?: number
+  }): Promise<{ items: import('../types').PreSpecNotice[]; total: number; page: number; size: number }> =>
+    api.get('/pre-spec/list', { params }).then((r) => r.data),
+
+  summary: (days_back = 30): Promise<import('../types').PreSpecSummary> =>
+    api.get('/pre-spec/summary', { params: { days_back } }).then((r) => r.data),
+}
+
+// Phase 3 — 계약정보 API
+export const contractsApi = {
+  list: (params?: {
+    agency_name?: string
+    days_back?: number
+    joint_only?: boolean
+    page?: number
+    size?: number
+  }): Promise<{ items: import('../types').BidContract[]; total: number; page: number; size: number }> =>
+    api.get('/contracts/list', { params }).then((r) => r.data),
+
+  summary: (days_back = 90): Promise<import('../types').ContractSummary> =>
+    api.get('/contracts/summary', { params: { days_back } }).then((r) => r.data),
+}

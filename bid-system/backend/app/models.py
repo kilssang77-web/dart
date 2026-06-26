@@ -709,6 +709,75 @@ class BidExecution(Base):
     defeat_analysis = relationship("DefeatAnalysis", back_populates="execution", uselist=False)
 
 
+class PreSpecNotice(Base):
+    """사전규격 공고 — 입찰 공고 전 최상위 신호 (HrcspSsstndrdInfoService 수집)"""
+    __tablename__ = "pre_spec_notices"
+    __table_args__ = (
+        Index("idx_pre_spec_order_agency", "order_agency"),
+        Index("idx_pre_spec_reg_date", "reg_date"),
+        Index("idx_pre_spec_bid_id", "bid_id"),
+    )
+
+    id                 = Column(BigInteger, primary_key=True, autoincrement=True)
+    pre_spec_no        = Column(String(50), unique=True, nullable=False)  # 사전규격등록번호
+    title              = Column(String(500))                              # 품명
+    order_agency       = Column(String(200))                              # 발주기관명
+    demand_agency      = Column(String(200))                              # 실수요기관명
+    estimated_amount   = Column(BigInteger)                               # 추정금액
+    industry_name      = Column(String(200))                              # 업종명
+    reg_date           = Column(DateTime(timezone=True))                  # 등록일시
+    changed_date       = Column(DateTime(timezone=True))                  # 변경일시
+    end_date           = Column(DateTime(timezone=True))                  # 의견제출 마감일
+    doc_files          = Column(JSONB, default=list)                      # 규격문서파일 목록
+    source_data        = Column(JSONB)                                    # 원본 API 응답
+    # 공고 매핑 (사전규격 → 실제 입찰공고)
+    bid_announcement_no = Column(String(60), index=True)
+    bid_id             = Column(BigInteger, ForeignKey("bids.id"), nullable=True)
+    matched_at         = Column(DateTime(timezone=True))
+
+    created_at         = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at         = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    bid = relationship("Bid", foreign_keys=[bid_id])
+
+
+class BidContract(Base):
+    """낙찰 후 실제 계약 정보 — CntrctInfoService 수집 (Phase 3)"""
+    __tablename__ = "bid_contracts"
+    __table_args__ = (
+        Index("idx_bid_contracts_ntce_no", "announcement_no"),
+        Index("idx_bid_contracts_bid_id", "bid_id"),
+        Index("idx_bid_contracts_contract_date", "contract_date"),
+    )
+
+    id                  = Column(BigInteger, primary_key=True, autoincrement=True)
+    unty_cntrct_no      = Column(String(50), unique=True)       # 통합계약번호
+    dcsn_cntrct_no      = Column(String(50))                    # 확정계약번호
+    announcement_no     = Column(String(60))                    # 공고번호 (bids.announcement_no FK)
+    bid_id              = Column(BigInteger, ForeignKey("bids.id"), nullable=True)
+
+    contract_name       = Column(String(500))                   # 계약명
+    agency_code         = Column(String(20))                    # 계약기관코드
+    agency_name         = Column(String(200))                   # 계약기관명
+    total_amount        = Column(BigInteger)                    # 총계약금액
+    this_amount         = Column(BigInteger)                    # 금차계약금액
+    contract_date       = Column(Date)                          # 계약체결일자
+    start_date          = Column(Date)                          # 착공일자
+    completion_date     = Column(Date)                          # 금차준공일자
+    final_completion_date = Column(Date)                        # 총준공일자
+    joint_contract      = Column(String(5))                     # 공동계약여부 (Y/N)
+    long_term_div       = Column(String(50))                    # 장기계속구분명
+    contract_method     = Column(String(100))                   # 계약체결방법명
+    company_list        = Column(JSONB, default=list)           # 업체목록 (공동수급 구성원)
+    demand_agencies     = Column(JSONB, default=list)           # 수요기관목록
+    source_data         = Column(JSONB)                         # 원본 API 응답
+
+    created_at          = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at          = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    bid = relationship("Bid", foreign_keys=[bid_id])
+
+
 class DefeatAnalysis(Base):
     """패찰 원인 자동 분류 — 개찰 결과 입력 시 자동 생성"""
     __tablename__ = "defeat_analyses"

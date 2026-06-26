@@ -8,7 +8,7 @@ import {
   Activity, Target, Briefcase, LayoutDashboard, PieChart,
   ChevronRight, ChevronDown, ListChecks, FlaskConical,
   ClipboardCheck, BarChart3, Sparkles, BookOpen,
-  Zap, Building2, LineChart, Layers,
+  Zap, Building2, LineChart, Layers, FileSearch, FileText,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { authApi, notificationsApi } from '@/api'
@@ -57,6 +57,8 @@ const NAV_GROUPS = [
       { to: '/journal-history', label: '투찰 이력 분석', icon: ClipboardCheck },
       { to: '/performance',     label: '성과센터',        icon: BarChart3 },
       { to: '/statistics',      label: '통계 분석',       icon: PieChart },
+      { to: '/pre-spec',        label: '수주 예보',        icon: FileSearch },
+      { to: '/contracts',       label: '계약 실적',        icon: FileText },
     ],
   },
 ]

@@ -35,6 +35,7 @@ from ..ml.yega        import calc_yega_frequency, get_inpo21c_pattern_direct, lo
 from ..ml.a_value     import calc_floor_rate
 
 from ._common import get_active_industry_ids, _build_ind_sql, _compute_yega_ml_features
+from ..ml.features_p4 import load_p4_features
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +64,31 @@ class OpportunityScoreService:
 
         total = (comp_score["pts"] + agency_score["pts"] +
                  trend_score["pts"] + amount_score["pts"])
-        total = round(min(100, max(0, total)), 1)
 
+        # Phase 4 보너스: 사전규격 연결 공고 +3점, 고빈도 발주기관 +2점
+        p4_bonus = 0.0
+        p4_info = {}
+        try:
+            p4 = load_p4_features(
+                self.db,
+                agency_id=bid.agency_id,
+                bid_id=bid.id,
+                announcement_no=bid.announcement_no,
+            )
+            if p4.get("has_pre_spec"):
+                p4_bonus += 3.0
+            freq = p4.get("agency_contract_freq")
+            if freq and freq >= 3.0:
+                p4_bonus += 2.0
+            p4_info = {
+                "has_pre_spec":         p4.get("has_pre_spec", False),
+                "agency_contract_freq": freq,
+                "joint_bid_prob":       p4.get("joint_bid_prob"),
+            }
+        except Exception:
+            pass
+
+        total = round(min(100, max(0, total + p4_bonus)), 1)
         grade = "A" if total >= 75 else "B" if total >= 55 else "C" if total >= 35 else "D"
 
         return {
@@ -77,6 +101,7 @@ class OpportunityScoreService:
                 "market_trend":   trend_score,
                 "amount_fit":     amount_score,
             },
+            "p4_signals": p4_info,
             "recommendation": self._grade_message(grade, comp_score, agency_score),
         }
 

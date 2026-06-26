@@ -730,10 +730,11 @@ def collect_scsbid_results(db: Session, days_back: int = 30) -> CollectionLog:
 
 def collect_all_participants_g2b(db: Session, days_back: int = 7) -> dict:
     """
-    getOpengResultListInfoOpengCompt — 개찰완료 전참여자 수집.
+    getOpengResultListInfoOpengCompt — 개찰완료 전참여자 수집 (소스 최적화).
 
-    최근 days_back일 이내 개찰된 공사 공고의 모든 참여자(투찰금액·투찰률·추첨번호 포함)를
-    bid_results에 upsert하고, bids.participant_count를 갱신한다.
+    [Phase 1 개선] inpo21c 우선 전략:
+    - inpo21c_participants에 ≥3명 데이터가 있는 공고 → draw_no/bid_dt 보완만 수행 (API insert 스킵)
+    - inpo21c 데이터 없는 공고 → G2B full insert (fallback)
     """
     from app.config import get_settings
     from app.collector.client import BidParticipant
@@ -742,7 +743,7 @@ def collect_all_participants_g2b(db: Session, days_back: int = 7) -> dict:
     client = NarajangterClient(api_key=settings.g2b_api_key)
 
     bgn_dt, end_dt = _date_range(days_back)
-    filled = skipped = fail = 0
+    inpo_covered = draw_updated = g2b_filled = skipped = fail = 0
     t0 = time.monotonic()
 
     from sqlalchemy import text as _t
@@ -755,57 +756,90 @@ def collect_all_participants_g2b(db: Session, days_back: int = 7) -> dict:
 
     for bid_id, announcement_no in rows:
         try:
+            # inpo21c_participants 데이터 유무 체크 (공고번호 exact / SPLIT_PART 매칭)
+            inpo_cnt = db.execute(_t("""
+                SELECT COUNT(*) FROM inpo21c_participants ip
+                JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = ip.inpo21c_bid_id
+                WHERE ib.announcement_no = :ano
+                   OR SPLIT_PART(ib.announcement_no, '-', 1) = :ano
+            """), {"ano": announcement_no}).scalar() or 0
+
             participants: list[BidParticipant] = client.get_participants_for_bid(announcement_no)
             if not participants:
                 skipped += 1
                 continue
 
-            seen_competitor_ids: set[int] = set()
-            for p in participants:
-                if not p.competitor_name:
-                    continue
-                competitor = _upsert_competitor(db, p.competitor_name, p.biz_reg_no)
-                if competitor.id in seen_competitor_ids:
-                    continue
-                seen_competitor_ids.add(competitor.id)
-                # bid_results upsert — (bid_id, competitor_id) UniqueConstraint
-                existing = (
-                    db.query(BidResult)
-                    .filter(BidResult.bid_id == bid_id, BidResult.competitor_id == competitor.id)
-                    .first()
-                )
-                if existing:
-                    # 추첨번호·투찰일시 보완
-                    if p.draw_no1 is not None:
-                        existing.draw_no1 = p.draw_no1
-                    if p.draw_no2 is not None:
-                        existing.draw_no2 = p.draw_no2
-                    if p.bid_dt:
-                        existing.bid_dt = _parse_datetime(p.bid_dt)
-                    if p.bid_amount:
-                        existing.bid_amount = p.bid_amount
-                    if p.bid_rate:
-                        existing.bid_rate = p.bid_rate
-                else:
-                    db.add(BidResult(
-                        bid_id=bid_id,
-                        competitor_id=competitor.id,
-                        bid_amount=p.bid_amount or 0,
-                        bid_rate=p.bid_rate or 0,
-                        rank=p.rank or 0,
-                        is_winner=p.is_winner,
-                        draw_no1=p.draw_no1,
-                        draw_no2=p.draw_no2,
-                        bid_dt=_parse_datetime(p.bid_dt),
-                    ))
+            if inpo_cnt >= 3:
+                # inpo21c 데이터 충분 — draw_no / bid_dt만 보완
+                for p in participants:
+                    if not p.biz_reg_no:
+                        continue
+                    if p.draw_no1 is not None or p.draw_no2 is not None:
+                        db.execute(_t("""
+                            UPDATE bid_results br
+                            SET draw_no1 = COALESCE(br.draw_no1, :dn1),
+                                draw_no2 = COALESCE(br.draw_no2, :dn2),
+                                bid_dt   = COALESCE(br.bid_dt,   :bdt)
+                            FROM competitors c
+                            WHERE br.bid_id = :bid_id
+                              AND br.competitor_id = c.id
+                              AND c.biz_reg_no = :bno
+                        """), {
+                            "bid_id": bid_id,
+                            "dn1": p.draw_no1,
+                            "dn2": p.draw_no2,
+                            "bdt": _parse_datetime(p.bid_dt),
+                            "bno": p.biz_reg_no,
+                        })
+                db.commit()
+                draw_updated += 1
+                inpo_covered += 1
+            else:
+                # inpo21c 미수집 — G2B full insert
+                seen_competitor_ids: set[int] = set()
+                for p in participants:
+                    if not p.competitor_name:
+                        continue
+                    competitor = _upsert_competitor(db, p.competitor_name, p.biz_reg_no)
+                    if competitor.id in seen_competitor_ids:
+                        continue
+                    seen_competitor_ids.add(competitor.id)
+                    existing = (
+                        db.query(BidResult)
+                        .filter(BidResult.bid_id == bid_id, BidResult.competitor_id == competitor.id)
+                        .first()
+                    )
+                    if existing:
+                        if p.draw_no1 is not None:
+                            existing.draw_no1 = p.draw_no1
+                        if p.draw_no2 is not None:
+                            existing.draw_no2 = p.draw_no2
+                        if p.bid_dt:
+                            existing.bid_dt = _parse_datetime(p.bid_dt)
+                        if p.bid_amount:
+                            existing.bid_amount = p.bid_amount
+                        if p.bid_rate:
+                            existing.bid_rate = p.bid_rate
+                    else:
+                        db.add(BidResult(
+                            bid_id=bid_id,
+                            competitor_id=competitor.id,
+                            bid_amount=p.bid_amount or 0,
+                            bid_rate=p.bid_rate or 0,
+                            rank=p.rank or 0,
+                            is_winner=p.is_winner,
+                            draw_no1=p.draw_no1,
+                            draw_no2=p.draw_no2,
+                            bid_dt=_parse_datetime(p.bid_dt),
+                        ))
 
-            # participant_count 갱신
-            bid_obj = db.query(Bid).filter(Bid.id == bid_id).first()
-            if bid_obj:
-                bid_obj.participant_count = len(participants)
+                bid_obj = db.query(Bid).filter(Bid.id == bid_id).first()
+                if bid_obj:
+                    bid_obj.participant_count = len(participants)
 
-            db.commit()
-            filled += 1
+                db.commit()
+                g2b_filled += 1
+
         except Exception as exc:
             db.rollback()
             fail += 1
@@ -813,20 +847,67 @@ def collect_all_participants_g2b(db: Session, days_back: int = 7) -> dict:
 
     elapsed = time.monotonic() - t0
     logger.info(
-        "G2B 전참여자 수집 완료: filled={} skipped={} fail={} ({:.1f}s)",
-        filled, skipped, fail, elapsed,
+        "G2B 전참여자 수집: inpo_covered={} draw_updated={} g2b_filled={} skipped={} fail={} ({:.1f}s)",
+        inpo_covered, draw_updated, g2b_filled, skipped, fail, elapsed,
     )
-    return {"filled": filled, "skipped": skipped, "fail": fail, "elapsed_s": round(elapsed, 1)}
+    return {
+        "inpo_covered": inpo_covered,
+        "draw_updated": draw_updated,
+        "g2b_filled": g2b_filled,
+        "skipped": skipped,
+        "fail": fail,
+        "elapsed_s": round(elapsed, 1),
+    }
+
+
+def sync_assessment_rate_from_inpo21c(db: Session) -> dict:
+    """
+    [Phase 1 신규] inpo21c_participants.assessment_rate → bid_results.assessment_rate 역동기화.
+
+    inpo21c에서 수집한 실증 사정율을 bid_results에 채워서 ML 학습 피처로 활용.
+    assessment_rate가 이미 있는 행은 덮어쓰지 않는다.
+    """
+    from sqlalchemy import text as _t
+
+    try:
+        # CTE로 매칭 후 UPDATE — PostgreSQL UPDATE alias 제한 우회
+        result = db.execute(_t("""
+            WITH matched AS (
+                SELECT br.id AS br_id, ip.assessment_rate
+                FROM bid_results br
+                JOIN bids b ON b.id = br.bid_id
+                JOIN inpo21c_bids ib ON (
+                    b.announcement_no = ib.announcement_no
+                    OR b.announcement_no = SPLIT_PART(ib.announcement_no, '-', 1)
+                )
+                JOIN inpo21c_participants ip ON ip.inpo21c_bid_id = ib.inpo21c_bid_id
+                JOIN competitors c ON c.id = br.competitor_id
+                WHERE ip.assessment_rate IS NOT NULL
+                  AND br.assessment_rate IS NULL
+                  AND (c.biz_reg_no = ip.biz_reg_no OR c.name = ip.company_name)
+            )
+            UPDATE bid_results br
+            SET assessment_rate = matched.assessment_rate
+            FROM matched
+            WHERE br.id = matched.br_id
+        """))
+        updated = result.rowcount
+        db.commit()
+        logger.info("assessment_rate 역동기화 완료: {}건 bid_results 갱신", updated)
+        return {"updated": updated}
+    except Exception as exc:
+        db.rollback()
+        logger.error("assessment_rate 역동기화 실패: {}", exc)
+        return {"updated": 0, "error": str(exc)}
 
 
 def collect_g2b_yega_detail(db: Session, days_back: int = 7) -> dict:
     """
     getOpengResultListInfoCnstwkPreparPcDetail — 복수예가 상세 수집 (일괄 페이지네이션).
 
-    날짜 범위로 전체 조회 후, 우리 DB에 있는 공고번호와 매칭된 항목만
-    g2b_yega_details 테이블에 upsert한다.
-    - compnoRsrvtnPrceSno: 복수예가 순번(1~15)
-    - bsisPlnprc: 기초예정가격, drwtYn: 추첨여부
+    [Phase 1 개선] inpo21c_yega 우선 전략:
+    - inpo21c_yega에 이미 데이터가 있는 공고는 G2B API 스킵 (inpo21c가 더 풍부)
+    - inpo21c 미수집 공고만 G2B에서 수집
     """
     from app.config import get_settings
     from sqlalchemy import text as _t
@@ -835,7 +916,7 @@ def collect_g2b_yega_detail(db: Session, days_back: int = 7) -> dict:
     client = NarajangterClient(api_key=settings.g2b_api_key)
 
     bgn_dt, end_dt = _date_range(days_back)
-    inserted = updated = fail = pages = 0
+    inserted = updated = fail = pages = skipped_by_inpo = 0
     t0 = time.monotonic()
 
     # 우리 DB 공고번호 SET (매칭 필터용)
@@ -847,7 +928,29 @@ def collect_g2b_yega_detail(db: Session, days_back: int = 7) -> dict:
     ).fetchall()
     known_nos: set[str] = {r[0] for r in known_rows}
     if not known_nos:
-        return {"inserted": 0, "updated": 0, "fail": 0, "elapsed_s": 0.0}
+        return {"inserted": 0, "updated": 0, "fail": 0, "skipped_by_inpo": 0, "elapsed_s": 0.0}
+
+    # inpo21c_yega에 이미 데이터가 있는 공고번호 — 스킵 대상
+    inpo_covered_rows = db.execute(_t("""
+        SELECT DISTINCT ib.announcement_no
+        FROM inpo21c_yega iy
+        JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = iy.inpo21c_bid_id
+        WHERE ib.announcement_no = ANY(:anos)
+           OR SPLIT_PART(ib.announcement_no, '-', 1) = ANY(:anos)
+    """), {"anos": list(known_nos)}).fetchall()
+    inpo_yega_nos: set[str] = set()
+    for r in inpo_covered_rows:
+        ano = r[0]
+        inpo_yega_nos.add(ano)
+        # SPLIT_PART 형식이면 dash 전 부분도 등록
+        inpo_yega_nos.add(ano.split("-")[0])
+
+    # inpo21c에 없는 공고만 G2B에서 수집
+    target_nos = known_nos - inpo_yega_nos
+    skipped_by_inpo = len(known_nos) - len(target_nos)
+    if not target_nos:
+        logger.info("G2B 예가상세: inpo21c 완전 커버 — G2B 수집 스킵 ({}건)", skipped_by_inpo)
+        return {"inserted": 0, "updated": 0, "fail": 0, "skipped_by_inpo": skipped_by_inpo, "elapsed_s": 0.0}
 
     # 페이지네이션
     num_of_rows = 999
@@ -877,7 +980,7 @@ def collect_g2b_yega_detail(db: Session, days_back: int = 7) -> dict:
         batch_inserted = batch_updated = 0
         for item in items_raw:
             ano = item.get("bidNtceNo", "")
-            if ano not in known_nos:
+            if ano not in target_nos:
                 continue
             sno_raw = item.get("compnoRsrvtnPrceSno")
             if not sno_raw:
@@ -936,10 +1039,16 @@ def collect_g2b_yega_detail(db: Session, days_back: int = 7) -> dict:
 
     elapsed = time.monotonic() - t0
     logger.info(
-        "G2B 예가상세 수집 완료: inserted={} fail={} pages={} ({:.1f}s)",
-        inserted, fail, pages, elapsed,
+        "G2B 예가상세 수집 완료: inserted={} fail={} pages={} skipped_by_inpo={} ({:.1f}s)",
+        inserted, fail, pages, skipped_by_inpo, elapsed,
     )
-    return {"inserted": inserted, "fail": fail, "pages": pages, "elapsed_s": round(elapsed, 1)}
+    return {
+        "inserted": inserted,
+        "fail": fail,
+        "pages": pages,
+        "skipped_by_inpo": skipped_by_inpo,
+        "elapsed_s": round(elapsed, 1),
+    }
 
 
 def _upsert_agency_by_code(db: Session, code: str | None, name: str) -> Agency:
@@ -1131,3 +1240,326 @@ def backfill_historical_bids(
         "fail": fail,
         "elapsed_s": round(elapsed, 1),
     }
+
+
+# ================================================================== #
+# Phase 2: 사전규격 수집 (HrcspSsstndrdInfoService)                   #
+# ================================================================== #
+
+def collect_pre_spec_notices(db: Session, days_back: int = 1) -> dict:
+    """
+    사전규격 공사 목록 수집 (getPublicPrcureThngInfoCnstwk).
+
+    등록일시 기준 days_back일 범위 조회 → pre_spec_notices 테이블 upsert.
+    수집 후 기관명 기반으로 bids 테이블과 자동 매핑.
+    """
+    from app.config import get_settings
+    from sqlalchemy import text as _t
+    from datetime import datetime, timedelta, timezone
+    import json as _json
+
+    settings = get_settings()
+    client = NarajangterClient(api_key=settings.g2b_api_key)
+
+    now = datetime.now(timezone.utc) + timedelta(hours=9)  # KST
+    bgn_dt = (now - timedelta(days=days_back)).strftime("%Y%m%d%H%M")
+    end_dt = now.strftime("%Y%m%d%H%M")
+
+    inserted = fail = 0
+    t0 = time.monotonic()
+
+    def _si(v):
+        try: return int(str(v).replace(",", ""))
+        except: return None
+
+    def _parse_dt(v):
+        if not v: return None
+        s = str(v).strip().rstrip("Z")
+        for fmt, n in (
+            ("%Y-%m-%d %H:%M:%S", 19), ("%Y-%m-%dT%H:%M:%S", 19),
+            ("%Y%m%d%H%M%S", 14), ("%Y%m%d%H%M", 12),
+            ("%Y-%m-%d", 10), ("%Y%m%d", 8),
+        ):
+            try:
+                dt = datetime.strptime(s[:n], fmt)
+                return dt.replace(tzinfo=timezone.utc)
+            except (ValueError, TypeError):
+                pass
+        return None
+
+    try:
+        for items in client.paginate_pre_spec(bgn_dt, end_dt, inqry_div=1):
+            for item in items:
+                pre_spec_no = (
+                    item.get("bfSpecRgstNo") or item.get("prcrmntReqNo") or ""
+                )
+                if not pre_spec_no:
+                    continue
+                try:
+                    doc_files = []
+                    for fk in ("atchFileDwnldUrl", "fileUrl", "rltnDocRgstNo"):
+                        v = item.get(fk)
+                        if v:
+                            doc_files.append({"url": str(v), "key": fk})
+
+                    db.execute(_t("""
+                        INSERT INTO pre_spec_notices
+                            (pre_spec_no, title, order_agency, demand_agency,
+                             estimated_amount, industry_name, reg_date, changed_date,
+                             end_date, doc_files, source_data)
+                        VALUES
+                            (:no, :title, :order_ag, :demand_ag,
+                             :est, :industry, :reg_dt, :chg_dt,
+                             :end_dt, CAST(:docs AS jsonb), CAST(:src AS jsonb))
+                        ON CONFLICT (pre_spec_no) DO UPDATE SET
+                            title            = EXCLUDED.title,
+                            order_agency     = EXCLUDED.order_agency,
+                            demand_agency    = EXCLUDED.demand_agency,
+                            estimated_amount = EXCLUDED.estimated_amount,
+                            industry_name    = EXCLUDED.industry_name,
+                            reg_date         = COALESCE(EXCLUDED.reg_date, pre_spec_notices.reg_date),
+                            changed_date     = EXCLUDED.changed_date,
+                            end_date         = EXCLUDED.end_date,
+                            doc_files        = EXCLUDED.doc_files,
+                            source_data      = EXCLUDED.source_data,
+                            updated_at       = NOW()
+                    """), {
+                        "no":        pre_spec_no,
+                        "title":     item.get("prdctClsfcNoNm") or item.get("bfSpecTitle") or item.get("prdctNm") or "",
+                        "order_ag":  item.get("ntceInsttNm") or item.get("orderInsttNm") or item.get("bidNtceInstNm"),
+                        "demand_ag": item.get("rlDminsttNm") or item.get("dminsttNm"),
+                        "est":       _si(item.get("presmptPrce") or item.get("asignBdgtAmt")),
+                        "industry":  item.get("indutyNm") or item.get("prdctClsfcNoNm"),
+                        "reg_dt":    _parse_dt(item.get("rgstDt") or item.get("bfSpecRgstDt") or item.get("registDt")),
+                        "chg_dt":    _parse_dt(item.get("chgDt") or item.get("bfSpecChngDt")),
+                        "end_dt":    _parse_dt(item.get("opninRgstClseDt") or item.get("opninRcptDt") or item.get("pubPurpDt")),
+                        "docs":      _json.dumps(doc_files),
+                        "src":       _json.dumps(item, ensure_ascii=False, default=str),
+                    })
+                    inserted += 1
+                except Exception as exc:
+                    fail += 1
+                    logger.warning("사전규격 upsert 실패 {}: {}", pre_spec_no, exc)
+
+            try:
+                db.commit()
+            except Exception as exc:
+                db.rollback()
+                logger.warning("사전규격 배치 커밋 실패: {}", exc)
+
+    except Exception as exc:
+        logger.error("사전규격 수집 실패 (API 오류 포함): {}", exc)
+
+    # 공고 매핑: 기관명 기반
+    try:
+        matched = db.execute(_t("""
+            UPDATE pre_spec_notices ps
+            SET bid_announcement_no = b.announcement_no,
+                bid_id = b.id,
+                matched_at = NOW()
+            FROM bids b
+            JOIN agencies a ON a.id = b.agency_id
+            WHERE (a.name = ps.order_agency OR a.name LIKE '%' || ps.order_agency || '%')
+              AND b.notice_date >= (ps.reg_date::date - INTERVAL '14 days')
+              AND b.notice_date <= (ps.reg_date::date + INTERVAL '90 days')
+              AND ps.bid_id IS NULL
+              AND ps.order_agency IS NOT NULL
+        """)).rowcount
+        db.commit()
+        logger.info("사전규격→공고 매핑: {}건", matched)
+    except Exception as exc:
+        db.rollback()
+        logger.warning("사전규격 공고 매핑 실패: {}", exc)
+
+    elapsed = time.monotonic() - t0
+    logger.info("사전규격 수집 완료: upsert={} fail={} ({:.1f}s)", inserted, fail, elapsed)
+    return {"upserted": inserted, "fail": fail, "elapsed_s": round(elapsed, 1)}
+
+
+def match_pre_spec_to_bids(db: Session) -> dict:
+    """사전규격 → 공고 매핑 재실행 (정오 스케줄러에서 호출)."""
+    from sqlalchemy import text as _t
+
+    try:
+        matched = db.execute(_t("""
+            UPDATE pre_spec_notices ps
+            SET bid_announcement_no = b.announcement_no,
+                bid_id = b.id,
+                matched_at = NOW()
+            FROM bids b
+            JOIN agencies a ON a.id = b.agency_id
+            WHERE (
+                a.name = ps.order_agency
+                OR a.name LIKE '%' || ps.order_agency || '%'
+                OR ps.order_agency LIKE '%' || a.name || '%'
+            )
+              AND b.notice_date >= (ps.reg_date::date - INTERVAL '14 days')
+              AND b.notice_date <= (ps.reg_date::date + INTERVAL '90 days')
+              AND ps.bid_id IS NULL
+              AND ps.order_agency IS NOT NULL
+              AND ps.reg_date >= NOW() - INTERVAL '6 months'
+        """)).rowcount
+        db.commit()
+        logger.info("사전규격 공고 매핑 완료: {}건", matched)
+        return {"matched": matched}
+    except Exception as exc:
+        db.rollback()
+        logger.error("사전규격 공고 매핑 실패: {}", exc)
+        return {"matched": 0, "error": str(exc)}
+
+
+# ================================================================== #
+# Phase 3: 계약정보 수집 (CntrctInfoService)                          #
+# ================================================================== #
+
+def collect_bid_contracts(db: Session, days_back: int = 1) -> dict:
+    """
+    나라장터 계약현황 공사 수집 (getCntrctInfoListCnstwkPPSSrch).
+
+    계약체결일 기준 days_back일 범위 조회 → bid_contracts 테이블 upsert.
+    공고번호로 bids.id 자동 매핑.
+    """
+    from app.config import get_settings
+    from sqlalchemy import text as _t
+    from datetime import datetime, timedelta, timezone
+    import json as _json
+
+    settings = get_settings()
+    client = NarajangterClient(api_key=settings.g2b_api_key)
+
+    now = datetime.now(timezone.utc) + timedelta(hours=9)  # KST
+    bgn_date = (now - timedelta(days=days_back)).strftime("%Y%m%d")
+    end_date = now.strftime("%Y%m%d")
+
+    inserted = fail = 0
+    t0 = time.monotonic()
+
+    def _si(v):
+        try: return int(str(v).replace(",", ""))
+        except: return None
+
+    def _parse_date(v):
+        if not v: return None
+        s = str(v).strip()
+        for fmt, n in (("%Y-%m-%d", 10), ("%Y%m%d", 8)):
+            try: return datetime.strptime(s[:n], fmt).date()
+            except: pass
+        return None
+
+    def _parse_corp_list(v):
+        """corpList 문자열 파싱: '[seq^role^type^name^...]' → list of dicts"""
+        if not v: return []
+        if isinstance(v, list): return v
+        s = str(v).strip().lstrip("[").rstrip("]")
+        if not s: return []
+        items = []
+        for seg in s.split("],["):
+            parts = seg.split("^")
+            if len(parts) >= 4:
+                items.append({
+                    "seq": parts[0], "role": parts[1], "type": parts[2],
+                    "corpNm": parts[3], "bizRegNo": parts[8] if len(parts) > 8 else None,
+                })
+        return items
+
+    try:
+        for items in client.paginate_contracts(bgn_date, end_date, inqry_div=1):
+            for item in items:
+                unty_no = item.get("untyCntrctNo") or item.get("cntrctNo", "")
+                if not unty_no:
+                    continue
+
+                ntce_no = item.get("ntceNo") or item.get("bidNtceNo") or ""
+                company_list = item.get("bizList") or item.get("cmpnyList") or []
+                if isinstance(company_list, dict):
+                    company_list = [company_list]
+                demand_agencies = item.get("dminsttList") or item.get("rlDminsttList") or []
+                if isinstance(demand_agencies, dict):
+                    demand_agencies = [demand_agencies]
+
+                try:
+                    corp_list = _parse_corp_list(
+                        item.get("corpList") or item.get("bizList") or item.get("cmpnyList") or []
+                    )
+                    db.execute(_t("""
+                        INSERT INTO bid_contracts
+                            (unty_cntrct_no, dcsn_cntrct_no, announcement_no,
+                             contract_name, agency_code, agency_name,
+                             total_amount, this_amount, contract_date,
+                             start_date, completion_date, final_completion_date,
+                             joint_contract, long_term_div, contract_method,
+                             company_list, demand_agencies, source_data)
+                        VALUES
+                            (:unty, :dcsn, :ntce,
+                             :name, :ag_code, :ag_name,
+                             :total, :this_amt, :cdate,
+                             :sdate, :compdate, :fcompdate,
+                             :joint, :longterm, :method,
+                             CAST(:companies AS jsonb), CAST(:demands AS jsonb), CAST(:src AS jsonb))
+                        ON CONFLICT (unty_cntrct_no) DO UPDATE SET
+                            contract_name         = EXCLUDED.contract_name,
+                            total_amount          = EXCLUDED.total_amount,
+                            this_amount           = EXCLUDED.this_amount,
+                            contract_date         = EXCLUDED.contract_date,
+                            start_date            = EXCLUDED.start_date,
+                            completion_date       = EXCLUDED.completion_date,
+                            final_completion_date = EXCLUDED.final_completion_date,
+                            joint_contract        = EXCLUDED.joint_contract,
+                            contract_method       = EXCLUDED.contract_method,
+                            company_list          = EXCLUDED.company_list,
+                            demand_agencies       = EXCLUDED.demand_agencies,
+                            source_data           = EXCLUDED.source_data,
+                            updated_at            = NOW()
+                    """), {
+                        "unty":      unty_no,
+                        "dcsn":      item.get("dcsnCntrctNo"),
+                        "ntce":      ntce_no,
+                        "name":      item.get("cnstwkNm") or item.get("cntrctNm") or item.get("bidNtceNm") or "",
+                        "ag_code":   item.get("cntrctInsttCd") or item.get("instCd"),
+                        "ag_name":   item.get("cntrctInsttNm") or item.get("instNm"),
+                        "total":     _si(item.get("totCntrctAmt") or item.get("ttlCntrctAmt")),
+                        "this_amt":  _si(item.get("thtmCntrctAmt") or item.get("thisCntrctAmt") or item.get("cntrctAmt")),
+                        "cdate":     _parse_date(item.get("cntrctDate") or item.get("cntrctCnclsDate") or item.get("cntrctCnclsDt")),
+                        "sdate":     _parse_date(item.get("cbgnDate") or item.get("strtDt") or item.get("cnstwkBgngDt")),
+                        "compdate":  _parse_date(item.get("thtmCcmpltDate") or item.get("thisCmptnDt") or item.get("cmptnDt")),
+                        "fcompdate": _parse_date(item.get("ttalCcmpltDate") or item.get("totCmptnDt")),
+                        "joint":     item.get("cmmnCntrctYn") or item.get("jntContrYn") or item.get("cmmnSpldmdAgrmntYn"),
+                        "longterm":  item.get("lngtrmCtnuDivNm") or item.get("lttrmCntnDivNm"),
+                        "method":    item.get("cntrctCnclsMthdNm") or item.get("cntrctMthdNm"),
+                        "companies": _json.dumps(corp_list, ensure_ascii=False, default=str),
+                        "demands":   _json.dumps(demand_agencies if isinstance(demand_agencies, list) else [], ensure_ascii=False, default=str),
+                        "src":       _json.dumps(item, ensure_ascii=False, default=str),
+                    })
+                    inserted += 1
+                except Exception as exc:
+                    fail += 1
+                    logger.warning("계약정보 upsert 실패 {}: {}", unty_no, exc)
+
+            try:
+                db.commit()
+            except Exception as exc:
+                db.rollback()
+                logger.warning("계약정보 배치 커밋 실패: {}", exc)
+
+    except Exception as exc:
+        logger.error("계약정보 수집 실패 (API 오류 포함): {}", exc)
+
+    # bid_id 자동 매핑
+    try:
+        bid_mapped = db.execute(_t("""
+            UPDATE bid_contracts bc
+            SET bid_id = b.id
+            FROM bids b
+            WHERE b.announcement_no = bc.announcement_no
+              AND bc.bid_id IS NULL
+              AND bc.announcement_no != ''
+        """)).rowcount
+        db.commit()
+        logger.info("계약정보→bids 매핑: {}건", bid_mapped)
+    except Exception as exc:
+        db.rollback()
+        logger.warning("계약정보 bids 매핑 실패: {}", exc)
+
+    elapsed = time.monotonic() - t0
+    logger.info("계약정보 수집 완료: upsert={} fail={} ({:.1f}s)", inserted, fail, elapsed)
+    return {"upserted": inserted, "fail": fail, "elapsed_s": round(elapsed, 1)}

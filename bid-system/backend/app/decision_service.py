@@ -8,6 +8,7 @@ from .ml.simulation import (
     scan_zones_from_dist, monte_carlo_win_prob_gmm,
 )
 from .ml.personal import PersonalBiasAnalyzer
+from .ml.features_p4 import load_p4_features
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,18 @@ class DecisionService:
             except Exception:
                 pass
 
+        # Phase 4: 사전규격·계약정보 피처
+        p4 = {}
+        try:
+            p4 = load_p4_features(
+                db,
+                agency_id=b.agency_id,
+                bid_id=b.id,
+                announcement_no=b.announcement_no,
+            )
+        except Exception:
+            pass
+
         return {
             "bid_id":               b.id,
             "announcement_no":      b.announcement_no,
@@ -113,6 +126,11 @@ class DecisionService:
                 "confidence":      agency_profile.get("confidence"),
             } if agency_profile else None,
             "personal_bias":        personal_bias,
+            # Phase 4 피처
+            "pre_spec_gap_days":    p4.get("pre_spec_gap_days"),
+            "has_pre_spec":         p4.get("has_pre_spec", False),
+            "agency_contract_freq": p4.get("agency_contract_freq"),
+            "joint_bid_prob":       p4.get("joint_bid_prob"),
         }
 
     def simulate_bid(self, db: Session, bid_id: int, req) -> dict:

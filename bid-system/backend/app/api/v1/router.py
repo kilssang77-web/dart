@@ -21,6 +21,9 @@ from .executions import router as executions_router
 from .backtest   import router as backtest_router
 from .decision   import router as decision_router
 from .journal    import router as journal_router
+# Phase 2/3 — 사전규격·계약정보
+from .pre_spec   import router as pre_spec_router
+from .contracts  import router as contracts_router
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -46,3 +49,5 @@ api_router.include_router(executions_router)
 api_router.include_router(backtest_router)
 api_router.include_router(decision_router)
 api_router.include_router(journal_router)
+api_router.include_router(pre_spec_router)
+api_router.include_router(contracts_router)
