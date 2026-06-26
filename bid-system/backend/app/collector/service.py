@@ -1447,7 +1447,10 @@ def collect_bid_contracts(db: Session, days_back: int = 1) -> dict:
         return None
 
     def _parse_corp_list(v):
-        """corpList 문자열 파싱: '[seq^role^type^name^...]' → list of dicts"""
+        """corpList 문자열 파싱.
+        형식: [seq^role^type^corpNm^ofclNm^nation^share^corpNm2^empty^bizRegNo]
+        bizRegNo는 index 9 (10번째 필드).
+        """
         if not v: return []
         if isinstance(v, list): return v
         s = str(v).strip().lstrip("[").rstrip("]")
@@ -1456,9 +1459,11 @@ def collect_bid_contracts(db: Session, days_back: int = 1) -> dict:
         for seg in s.split("],["):
             parts = seg.split("^")
             if len(parts) >= 4:
+                biz = parts[9].strip() if len(parts) > 9 else ""
                 items.append({
                     "seq": parts[0], "role": parts[1], "type": parts[2],
-                    "corpNm": parts[3], "bizRegNo": parts[8] if len(parts) > 8 else None,
+                    "corpNm": parts[3],
+                    "bizRegNo": biz if biz else None,
                 })
         return items
 
@@ -1498,6 +1503,7 @@ def collect_bid_contracts(db: Session, days_back: int = 1) -> dict:
                              CAST(:companies AS jsonb), CAST(:demands AS jsonb), CAST(:src AS jsonb))
                         ON CONFLICT (unty_cntrct_no) DO UPDATE SET
                             contract_name         = EXCLUDED.contract_name,
+                            announcement_no       = COALESCE(EXCLUDED.announcement_no, bid_contracts.announcement_no),
                             total_amount          = EXCLUDED.total_amount,
                             this_amount           = EXCLUDED.this_amount,
                             contract_date         = EXCLUDED.contract_date,

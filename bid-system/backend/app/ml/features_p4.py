@@ -134,26 +134,25 @@ def load_p4_features(
     if competitor_biz_reg_nos:
         try:
             today = datetime.now(timezone.utc).date()
-            # company_list (JSONB 배열)에 경쟁사 사업자번호가 포함된 현재 진행 계약 수
-            placeholders = ", ".join(f":brn{i}" for i in range(len(competitor_biz_reg_nos)))
-            params = {f"brn{i}": v for i, v in enumerate(competitor_biz_reg_nos)}
-            params["today"] = today
+            busy_count = 0
+            for brn in competitor_biz_reg_nos:
+                if not brn:
+                    continue
+                row = db.execute(text("""
+                    SELECT COUNT(*) FROM bid_contracts
+                    WHERE start_date <= :today
+                      AND (completion_date IS NULL OR completion_date >= :today)
+                      AND EXISTS (
+                          SELECT 1 FROM jsonb_array_elements(company_list) AS el
+                          WHERE el->>'bizRegNo' = :brn
+                      )
+                """), {"today": today, "brn": brn}).fetchone()
+                if row:
+                    busy_count += (row[0] or 0)
 
-            # JSONB 배열에서 bizRegNo 검색 (간단히 CAST text 포함 여부로)
-            cnt_row = db.execute(text(f"""
-                SELECT COUNT(*) FROM bid_contracts
-                WHERE (
-                    start_date <= :today
-                    AND (completion_date IS NULL OR completion_date >= :today)
-                )
-                AND company_list::text ~ ANY(ARRAY[{placeholders}])
-            """), params).fetchone()
-
-            if cnt_row and cnt_row[0] is not None:
-                busy_count = cnt_row[0]
-                n_comp = len(competitor_biz_reg_nos)
-                score = min(10.0, (busy_count / max(1, n_comp)) * 2.5)
-                result["competitor_busy_score"] = round(score, 2)
+            n_comp = max(1, len([b for b in competitor_biz_reg_nos if b]))
+            score = min(10.0, (busy_count / n_comp) * 2.5)
+            result["competitor_busy_score"] = round(score, 2)
         except Exception:
             pass
 
