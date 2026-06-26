@@ -41,7 +41,7 @@ export function SystemBanner() {
     warnings.push({ level: 'error', msg: 'ML 모델 미로드 — 추천 기능이 비활성화됩니다.' })
   }
 
-  if (data.data.pattern_vector_coverage < 10) {
+  if (data.data.pattern_vector_coverage > 0 && data.data.pattern_vector_coverage < 30) {
     warnings.push({ level: 'warn', msg: `패턴 벡터 커버리지 ${data.data.pattern_vector_coverage.toFixed(1)}% — 유사종목 검색 정확도가 낮습니다.` })
   }
 

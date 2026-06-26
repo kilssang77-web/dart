@@ -77,15 +77,16 @@ async def system_status(
     except Exception:
         pass
 
-    # Redis 재시작 등으로 stats:vector_count 키가 없으면 DB에서 직접 조회 후 캐시 복구
+    # Redis 재시작 등으로 stats:vector_count 키가 없으면 근사치로 즉시 복구
+    # SELECT COUNT(*) 는 1.7M 행에서 15초 소요 — approximate_row_count 사용
     if vec == 0 and ev > 0:
         try:
             vec_db = await db.fetchval(
-                "SELECT COUNT(*) FROM feature_events WHERE pattern_vector IS NOT NULL"
+                "SELECT approximate_row_count('feature_events')"
             )
             vec = int(vec_db or 0)
             if vec > 0:
-                await redis.set("stats:vector_count", vec, ex=60 * 60 * 72)
+                await redis.set("stats:vector_count", vec, ex=300)  # 5분 캐시 (추정치)
         except Exception as e:
             logger.warning(f"vector_count fallback failed: {e}")
 
