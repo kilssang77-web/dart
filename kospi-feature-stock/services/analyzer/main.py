@@ -261,6 +261,53 @@ class AnalyzerService:
                 if row_code:
                     resolved_code = row_code["code"]
 
+            # ── 시총 대비 계약 금액 비율 보정 ─────────────────────────────────────
+            if resolved_code and amount and amount > 0 and sentiment_score > 0:
+                try:
+                    mk_row = await conn.fetchrow(
+                        "SELECT market_cap FROM stocks WHERE code=$1", resolved_code
+                    )
+                    if mk_row and mk_row["market_cap"] and mk_row["market_cap"] > 0:
+                        ratio = amount / mk_row["market_cap"]
+                        if ratio >= 0.10:
+                            sentiment_score = round(min(1.0, sentiment_score + 0.12), 3)
+                        elif ratio >= 0.05:
+                            sentiment_score = round(min(1.0, sentiment_score + 0.06), 3)
+                        clf["keywords"].append(f"시총대비{ratio*100:.0f}%계약")
+                except Exception as e:
+                    logger.debug(f"[Disclosure] market_cap ratio error: {e}")
+
+            # ── 반복 공시 탐지 (30일 내 동일 카테고리 3건+ → 신뢰도 하락) ──────────
+            repeat_flag = False
+            if resolved_code and clf["category"] == "favorable":
+                try:
+                    recent_cnt = await conn.fetchval(
+                        """
+                        SELECT COUNT(*) FROM disclosures
+                        WHERE code=$1 AND category='favorable'
+                          AND disclosed_at >= NOW() - INTERVAL '30 days'
+                        """,
+                        resolved_code,
+                    )
+                    if recent_cnt and recent_cnt >= 3:
+                        sentiment_score = round(sentiment_score * 0.75, 3)
+                        repeat_flag = True
+                        clf["keywords"].append("반복공시할인")
+                        logger.info(f"[Disclosure] Repeat favorable disclosure detected: {resolved_code} (cnt={recent_cnt})")
+                except Exception as e:
+                    logger.debug(f"[Disclosure] repetition check error: {e}")
+
+            # sentiment_score 재클램핑
+            sentiment_score = round(max(-1.0, min(1.0, sentiment_score)), 3)
+            # category 재결정 (보정 후 임계값 재적용)
+            _POS_THR_VAL = float(os.environ.get("DISCLOSURE_POS_THR", "0.10"))
+            _NEG_THR_VAL = float(os.environ.get("DISCLOSURE_NEG_THR", "-0.10"))
+            if sentiment_score >= _POS_THR_VAL:
+                clf["category"] = "favorable"
+            elif sentiment_score <= _NEG_THR_VAL:
+                clf["category"] = "unfavorable"
+            else:
+                clf["category"] = "neutral"
             await conn.execute(
                 """
                 INSERT INTO disclosures (

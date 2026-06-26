@@ -22,11 +22,16 @@ logger = logging.getLogger("notifier.price_alert")
 _KST = timezone(timedelta(hours=9))
 
 # 환경 변수
-_POLL_INTERVAL   = int(os.environ.get("PRICE_ALERT_INTERVAL_SEC",   "60"))
-_STOP_WARN_PCT   = float(os.environ.get("PRICE_ALERT_STOP_WARN_PCT", "0.03"))  # 손절가 3% 이내
-_TARGET_DEDUP_TTL = int(os.environ.get("PRICE_ALERT_TARGET_TTL",    "86400"))  # 익절 알림 24시간 중복 방지
-_STOP_WARN_TTL   = int(os.environ.get("PRICE_ALERT_STOP_WARN_TTL",  "3600"))   # 경고 1시간 중복 방지
-_STOP_HIT_TTL    = int(os.environ.get("PRICE_ALERT_STOP_HIT_TTL",   "86400"))  # 손절 알림 24시간 중복 방지
+_POLL_INTERVAL    = int(os.environ.get("PRICE_ALERT_INTERVAL_SEC",   "60"))
+_STOP_WARN_PCT    = float(os.environ.get("PRICE_ALERT_STOP_WARN_PCT", "0.03"))  # 손절가 3% 이내
+_TARGET_DEDUP_TTL = int(os.environ.get("PRICE_ALERT_TARGET_TTL",     "86400"))  # 익절 알림 24시간 중복 방지
+_STOP_WARN_TTL    = int(os.environ.get("PRICE_ALERT_STOP_WARN_TTL",  "3600"))   # 경고 1시간 중복 방지
+_STOP_HIT_TTL     = int(os.environ.get("PRICE_ALERT_STOP_HIT_TTL",   "86400"))  # 손절 알림 24시간 중복 방지
+
+# 트레일링 스탑 파라미터
+_TRAIL_STOP_PCT   = float(os.environ.get("TRAILING_STOP_PCT",        "0.08"))   # 고점 대비 8% 하락 시 청산
+_TRAIL_MIN_GAIN   = float(os.environ.get("TRAILING_MIN_GAIN_PCT",    "0.03"))   # 3% 이상 수익 시 트레일링 활성화
+_TRAIL_TTL        = 30 * 24 * 3600  # 30일 TTL
 
 # 장 시간: 09:00~15:30 KST 만 동작 (야간 오알림 방지)
 _MARKET_OPEN  = (9, 0)
@@ -147,7 +152,17 @@ class PriceAlertMonitor:
                 await self._redis.set(key, "1", ex=_TARGET_DEDUP_TTL)
             return
 
-        # ② 손절가 도달
+        # ② 트레일링 스탑 갱신 + 트리거
+        trail_stop = await self._update_trailing_stop(rec_id, entry, stop, current)
+        if trail_stop and current <= trail_stop:
+            key = f"alert:trail_stop:{rec_id}"
+            if not await self._redis.exists(key):
+                payload["trail_stop_price"] = trail_stop
+                await self._send(payload, "trail_stop_hit")
+                await self._redis.set(key, "1", ex=_STOP_HIT_TTL)
+            return
+
+        # ③ 손절가 도달
         if current <= stop:
             key = f"alert:stop_hit:{rec_id}"
             if not await self._redis.exists(key):
@@ -155,7 +170,7 @@ class PriceAlertMonitor:
                 await self._redis.set(key, "1", ex=_STOP_HIT_TTL)
             return
 
-        # ③ 손절가 _STOP_WARN_PCT 이내 접근 (손절가 대비 거리)
+        # ④ 손절가 _STOP_WARN_PCT 이내 접근 (손절가 대비 거리)
         if stop > 0:
             dist = (current - stop) / stop
             if 0 < dist < _STOP_WARN_PCT:
@@ -164,13 +179,37 @@ class PriceAlertMonitor:
                     await self._send(payload, "stop_approach")
                     await self._redis.set(key, "1", ex=_STOP_WARN_TTL)
 
+    async def _update_trailing_stop(
+        self, rec_id: int, entry: int, original_stop: int, current: int
+    ) -> int | None:
+        """고점 갱신 후 트레일링 스탑 계산. 트레일링 스탑이 활성화된 경우 그 값을 반환."""
+        if not entry:
+            return None
+        # 진입가 대비 현재 수익률이 _TRAIL_MIN_GAIN 미만이면 트레일링 비활성
+        gain = (current - entry) / entry
+        if gain < _TRAIL_MIN_GAIN:
+            return None
+
+        peak_key  = f"trail:peak:{rec_id}"
+        raw_peak  = await self._redis.get(peak_key)
+        peak      = int(raw_peak) if raw_peak else current
+        if current > peak:
+            peak = current
+            await self._redis.set(peak_key, str(peak), ex=_TRAIL_TTL)
+
+        trail_stop = int(peak * (1 - _TRAIL_STOP_PCT))
+        # 트레일링 스탑이 원래 손절가보다 높아야만 활성화 (보호 역할)
+        if trail_stop <= original_stop:
+            return None
+        return trail_stop
+
     async def _send(self, payload: dict, alert_type: str):
         payload["alert_type"] = alert_type
         text = format_price_alert(payload)
         code = payload.get("code", "")
         name = payload.get("name", code)
 
-        _label = {"target_hit": "익절가 도달", "stop_approach": "손절가 접근", "stop_hit": "손절가 도달"}
+        _label = {"target_hit": "익절가 도달", "stop_approach": "손절가 접근", "stop_hit": "손절가 도달", "trail_stop_hit": "트레일링 스탑 도달"}
         logger.info(f"[PriceAlert] {_label.get(alert_type, alert_type)}: {name}({code}) "
                     f"현재가={payload.get('current_price')}")
 

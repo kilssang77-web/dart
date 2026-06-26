@@ -197,6 +197,14 @@ export interface IndexLive {
   fetched_at?: string
 }
 
+export interface MarketRegime {
+  phase:         'bull' | 'neutral' | 'bear' | 'unknown'
+  kospi_price:   number | null
+  ma20:          number | null
+  pct_from_ma20: number | null
+  error?:        string
+}
+
 export const marketApi = {
   getSummary: () =>
     http.get<MarketSummary>('/market/summary').then((r) => r.data),
@@ -218,6 +226,9 @@ export const marketApi = {
 
   getDailyBars: (code: string, days = 120) =>
     http.get<DailyBar[]>(`/stocks/${code}/daily`, { params: { days } }).then((r) => r.data),
+
+  getMarketRegime: () =>
+    http.get<MarketRegime>('/ml/market-regime').then((r) => r.data),
 
   getModelMetrics: () =>
     http.get<ModelMetrics | null>('/ml/metrics').then((r) => r.data),

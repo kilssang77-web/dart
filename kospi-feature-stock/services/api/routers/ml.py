@@ -74,6 +74,56 @@ async def get_kafka_lag(redis: redis_lib.Redis = Depends(get_redis)):
         return {"total_lag": 0, "by_topic": {}, "error": str(e)}
 
 
+@router.get("/market-regime")
+async def get_market_regime(
+    redis: redis_lib.Redis = Depends(get_redis),
+    db: asyncpg.Pool = Depends(get_db),
+):
+    """KOSPI MA20 기준 시장 국면 반환. Redis 캐시 우선, 없으면 DB 조회."""
+    try:
+        cached = await redis.get("market:regime")
+        if cached:
+            return json.loads(cached)
+    except Exception:
+        pass
+
+    try:
+        rows = await db.fetch(
+            "SELECT close FROM daily_bars WHERE code='0001' ORDER BY date DESC LIMIT 25"
+        )
+        if not rows or len(rows) < 5:
+            return {"phase": "unknown", "kospi_price": None, "ma20": None, "pct_from_ma20": None}
+
+        closes = [float(r["close"]) for r in rows]
+        kospi_price = closes[0]
+        ma20 = sum(closes[:20]) / min(20, len(closes))
+        pct  = (kospi_price - ma20) / ma20 * 100
+
+        import os as _os
+        bear_thr = float(_os.environ.get("REGIME_BEAR_THRESHOLD", "-3.0"))
+        bull_thr = float(_os.environ.get("REGIME_BULL_THRESHOLD", "-0.5"))
+        if pct < bear_thr:
+            phase = "bear"
+        elif pct < bull_thr:
+            phase = "neutral"
+        else:
+            phase = "bull"
+
+        result = {
+            "phase":         phase,
+            "kospi_price":   round(kospi_price, 2),
+            "ma20":          round(ma20, 2),
+            "pct_from_ma20": round(pct, 2),
+        }
+        try:
+            await redis.set("market:regime", json.dumps(result), ex=1800)
+        except Exception:
+            pass
+        return result
+    except Exception as e:
+        return {"phase": "unknown", "error": str(e)}
+
+
 @router.get("/performance-trend")
 async def performance_trend(
     days: int = Query(default=30, le=180),

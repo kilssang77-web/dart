@@ -136,6 +136,25 @@ export function Backtest() {
     : undefined
   const totalReturn = equityFinal ? ((equityFinal - 1) * 100).toFixed(2) : null
 
+  // 스코어 임계값 민감도 분석 (trade_log의 signal_score 기준 클라이언트 사이드 필터링)
+  const scoreSensitivity = useMemo(() => {
+    const trades = result?.trade_log
+    if (!trades || trades.length === 0) return []
+    const thresholds = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+    return thresholds.map((thr) => {
+      const filtered = trades.filter((t) => (t.signal_score ?? 0) >= thr)
+      if (filtered.length === 0) return { thr, count: 0, win_rate: 0, avg_return: 0 }
+      const wins = filtered.filter((t) => t.pnl_pct > 0)
+      const avgRet = filtered.reduce((s, t) => s + t.pnl_pct, 0) / filtered.length
+      return {
+        thr,
+        count: filtered.length,
+        win_rate: (wins.length / filtered.length) * 100,
+        avg_return: avgRet,
+      }
+    }).filter((r) => r.count > 0)
+  }, [result?.trade_log])
+
   const loadSaved = (saved: SavedBacktestResult) => {
     setResult({
       params:       saved.params,
@@ -505,6 +524,76 @@ export function Backtest() {
                         <Area dataKey="drawdown" stroke="#f87171" fill="url(#ddGrad)" dot={false} strokeWidth={1} />
                       </AreaChart>
                     </ResponsiveContainer>
+                  </CardBody>
+                </Card>
+              )}
+
+              {/* 스코어 임계값 민감도 분석 */}
+              {scoreSensitivity.length > 1 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>스코어 임계값 최적화</CardTitle>
+                  </CardHeader>
+                  <CardBody className="pt-2 px-0 pb-0">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-[var(--border)] text-[var(--muted)] bg-[var(--bg)]/40">
+                            <th className="py-1.5 px-4 text-left">최소 스코어</th>
+                            <th className="py-1.5 px-3 text-right">거래 수</th>
+                            <th className="py-1.5 px-3 text-right">승률</th>
+                            <th className="py-1.5 px-3 text-right">평균 수익</th>
+                            <th className="py-1.5 px-3 text-right">추천</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(() => {
+                            const bestIdx = scoreSensitivity.reduce((bi, r, i) =>
+                              r.win_rate > scoreSensitivity[bi].win_rate ? i : bi, 0)
+                            return scoreSensitivity.map((row, i) => (
+                              <tr key={row.thr} className={clsx(
+                                'border-b border-[var(--border)]/60 transition-colors',
+                                i === bestIdx ? 'bg-green-500/8' : 'hover:bg-[var(--border)]/20',
+                              )}>
+                                <td className="py-1.5 px-4 font-medium text-[var(--fg)]">
+                                  {row.thr.toFixed(1)}
+                                  {Math.abs(row.thr - minScore) < 0.05 && (
+                                    <span className="ml-1.5 text-cyan-400 opacity-70">(현재)</span>
+                                  )}
+                                </td>
+                                <td className="py-1.5 px-3 text-right tabular text-[var(--muted)]">{row.count}</td>
+                                <td className={clsx('py-1.5 px-3 text-right tabular font-semibold',
+                                  row.win_rate >= 55 ? 'text-red-400' : row.win_rate >= 45 ? 'text-amber-400' : 'text-blue-400')}>
+                                  {row.win_rate.toFixed(1)}%
+                                </td>
+                                <td className={clsx('py-1.5 px-3 text-right tabular',
+                                  row.avg_return > 0 ? 'text-red-400' : 'text-blue-400')}>
+                                  {row.avg_return > 0 ? '+' : ''}{row.avg_return.toFixed(2)}%
+                                </td>
+                                <td className="py-1.5 px-3 text-right">
+                                  {i === bestIdx ? (
+                                    <button
+                                      onClick={() => setMinScore(row.thr)}
+                                      className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/15 text-green-400 border border-green-500/30 hover:bg-green-500/25 transition-colors"
+                                    >
+                                      ★ 최적 적용
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => setMinScore(row.thr)}
+                                      className="text-[10px] px-1.5 py-0.5 rounded text-[var(--muted)] hover:text-[var(--fg)] border border-[var(--border)] hover:border-cyan-500/40 transition-colors"
+                                    >
+                                      적용
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            ))
+                          })()}
+                        </tbody>
+                      </table>
+                      <p className="text-[10px] text-[var(--muted)] px-4 py-2">동일 기간·이벤트 유형 결과에서 신호 스코어 필터만 변경한 민감도 분석입니다.</p>
+                    </div>
                   </CardBody>
                 </Card>
               )}

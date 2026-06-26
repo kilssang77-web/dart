@@ -336,6 +336,69 @@ class LGBMTrainer:
         return entry_labels, risk_labels
 
     @staticmethod
+    def make_labels_target_hit(
+        feat_df: pd.DataFrame,
+        raw_df: pd.DataFrame,
+        fwd: int = 5,
+        target_pct: float = 10.0,
+        stop_pct: float = 5.0,
+    ) -> "tuple[pd.Series, pd.Series]":
+        """
+        현실적 레이블: 다음 fwd 거래일 내 고가(high)가 목표가 달성 + 저가(low)가 손절 미발생.
+        - entry_label = 1 if max(high[i+1..i+fwd]) >= close[i] * (1+target_pct%) AND
+                           min(low[i+1..i+fwd])  >= close[i] * (1-stop_pct%)
+        - risk_label  = 1 if min(low[i+1..i+fwd]) <= close[i] * (1-stop_pct%)
+        high/low 컬럼 없으면 close로 대체.
+        """
+        rdf = raw_df[["code", "date", "close"]].copy()
+        rdf["high"] = raw_df["high"] if "high" in raw_df.columns else raw_df["close"]
+        rdf["low"]  = raw_df["low"]  if "low"  in raw_df.columns else raw_df["close"]
+        rdf["date"] = pd.to_datetime(rdf["date"])
+        rdf = rdf.sort_values(["code", "date"]).reset_index(drop=True)
+
+        grp_high = rdf.groupby("code", sort=False)["high"]
+        grp_low  = rdf.groupby("code", sort=False)["low"]
+
+        # 다음 fwd 바의 고가 최대 / 저가 최소 (코드 내 shift → 누수 없음)
+        max_fwd_high = pd.DataFrame(
+            {k: grp_high.shift(-k) for k in range(1, fwd + 1)}
+        ).max(axis=1)
+        min_fwd_low = pd.DataFrame(
+            {k: grp_low.shift(-k) for k in range(1, fwd + 1)}
+        ).min(axis=1)
+
+        target_price = rdf["close"] * (1 + target_pct / 100)
+        stop_price   = rdf["close"] * (1 - stop_pct / 100)
+
+        rdf["entry_label"] = np.where(
+            max_fwd_high.notna() & min_fwd_low.notna(),
+            ((max_fwd_high >= target_price) & (min_fwd_low >= stop_price)).astype(float),
+            np.nan,
+        )
+        rdf["risk_label"] = np.where(
+            min_fwd_low.notna(),
+            (min_fwd_low <= stop_price).astype(float),
+            np.nan,
+        )
+
+        if feat_df.empty or "__date" not in feat_df.columns:
+            empty = pd.Series(dtype="float64")
+            return empty, empty
+
+        fdf = feat_df[["__date", "__code"]].copy()
+        fdf["date"] = pd.to_datetime(fdf["__date"])
+        fdf["code"] = fdf["__code"]
+
+        merged = fdf[["code", "date"]].merge(
+            rdf[["code", "date", "entry_label", "risk_label"]],
+            on=["code", "date"], how="left",
+        )
+        return (
+            pd.Series(merged["entry_label"].values, dtype="float64"),
+            pd.Series(merged["risk_label"].values, dtype="float64"),
+        )
+
+    @staticmethod
     def make_labels_relative(
         feat_df: pd.DataFrame,
         raw_df: pd.DataFrame,

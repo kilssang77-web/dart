@@ -17,7 +17,7 @@ import { fmt, pctColor, probToScore } from '@/lib/utils'
 import { useRealtimeStream, StreamFeature, StreamRecommendation } from '@/hooks/useRealtimeStream'
 import { EventDetailModal } from '@/components/modals/EventDetailModal'
 import type { FeatureEvent, Recommendation, TodaySummary, PerformanceStats } from '@/types'
-import type { IndexLive, MarketSummary, MarketMovers, MarketMover } from '@/api/market'
+import type { IndexLive, MarketSummary, MarketMovers, MarketMover, MarketRegime } from '@/api/market'
 
 // ── 이벤트 타입 아이콘 매핑 ─────────────────────────────────────────────────
 const EVENT_ICONS: Record<string, React.ReactNode> = {
@@ -43,18 +43,41 @@ function isRecent(isoDate?: string | null): boolean {
 }
 
 // ── ActionBar ────────────────────────────────────────────────────────────────
+function RegimePill({ regime }: { regime: MarketRegime | undefined }) {
+  if (!regime || regime.phase === 'unknown') return null
+  const colors = {
+    bull:    'border-green-500/30 text-green-400 bg-green-500/10',
+    neutral: 'border-amber-500/30 text-amber-400 bg-amber-500/10',
+    bear:    'border-red-500/30 text-red-400 bg-red-500/10',
+  }
+  const labels = { bull: '상승장', neutral: '중립장', bear: '하락장' }
+  const pct = regime.pct_from_ma20
+  return (
+    <span
+      className={clsx('text-xs px-2 py-0.5 rounded border font-medium flex items-center gap-1', colors[regime.phase])}
+      title={`KOSPI ${regime.kospi_price?.toLocaleString()} / MA20 ${regime.ma20?.toLocaleString()} (${pct != null ? (pct > 0 ? '+' : '') + pct.toFixed(1) + '%' : ''})`}
+    >
+      {regime.phase === 'bull' ? <TrendingUp size={10} /> : regime.phase === 'bear' ? <TrendingDown size={10} /> : <Minus size={10} />}
+      {labels[regime.phase]}
+      {pct != null && <span className="opacity-70 text-[10px]">({pct > 0 ? '+' : ''}{pct.toFixed(1)}%)</span>}
+    </span>
+  )
+}
+
 function ActionBar({
   buyCount,
   indexLive,
   mkSummary,
   mlMode,
   isRt,
+  regime,
 }: {
   buyCount:   number | undefined
   indexLive:  IndexLive | undefined
   mkSummary:  MarketSummary | undefined
   mlMode:     string | undefined
   isRt:       boolean
+  regime:     MarketRegime | undefined
 }) {
   const kospi  = indexLive?.kospi
   const kosdaq = indexLive?.kosdaq
@@ -113,6 +136,14 @@ function ActionBar({
             <span className="text-[var(--muted)]">|</span>
             <span className="text-blue-400 flex items-center gap-0.5"><ArrowDownRight size={12} />{mkSummary.decliners} 하락</span>
           </div>
+        </>
+      )}
+
+      {/* 시장 국면 */}
+      {regime && regime.phase !== 'unknown' && (
+        <>
+          <div className="w-px h-4 bg-[var(--border)]" />
+          <RegimePill regime={regime} />
         </>
       )}
 
@@ -628,6 +659,12 @@ export function Dashboard() {
     staleTime: 300_000,
   })
 
+  const { data: regime } = useQuery({
+    queryKey:        ['market-regime'],
+    queryFn:         marketApi.getMarketRegime,
+    refetchInterval: 300_000,
+  })
+
   const isRt = (indexLive as any)?.source === 'realtime'
   const buyCount = topRecs?.length
 
@@ -644,6 +681,7 @@ export function Dashboard() {
         mkSummary={mkSummary}
         mlMode={mlMode}
         isRt={isRt}
+        regime={regime}
       />
 
       {/* ── 2열 레이아웃: 피드(75%) + 요약(25%) ─────────────────────── */}

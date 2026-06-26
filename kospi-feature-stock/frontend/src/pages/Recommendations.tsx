@@ -2,9 +2,10 @@
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { TrendingUp, Shield, Zap, Target, X, ChevronRight, AlertTriangle, BrainCircuit, ExternalLink, Info, AlertCircle, ChevronDown } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, Shield, Zap, Target, X, ChevronRight, AlertTriangle, BrainCircuit, ExternalLink, Info, AlertCircle, ChevronDown } from 'lucide-react'
 import { recommendationsApi } from '@/api/recommendations'
 import type { SignalItem } from '@/api/recommendations'
+import { marketApi } from '@/api/market'
 import { Badge, ActionBadge, MarketBadge, EVENT_NAMES } from '@/components/ui/Badge'
 import { StatCard, Card, CardBody } from '@/components/ui/Card'
 import { fmt, pctColor, probColor, probToScore, scoreBarColor, recScoreBand } from '@/lib/utils'
@@ -598,6 +599,12 @@ export function Recommendations() {
 
   const buySignalCount = buyRecs?.length ?? 0
 
+  const { data: regime } = useQuery({
+    queryKey:        ['market-regime'],
+    queryFn:         marketApi.getMarketRegime,
+    refetchInterval: 300_000,
+  })
+
   // 현재 결과셋 기준 min-max 정규화 (1%~100%)
   const _probs   = recs?.map((r) => r.success_prob) ?? []
   const _probMin = _probs.length > 0 ? Math.min(..._probs) : 0
@@ -637,6 +644,31 @@ export function Recommendations() {
           valueColor="text-green-400"
         />
       </div>
+
+      {/* 시장 국면 배너 */}
+      {regime && regime.phase !== 'unknown' && (
+        <div className={clsx(
+          'flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm',
+          regime.phase === 'bull'    ? 'bg-green-500/8 border-green-500/25 text-green-400' :
+          regime.phase === 'neutral' ? 'bg-amber-500/8 border-amber-500/25 text-amber-400' :
+                                       'bg-red-500/8 border-red-500/25 text-red-400'
+        )}>
+          {regime.phase === 'bull' ? <TrendingUp size={15} /> : regime.phase === 'bear' ? <TrendingDown size={15} /> : <Minus size={15} />}
+          <span className="font-semibold">
+            {regime.phase === 'bull' ? '상승장' : regime.phase === 'bear' ? '하락장' : '중립장'}
+          </span>
+          <span className="text-xs opacity-70">
+            KOSPI {regime.kospi_price?.toLocaleString()} / MA20 {regime.ma20?.toLocaleString()}
+            {regime.pct_from_ma20 != null && ` (${regime.pct_from_ma20 > 0 ? '+' : ''}${regime.pct_from_ma20.toFixed(1)}%)`}
+          </span>
+          {regime.phase === 'bear' && (
+            <span className="ml-auto text-xs font-medium opacity-80">BUY 신호 진입 억제 중</span>
+          )}
+          {regime.phase === 'neutral' && (
+            <span className="ml-auto text-xs font-medium opacity-80">성공확률 12% 하향 조정 중</span>
+          )}
+        </div>
+      )}
 
       {/* 필터 바 */}
       <div className="flex flex-wrap items-center gap-3 p-4 bg-[var(--card)] border border-[var(--border)] rounded-xl">
