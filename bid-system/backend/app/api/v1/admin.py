@@ -160,6 +160,8 @@ def retrain_ml(
                 ])
                 for col in ["winner_rate","base_amount","competitor_count"]:
                     hist_df[col] = pd.to_numeric(hist_df[col], errors="coerce")
+                # tz-aware/naive 비교 오류 방지: UTC로 통일
+                hist_df["bid_open_date"] = pd.to_datetime(hist_df["bid_open_date"], utc=True)
 
                 records = []
                 for row in rows:
@@ -272,6 +274,9 @@ def retrain_ml(
                 results["gmm_error"] = str(e)
 
             logger.info("ML 재학습 완료: %s", results)
+        except Exception as _outer_exc:
+            import traceback as _tb
+            logger.error("ML 재학습 외부 예외: %s", _tb.format_exc())
         finally:
             db.close()
 
