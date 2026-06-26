@@ -1349,6 +1349,11 @@ class BidContextResponse(BaseModel):
     status:               Optional[str]
     agency_srate_profile: Optional[AgencySrateProfile] = None
     personal_bias:        Optional[PersonalBiasInfo] = None
+    # Phase 4 피처
+    has_pre_spec:         Optional[bool]  = None
+    pre_spec_gap_days:    Optional[int]   = None
+    agency_contract_freq: Optional[float] = None
+    joint_bid_prob:       Optional[float] = None
 
 
 class SimulateBidRequest(BaseModel):
