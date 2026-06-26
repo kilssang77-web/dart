@@ -71,28 +71,14 @@ async def lifespan(app: FastAPI):
         finally:
             db.close()
 
-    # admin 비밀번호 초기 생성 (존재하지 않을 때만) 또는 FORCE_RESET_ADMIN_PASSWORD=true일 때 강제 동기화
+    # admin 계정 보장 — 매 시작마다 .env의 FIRST_ADMIN_PASSWORD로 비밀번호 동기화.
+    # 이 방식으로 .env 수정 + 재시작만으로 항상 로그인 가능 상태 유지.
     _sync_db = SessionLocal()
     try:
-        from .models import User
-        from .common.security import hash_password, verify_password
-        _admin = _sync_db.query(User).filter(User.email == settings.first_admin_email).first()
-        if not _admin:
-            _sync_db.add(User(
-                email=settings.first_admin_email,
-                hashed_password=hash_password(settings.first_admin_password),
-                name="관리자",
-                role="admin",
-                department="IT",
-            ))
-            _sync_db.commit()
-            logger.info("admin 계정 생성 완료 (%s)", settings.first_admin_email)
-        elif settings.force_reset_admin_password:
-            _admin.hashed_password = hash_password(settings.first_admin_password)
-            _sync_db.commit()
-            logger.warning("⚠️  FORCE_RESET_ADMIN_PASSWORD=true — admin 비밀번호를 .env 값으로 강제 초기화했습니다 (%s)", settings.first_admin_email)
+        from .seed import ensure_admin_password
+        ensure_admin_password(_sync_db)
     except Exception as _sync_err:
-        logger.warning("admin 비밀번호 초기화 실패 (무시): %s", _sync_err)
+        logger.warning("admin 비밀번호 동기화 실패 (무시): %s", _sync_err)
     finally:
         _sync_db.close()
 

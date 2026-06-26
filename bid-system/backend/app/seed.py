@@ -176,6 +176,34 @@ def _seed_admin(db: Session):
         logger.info(f"관리자 계정 생성: {s.first_admin_email}")
 
 
+def ensure_admin_password(db: Session):
+    """서버 시작마다 호출 — .env의 FIRST_ADMIN_PASSWORD를 DB에 항상 동기화.
+
+    계정이 없으면 생성, 있으면 비밀번호를 .env 값으로 강제 업데이트.
+    이렇게 해야 .env 수정 → 재시작만으로 비밀번호가 복구된다.
+    """
+    from .config import get_settings
+    s = get_settings()
+    new_hash = hash_password(s.first_admin_password)
+    user = db.query(User).filter(User.email == s.first_admin_email).first()
+    if not user:
+        db.add(User(
+            email=s.first_admin_email,
+            hashed_password=new_hash,
+            name="관리자",
+            role="admin",
+            department="IT",
+            is_active=True,
+        ))
+        db.commit()
+        logger.info(f"관리자 계정 생성: {s.first_admin_email}")
+    else:
+        user.hashed_password = new_hash
+        user.is_active = True
+        db.commit()
+        logger.info(f"관리자 비밀번호 동기화 완료: {s.first_admin_email}")
+
+
 def _train_initial_model(db: Session):
     """시드 데이터로 초기 ML 모델 학습."""
     try:
