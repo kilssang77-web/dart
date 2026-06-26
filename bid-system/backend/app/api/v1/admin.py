@@ -129,6 +129,7 @@ def retrain_ml(
 
             # Engine B: 낙찰률 회귀 모델
             try:
+                train_cutoff = datetime.now() - timedelta(days=36*30)
                 rows = db.execute(text("""
                     SELECT b.id, b.agency_id, b.industry_id,
                            COALESCE(b.region_id, 0) AS region_id,
@@ -137,11 +138,12 @@ def retrain_ml(
                            b.construction_period, r.bid_rate
                     FROM bids b
                     JOIN bid_results r ON r.bid_id = b.id AND r.is_winner = true
-                    WHERE b.industry_id = ANY(ARRAY[20,24,31])
-                      AND b.base_amount > 0
+                    WHERE b.base_amount > 0
                       AND r.bid_rate BETWEEN 0.80 AND 1.00
+                      AND b.bid_open_date >= :cutoff
                     ORDER BY b.bid_open_date
-                """)).fetchall()
+                    LIMIT 5000
+                """), {"cutoff": train_cutoff}).fetchall()
 
                 cutoff = datetime.now() - timedelta(days=24*30)
                 hist_rows = db.execute(text("""
@@ -152,6 +154,7 @@ def retrain_ml(
                     FROM bids b
                     LEFT JOIN bid_results r ON r.bid_id = b.id AND r.is_winner = true
                     WHERE b.bid_open_date >= :cutoff AND b.base_amount > 0
+                    LIMIT 10000
                 """), {"cutoff": cutoff}).fetchall()
 
                 hist_df = pd.DataFrame(hist_rows, columns=[
@@ -160,15 +163,22 @@ def retrain_ml(
                 ])
                 for col in ["winner_rate","base_amount","competitor_count"]:
                     hist_df[col] = pd.to_numeric(hist_df[col], errors="coerce")
-                # tz-aware/naive 비교 오류 방지: UTC로 통일
-                hist_df["bid_open_date"] = pd.to_datetime(hist_df["bid_open_date"], utc=True)
+                hist_df["bid_open_date"] = pd.to_datetime(hist_df["bid_open_date"], errors="coerce")
+                hist_df = hist_df.sort_values("bid_open_date").reset_index(drop=True)
+                hist_dates = hist_df["bid_open_date"].values
 
                 records = []
                 for row in rows:
                     bid_id, agency_id, industry_id, region_id, base_amount, bid_open_date, region_restriction, construction_period, winner_rate = row
                     if winner_rate is None:
                         continue
-                    hist_before = hist_df[hist_df["bid_open_date"] < bid_open_date].copy() if bid_open_date else hist_df.copy()
+                    if bid_open_date is not None:
+                        import numpy as _np
+                        _ts = pd.Timestamp(bid_open_date).to_datetime64()
+                        _idx = int(_np.searchsorted(hist_dates, _ts, side="left"))
+                        hist_before = hist_df.iloc[:_idx]
+                    else:
+                        hist_before = hist_df
                     try:
                         feats = build_features(
                             agency_id=int(agency_id) if agency_id else 0,
@@ -202,13 +212,20 @@ def retrain_ml(
                         WHERE b.agency_id IS NOT NULL AND b.industry_id IS NOT NULL
                           AND b.base_amount > 0
                           AND p.bid_rate BETWEEN 0.80 AND 1.00
-                        ORDER BY b.bid_open_date
+                        ORDER BY b.bid_open_date DESC
+                        LIMIT 3000
                     """)).fetchall()
+                    import numpy as _np_clf
                     for crow in clf_rows:
                         c_agency, c_ind, c_reg, c_amt, c_dt, c_rr, c_cp, c_rate, c_win = crow
                         if c_rate is None:
                             continue
-                        hist_b = hist_df[hist_df["bid_open_date"] < c_dt].copy() if c_dt else hist_df.copy()
+                        if c_dt is not None:
+                            _ts2 = pd.Timestamp(c_dt).to_datetime64()
+                            _idx2 = int(_np_clf.searchsorted(hist_dates, _ts2, side="left"))
+                            hist_b = hist_df.iloc[:_idx2]
+                        else:
+                            hist_b = hist_df
                         try:
                             cf = build_features(
                                 agency_id=int(c_agency) if c_agency else 0,

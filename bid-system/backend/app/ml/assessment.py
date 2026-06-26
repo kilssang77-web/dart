@@ -357,8 +357,11 @@ def train_srate_model(db: Session) -> bool:
         ) inpo_ag ON inpo_ag.agency_id = b.agency_id
         WHERE b.estimated_price IS NOT NULL
           AND b.base_amount > 0
+          AND b.bid_open_date >= NOW() - INTERVAL '36 months'
           -- 부가세 제외 고정비율(base×10/11≈0.9091) 공고 제거
           AND ABS(b.estimated_price::numeric / NULLIF(b.base_amount,0) - (10.0/11.0)) > 0.002
+        ORDER BY b.bid_open_date DESC
+        LIMIT 8000
     """)).fetchall()
 
     if len(rows) < 50:
@@ -389,13 +392,16 @@ def train_srate_model(db: Session) -> bool:
     X_imp = imputer.fit_transform(X)
     X_tr, X_val, y_tr, y_val = train_test_split(X_imp, y, test_size=0.2, random_state=42)
 
+    import os as _os
+    _n_jobs = max(1, int(_os.cpu_count() or 4) // 2)
+
     models = {}
     for q in [0.10, 0.25, 0.50, 0.75, 0.90]:
         m = lgb.LGBMRegressor(
             objective="quantile", alpha=q,
             n_estimators=300, num_leaves=31, learning_rate=0.03,
             min_child_samples=5, subsample=0.8, colsample_bytree=0.8,
-            verbosity=-1, random_state=42,
+            verbosity=-1, random_state=42, n_jobs=_n_jobs,
         )
         m.fit(X_tr, y_tr,
               eval_set=[(X_val, y_val)],
@@ -484,9 +490,10 @@ def predict_srate(features_a: dict, base_amount: int) -> dict:
     srate_source = "lgbm" if srate_models_path.exists() else "global"
 
     if inpo_mean and inpo_n >= 3:
-        # 기관별 실측값: Bayesian 블렌딩 (n=3→23%, n=10→50%, n=20→67%, n=50→83%)
+        # 기관별 실측값: Bayesian 블렌딩 (n=3→27%, n=10→56%, n=20→71%, n=50→86%)
+        # n>=30 이상이면 inpo21c 주도적 사용 (실증 데이터 신뢰)
         srate_source = "inpo21c"
-        w = min(0.85, inpo_n / (inpo_n + 10))
+        w = min(0.90, inpo_n / (inpo_n + 8))
         old_c  = center
         center = old_c * (1.0 - w) + inpo_mean * w
         delta  = center - old_c
@@ -510,17 +517,17 @@ def predict_srate(features_a: dict, base_amount: int) -> dict:
     j_global_bias = features_a.get("journal_global_bias")
     j_global_n    = int(features_a.get("journal_global_bias_n") or 0)
 
-    if j_agency_bias is not None and j_agency_n >= 5:
-        # 기관별 실전 편향: n=5→38%, n=10→56%, n=20→71%, n=50→86%
+    if j_agency_bias is not None and j_agency_n >= 3:
+        # 기관별 실전 편향: n=3→27%, n=5→38%, n=10→56%, n=20→71%, n=50→86%
         w = min(0.85, j_agency_n / (j_agency_n + 8))
         correction = float(j_agency_bias) * w
         center += correction; lower += correction; upper += correction
         p10    += correction; p90   += correction
         srate_source += "+journal_agency"
         confidence = min(0.95, confidence + 0.05)
-    elif j_global_bias is not None and j_global_n >= 10:
+    elif j_global_bias is not None and j_global_n >= 5:
         # 전체 편향 (약하게 — 기관별 데이터 없을 때만)
-        correction = float(j_global_bias) * 0.3
+        correction = float(j_global_bias) * 0.35
         center += correction; lower += correction; upper += correction
         p10    += correction; p90   += correction
         srate_source += "+journal_global"

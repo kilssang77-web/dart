@@ -1,5 +1,6 @@
 ﻿"""APScheduler 기반 백그라운드 작업 스케줄러"""
 import logging
+import time
 from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -8,6 +9,8 @@ from apscheduler.triggers.cron import CronTrigger
 logger = logging.getLogger(__name__)
 
 _scheduler_instance: Optional[BackgroundScheduler] = None
+_last_retrain_time: float = 0.0
+_RETRAIN_COOLDOWN_SECONDS = 4 * 3600  # 재학습 최소 간격 4시간
 
 
 def set_scheduler(scheduler: Optional[BackgroundScheduler]) -> None:
@@ -20,11 +23,20 @@ def get_scheduler() -> Optional[BackgroundScheduler]:
 
 
 def _trigger_ml_retrain(reason: str = "") -> None:
-    """수집 완료 후 ML 재학습을 백그라운드 스레드로 실행. 재학습 중이면 skip."""
+    """수집 완료 후 ML 재학습을 백그라운드 스레드로 실행.
+    재학습 중이거나 마지막 재학습으로부터 4시간 미경과 시 skip.
+    """
+    global _last_retrain_time
     from app.services import MyBidFeedbackService
-    if MyBidFeedbackService.RETRAIN_LOCK:
+    if MyBidFeedbackService._RETRAIN_EVENT.is_set():
         logger.info("ML 재학습 이미 진행 중 — skip (%s)", reason)
         return
+    elapsed = time.time() - _last_retrain_time
+    if elapsed < _RETRAIN_COOLDOWN_SECONDS:
+        remaining_min = int((_RETRAIN_COOLDOWN_SECONDS - elapsed) / 60)
+        logger.info("ML 재학습 쿨다운 중 — %d분 후 가능 (%s)", remaining_min, reason)
+        return
+    _last_retrain_time = time.time()
     logger.info("ML 재학습 트리거 — 사유: %s", reason or "수집 완료")
     import threading
     threading.Thread(target=MyBidFeedbackService._run_retrain, daemon=True).start()

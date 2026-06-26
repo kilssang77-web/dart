@@ -218,6 +218,9 @@ def train_models(df: pd.DataFrame, clf_df: Optional["pd.DataFrame"] = None) -> d
     y_rate = df["target_rate"].astype(float)
     X_tr_w, X_val_w, yr_tr, yr_val = train_test_split(X_w, y_rate, test_size=0.2, random_state=42)
 
+    import os as _os
+    _n_jobs = max(1, int(_os.cpu_count() or 4) // 2)  # CPU 절반만 사용
+
     rate_models = {}
     for q in [0.05, 0.25, 0.50, 0.75, 0.95]:
         m = xgb.XGBRegressor(
@@ -225,6 +228,7 @@ def train_models(df: pd.DataFrame, clf_df: Optional["pd.DataFrame"] = None) -> d
             subsample=0.8, colsample_bytree=0.8, min_child_weight=10,
             objective="reg:quantileerror", quantile_alpha=q,
             tree_method="hist", random_state=42, verbosity=0,
+            nthread=_n_jobs,
         )
         m.fit(X_tr_w, yr_tr, eval_set=[(X_val_w, yr_val)],
               verbose=False, early_stopping_rounds=30)
@@ -246,6 +250,7 @@ def train_models(df: pd.DataFrame, clf_df: Optional["pd.DataFrame"] = None) -> d
             n_estimators=200, num_leaves=31, learning_rate=0.05,
             min_child_samples=10, scale_pos_weight=scale,
             subsample=0.8, colsample_bytree=0.8, verbosity=-1, random_state=42,
+            n_jobs=_n_jobs,
         )
         win_model.fit(X_tr_c, yw_tr, eval_set=[(X_val_c, yw_val)],
                       callbacks=[lgb.early_stopping(30, verbose=False),

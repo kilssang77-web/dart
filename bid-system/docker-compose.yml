@@ -65,12 +65,13 @@ services:
         condition: service_healthy
     volumes:
       - ml_models:/app/ml_models
+      - ./backend/app:/app/app
     ports:
       - "${API_PORT:-8100}:8000"
     deploy:
       resources:
         limits:
-          memory: 1200m
+          memory: 2048m
           cpus: '1.5'
         reservations:
           memory: 512m

@@ -41,7 +41,9 @@ logger = logging.getLogger(__name__)
 class MyBidFeedbackService:
     """MyBidRecord → ActualBidOutcome 동기화 + 임계치 도달 시 자동 재학습."""
 
+    import threading as _threading
     RETRAIN_LOCK = False  # 동시 재학습 방지 (프로세스 내 단순 플래그)
+    _RETRAIN_EVENT = _threading.Event()  # 재진입 방지용 atomic 플래그
 
     def __init__(self, db: Session):
         self.db = db
@@ -117,8 +119,11 @@ class MyBidFeedbackService:
     @classmethod
     def _run_retrain(cls):
         """백그라운드 재학습 — Engine A(사정율) + Engine B(낙찰률)."""
-        if cls.RETRAIN_LOCK:
+        # atomic test-and-set: 이미 실행 중이면 즉시 반환
+        if cls._RETRAIN_EVENT.is_set():
+            logger.info("ML 재학습 이미 실행 중 — 중복 호출 무시")
             return
+        cls._RETRAIN_EVENT.set()
         cls.RETRAIN_LOCK = True
         from ..database import SessionLocal
         from ..ml.engine import train_models, train_models_temporal, build_features, FEATURE_COLS, get_engine
@@ -133,6 +138,9 @@ class MyBidFeedbackService:
             train_srate_model(db)
 
             # Engine B — 낙찰률 회귀 모델
+            # 최근 36개월 + 최대 5,000건으로 제한 (메모리 보호)
+            from datetime import timedelta
+            train_cutoff = datetime.now() - timedelta(days=36 * 30)
             rows = db.execute(sa_text("""
                 SELECT b.id, b.agency_id, b.industry_id,
                        COALESCE(b.region_id, 0) AS region_id,
@@ -143,10 +151,11 @@ class MyBidFeedbackService:
                 JOIN bid_results r ON r.bid_id = b.id AND r.is_winner = true
                 WHERE b.base_amount > 0
                   AND r.bid_rate BETWEEN 0.80 AND 1.00
+                  AND b.bid_open_date >= :cutoff
                 ORDER BY b.bid_open_date
-            """)).fetchall()
+                LIMIT 5000
+            """), {"cutoff": train_cutoff}).fetchall()
 
-            from datetime import timedelta
             cutoff = datetime.now() - timedelta(days=24 * 30)
             hist_rows = db.execute(sa_text("""
                 SELECT b.id, b.agency_id, b.industry_id,
@@ -156,6 +165,7 @@ class MyBidFeedbackService:
                 FROM bids b
                 LEFT JOIN bid_results r ON r.bid_id = b.id AND r.is_winner = true
                 WHERE b.bid_open_date >= :cutoff AND b.base_amount > 0
+                LIMIT 10000
             """), {"cutoff": cutoff}).fetchall()
 
             hist_df = pd.DataFrame(hist_rows, columns=[
@@ -164,6 +174,10 @@ class MyBidFeedbackService:
             ])
             for col in ["winner_rate", "base_amount", "competitor_count"]:
                 hist_df[col] = pd.to_numeric(hist_df[col], errors="coerce")
+            # 날짜 정렬 후 numpy 배열로 변환 — O(n²) 루프에서 copy() 제거를 위해
+            hist_df["bid_open_date"] = pd.to_datetime(hist_df["bid_open_date"], errors="coerce")
+            hist_df = hist_df.sort_values("bid_open_date").reset_index(drop=True)
+            hist_dates = hist_df["bid_open_date"].values  # numpy array for fast bisect
 
             from ..ml.yega import load_inpo21c_yega_stats as _load_yega
             _yega_cache: dict = {}
@@ -173,7 +187,14 @@ class MyBidFeedbackService:
                 bid_id, agency_id, industry_id, region_id, base_amount, bid_open_date, region_restriction, construction_period, winner_rate = row
                 if winner_rate is None:
                     continue
-                hist_before = hist_df[hist_df["bid_open_date"] < bid_open_date].copy() if bid_open_date else hist_df.copy()
+                # O(log n) 이진 탐색으로 슬라이스 인덱스 산출 — copy() 없음
+                if bid_open_date is not None:
+                    import numpy as _np
+                    _ts = pd.Timestamp(bid_open_date).to_datetime64()
+                    _idx = int(_np.searchsorted(hist_dates, _ts, side="left"))
+                    hist_before = hist_df.iloc[:_idx]
+                else:
+                    hist_before = hist_df
                 _aid = int(agency_id) if agency_id else 0
                 if _aid not in _yega_cache:
                     try:
@@ -200,12 +221,73 @@ class MyBidFeedbackService:
                 except Exception:
                     pass
 
+            # clf_df: inpo21c_participants 낙찰자+비낙찰자 (win_model 학습용)
+            clf_df = None
+            try:
+                clf_rows = db.execute(sa_text("""
+                    SELECT b.agency_id, b.industry_id,
+                           COALESCE(b.region_id, 0) AS region_id,
+                           b.base_amount, b.bid_open_date,
+                           COALESCE(b.region_restriction, false),
+                           b.construction_period,
+                           p.bid_rate, p.is_winner
+                    FROM inpo21c_participants p
+                    JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = p.inpo21c_bid_id
+                    JOIN bids b ON b.announcement_no = ib.announcement_no
+                    WHERE b.agency_id IS NOT NULL AND b.industry_id IS NOT NULL
+                      AND b.base_amount > 0
+                      AND p.bid_rate BETWEEN 0.80 AND 1.00
+                    ORDER BY b.bid_open_date DESC
+                    LIMIT 3000
+                """)).fetchall()
+                clf_records = []
+                import numpy as _np2
+                for crow in clf_rows:
+                    c_agency, c_ind, c_reg, c_amt, c_dt, c_rr, c_cp, c_rate, c_win = crow
+                    if c_rate is None:
+                        continue
+                    if c_dt is not None:
+                        _ts2 = pd.Timestamp(c_dt).to_datetime64()
+                        _idx2 = int(_np2.searchsorted(hist_dates, _ts2, side="left"))
+                        hist_c = hist_df.iloc[:_idx2]
+                    else:
+                        hist_c = hist_df
+                    try:
+                        cf = build_features(
+                            agency_id=int(c_agency) if c_agency else 0,
+                            industry_id=int(c_ind) if c_ind else 0,
+                            region_id=int(c_reg),
+                            base_amount=int(c_amt),
+                            construction_period=int(c_cp) if c_cp else None,
+                            region_restriction=bool(c_rr),
+                            bid_open_date=c_dt,
+                            historical_df=hist_c,
+                        )
+                        cf["target_rate"] = float(c_rate)
+                        cf["our_bid_rate"] = float(c_rate)
+                        cf["is_winner"] = bool(c_win)
+                        cf["bid_open_date"] = c_dt
+                        clf_records.append(cf)
+                    except Exception:
+                        pass
+                if len(clf_records) >= 20:
+                    clf_df = pd.DataFrame(clf_records)
+                    for col in FEATURE_COLS:
+                        if col not in clf_df.columns:
+                            clf_df[col] = None
+                    logger.info("clf_df 빌드 완료: %d건 (pos=%d neg=%d)",
+                                len(clf_records),
+                                sum(1 for r in clf_records if r.get("is_winner")),
+                                sum(1 for r in clf_records if not r.get("is_winner")))
+            except Exception as _clf_e:
+                logger.warning("clf_df 빌드 실패: %s", _clf_e)
+
             if len(records) >= 20:
                 train_df = pd.DataFrame(records)
                 for col in FEATURE_COLS:
                     if col not in train_df.columns:
                         train_df[col] = None
-                result = train_models_temporal(train_df, val_weeks=4, date_col="bid_open_date")
+                result = train_models_temporal(train_df, clf_df=clf_df, val_weeks=4, date_col="bid_open_date")
                 if result:
                     get_engine().reload()
                     tv = result.get("temporal_val_metrics") or {}
@@ -221,10 +303,20 @@ class MyBidFeedbackService:
                     logger.info("자동 재학습 완료: %s", result)
             else:
                 logger.warning("자동 재학습 스킵 — 피처 빌드 성공 %d건 (최소 20건 필요)", len(records))
+
+            # win_prob_model 재학습 (Task #5)
+            try:
+                from ..ml.win_prob_model import train as _wp_train
+                wp_result = _wp_train(db)
+                logger.info("win_prob_model 재학습 완료: %s", wp_result)
+            except Exception as _wp_e:
+                logger.warning("win_prob_model 재학습 실패: %s", _wp_e)
+
         except Exception as exc:
             logger.error("자동 재학습 실패: %s", exc)
         finally:
             cls.RETRAIN_LOCK = False
+            cls._RETRAIN_EVENT.clear()
             db.close()
 
 class MyBidImportService:
