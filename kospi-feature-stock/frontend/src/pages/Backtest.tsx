@@ -24,9 +24,19 @@ const ALL_EVENT_TYPES = [
 type TradeSort   = 'date' | 'pnl' | 'score'
 type TradeFilter = 'ALL' | 'win' | 'loss' | 'timeout'
 
+function _defaultDates() {
+  const today = new Date()
+  const y = today.getFullYear(), m = today.getMonth(), d = today.getDate()
+  const end   = new Date(y, m, d - 1)  // 어제 (일봉 기준)
+  const start = new Date(y, m - 3, d)  // 3개월 전
+  const fmt = (dt: Date) => dt.toLocaleDateString('en-CA')
+  return { start: fmt(start), end: fmt(end) }
+}
+
 export function Backtest() {
-  const [start,         setStart]        = useState('2024-01-01')
-  const [end,           setEnd]          = useState('2024-12-31')
+  const { start: defaultStart, end: defaultEnd } = _defaultDates()
+  const [start,         setStart]        = useState(defaultStart)
+  const [end,           setEnd]          = useState(defaultEnd)
   const [eventTypes,    setEventTypes]   = useState<string[]>(['VOLUME_SURGE'])
   const [market,        setMarket]       = useState<'ALL' | 'KOSPI' | 'KOSDAQ'>('ALL')
   const [minScore,      setMinScore]     = useState(0.5)
@@ -279,6 +289,26 @@ export function Backtest() {
                 ? <><BarChart2 size={14} className="animate-pulse" /> 분석 중…</>
                 : <><Play size={14} /> 백테스트 실행</>}
             </button>
+
+            {/* 로딩 프로그레스 바 */}
+            {isPending && (
+              <div className="overflow-hidden rounded-full h-1 bg-[var(--border)]">
+                <div
+                  className="h-full bg-gradient-to-r from-cyan-500 to-blue-400 rounded-full"
+                  style={{
+                    width: '40%',
+                    animation: 'backtestSlide 1.5s ease-in-out infinite',
+                  }}
+                />
+                <style>{`
+                  @keyframes backtestSlide {
+                    0%   { transform: translateX(-100%); }
+                    50%  { transform: translateX(200%); }
+                    100% { transform: translateX(-100%); }
+                  }
+                `}</style>
+              </div>
+            )}
           </CardBody>
         </Card>
 
@@ -610,7 +640,10 @@ function TradeRow({ trade: t }: { trade: BacktestTradeItem }) {
   const isLoss = t.status === 'loss'
   return (
     <tr className="border-b border-[var(--border)]/50 hover:bg-[var(--border)]/15">
-      <td className="py-2.5 pl-5 pr-3 font-mono text-xs text-[var(--fg)]">{t.code}</td>
+      <td className="py-2.5 pl-5 pr-3">
+        <div className="font-mono text-xs text-[var(--fg)]">{t.code}</div>
+        {t.name && <div className="text-[10px] text-[var(--muted)] truncate max-w-[80px]">{t.name}</div>}
+      </td>
       <td className="py-2.5 pr-3 text-right tabular text-[var(--muted)] text-xs">{t.entry_date}</td>
       <td className="py-2.5 pr-3 text-right tabular text-[var(--muted)] text-xs">{t.exit_date}</td>
       <td className="py-2.5 pr-3 text-right tabular text-[var(--muted)] text-xs">{t.entry_price.toLocaleString()}</td>

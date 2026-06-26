@@ -175,6 +175,7 @@ export interface MarketIndex {
 // ── 백테스트 ──────────────────────────────────────────────────────────────────
 export interface BacktestTradeItem {
   code:         string
+  name?:        string
   entry_date:   string
   exit_date:    string
   entry_price:  number

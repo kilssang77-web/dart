@@ -82,7 +82,14 @@ async def run_backtest(
     start_d = date.fromisoformat(start)
     end_d   = date.fromisoformat(end)
 
-    types   = event_types or ([event_type] if event_type else ["BREAKOUT_52W"])
+    # 일봉 데이터 최대 날짜로 end_d 자동 클램핑 (오늘 선택 시 신호 0건 방지)
+    max_bar_row = await db.fetchrow("SELECT MAX(date)::text AS max_date FROM daily_bars")
+    if max_bar_row and max_bar_row["max_date"]:
+        max_bar_date = date.fromisoformat(max_bar_row["max_date"])
+        if end_d > max_bar_date:
+            end_d = max_bar_date
+
+    types   = event_types if event_types else ([event_type] if event_type else ["BREAKOUT_52W"])
     use_ml  = ml_min_prob > 0
     mkt     = market if market and market != "ALL" else None
 
@@ -168,18 +175,33 @@ async def run_backtest(
                 })
 
         combined = engine._stats(all_trades) if all_trades else None
+        # 종목명 조회
+        wf_codes = list({t.code for t in all_trades})
+        wf_name_rows = await db.fetch(
+            "SELECT code, name FROM stocks WHERE code = ANY($1)", wf_codes
+        ) if wf_codes else []
+        wf_code_name = {r["code"]: r["name"] for r in wf_name_rows}
+
+        def _wf_trade(t):
+            d = t.to_dict()
+            d["name"] = wf_code_name.get(t.code, "")
+            return d
+
         return {
             "params":       params_out,
             "walkforward":  wf_results,
             "result":       combined.summary() if combined else None,
-            "trade_log":    [t.to_dict() for t in all_trades],
+            "trade_log":    [_wf_trade(t) for t in all_trades],
             "equity_curve": combined.equity_curve if combined else [],
         }
 
     # ── 단일 백테스트 ─────────────────────────────────────────
     sig_rows = await _fetch(start_d, end_d)
     if not sig_rows:
-        return {"error": "No signals found for the given period"}
+        return {
+            "error": f"해당 기간에 신호가 없습니다 ({start} ~ {end_d}). "
+                     "이벤트 타입을 선택하거나 기간을 조정해 보세요."
+        }
 
     signals = pd.DataFrame([dict(r) for r in sig_rows])
     if "signal_score" not in signals.columns:
@@ -195,13 +217,26 @@ async def run_backtest(
     bars = pd.DataFrame([dict(r) for r in bar_rows])
     result = engine.run(signals, bars)
 
+    # 종목명 조회 (trade_log 표시용)
+    trade_codes = list({t.code for t in result.trades})
+    name_rows = await db.fetch(
+        "SELECT code, name FROM stocks WHERE code = ANY($1)", trade_codes
+    )
+    code_name = {r["code"]: r["name"] for r in name_rows}
+
+    def _trade_dict(t):
+        d = t.to_dict()
+        d["name"] = code_name.get(t.code, "")
+        return d
+
     return {
         "params":       params_out,
         "result":       result.summary(),
-        "trade_log":    [t.to_dict() for t in result.trades],
+        "trade_log":    [_trade_dict(t) for t in result.trades],
         "equity_curve": result.equity_curve,
         "sample_trades": [
-            {"code": t.code, "entry": t.entry_date, "exit": t.exit_date,
+            {"code": t.code, "name": code_name.get(t.code, ""),
+             "entry": t.entry_date, "exit": t.exit_date,
              "pnl": round(t.pnl_pct, 2), "status": t.status}
             for t in result.trades[:20]
         ],
