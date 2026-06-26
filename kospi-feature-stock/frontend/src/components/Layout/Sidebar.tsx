@@ -39,6 +39,7 @@ function buildNavGroups(badge?: string): NavGroup[] {
     {
       label: '도구',
       items: [
+        { to: '/search',          icon: <Search size={15} />,      label: '종목 검색' },
         { to: '/recommendations', icon: <TrendingUp size={15} />,  label: '매매 추천' },
         { to: '/intel',           icon: <Newspaper size={15} />,   label: '공시/뉴스' },
         { to: '/similar-cases',   icon: <History size={15} />,     label: '유사사례' },

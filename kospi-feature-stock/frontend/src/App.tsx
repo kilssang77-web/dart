@@ -1,14 +1,11 @@
 ﻿import { Suspense, lazy } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle } from 'lucide-react'
 import { Sidebar } from './components/Layout/Sidebar'
 import { TopBar } from './components/Layout/TopBar'
 import { SystemBanner } from './components/Layout/SystemBanner'
 import { useIsMobile } from './hooks/useMediaQuery'
 import { useSidebarStore } from './store/sidebar'
 import { useRealtimeStream } from './hooks/useRealtimeStream'
-import { marketApi } from './api/market'
 
 const Dashboard      = lazy(() => import('./pages/Dashboard').then((m) => ({ default: m.Dashboard })))
 const Features       = lazy(() => import('./pages/Features').then((m) => ({ default: m.Features })))
@@ -60,44 +57,6 @@ function GlobalRealtimeStream() {
   return null
 }
 
-function getLastTradingDay(): string {
-  // en-CA locale → 'YYYY-MM-DD' 형식으로 서울 기준 날짜 취득
-  const seoulDateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' })
-  const [y, m, d] = seoulDateStr.split('-').map(Number)
-  const seoulDate = new Date(y, m - 1, d)
-  const dow = seoulDate.getDay() // 0=일, 6=토
-  const daysBack = dow === 0 ? 2 : dow === 6 ? 1 : 0
-  seoulDate.setDate(d - daysBack)
-  // 다시 YYYY-MM-DD 형식으로 반환
-  return seoulDate.toLocaleDateString('en-CA')
-}
-
-function MarketClosedBanner() {
-  const { data } = useQuery({
-    queryKey:        ['market-summary-banner'],
-    queryFn:         marketApi.getSummary,
-    staleTime:       600_000,
-    refetchInterval: 600_000,
-  })
-  if (!data?.data_date) return null
-
-  const lastTradingDay = getLastTradingDay()
-  if (data.data_date >= lastTradingDay) return null
-
-  // 오늘이 거래일이고 EOD 수집 완료(16:30 KST) 전이면 정상 — 배너 숨김
-  const seoulNow    = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })
-  const todayIsWeekday = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' }) === lastTradingDay
-  if (todayIsWeekday && seoulNow < '16:30') return null
-
-  return (
-    <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-sm">
-      <AlertTriangle size={14} className="shrink-0" />
-      <span>
-        일봉 데이터 미갱신 ({data.data_date}). EOD 수집이 지연되고 있습니다.
-      </span>
-    </div>
-  )
-}
 
 export default function App() {
   const { pathname }  = useLocation()
@@ -117,7 +76,6 @@ export default function App() {
       >
         <TopBar title={meta.title} subtitle={meta.subtitle} />
         <SystemBanner />
-        <MarketClosedBanner />
 
         <main className="flex-1 overflow-auto">
           <Suspense fallback={<Spinner />}>

@@ -12,7 +12,8 @@ function _lastExpectedBarDate(): string {
   const m = kst.getUTCMinutes()
 
   let d = new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate()))
-  if (h < 16 || (h === 16 && m < 30)) d.setUTCDate(d.getUTCDate() - 1)
+  // 19:00 이전이면 아직 EOD 수집 완료 전 — 전 거래일을 기준으로 판단
+  if (h < 19) d.setUTCDate(d.getUTCDate() - 1)
   while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1)
 
   return d.toISOString().slice(0, 10)

@@ -25,7 +25,8 @@ function PositionRow({ item }: { item: TrackingItem }) {
   return (
     <tr className="border-b border-[var(--border)] hover:bg-[var(--border)]/30 transition-colors">
       <td className="px-4 py-3">
-        <div className="font-semibold text-sm">{item.code}</div>
+        <div className="font-semibold text-sm font-mono">{item.code}</div>
+        <div className="text-xs text-[var(--fg)]/80 font-medium">{item.name ?? '—'}</div>
         <div className="text-xs text-[var(--muted)]">{item.event_type ?? '—'}</div>
       </td>
       <td className="px-4 py-3 text-right text-sm">
@@ -153,7 +154,7 @@ export function PositionManagement() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[var(--border)] text-[var(--muted)] text-xs">
-                  <th className="px-4 py-3 text-left">종목</th>
+                  <th className="px-4 py-3 text-left">종목코드 / 종목명</th>
                   <th className="px-4 py-3 text-right">진입가</th>
                   <th className="px-4 py-3 text-right">1일</th>
                   <th className="px-4 py-3 text-right">3일</th>
