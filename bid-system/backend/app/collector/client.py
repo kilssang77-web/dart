@@ -11,6 +11,8 @@ from app.config import get_settings
 
 _BASE_URL = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService"
 _RESULTS_URL = "https://apis.data.go.kr/1230000/as/ScsbidInfoService"
+_PRE_SPEC_URL = "https://apis.data.go.kr/1230000/ao/HrcspSsstndrdInfoService"
+_CONTRACT_URL = "https://apis.data.go.kr/1230000/ao/CntrctInfoService"
 _MAX_RETRIES = 3
 _TIMEOUT = 30.0
 _MAX_ROWS = 100
@@ -588,6 +590,96 @@ class NarajangterClient:
         raw = self.get_yega_detail(announcement_no, inqry_bgn_dt, inqry_end_dt)
         items_raw = self._extract_items(raw)
         return [self._parse_yega_item(item) for item in items_raw]
+
+    # ------------------------------------------------------------------ #
+    # 사전규격 API (HrcspSsstndrdInfoService)                            #
+    # ------------------------------------------------------------------ #
+
+    def get_pre_spec_list(
+        self,
+        inqry_bgn_dt: str,
+        inqry_end_dt: str,
+        inqry_div: int = 1,
+        page_no: int = 1,
+        num_of_rows: int = _MAX_ROWS,
+    ) -> dict:
+        """사전규격 공사 목록 조회 (getPublicPrcureThngInfoCnstwk)"""
+        return self._call(
+            _PRE_SPEC_URL,
+            "getPublicPrcureThngInfoCnstwk",
+            {
+                "inqryDiv": inqry_div,
+                "inqryBgnDt": inqry_bgn_dt,
+                "inqryEndDt": inqry_end_dt,
+                "pageNo": page_no,
+                "numOfRows": num_of_rows,
+            },
+        )
+
+    def paginate_pre_spec(
+        self,
+        inqry_bgn_dt: str,
+        inqry_end_dt: str,
+        inqry_div: int = 1,
+    ) -> Generator[list[dict], None, None]:
+        """사전규격 전체 페이지 순회"""
+        num_of_rows = _MAX_ROWS
+        page_no = 1
+        while True:
+            raw = self.get_pre_spec_list(inqry_bgn_dt, inqry_end_dt, inqry_div, page_no, num_of_rows)
+            items = self._extract_items(raw)
+            if not items:
+                break
+            yield items
+            total = self._extract_total_count(raw)
+            if page_no * num_of_rows >= total:
+                break
+            page_no += 1
+
+    # ------------------------------------------------------------------ #
+    # 계약정보 API (CntrctInfoService)                                   #
+    # ------------------------------------------------------------------ #
+
+    def get_contract_list(
+        self,
+        inqry_bgn_date: str,
+        inqry_end_date: str,
+        inqry_div: int = 1,
+        page_no: int = 1,
+        num_of_rows: int = _MAX_ROWS,
+    ) -> dict:
+        """나라장터 검색조건에 의한 계약현황 공사조회 (getCntrctInfoListCnstwkPPSSrch)"""
+        return self._call(
+            _CONTRACT_URL,
+            "getCntrctInfoListCnstwkPPSSrch",
+            {
+                "inqryDiv": inqry_div,
+                "inqryBgnDate": inqry_bgn_date,
+                "inqryEndDate": inqry_end_date,
+                "pageNo": page_no,
+                "numOfRows": num_of_rows,
+            },
+        )
+
+    def paginate_contracts(
+        self,
+        inqry_bgn_date: str,
+        inqry_end_date: str,
+        inqry_div: int = 1,
+    ) -> Generator[list[dict], None, None]:
+        """계약현황 전체 페이지 순회"""
+        num_of_rows = _MAX_ROWS
+        page_no = 1
+        while True:
+            raw = self.get_contract_list(inqry_bgn_date, inqry_end_date, inqry_div, page_no, num_of_rows)
+            items = self._extract_items(raw)
+            if not items:
+                break
+            yield items
+            total = self._extract_total_count(raw)
+            if page_no * num_of_rows >= total:
+                break
+            page_no += 1
 
     def paginate_scsbid_pps_search(
         self,

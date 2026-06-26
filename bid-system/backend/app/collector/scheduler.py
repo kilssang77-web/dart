@@ -126,15 +126,13 @@ def run_bid_notices_inpo21c_job() -> None:
 
 
 def run_inpo21c_job() -> None:
-    """inpo21c 전 참여자 + 복수예가 + 공고헤더 수집 (매일 19:30 KST).
+    """inpo21c 전 참여자 + 복수예가 + 공고헤더 수집 (매일 20:00 KST).
 
-    변경: 주 1회(월) → 매일 19:30 KST (개찰 후 ~1시간 30분).
-    당일 개찰 결과를 당일 수집하여 ML 학습 데이터 실시간 갱신.
-    수집 후 bids 테이블 역방향 동기화 (base_amount, bid_open_date, participant_count).
+    수집 후 bids 역방향 동기화 + assessment_rate → bid_results 역동기화.
     """
     from app.database import SessionLocal
     from app.collector.inpo21c import collect_inpo21c
-    from app.collector.service import sync_inpo21c_to_bids
+    from app.collector.service import sync_inpo21c_to_bids, sync_assessment_rate_from_inpo21c
 
     db = SessionLocal()
     try:
@@ -142,6 +140,9 @@ def run_inpo21c_job() -> None:
         logger.info("inpo21c 수집 완료: %s", result)
         sync_result = sync_inpo21c_to_bids(db)
         logger.info("inpo21c→bids 동기화: %s", sync_result)
+        # [Phase 1] assessment_rate 역동기화 — inpo21c → bid_results
+        rate_sync = sync_assessment_rate_from_inpo21c(db)
+        logger.info("assessment_rate 역동기화: %s", rate_sync)
         if result.get("bids", 0) > 0:
             _trigger_ml_retrain("inpo21c 전참여자 수집 완료")
     except Exception as exc:
@@ -172,7 +173,7 @@ def run_inpo21c_national_job() -> None:
     """inpo21c 전국 낙찰 결과 수집 (매주 일요일 03:30 KST — 맞춤설정 비의존, 전국 커버리지)."""
     from app.database import SessionLocal
     from app.collector.inpo21c import collect_inpo21c_national
-    from app.collector.service import sync_inpo21c_to_bids
+    from app.collector.service import sync_inpo21c_to_bids, sync_assessment_rate_from_inpo21c
 
     db = SessionLocal()
     try:
@@ -180,6 +181,8 @@ def run_inpo21c_national_job() -> None:
         logger.info("inpo21c 전국 수집 완료: %s", result)
         sync_result = sync_inpo21c_to_bids(db)
         logger.info("inpo21c→bids 동기화: %s", sync_result)
+        rate_sync = sync_assessment_rate_from_inpo21c(db)
+        logger.info("assessment_rate 역동기화: %s", rate_sync)
         if result.get("bids", 0) > 0:
             _trigger_ml_retrain("inpo21c 전국 수집 완료")
     except Exception as exc:
@@ -737,6 +740,51 @@ def run_g2b_yega_job() -> None:
         db.close()
 
 
+def run_pre_spec_collect_job() -> None:
+    """사전규격 공사 목록 수집 (매일 07:00 KST) — 입찰공고 前 최상위 신호."""
+    from app.database import SessionLocal
+    from app.collector.service import collect_pre_spec_notices
+
+    db = SessionLocal()
+    try:
+        result = collect_pre_spec_notices(db, days_back=2)
+        logger.info("사전규격 수집 완료: %s", result)
+    except Exception as exc:
+        logger.error("사전규격 수집 실패: %s", exc)
+    finally:
+        db.close()
+
+
+def run_pre_spec_match_job() -> None:
+    """사전규격 → 공고 매핑 재실행 (매일 12:00 KST) — 공고 등록 후 매핑 갱신."""
+    from app.database import SessionLocal
+    from app.collector.service import match_pre_spec_to_bids
+
+    db = SessionLocal()
+    try:
+        result = match_pre_spec_to_bids(db)
+        logger.info("사전규격 매핑 완료: %s", result)
+    except Exception as exc:
+        logger.error("사전규격 매핑 실패: %s", exc)
+    finally:
+        db.close()
+
+
+def run_contract_collect_job() -> None:
+    """계약정보 수집 (매일 23:00 KST) — 당일 계약체결 건 수집."""
+    from app.database import SessionLocal
+    from app.collector.service import collect_bid_contracts
+
+    db = SessionLocal()
+    try:
+        result = collect_bid_contracts(db, days_back=2)
+        logger.info("계약정보 수집 완료: %s", result)
+    except Exception as exc:
+        logger.error("계약정보 수집 실패: %s", exc)
+    finally:
+        db.close()
+
+
 def run_backfill_incremental_job() -> None:
     """G2B 역사 낙찰 데이터 증분 갱신 (매월 2일 02:00 KST).
     전월 1개월치를 수집해 신규 낙찰 결과를 보완한다.
@@ -924,21 +972,50 @@ def create_scheduler() -> BackgroundScheduler:
         replace_existing=True,
         max_instances=1,
     )
-    # G2B 전참여자 수집 (매일 19:00 KST — 개찰 직후)
+    # G2B 전참여자 수집 (매일 21:00 KST — inpo21c 수집 후 fallback/draw_no 보완)
+    # [Phase 1] inpo21c(20:00) 이후로 이동: inpo21c 있는 공고는 draw_no만 보완
     scheduler.add_job(
         run_g2b_all_participants_job,
-        trigger=CronTrigger(hour=19, minute=0, timezone="Asia/Seoul"),
+        trigger=CronTrigger(hour=21, minute=0, timezone="Asia/Seoul"),
         id="g2b_all_participants_daily",
-        name="G2B 전참여자 수집 (매일 19:00 KST)",
+        name="G2B 전참여자 수집 (매일 21:00 KST — inpo21c fallback)",
         replace_existing=True,
         max_instances=1,
     )
-    # G2B 예비가격 상세 수집 (매일 19:15 KST)
+    # G2B 예비가격 상세 수집 (매일 21:15 KST — inpo21c 이후 미수집 공고 fallback)
+    # [Phase 1] inpo21c_yega 있는 공고는 자동 스킵
     scheduler.add_job(
         run_g2b_yega_job,
-        trigger=CronTrigger(hour=19, minute=15, timezone="Asia/Seoul"),
+        trigger=CronTrigger(hour=21, minute=15, timezone="Asia/Seoul"),
         id="g2b_yega_detail_daily",
-        name="G2B 예비가격 상세 수집 (매일 19:15 KST)",
+        name="G2B 예비가격 상세 수집 (매일 21:15 KST — inpo21c fallback)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    # [Phase 2] 사전규격 공사 목록 수집 (매일 07:00 KST — 입찰 前 최상위 신호)
+    scheduler.add_job(
+        run_pre_spec_collect_job,
+        trigger=CronTrigger(hour=7, minute=0, timezone="Asia/Seoul"),
+        id="pre_spec_collect_daily",
+        name="사전규격 수집 (매일 07:00 KST)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    # [Phase 2] 사전규격 → 공고 매핑 (매일 12:00 KST — 공고 등록 후 갱신)
+    scheduler.add_job(
+        run_pre_spec_match_job,
+        trigger=CronTrigger(hour=12, minute=0, timezone="Asia/Seoul"),
+        id="pre_spec_match_daily",
+        name="사전규격 공고 매핑 (매일 12:00 KST)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    # [Phase 3] 계약정보 수집 (매일 23:00 KST — 당일 계약체결 건)
+    scheduler.add_job(
+        run_contract_collect_job,
+        trigger=CronTrigger(hour=23, minute=0, timezone="Asia/Seoul"),
+        id="contract_collect_daily",
+        name="계약정보 수집 (매일 23:00 KST)",
         replace_existing=True,
         max_instances=1,
     )
