@@ -12,6 +12,20 @@ export const http = axios.create({
   headers,
 })
 
+export const httpLong = axios.create({
+  baseURL: `${BASE}/api/v1`,
+  timeout: 180_000,
+  headers,
+})
+
+httpLong.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    const msg = err.response?.data?.detail ?? err.message
+    return Promise.reject(new Error(msg))
+  }
+)
+
 http.interceptors.response.use(
   (res) => res,
   (err) => {

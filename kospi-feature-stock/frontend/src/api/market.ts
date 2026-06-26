@@ -1,4 +1,4 @@
-﻿import { http } from './client'
+﻿import { http, httpLong } from './client'
 import type { DailyBar, BacktestResult, SavedBacktestResult } from '@/types'
 
 export interface MarketSummary {
@@ -257,7 +257,7 @@ export const marketApi = {
     stop_loss_pct?: number; target_pct?: number
     walkforward?: boolean
   }) =>
-    http.post<BacktestResult>('/backtest/run', params).then((r) => r.data),
+    httpLong.post<BacktestResult>('/backtest/run', params).then((r) => r.data),
 
   saveBacktestResult: (body: { name: string; params: object; result: object; equity_curve?: object[] }) =>
     http.post<{ id: number; name: string; created_at: string }>('/backtest/results', body).then((r) => r.data),

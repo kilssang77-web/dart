@@ -10,10 +10,14 @@ from backtest.engine import BacktestEngine
 router = APIRouter()
 
 
-def _make_query(use_ml: bool, has_market: bool) -> tuple[str, str]:
-    """(SQL template, market_param_placeholder) 반환."""
+def _make_query(use_ml: bool, has_market: bool) -> str:
+    """SQL 템플릿 반환.
+    - stocks JOIN은 market 필터 시에만 포함 (없으면 Cartesian product 방지)
+    - daily_bars에 명시적 날짜 범위 추가 → TimescaleDB chunk 프루닝 활성화
+    - detected_at 범위를 timestamp로 비교해 기존 btree 인덱스 활용
+    """
     if use_ml:
-        market_cond = "AND s.market = $6" if has_market else ""
+        market_join = "JOIN stocks s ON s.code = fe.code AND s.market = $6" if has_market else ""
         q = f"""
         SELECT DISTINCT ON (fe.code, DATE(fe.detected_at))
             fe.code,
@@ -23,7 +27,9 @@ def _make_query(use_ml: bool, has_market: bool) -> tuple[str, str]:
             db.close * db.volume AS amount,
             rec.success_prob AS signal_score
         FROM feature_events fe
-        JOIN daily_bars db ON db.code = fe.code AND db.date = DATE(fe.detected_at)
+        JOIN daily_bars db ON db.code = fe.code
+          AND db.date = DATE(fe.detected_at)
+          AND db.date BETWEEN $3 AND $4
         JOIN LATERAL (
             SELECT r.success_prob
             FROM recommendations r
@@ -33,16 +39,16 @@ def _make_query(use_ml: bool, has_market: bool) -> tuple[str, str]:
             ORDER BY r.created_at DESC
             LIMIT 1
         ) rec ON true
-        JOIN stocks s ON s.code = fe.code
+        {market_join}
         WHERE fe.event_type = ANY($1::text[])
           AND fe.signal_score >= $2
-          AND DATE(fe.detected_at) BETWEEN $3 AND $4
+          AND fe.detected_at >= $3::date
+          AND fe.detected_at <  $4::date + INTERVAL '1 day'
           AND rec.success_prob >= $5
-          {market_cond}
         ORDER BY fe.code, DATE(fe.detected_at), fe.detected_at DESC
         """
     else:
-        market_cond = "AND s.market = $5" if has_market else ""
+        market_join = "JOIN stocks s ON s.code = fe.code AND s.market = $5" if has_market else ""
         q = f"""
         SELECT DISTINCT ON (fe.code, DATE(fe.detected_at))
             fe.code,
@@ -52,12 +58,14 @@ def _make_query(use_ml: bool, has_market: bool) -> tuple[str, str]:
             db.close * db.volume AS amount,
             fe.signal_score
         FROM feature_events fe
-        JOIN daily_bars db ON db.code = fe.code AND db.date = DATE(fe.detected_at)
-        JOIN stocks s ON s.code = fe.code
+        JOIN daily_bars db ON db.code = fe.code
+          AND db.date = DATE(fe.detected_at)
+          AND db.date BETWEEN $3 AND $4
+        {market_join}
         WHERE fe.event_type = ANY($1::text[])
           AND fe.signal_score >= $2
-          AND DATE(fe.detected_at) BETWEEN $3 AND $4
-          {market_cond}
+          AND fe.detected_at >= $3::date
+          AND fe.detected_at <  $4::date + INTERVAL '1 day'
         ORDER BY fe.code, DATE(fe.detected_at), fe.detected_at DESC
         """
     return q
@@ -127,13 +135,14 @@ async def run_backtest(
         "cost_note":        "소형주(<50억) round-trip ~1.13%, 대형주 ~0.43% (거래세 0.3%)",
     }
 
+    _SIG_COLS = ["code", "date", "close", "volume", "amount", "signal_score"]
+    _BAR_COLS = ["code", "date", "open", "high", "low", "close", "volume"]
+
     async def _run_window(s_d: date, e_d: date):
         sig_rows = await _fetch(s_d, e_d)
         if not sig_rows:
             return None, []
-        sigs = pd.DataFrame([dict(r) for r in sig_rows])
-        if "signal_score" not in sigs.columns:
-            sigs["signal_score"] = 0.0
+        sigs = pd.DataFrame(sig_rows, columns=_SIG_COLS)
         codes = sigs["code"].unique().tolist()
         bar_rows = await db.fetch(
             "SELECT code, date::TEXT, open, high, low, close, volume "
@@ -141,7 +150,7 @@ async def run_backtest(
             "ORDER BY code, date",
             codes, s_d, e_d,
         )
-        bars = pd.DataFrame([dict(r) for r in bar_rows])
+        bars = pd.DataFrame(bar_rows, columns=_BAR_COLS) if bar_rows else pd.DataFrame(columns=_BAR_COLS)
         result = engine.run(sigs, bars)
         return result, [dict(r) for r in sig_rows]
 
@@ -203,9 +212,9 @@ async def run_backtest(
                      "이벤트 타입을 선택하거나 기간을 조정해 보세요."
         }
 
-    signals = pd.DataFrame([dict(r) for r in sig_rows])
-    if "signal_score" not in signals.columns:
-        signals["signal_score"] = 0.0
+    _SIG_COLS = ["code", "date", "close", "volume", "amount", "signal_score"]
+    _BAR_COLS = ["code", "date", "open", "high", "low", "close", "volume"]
+    signals = pd.DataFrame(sig_rows, columns=_SIG_COLS)
 
     codes = signals["code"].unique().tolist()
     bar_rows = await db.fetch(
@@ -214,7 +223,7 @@ async def run_backtest(
         "ORDER BY code, date",
         codes, start_d, end_d,
     )
-    bars = pd.DataFrame([dict(r) for r in bar_rows])
+    bars = pd.DataFrame(bar_rows, columns=_BAR_COLS) if bar_rows else pd.DataFrame(columns=_BAR_COLS)
     result = engine.run(signals, bars)
 
     # 종목명 조회 (trade_log 표시용)

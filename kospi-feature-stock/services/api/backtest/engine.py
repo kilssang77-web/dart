@@ -117,30 +117,37 @@ class BacktestEngine:
         signals: pd.DataFrame,
         bars: pd.DataFrame,
     ) -> BacktestResult:
-        bars_by_code: dict[str, pd.DataFrame] = {}
+        # bars를 numpy 배열로 캐시: code → (dates, highs, lows, closes)
+        bars_cache: dict[str, tuple] = {}
         for code, grp in bars.groupby("code"):
-            bars_by_code[code] = grp.sort_values("date").reset_index(drop=True)
+            g = grp.sort_values("date").reset_index(drop=True)
+            bars_cache[code] = (
+                g["date"].to_numpy(dtype=str),
+                g["high"].to_numpy(dtype=float),
+                g["low"].to_numpy(dtype=float),
+                g["close"].to_numpy(dtype=float),
+            )
 
         trades = []
         daily_counts: dict[str, int] = {}   # date → 당일 진입 수
 
-        for _, sig in signals.iterrows():
-            code      = sig["code"]
-            sig_date  = str(sig["date"])
+        for row in signals.itertuples(index=False):
+            code     = row.code
+            sig_date = str(row.date)
 
             # 하루 최대 진입 제한
             if self.max_daily_entries > 0:
-                if daily_counts.get(sig_date, 0) >= self.max_daily_entries:
+                cnt = daily_counts.get(sig_date, 0)
+                if cnt >= self.max_daily_entries:
                     continue
-                daily_counts[sig_date] = daily_counts.get(sig_date, 0) + 1
+                daily_counts[sig_date] = cnt + 1
 
             # 거래대금 기반 슬리피지 선택
-            close  = float(sig["close"])
-            volume = float(sig.get("volume", 0) or 0)
-            amount = float(sig.get("amount", close * volume))
+            close  = float(row.close)
+            volume = float(getattr(row, "volume", 0) or 0)
+            amount = float(getattr(row, "amount", close * volume) or close * volume)
             buy_cost, sell_cost = self._costs(amount)
 
-            # 매수 체결가 = 종가 × (1 + 수수료 + 슬리피지)
             entry  = close * (1 + buy_cost)
             target = entry * (1 + self.target_pct)
             stop   = entry * (1 + self.stop_loss_pct)
@@ -150,37 +157,35 @@ class BacktestEngine:
                 entry_price=entry,
                 target_price=target,
                 stop_loss_price=stop,
-                signal_score=float(sig.get("signal_score", 0) or 0),
+                signal_score=float(getattr(row, "signal_score", 0) or 0),
             )
 
-            code_bars = bars_by_code.get(code)
-            if code_bars is None:
+            cached = bars_cache.get(code)
+            if cached is None:
                 trades.append(trade)
                 continue
 
-            future = code_bars[code_bars["date"] >= sig_date]
-            for i, (_, row) in enumerate(future.iterrows()):
-                if i == 0:
-                    continue
-                h = float(row.get("high", entry))
-                l = float(row.get("low",  entry))
-                c = float(row.get("close", entry))
-
+            dates, highs, lows, closes = cached
+            idx = int(np.searchsorted(dates, sig_date))  # 진입일 위치
+            end = min(idx + self.max_hold_days + 1, len(dates))
+            for i in range(idx + 1, end):
+                l = lows[i]
+                h = highs[i]
+                c = closes[i]
                 if l <= stop:
                     trade.exit_price = stop   * (1 - sell_cost)
-                    trade.exit_date  = str(row["date"])
+                    trade.exit_date  = dates[i]
                     trade.status     = "loss"
                     break
                 if h >= target:
                     trade.exit_price = target * (1 - sell_cost)
-                    trade.exit_date  = str(row["date"])
+                    trade.exit_date  = dates[i]
                     trade.status     = "win"
                     break
-                if i >= self.max_hold_days:
+                if i == end - 1:
                     trade.exit_price = c * (1 - sell_cost)
-                    trade.exit_date  = str(row["date"])
+                    trade.exit_date  = dates[i]
                     trade.status     = "timeout"
-                    break
 
             if trade.exit_price:
                 trade.pnl_pct = (trade.exit_price - trade.entry_price) / trade.entry_price * 100
@@ -228,13 +233,15 @@ class BacktestEngine:
                 cur_lose += 1; cur_win = 0
                 max_lose_streak = max(max_lose_streak, cur_lose)
 
-        # 자본금 곡선 (거래별)
+        # 자본금 곡선 (거래별) — O(n) running-peak
         equity_curve = []
         cumulative = 1.0
+        peak_eq_run = 1.0
         for t in closed:
             cumulative *= (1 + t.pnl_pct / 100 * 0.02)  # 2% 포지션 기준
-            peak = max((p["equity"] for p in equity_curve), default=1.0)
-            dd = (cumulative - peak) / peak * 100 if cumulative < peak else 0.0
+            if cumulative > peak_eq_run:
+                peak_eq_run = cumulative
+            dd = (cumulative - peak_eq_run) / peak_eq_run * 100 if cumulative < peak_eq_run else 0.0
             equity_curve.append({
                 "date":     t.exit_date,
                 "equity":   round(cumulative, 5),

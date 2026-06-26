@@ -315,7 +315,7 @@ export function Backtest() {
         {/* ── 결과 영역 ── */}
         <div className="lg:col-span-2 space-y-4">
           {mutError ? (
-            <ErrorState message="백테스트 실행 중 오류가 발생했습니다" retry={() => runBacktest()} />
+            <ErrorState message={`백테스트 실행 중 오류가 발생했습니다${mutError.message ? ` — ${mutError.message}` : ''}`} retry={() => runBacktest()} />
           ) : result?.error ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3 text-[var(--muted)] bg-[var(--card)] border border-[var(--border)] rounded-xl">
               <BarChart2 size={28} className="opacity-30" />
