@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Search, Building2, ChevronRight, TrendingUp, Users, BarChart3, X } from 'lucide-react'
+import { Search, Building2, ChevronRight, TrendingUp, Users, BarChart3, X, Target } from 'lucide-react'
 import { bidsApi, statsApi } from '@/api'
-import type { MetaData } from '@/types'
+import type { MetaData, OurWinMap } from '@/types'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -38,6 +38,12 @@ export default function AgenciesPage() {
   const { data: stats = [], isLoading } = useQuery<AgencyStatItem[]>({
     queryKey: ['stats-agencies', 24],
     queryFn: () => statsApi.agencies(24) as Promise<AgencyStatItem[]>,
+    staleTime: 300_000,
+  })
+
+  const { data: winMap } = useQuery<OurWinMap>({
+    queryKey: ['our-win-map', 24],
+    queryFn: () => statsApi.ourWinMap(24, 12),
     staleTime: 300_000,
   })
 
@@ -167,6 +173,80 @@ export default function AgenciesPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* ── 우리 회사 승률 MAP ── */}
+        {winMap && winMap.summary.total_bids > 0 && (
+          <Card className="bg-white border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 pb-3 flex flex-row items-center justify-between">
+              <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                <Target className="h-4 w-4 text-emerald-600" />우리 회사 발주기관 × 공종 승률 MAP
+              </CardTitle>
+              <div className="flex items-center gap-3 text-xs text-slate-500">
+                <span>총 {winMap.summary.total_bids}건</span>
+                <span className="font-semibold text-emerald-600">
+                  전체 낙찰률 {(winMap.summary.overall_win_rate * 100).toFixed(1)}%
+                </span>
+                <span>최근 {winMap.months}개월</span>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4">
+              {winMap.industries.length === 0 ? (
+                <div className="text-center py-8 text-xs text-slate-400">투찰 이력 데이터가 없습니다</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr>
+                        <th className="text-left py-1.5 px-2 font-medium text-slate-500 min-w-[120px]">기관명</th>
+                        {winMap.industries.map((ind) => (
+                          <th key={ind} className="py-1.5 px-1 font-medium text-slate-500 text-center min-w-[64px] max-w-[80px]">
+                            <span className="truncate block" title={ind}>{ind.length > 5 ? ind.slice(0, 5) + '…' : ind}</span>
+                          </th>
+                        ))}
+                        <th className="py-1.5 px-2 font-medium text-slate-500 text-right">합계</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {winMap.matrix.map((row) => (
+                        <tr key={row.agency} className="border-t border-slate-100 hover:bg-slate-50 transition-colors">
+                          <td className="py-1.5 px-2 font-medium text-slate-700 truncate max-w-[120px]" title={row.agency}>
+                            {row.agency}
+                          </td>
+                          {winMap.industries.map((ind) => {
+                            const cell = row.cells[ind]
+                            if (!cell) return <td key={ind} className="py-1.5 px-1" />
+                            const wr = cell.win_rate
+                            const bgColor = wr >= 0.5 ? 'bg-emerald-500 text-white' :
+                                           wr >= 0.35 ? 'bg-emerald-200 text-emerald-900' :
+                                           wr >= 0.2 ? 'bg-amber-200 text-amber-900' :
+                                           wr > 0 ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-500'
+                            return (
+                              <td key={ind} className="py-1.5 px-1 text-center">
+                                <span
+                                  className={cn('inline-block rounded px-1.5 py-0.5 text-xs font-semibold tabular-nums', bgColor)}
+                                  title={`${cell.wins}/${cell.total}건`}
+                                >
+                                  {(wr * 100).toFixed(0)}%
+                                </span>
+                              </td>
+                            )
+                          })}
+                          <td className="py-1.5 px-2 text-right font-mono text-slate-600">{row.total}건</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="flex items-center gap-3 mt-3 text-xs text-slate-500">
+                    <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded bg-emerald-500" />50%↑</span>
+                    <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded bg-emerald-200" />35-50%</span>
+                    <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded bg-amber-200" />20-35%</span>
+                    <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded bg-red-100" />0-20%</span>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* 전체 기관 목록 */}
         <div>

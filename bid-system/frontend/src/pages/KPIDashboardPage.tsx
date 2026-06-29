@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import DashboardTabBar from '@/components/DashboardTabBar'
 import { BarChart2, Target, TrendingUp, Award, AlertTriangle, RefreshCw, Loader2, CheckCircle2, XCircle, Activity, Users, ChevronDown, BookOpen, Gauge, Zap, Lightbulb, ChevronRight, ArrowRight } from 'lucide-react'
 import { kpiApi, outcomesApi, journalApi, adminApi } from '../api'
-import type { JournalStats, MlCalibration, RecommendationEffect } from '../types'
+import type { JournalStats, MlCalibration, RecommendationEffect, MlHealth } from '../types'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -312,6 +312,12 @@ export default function KPIDashboardPage() {
     staleTime: 5 * 60_000,
   })
 
+  const { data: mlHealth } = useQuery<MlHealth>({
+    queryKey: ['kpi-ml-health'],
+    queryFn: () => kpiApi.mlHealth(),
+    staleTime: 5 * 60_000,
+  })
+
   const winRateStatus: StatusType = data
     ? data.win_rate >= 0.35 ? 'good' : data.win_rate >= 0.20 ? 'warn' : 'bad'
     : 'neutral'
@@ -555,6 +561,148 @@ export default function KPIDashboardPage() {
                 />
               </div>
             </div>
+
+            {/* ── ML 헬스 패널 ── */}
+            {mlHealth && (
+              <div className="space-y-3">
+                <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">AI 모델 실시간 헬스</h2>
+
+                {/* 추천 준수율 효과 요약 */}
+                {mlHealth.follow_summary && mlHealth.follow_summary.total >= 3 && (
+                  <div className={cn(
+                    'rounded-xl border p-4 flex items-center gap-4 flex-wrap',
+                    (mlHealth.follow_summary.lift_pct ?? 0) > 5 ? 'bg-emerald-50 border-emerald-200' : 'bg-blue-50 border-blue-200'
+                  )}>
+                    <Zap className={cn('w-5 h-5 shrink-0', (mlHealth.follow_summary.lift_pct ?? 0) > 5 ? 'text-emerald-500' : 'text-blue-500')} />
+                    <div className="flex-1 min-w-0">
+                      <div className={cn('font-bold text-sm', (mlHealth.follow_summary.lift_pct ?? 0) > 5 ? 'text-emerald-700' : 'text-blue-700')}>
+                        AI 추천 준수 낙찰률 {mlHealth.follow_summary.followed_win_rate != null ? `${(mlHealth.follow_summary.followed_win_rate * 100).toFixed(1)}%` : '—'}
+                        {' '}vs 이탈 {mlHealth.follow_summary.deviated_win_rate != null ? `${(mlHealth.follow_summary.deviated_win_rate * 100).toFixed(1)}%` : '—'}
+                      </div>
+                      <div className="text-xs text-gray-600 mt-0.5">
+                        준수율 <strong>{(mlHealth.follow_summary.follow_rate * 100).toFixed(0)}%</strong>
+                        {' '}({mlHealth.follow_summary.followed}/{mlHealth.follow_summary.total}건)
+                        {mlHealth.follow_summary.lift_pct != null && (
+                          <span className={cn('ml-2 font-semibold', mlHealth.follow_summary.lift_pct > 0 ? 'text-emerald-600' : 'text-red-500')}>
+                            lift {mlHealth.follow_summary.lift_pct > 0 ? '+' : ''}{mlHealth.follow_summary.lift_pct.toFixed(1)}%
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* 데이터 품질 분포 */}
+                  <Card className="bg-white border-slate-200 shadow-sm">
+                    <CardHeader className="border-b border-slate-100 pb-3">
+                      <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                        <Activity className="h-4 w-4 text-blue-600" />데이터 품질 분포
+                        <span className="ml-auto text-xs font-normal text-slate-500">
+                          Fallback {(mlHealth.fallback_rate * 100).toFixed(0)}%
+                          {' '}<span className={cn('font-medium', mlHealth.interpretation.fallback === '좋음' ? 'text-emerald-600' : mlHealth.interpretation.fallback === '보통' ? 'text-amber-600' : 'text-red-600')}>
+                            ({mlHealth.interpretation.fallback})
+                          </span>
+                        </span>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-4 space-y-3">
+                      {[
+                        { label: '기관별 통계', count: mlHealth.data_quality_dist.agency, color: 'bg-emerald-500' },
+                        { label: '공종별 통계', count: mlHealth.data_quality_dist.industry, color: 'bg-blue-500' },
+                        { label: '전체 평균(Fallback)', count: mlHealth.data_quality_dist.global, color: 'bg-slate-400' },
+                      ].map(({ label, count, color }) => {
+                        const total = (mlHealth.data_quality_dist.agency + mlHealth.data_quality_dist.industry + mlHealth.data_quality_dist.global) || 1
+                        const pct = Math.round((count / total) * 100)
+                        return (
+                          <div key={label}>
+                            <div className="flex justify-between text-xs mb-1">
+                              <span className="text-slate-600">{label}</span>
+                              <span className="font-mono text-slate-700">{count}건 ({pct}%)</span>
+                            </div>
+                            <div className="w-full bg-slate-100 rounded-full h-2">
+                              <div className={cn('h-2 rounded-full transition-all', color)} style={{ width: `${pct}%` }} />
+                            </div>
+                          </div>
+                        )
+                      })}
+                      <div className="text-xs text-slate-500 pt-1">
+                        전체 기관 {mlHealth.total_agencies}개 중 {mlHealth.total_agency_stats}개 충분한 데이터
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* MAE 14일 추이 */}
+                  <Card className="bg-white border-slate-200 shadow-sm">
+                    <CardHeader className="border-b border-slate-100 pb-3">
+                      <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4 text-purple-600" />사정율 예측 MAE 추이 (14일)
+                        <span className="ml-auto text-xs font-normal">
+                          7일 <span className={cn('font-semibold', mlHealth.interpretation.mae_7d === '좋음' ? 'text-emerald-600' : mlHealth.interpretation.mae_7d === '보통' ? 'text-amber-600' : mlHealth.interpretation.mae_7d === '개선필요' ? 'text-red-600' : 'text-slate-400')}>
+                            {mlHealth.mae_7d != null ? mlHealth.mae_7d.toFixed(4) : '—'}
+                          </span>
+                        </span>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-4">
+                      {mlHealth.mae_trend.length === 0 ? (
+                        <div className="flex items-center justify-center h-20 text-xs text-slate-400">데이터 없음</div>
+                      ) : (
+                        <div className="flex items-end gap-1 h-20">
+                          {mlHealth.mae_trend.slice(-14).map((t, i) => {
+                            const mae = t.mae ?? 0
+                            const maxMae = Math.max(...mlHealth.mae_trend.map(x => x.mae ?? 0), 0.01)
+                            const h = Math.max(4, Math.round((mae / maxMae) * 100))
+                            const isGood = mae < 0.005
+                            return (
+                              <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
+                                <div
+                                  className={cn('w-full rounded-t transition-all', isGood ? 'bg-emerald-400' : mae < 0.015 ? 'bg-amber-400' : 'bg-red-400')}
+                                  style={{ height: `${h}%` }}
+                                  title={`${t.day}: MAE ${mae.toFixed(4)} (n=${t.n})`}
+                                />
+                                {i % 3 === 0 && t.day && (
+                                  <div className="text-[9px] text-slate-400">{t.day.slice(5)}</div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                      <div className="flex justify-between text-xs text-slate-500 mt-2">
+                        <span>30일 MAE: {mlHealth.mae_30d != null ? mlHealth.mae_30d.toFixed(4) : '—'} (n={mlHealth.mae_n_30d})</span>
+                        <span>ECE: {mlHealth.ece_30d != null ? mlHealth.ece_30d.toFixed(3) : '—'}</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* 재학습 이력 */}
+                {mlHealth.retrain_history.length > 0 && (
+                  <Card className="bg-white border-slate-200 shadow-sm">
+                    <CardHeader className="border-b border-slate-100 pb-3">
+                      <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                        <RefreshCw className="h-4 w-4 text-slate-500" />모델 재학습 이력 (30일)
+                        <span className="ml-auto text-xs font-normal text-slate-500">
+                          {mlHealth.retrain_count_30d}회 재학습
+                        </span>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-4">
+                      <div className="space-y-2">
+                        {mlHealth.retrain_history.map((r, i) => (
+                          <div key={i} className="flex items-center gap-3 text-xs">
+                            <span className="font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded">{r.model_version}</span>
+                            <span className="text-slate-500">{r.first_seen ? new Date(r.first_seen).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit' }) : '—'}</span>
+                            <span className="ml-auto text-slate-400">{r.usage_count}건 사용</span>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
 
             {/* 월별 트렌드 바 차트 */}
             {data.monthly_trend.length > 0 && (

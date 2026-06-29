@@ -1,11 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Bell, CheckCheck, ExternalLink, Loader2, Tag, AlertTriangle, Info, BellOff } from 'lucide-react'
+import { Bell, CheckCheck, ExternalLink, Loader2, Tag, AlertTriangle, Info, BellOff, TrendingUp, Users, Clock, Zap } from 'lucide-react'
 import { notificationsApi } from '@/api'
-import type { Notification } from '@/types'
+import type { Notification, IntelAlert, IntelAlerts } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 
 const NTYPE_CONFIG: Record<string, {
@@ -103,12 +103,56 @@ function NotificationRow({
   )
 }
 
+const INTEL_CONFIG: Record<string, { icon: React.ElementType; iconBg: string; iconColor: string; badgeCls: string }> = {
+  competitor_streak: { icon: Users,        iconBg: 'bg-red-50',    iconColor: 'text-red-600',    badgeCls: 'bg-red-50 text-red-700 border-red-200' },
+  srate_spike:       { icon: TrendingUp,   iconBg: 'bg-amber-50',  iconColor: 'text-amber-600',  badgeCls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  pending_open:      { icon: Clock,        iconBg: 'bg-blue-50',   iconColor: 'text-blue-600',   badgeCls: 'bg-blue-50 text-blue-700 border-blue-200' },
+}
+
+function IntelAlertRow({ alert, onAction }: { alert: IntelAlert; onAction?: (execId: number) => void }) {
+  const conf = INTEL_CONFIG[alert.type] ?? INTEL_CONFIG.pending_open
+  const IconComp = conf.icon
+  return (
+    <div className={cn(
+      'flex items-start gap-3 px-4 py-3 border-b border-slate-100 last:border-0',
+      alert.level === 'warn' ? 'bg-amber-50/30' : 'bg-blue-50/20'
+    )}>
+      <div className={cn('h-8 w-8 rounded-full flex items-center justify-center shrink-0 mt-0.5', conf.iconBg)}>
+        <IconComp className={cn('h-4 w-4', conf.iconColor)} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap mb-0.5">
+          <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full border', conf.badgeCls)}>
+            {alert.type === 'competitor_streak' ? '경쟁사 연승' : alert.type === 'srate_spike' ? '사정율 급변' : '개찰 임박'}
+          </span>
+          {alert.level === 'warn' && <AlertTriangle className="h-3 w-3 text-amber-500" />}
+        </div>
+        <p className="text-sm font-semibold text-slate-800 leading-snug">{alert.title}</p>
+        <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{alert.body}</p>
+        {alert.exec_id && onAction && (
+          <button
+            className="mt-1 text-xs text-blue-600 hover:underline font-medium"
+            onClick={() => onAction(alert.exec_id!)}
+          >결과 입력하기 →</button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function NotificationsPage() {
+  const navigate = useNavigate()
   const qc = useQueryClient()
 
   const { data, isLoading } = useQuery({
     queryKey: ['notifications'],
     queryFn: () => notificationsApi.list({ limit: 50 }),
+  })
+
+  const { data: intel, isLoading: intelLoading } = useQuery<IntelAlerts>({
+    queryKey: ['notifications-intel'],
+    queryFn: () => notificationsApi.intel(),
+    staleTime: 5 * 60_000,
   })
 
   const markRead = useMutation({
@@ -164,7 +208,38 @@ export default function NotificationsPage() {
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto p-6">
+      <div className="max-w-2xl mx-auto p-6 space-y-4">
+        {/* ── 조기경보 인텔리전스 ── */}
+        <Card className="bg-white border-amber-200 shadow-sm overflow-hidden">
+          <CardHeader className="border-b border-amber-100 pb-3 pt-4 px-4 bg-amber-50/50">
+            <CardTitle className="text-sm font-semibold text-amber-800 flex items-center gap-2">
+              <Zap className="h-4 w-4 text-amber-500" />조기경보 인텔리전스
+              {intel && intel.total > 0 && (
+                <span className="ml-auto bg-amber-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">
+                  {intel.total}
+                </span>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {intelLoading ? (
+              <div className="p-4 space-y-2">
+                {[1, 2].map(i => <Skeleton key={i} className="h-14 w-full" />)}
+              </div>
+            ) : !intel?.alerts.length ? (
+              <div className="py-6 text-center text-xs text-slate-400">현재 조기경보 없음</div>
+            ) : (
+              intel.alerts.map((alert, i) => (
+                <IntelAlertRow
+                  key={i}
+                  alert={alert}
+                  onAction={(execId) => navigate(`/executions?id=${execId}`)}
+                />
+              ))
+            )}
+          </CardContent>
+        </Card>
+
         <Card className="bg-white border-slate-200 shadow-sm overflow-hidden">
           <CardContent className="p-0">
             {isLoading ? (

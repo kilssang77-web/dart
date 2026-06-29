@@ -163,6 +163,8 @@ export const statsApi = {
     api.get('/stats/srate-trend', { params: { agency_id: agencyId, industry_id: industryId } }).then((r) => r.data),
   topSrateTrends: (limit = 3): Promise<TopSrateTrend[]> =>
     api.get('/stats/top-srate-trends', { params: { limit } }).then((r) => r.data),
+  ourWinMap: (months = 24, topAgencies = 15): Promise<import('../types').OurWinMap> =>
+    api.get('/stats/our-win-map', { params: { months, top_agencies: topAgencies } }).then((r) => r.data),
 }
 
 // -- 키워드 --------------------------------------------------
@@ -357,6 +359,8 @@ export const kpiApi = {
     api.get('/kpi/dashboard', { params: { period_type: periodType } }).then((r) => r.data),
   forceSnapshot: (periodType = 'MONTHLY') =>
     api.post('/kpi/snapshot', null, { params: { period_type: periodType } }).then((r) => r.data),
+  mlHealth: (): Promise<import('../types').MlHealth> =>
+    api.get('/kpi/ml-health').then((r) => r.data),
 }
 
 export const portfolioApi = {
@@ -378,6 +382,8 @@ export const notificationsApi = {
     api.post(`/notifications/${id}/read`).then(() => undefined),
   markAllRead: (): Promise<void> =>
     api.post('/notifications/read-all').then(() => undefined),
+  intel: (): Promise<import('../types').IntelAlerts> =>
+    api.get('/notifications/intel').then((r) => r.data),
 }
 
 // -- 투찰 실행 관리 ------------------------------------------

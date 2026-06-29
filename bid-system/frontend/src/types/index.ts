@@ -1885,3 +1885,75 @@ export interface ContractSummary {
   days_back: number
 }
 
+// ── 모델 헬스 (KPI ml-health) ────────────────────────────────
+export interface MlHealth {
+  fallback_rate: number
+  data_quality_dist: { agency: number; industry: number; global: number }
+  total_agency_stats: number
+  total_agencies: number
+  mae_7d: number | null
+  mae_30d: number | null
+  mae_n_7d: number
+  mae_n_30d: number
+  ece_30d: number | null
+  retrain_count_30d: number
+  last_retrain_at: string | null
+  retrain_history: { model_version: string; first_seen: string | null; usage_count: number }[]
+  mae_trend: { day: string | null; mae: number | null; n: number }[]
+  follow_summary: {
+    total: number
+    followed: number
+    follow_rate: number
+    followed_win_rate: number | null
+    deviated_win_rate: number | null
+    lift_pct: number | null
+  } | null
+  interpretation: { fallback: string; mae_7d: string }
+}
+
+// ── 우리 회사 승률 MAP ───────────────────────────────────────
+export interface OurWinMapCell {
+  total: number
+  wins: number
+  win_rate: number
+  win_amount: number
+}
+
+export interface OurWinMap {
+  months: number
+  agencies: string[]
+  industries: string[]
+  matrix: {
+    agency: string
+    total: number
+    cells: Record<string, OurWinMapCell>
+  }[]
+  summary: {
+    total_bids: number
+    total_wins: number
+    overall_win_rate: number
+  }
+}
+
+// ── 조기경보 인텔리전스 알림 ─────────────────────────────────
+export interface IntelAlert {
+  type: 'competitor_streak' | 'srate_spike' | 'pending_open'
+  level: 'warn' | 'info' | 'critical'
+  title: string
+  body: string
+  agency?: string
+  competitor?: string
+  streak?: number
+  recent?: number
+  prior?: number
+  delta?: number
+  exec_id?: number
+  open_date?: string
+}
+
+export interface IntelAlerts {
+  total: number
+  alerts: IntelAlert[]
+}
+
+

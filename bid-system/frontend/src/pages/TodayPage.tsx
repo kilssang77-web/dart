@@ -447,11 +447,10 @@ export default function TodayPage() {
                     return (
                       <div
                         key={b.id}
-                        className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 rounded-lg p-2 -mx-1 transition-colors group"
-                        onClick={() => navigate(`/bids/${b.id}`)}
+                        className="flex items-center gap-2 hover:bg-slate-50 rounded-lg p-2 -mx-1 transition-colors group"
                       >
                         <DeadlineBadge days={days} />
-                        <div className="flex-1 min-w-0">
+                        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => navigate(`/bids/${b.id}`)}>
                           <p className="text-xs font-semibold text-slate-700 truncate group-hover:text-blue-700 transition-colors">
                             {b.title}
                           </p>
@@ -459,7 +458,13 @@ export default function TodayPage() {
                             {b.agency_name} · {fmtAmt(b.base_amount)}원
                           </p>
                         </div>
-                        <ChevronRight className="h-3 w-3 text-slate-300 group-hover:text-blue-400 transition-colors shrink-0" />
+                        <Button
+                          size="sm"
+                          className="h-6 px-2 text-[10px] gap-0.5 bg-blue-600 hover:bg-blue-700 text-white shrink-0"
+                          onClick={() => navigate(`/decision?bid=${b.id}`)}
+                        >
+                          <Crosshair className="h-2.5 w-2.5" />AI결정
+                        </Button>
                       </div>
                     )
                   })
