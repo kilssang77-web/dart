@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
-import { createChart, ColorType } from 'lightweight-charts'
+import {
+  createChart, ColorType,
+  CandlestickSeries, LineSeries,
+  createSeriesMarkers,
+} from 'lightweight-charts'
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, ResponsiveContainer,
   ReferenceLine, Tooltip,
@@ -24,14 +28,14 @@ interface CandleChartProps {
 
 // ── 네이버 스타일 색상 ────────────────────────────────────────────────────────
 const NAVER = {
-  up:     '#d60000',   // 양봉 (진한 빨강)
-  down:   '#0051c2',   // 음봉 (진한 파랑)
-  flat:   '#555555',   // 보합봉
-  ma5:    '#ff9500',   // MA5  주황
-  ma20:   '#7b00a6',   // MA20 보라
-  ma60:   '#0073e6',   // MA60 파랑
-  ma120:  '#00a050',   // MA120 초록
-  bb:     'rgba(168,85,247,0.55)',
+  up:    '#d60000',
+  down:  '#0051c2',
+  flat:  '#555555',
+  ma5:   '#ff9500',
+  ma20:  '#7b00a6',
+  ma60:  '#0073e6',
+  ma120: '#00a050',
+  bb:    'rgba(168,85,247,0.55)',
 }
 
 const EVENT_MARKER_COLOR: Record<string, string> = {
@@ -66,7 +70,7 @@ const MA_DEFS = [
   { key: 'ma120', label: 'MA120', color: NAVER.ma120 },
 ] as const
 
-// ── RSI(Wilder's) ─────────────────────────────────────────────────────────────
+// ── RSI (Wilder's) ────────────────────────────────────────────────────────────
 function calcRSI(closes: number[], period = 14): (number | null)[] {
   if (closes.length < period + 1) return closes.map(() => null)
   const result: (number | null)[] = []
@@ -77,8 +81,7 @@ function calcRSI(closes: number[], period = 14): (number | null)[] {
   }
   avgGain /= period; avgLoss /= period
   for (let i = 0; i < period; i++) result.push(null)
-  const rs0 = avgLoss === 0 ? 100 : avgGain / avgLoss
-  result.push(100 - 100 / (1 + rs0))
+  result.push(100 - 100 / (1 + (avgLoss === 0 ? 100 : avgGain / avgLoss)))
   for (let i = period + 1; i < closes.length; i++) {
     const d = closes[i] - closes[i - 1]
     avgGain = (avgGain * (period - 1) + (d > 0 ? d : 0)) / period
@@ -88,7 +91,7 @@ function calcRSI(closes: number[], period = 14): (number | null)[] {
   return result
 }
 
-// ── 볼린저밴드(MA20 ±2σ) ─────────────────────────────────────────────────────
+// ── 볼린저밴드 (MA20 ±2σ) ─────────────────────────────────────────────────────
 function calcBB(closes: number[], period = 20) {
   return closes.map((_, i) => {
     if (i < period - 1) return { upper: null, lower: null }
@@ -99,7 +102,6 @@ function calcBB(closes: number[], period = 20) {
   })
 }
 
-// ── 기간 버튼 ─────────────────────────────────────────────────────────────────
 const PERIOD_BTNS = [
   { label: '1M', days: 30  },
   { label: '3M', days: 90  },
@@ -116,28 +118,28 @@ function fmtVol(v: number): string {
 
 function fmtPrc(v: number | undefined | null): string {
   if (v == null) return '—'
-  return v >= 1000 ? v.toLocaleString('ko-KR', { maximumFractionDigits: 0 }) : v.toFixed(2)
+  return v >= 1000
+    ? v.toLocaleString('ko-KR', { maximumFractionDigits: 0 })
+    : v.toFixed(2)
 }
 
-// ── OHLCV 오버레이 타입 ───────────────────────────────────────────────────────
 interface HoverInfo {
-  date:   string
-  open:   number
-  high:   number
-  low:    number
-  close:  number
-  volume: number
-  ma5?:   number | null
-  ma20?:  number | null
-  ma60?:  number | null
-  ma120?: number | null
+  date:      string
+  open:      number
+  high:      number
+  low:       number
+  close:     number
+  volume:    number
+  ma5?:      number | null
+  ma20?:     number | null
+  ma60?:     number | null
+  ma120?:    number | null
   prevClose: number
 }
 
 export function CandleChart({ data, height = 360, showMA = true, events, className }: CandleChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef     = useRef<ReturnType<typeof createChart> | null>(null)
-  const candleRef    = useRef<ReturnType<ReturnType<typeof createChart>['addCandlestickSeries']> | null>(null)
   const { mode }     = useThemeStore()
   const isDark       = mode === 'dark'
 
@@ -156,13 +158,11 @@ export function CandleChart({ data, height = 360, showMA = true, events, classNa
     })
   }
 
-  // 기간 슬라이스
   const filteredData = useMemo(() =>
     data.length ? data.slice(-periodDays) : data,
     [data, periodDays]
   )
 
-  // RSI
   const rsiData = useMemo(() => {
     const rsi = calcRSI(filteredData.map(d => d.close))
     return filteredData.map((d, i) => ({
@@ -171,10 +171,8 @@ export function CandleChart({ data, height = 360, showMA = true, events, classNa
     }))
   }, [filteredData])
 
-  // 볼린저밴드
   const bbData = useMemo(() => calcBB(filteredData.map(d => d.close)), [filteredData])
 
-  // 거래량
   const volData = useMemo(() =>
     filteredData.map((d, i) => {
       const prev = i > 0 ? filteredData[i - 1].close : d.open
@@ -183,14 +181,11 @@ export function CandleChart({ data, height = 360, showMA = true, events, classNa
     [filteredData]
   )
 
-  // crosshair 이동 → hover 업데이트
   const updateHover = useCallback((param: {
     time?: unknown
     seriesData?: Map<unknown, unknown>
-    logical?: number
   }) => {
     if (!param.time || !param.seriesData?.size) {
-      // 마우스 이탈 시 마지막 봉 기본값 표시
       const last = filteredData[filteredData.length - 1]
       const prev = filteredData.length > 1 ? filteredData[filteredData.length - 2].close : last?.open
       if (last) setHover({
@@ -227,41 +222,42 @@ export function CandleChart({ data, height = 360, showMA = true, events, classNa
     })
   }, [filteredData])
 
-  // ── 차트 생성 ──────────────────────────────────────────────────────────────
+  // ── 차트 생성 (v5 API) ────────────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current || !filteredData.length) return
 
     const gridC  = isDark ? '#2a2a2a' : '#f0f0f0'
     const textC  = isDark ? '#9ca3af' : '#6b7280'
     const crossC = isDark ? '#4b5563' : '#9ca3af'
-    const bgC    = isDark ? 'transparent' : 'transparent'
 
     chartRef.current?.remove()
 
+    // v5: attribution.visible = false → TV 로고·링크 제거
     const chart = createChart(containerRef.current, {
       width:  containerRef.current.clientWidth,
       height,
       layout: {
-        background: { type: ColorType.Solid, color: bgC },
-        textColor:  textC,
-        fontSize:   11,
+        background:      { type: ColorType.Solid, color: 'transparent' },
+        textColor:       textC,
+        fontSize:        11,
+        attributionLogo: false,   // ← TradingView 로고·링크 제거
       },
       grid: {
         vertLines: { color: gridC, style: 1 },
         horzLines: { color: gridC, style: 1 },
       },
       crosshair: {
-        mode: 1,
+        mode:     1,
         vertLine: { color: crossC, width: 1, style: 3, labelBackgroundColor: isDark ? '#374151' : '#e5e7eb' },
         horzLine: { color: crossC, width: 1, style: 3, labelBackgroundColor: isDark ? '#374151' : '#e5e7eb' },
       },
       timeScale: {
-        borderColor:     gridC,
-        timeVisible:     false,
-        secondsVisible:  false,
-        fixLeftEdge:     true,
-        fixRightEdge:    true,
-        barSpacing:      filteredData.length <= 60 ? 8 : filteredData.length <= 180 ? 5 : 3,
+        borderColor:    gridC,
+        timeVisible:    false,
+        secondsVisible: false,
+        fixLeftEdge:    true,
+        fixRightEdge:   true,
+        barSpacing:     filteredData.length <= 60 ? 8 : filteredData.length <= 180 ? 5 : 3,
       },
       rightPriceScale: {
         borderColor:  gridC,
@@ -269,15 +265,17 @@ export function CandleChart({ data, height = 360, showMA = true, events, classNa
         scaleMargins: { top: 0.08, bottom: 0.05 },
       },
       localization: {
-        dateFormat: 'yy/MM/dd',
+        dateFormat:     'yy/MM/dd',
         priceFormatter: (p: number) =>
-          p >= 1000 ? p.toLocaleString('ko-KR', { maximumFractionDigits: 0 }) : p.toFixed(2),
+          p >= 1000
+            ? p.toLocaleString('ko-KR', { maximumFractionDigits: 0 })
+            : p.toFixed(2),
       },
     })
     chartRef.current = chart
 
-    // ── 캔들 시리즈 ──────────────────────────────────────────────────────────
-    const candleSeries = chart.addCandlestickSeries({
+    // ── v5: addSeries(CandlestickSeries, options) ─────────────────────────
+    const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor:         NAVER.up,
       downColor:       NAVER.down,
       borderUpColor:   NAVER.up,
@@ -287,12 +285,11 @@ export function CandleChart({ data, height = 360, showMA = true, events, classNa
       borderVisible:   true,
       wickVisible:     true,
     })
-    candleRef.current = candleSeries
 
     candleSeries.setData(
       filteredData.map((d, i) => {
-        const prev = i > 0 ? filteredData[i - 1].close : d.open
-        const isUp   = d.close > prev
+        const prev  = i > 0 ? filteredData[i - 1].close : d.open
+        const isUp  = d.close > prev
         const isFlat = d.close === prev
         const c = isFlat ? NAVER.flat : isUp ? NAVER.up : NAVER.down
         return {
@@ -308,7 +305,7 @@ export function CandleChart({ data, height = 360, showMA = true, events, classNa
       })
     )
 
-    // ── 이벤트 마커 ──────────────────────────────────────────────────────────
+    // ── v5: createSeriesMarkers(series, markers) ──────────────────────────
     if (events?.length) {
       const minDate = filteredData[0]?.date ?? ''
       const markers = events
@@ -322,14 +319,14 @@ export function CandleChart({ data, height = 360, showMA = true, events, classNa
           size:     Math.max(0.5, Math.min(2, ev.score * 2)),
         }))
         .sort((a, b) => String(a.time).localeCompare(String(b.time)))
-      candleSeries.setMarkers(markers)
+      createSeriesMarkers(candleSeries, markers)
     }
 
-    // ── MA 시리즈 ─────────────────────────────────────────────────────────────
+    // ── v5: addSeries(LineSeries, options) ────────────────────────────────
     if (showMA) {
       MA_DEFS.forEach(({ key, color, label }) => {
         if (!activeMA.has(key)) return
-        const s = chart.addLineSeries({
+        const s = chart.addSeries(LineSeries, {
           color,
           lineWidth:        1,
           title:            label,
@@ -338,20 +335,19 @@ export function CandleChart({ data, height = 360, showMA = true, events, classNa
         })
         const pts = filteredData
           .filter(d => (d as unknown as Record<string, unknown>)[key] != null)
-          .map(d => ({ time: d.date as unknown as string, value: (d as unknown as Record<string, number>)[key]! }))
+          .map(d   => ({ time: d.date as unknown as string, value: (d as unknown as Record<string, number>)[key]! }))
         s.setData(pts)
       })
     }
 
-    // ── 볼린저밴드 ────────────────────────────────────────────────────────────
+    // ── 볼린저밴드 ────────────────────────────────────────────────────────
     if (showBB) {
-      const makeLineSeries = (title: string) => chart.addLineSeries({
-        color: NAVER.bb, lineWidth: 1, title,
-        lastValueVisible: false, priceLineVisible: false,
-        lineStyle: 2,
-      })
-      const upper = makeLineSeries('BB+')
-      const lower = makeLineSeries('BB-')
+      const bbOpts = {
+        color: NAVER.bb, lineWidth: 1 as const,
+        lastValueVisible: false, priceLineVisible: false, lineStyle: 2 as const,
+      }
+      const upper = chart.addSeries(LineSeries, { ...bbOpts, title: 'BB+' })
+      const lower = chart.addSeries(LineSeries, { ...bbOpts, title: 'BB-' })
       upper.setData(filteredData
         .map((d, i) => bbData[i].upper != null ? { time: d.date as unknown as string, value: bbData[i].upper! } : null)
         .filter((x): x is NonNullable<typeof x> => x !== null))
@@ -362,10 +358,9 @@ export function CandleChart({ data, height = 360, showMA = true, events, classNa
 
     chart.timeScale().fitContent()
 
-    // ── crosshair → hover 업데이트 ───────────────────────────────────────────
-    chart.subscribeCrosshairMove((param) => {
+    chart.subscribeCrosshairMove(param =>
       updateHover(param as Parameters<typeof updateHover>[0])
-    })
+    )
 
     const ro = new ResizeObserver(() => {
       if (containerRef.current) chart.resize(containerRef.current.clientWidth, height)
@@ -376,7 +371,7 @@ export function CandleChart({ data, height = 360, showMA = true, events, classNa
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredData, events, mode, height, showMA, activeMA, showBB, bbData])
 
-  // ── 스타일 변수 ────────────────────────────────────────────────────────────
+  // ── 스타일 ────────────────────────────────────────────────────────────────
   const textColor = isDark ? '#9ca3af' : '#6b7280'
   const gridColor = isDark ? '#2a2a2a' : '#f0f0f0'
   const panelBg   = isDark ? '#18181b' : '#ffffff'
@@ -388,8 +383,8 @@ export function CandleChart({ data, height = 360, showMA = true, events, classNa
       : NAVER.flat
     : NAVER.flat
 
-  const changePct = hover && hover.prevClose
-    ? ((hover.close - hover.prevClose) / hover.prevClose * 100)
+  const changePct = hover?.prevClose
+    ? (hover.close - hover.prevClose) / hover.prevClose * 100
     : null
 
   return (
@@ -400,37 +395,32 @@ export function CandleChart({ data, height = 360, showMA = true, events, classNa
         className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-2 py-1.5 text-[11px] border-b"
         style={{ background: panelBg, borderColor: borderC }}
       >
-        {/* 날짜 */}
-        <span className="font-medium" style={{ color: textColor }}>
-          {hover?.date ?? '—'}
-        </span>
+        <span className="font-medium" style={{ color: textColor }}>{hover?.date ?? '—'}</span>
 
-        {/* OHLC */}
         {[
-          { label: '시', key: 'open' },
-          { label: '고', key: 'high' },
-          { label: '저', key: 'low' },
+          { label: '시', key: 'open'  as keyof HoverInfo },
+          { label: '고', key: 'high'  as keyof HoverInfo },
+          { label: '저', key: 'low'   as keyof HoverInfo },
         ].map(({ label, key }) => (
           <span key={key} style={{ color: textColor }}>
             {label}&nbsp;
             <span className="font-semibold" style={{ color: isDark ? '#e5e7eb' : '#111827' }}>
-              {fmtPrc(hover?.[key as keyof HoverInfo] as number)}
+              {fmtPrc(hover?.[key] as number)}
             </span>
           </span>
         ))}
+
         <span>
           <span style={{ color: textColor }}>종&nbsp;</span>
-          <span className="font-bold" style={{ color: hoverColor }}>
-            {fmtPrc(hover?.close)}
-          </span>
+          <span className="font-bold" style={{ color: hoverColor }}>{fmtPrc(hover?.close)}</span>
         </span>
+
         {changePct != null && (
           <span className="font-semibold" style={{ color: hoverColor }}>
             {changePct >= 0 ? '+' : ''}{changePct.toFixed(2)}%
           </span>
         )}
 
-        {/* 거래량 */}
         <span style={{ color: textColor }}>
           거래량&nbsp;
           <span className="font-semibold" style={{ color: isDark ? '#e5e7eb' : '#111827' }}>
@@ -438,7 +428,6 @@ export function CandleChart({ data, height = 360, showMA = true, events, classNa
           </span>
         </span>
 
-        {/* MA 현재값 */}
         {showMA && MA_DEFS.filter(m => activeMA.has(m.key)).map(({ key, label, color }) => {
           const v = hover?.[key as keyof HoverInfo]
           if (v == null) return null
@@ -452,19 +441,16 @@ export function CandleChart({ data, height = 360, showMA = true, events, classNa
 
       {/* ── 컨트롤 바 ──────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-2 px-1 py-1.5">
-        {/* 기간 버튼 */}
         <div className="flex rounded overflow-hidden border" style={{ borderColor: borderC }}>
           {PERIOD_BTNS.map(({ label, days }) => (
             <button
               key={label}
               onClick={() => setPeriodDays(days)}
-              className={clsx(
-                'text-[11px] px-2 py-0.5 font-medium transition-colors',
-                periodDays === days
-                  ? 'bg-blue-600 text-white'
-                  : 'hover:bg-[var(--border)]'
-              )}
-              style={{ color: periodDays === days ? '#fff' : textColor }}
+              className="text-[11px] px-2 py-0.5 font-medium transition-colors"
+              style={{
+                background:  periodDays === days ? '#2563eb' : 'transparent',
+                color:       periodDays === days ? '#fff' : textColor,
+              }}
             >
               {label}
             </button>
@@ -473,45 +459,32 @@ export function CandleChart({ data, height = 360, showMA = true, events, classNa
 
         <div className="w-px h-4" style={{ background: borderC }} />
 
-        {/* MA 토글 */}
         {showMA && MA_DEFS.map(({ key, label, color }) => (
           <button
             key={key}
             onClick={() => toggleMA(key)}
             className="text-[11px] px-2 py-0.5 rounded border font-medium transition-all"
-            style={{
-              borderColor: color,
-              color,
-              opacity: activeMA.has(key) ? 1 : 0.25,
-            }}
+            style={{ borderColor: color, color, opacity: activeMA.has(key) ? 1 : 0.25 }}
           >
             {label}
           </button>
         ))}
 
-        {/* BB 토글 */}
         <button
           onClick={() => setShowBB(v => !v)}
           className="text-[11px] px-2 py-0.5 rounded border font-medium transition-all"
-          style={{
-            borderColor: NAVER.bb,
-            color: NAVER.bb,
-            opacity: showBB ? 1 : 0.3,
-          }}
+          style={{ borderColor: NAVER.bb, color: NAVER.bb, opacity: showBB ? 1 : 0.3 }}
         >
           BB
         </button>
 
         <div className="w-px h-4" style={{ background: borderC }} />
 
-        {/* 거래량/RSI 토글 */}
         {[
           { label: 'VOL', active: showVol, toggle: () => setShowVol(v => !v), color: '#38bdf8' },
           { label: 'RSI', active: showRSI, toggle: () => setShowRSI(v => !v), color: '#fbbf24' },
         ].map(({ label, active, toggle, color }) => (
-          <button
-            key={label}
-            onClick={toggle}
+          <button key={label} onClick={toggle}
             className="text-[11px] px-2 py-0.5 rounded border font-medium transition-all"
             style={{ borderColor: color, color, opacity: active ? 1 : 0.3 }}
           >
@@ -526,41 +499,22 @@ export function CandleChart({ data, height = 360, showMA = true, events, classNa
       {/* ── 거래량 패널 ────────────────────────────────────────────────────── */}
       {showVol && volData.length > 0 && (
         <div className="w-full" style={{ height: 80 }}>
-          <div
-            className="text-[9px] px-2 pt-1 pb-0.5 font-medium uppercase tracking-wide"
-            style={{ color: textColor }}
-          >
-            거래량
-          </div>
+          <div className="text-[9px] px-2 pt-1 pb-0.5 font-medium uppercase tracking-wide"
+            style={{ color: textColor }}>거래량</div>
           <ResponsiveContainer width="100%" height={62}>
             <BarChart data={volData} margin={{ top: 0, right: 65, left: 0, bottom: 0 }} barCategoryGap="0%">
               <XAxis dataKey="date" hide />
-              <YAxis
-                width={60}
-                tickFormatter={fmtVol}
-                tick={{ fontSize: 9, fill: textColor }}
-                axisLine={false}
-                tickLine={false}
-              />
+              <YAxis width={60} tickFormatter={fmtVol}
+                tick={{ fontSize: 9, fill: textColor }} axisLine={false} tickLine={false} />
               <Tooltip
                 formatter={(v: number) => [v.toLocaleString(), '거래량']}
-                contentStyle={{
-                  background: panelBg, border: `1px solid ${borderC}`,
-                  borderRadius: 4, fontSize: 11, color: textColor,
-                }}
+                contentStyle={{ background: panelBg, border: `1px solid ${gridColor}`, borderRadius: 4, fontSize: 11, color: textColor }}
               />
-              <Bar
-                dataKey="volume"
-                isAnimationActive={false}
+              <Bar dataKey="volume" isAnimationActive={false}
                 shape={(props: unknown) => {
                   const p = props as { x: number; y: number; width: number; height: number; up: boolean }
-                  return (
-                    <rect
-                      x={p.x} y={p.y} width={Math.max(1, p.width)} height={p.height}
-                      fill={p.up ? NAVER.up : NAVER.down}
-                      opacity={0.75}
-                    />
-                  )
+                  return <rect x={p.x} y={p.y} width={Math.max(1, p.width)} height={p.height}
+                    fill={p.up ? NAVER.up : NAVER.down} opacity={0.75} />
                 }}
               />
             </BarChart>
@@ -571,42 +525,22 @@ export function CandleChart({ data, height = 360, showMA = true, events, classNa
       {/* ── RSI 패널 ───────────────────────────────────────────────────────── */}
       {showRSI && rsiData.length > 0 && (
         <div className="w-full" style={{ height: 88 }}>
-          <div
-            className="text-[9px] px-2 pt-1 pb-0.5 font-medium uppercase tracking-wide"
-            style={{ color: textColor }}
-          >
-            RSI (14)
-          </div>
+          <div className="text-[9px] px-2 pt-1 pb-0.5 font-medium uppercase tracking-wide"
+            style={{ color: textColor }}>RSI (14)</div>
           <ResponsiveContainer width="100%" height={70}>
             <LineChart data={rsiData} margin={{ top: 2, right: 65, left: 0, bottom: 0 }}>
               <XAxis dataKey="date" hide />
-              <YAxis
-                domain={[0, 100]}
-                ticks={[0, 30, 50, 70, 100]}
-                width={60}
-                tick={{ fontSize: 9, fill: textColor }}
-                axisLine={false}
-                tickLine={false}
-              />
-              {/* 과매수/과매도 기준선 */}
+              <YAxis domain={[0, 100]} ticks={[0, 30, 50, 70, 100]} width={60}
+                tick={{ fontSize: 9, fill: textColor }} axisLine={false} tickLine={false} />
               <ReferenceLine y={70} stroke={NAVER.up}   strokeDasharray="4 3" strokeWidth={1} />
               <ReferenceLine y={50} stroke={textColor}  strokeDasharray="2 4" strokeWidth={0.8} />
               <ReferenceLine y={30} stroke={NAVER.down} strokeDasharray="4 3" strokeWidth={1} />
               <Tooltip
                 formatter={(v: unknown) => [v != null ? Number(v).toFixed(1) : '—', 'RSI']}
-                contentStyle={{
-                  background: panelBg, border: `1px solid ${borderC}`,
-                  borderRadius: 4, fontSize: 11, color: textColor,
-                }}
+                contentStyle={{ background: panelBg, border: `1px solid ${gridColor}`, borderRadius: 4, fontSize: 11, color: textColor }}
               />
-              <Line
-                dataKey="rsi"
-                stroke={NAVER.ma5}
-                dot={false}
-                strokeWidth={1.5}
-                isAnimationActive={false}
-                connectNulls={false}
-              />
+              <Line dataKey="rsi" stroke={NAVER.ma5} dot={false} strokeWidth={1.5}
+                isAnimationActive={false} connectNulls={false} />
             </LineChart>
           </ResponsiveContainer>
         </div>
