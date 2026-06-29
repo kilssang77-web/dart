@@ -56,16 +56,22 @@ class PriceAlertMonitor:
         self._db      = db_pool
         self._redis: redis_lib.Redis | None = None
 
-    async def run(self):
-        if self._db is None:
-            logger.warning("[PriceAlert] DB pool 없음 — 가격 알림 비활성화")
-            return
+    def set_db_pool(self, pool: asyncpg.Pool) -> None:
+        self._db = pool
 
+    async def run(self):
         self._redis = redis_lib.from_url(os.environ["REDIS_URL"])
-        logger.info("[PriceAlert] 가격 알림 모니터 시작")
+
+        if self._db is None:
+            logger.warning("[PriceAlert] DB pool 없음 — 재연결 대기 중 (60초 간격)")
+        else:
+            logger.info("[PriceAlert] 가격 알림 모니터 시작")
 
         while True:
             try:
+                if self._db is None:
+                    await asyncio.sleep(_POLL_INTERVAL)
+                    continue
                 if _is_market_hours():
                     await self._check_all_active()
                 else:

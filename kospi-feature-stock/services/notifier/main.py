@@ -16,6 +16,7 @@ logger = logging.getLogger("notifier")
 _sender:       TelegramSender    | None = None
 _task:         asyncio.Task      | None = None
 _alert_task:   asyncio.Task      | None = None
+_reconnect_task: asyncio.Task   | None = None
 
 
 async def _try_create_db_pool():
@@ -34,9 +35,21 @@ async def _try_create_db_pool():
         return None
 
 
+async def _db_reconnect_loop(sender: TelegramSender, alert_monitor: PriceAlertMonitor):
+    """DB pool 없을 때 30초마다 재연결 시도."""
+    while True:
+        await asyncio.sleep(30)
+        if sender._db is None:
+            pool = await _try_create_db_pool()
+            if pool:
+                sender.set_db_pool(pool)
+                alert_monitor.set_db_pool(pool)
+                logger.info("DB pool 재연결 성공 — telegram_logs 기록 및 가격 알림 재활성화")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _sender, _task, _alert_task
+    global _sender, _task, _alert_task, _reconnect_task
     db_pool  = await _try_create_db_pool()
     _sender  = TelegramSender(db_pool=db_pool)
 
@@ -48,10 +61,13 @@ async def lifespan(app: FastAPI):
     alert_monitor = PriceAlertMonitor(_sender, db_pool)
     _alert_task = asyncio.create_task(alert_monitor.run())
 
+    # DB pool 재연결 루프 (시작 시 실패한 경우 복구)
+    _reconnect_task = asyncio.create_task(_db_reconnect_loop(_sender, alert_monitor))
+
     logger.info("Notifier service started (consumer + price alert monitor)")
     yield
 
-    for t in [_task, _alert_task]:
+    for t in [_task, _alert_task, _reconnect_task]:
         if t:
             t.cancel()
             try:
@@ -60,8 +76,8 @@ async def lifespan(app: FastAPI):
                 pass
     if _sender:
         await _sender.close()
-    if db_pool:
-        await db_pool.close()
+    if _sender and _sender._db:
+        await _sender._db.close()
 
 
 app = FastAPI(title="notifier", lifespan=lifespan)

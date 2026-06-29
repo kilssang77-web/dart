@@ -89,5 +89,8 @@ class TelegramSender:
         except Exception as e:
             logger.warning(f"telegram_logs insert error: {e}")
 
+    def set_db_pool(self, pool) -> None:
+        self._db = pool
+
     async def close(self):
         await self._client.aclose()
