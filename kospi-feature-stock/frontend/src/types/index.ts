@@ -155,6 +155,7 @@ export interface DailyBar {
   ma5?:         number
   ma20?:        number
   ma60?:        number
+  ma120?:       number
   rsi14?:       number
   foreign_net_buy?: number
   inst_net_buy?:    number

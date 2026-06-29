@@ -106,7 +106,7 @@ async def get_daily_bars(
         """
         SELECT date::TEXT, open, high, low, close, volume, amount,
                change_rate, adj_close, foreign_net_buy, inst_net_buy,
-               ma5, ma20, ma60, rsi14, bb_upper, bb_lower
+               ma5, ma20, ma60, ma120, rsi14, bb_upper, bb_lower
         FROM daily_bars
         WHERE code = $1
         ORDER BY date DESC
@@ -382,7 +382,7 @@ async def get_stock_analysis(
     raw_bars = await db.fetch(
         """
         SELECT date::TEXT, open, high, low, close, volume, amount,
-               change_rate, ma5, ma20, ma60, rsi14, bb_upper, bb_lower,
+               change_rate, ma5, ma20, ma60, ma120, rsi14, bb_upper, bb_lower,
                foreign_net_buy, inst_net_buy
         FROM daily_bars WHERE code = $1 ORDER BY date DESC LIMIT 120
         """,
