@@ -2,9 +2,11 @@
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { TrendingUp, TrendingDown, Minus, Shield, Zap, Target, X, ChevronRight, AlertTriangle, BrainCircuit, ExternalLink, Info, AlertCircle, ChevronDown } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, Shield, Zap, Target, X, ChevronRight, AlertTriangle, BrainCircuit, ExternalLink, Info, AlertCircle, ChevronDown, LayoutGrid, List, Heart } from 'lucide-react'
+import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts'
 import { recommendationsApi } from '@/api/recommendations'
 import type { SignalItem } from '@/api/recommendations'
+import { stocksApi } from '@/api/stocks'
 import { marketApi } from '@/api/market'
 import { Badge, ActionBadge, MarketBadge, EVENT_NAMES } from '@/components/ui/Badge'
 import { StatCard, Card, CardBody } from '@/components/ui/Card'
@@ -314,6 +316,159 @@ function SignalRow({ sig, index }: { sig: SignalItem; index: number }) {
   )
 }
 
+// ── 미니 스파크라인 컴포넌트 ─────────────────────────────────────────────────
+function MiniSparkline({ code }: { code: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey:  ['daily-mini', code],
+    queryFn:   () => stocksApi.getDailyBars(code, 10),
+    staleTime: 10 * 60_000,
+  })
+
+  if (isLoading) {
+    return <div className="h-14 w-full bg-[var(--border)] rounded animate-pulse" />
+  }
+  if (!data || data.length < 2) return null
+
+  const chartData = data.slice(-10).map((d) => ({ date: d.date.slice(5), close: d.close }))
+  const first = chartData[0].close
+  const last  = chartData[chartData.length - 1].close
+  const up    = last >= first
+  const color = up ? '#ef4444' : '#3b82f6'
+
+  return (
+    <ResponsiveContainer width="100%" height={56}>
+      <LineChart data={chartData} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+        <Tooltip
+          formatter={(v: number) => [v.toLocaleString(), '종가']}
+          contentStyle={{ fontSize: 11, padding: '2px 6px', borderRadius: 4 }}
+        />
+        <Line
+          type="monotone"
+          dataKey="close"
+          stroke={color}
+          dot={false}
+          strokeWidth={1.5}
+          isAnimationActive={false}
+        />
+      </LineChart>
+    </ResponsiveContainer>
+  )
+}
+
+// ── 카드 뷰용 컴팩트 카드 ─────────────────────────────────────────────────────
+function RecMiniCard({
+  rec,
+  isToday,
+  onOpen,
+  onNav,
+}: {
+  rec: Recommendation
+  isToday: boolean
+  onOpen: () => void
+  onNav: (code: string) => void
+}) {
+  const grade    = rec.rationale?.confidence_grade
+  const recScore = rec.rationale?.rec_score ?? probToScore(rec.success_prob)
+  const band     = recScoreBand(recScore)
+  const evtType  = rec.rationale?.event_type
+
+  // 수급 방향 아이콘
+  const supplyScore = rec.rationale?.supply_score as number | null | undefined
+  const supplyIcon = supplyScore != null
+    ? supplyScore > 0 ? <span className="text-red-400 text-[10px]">외인↑</span>
+      : supplyScore < 0 ? <span className="text-blue-400 text-[10px]">외인↓</span>
+      : null
+    : null
+
+  const expectedReturn = rec.target_price && rec.entry_price
+    ? ((rec.target_price - rec.entry_price) / rec.entry_price * 100)
+    : null
+  const rr = rec.risk_reward_ratio
+
+  return (
+    <div
+      className={clsx(
+        'bg-[var(--card)] border rounded-2xl p-4 flex flex-col gap-2 cursor-pointer hover:border-cyan-500/40 transition-colors',
+        isToday ? 'border-amber-500/40 bg-amber-500/5' : 'border-[var(--border)]'
+      )}
+      onClick={onOpen}
+    >
+      {/* 헤더 */}
+      <div className="flex items-start justify-between">
+        <div className="min-w-0">
+          <button
+            onClick={(e) => { e.stopPropagation(); onNav(rec.code) }}
+            className="font-bold text-sm text-[var(--fg)] hover:text-cyan-400 transition-colors truncate block"
+          >
+            {rec.name}
+          </button>
+          <div className="text-[10px] text-[var(--muted)] mt-0.5 font-mono">{rec.code}</div>
+        </div>
+        <div className="flex flex-col items-end gap-1 shrink-0 ml-2">
+          <ActionBadge action={rec.action} />
+          {grade && (
+            <span className={clsx(
+              'text-[10px] px-1.5 py-0.5 rounded border font-bold',
+              grade === 'A' ? 'border-green-500/40 text-green-400 bg-green-500/10' :
+              grade === 'B' ? 'border-blue-500/40 text-blue-400 bg-blue-500/10' :
+              grade === 'C' ? 'border-yellow-500/40 text-yellow-400 bg-yellow-500/10' :
+              'border-red-500/40 text-red-400 bg-red-500/10'
+            )}>
+              {grade}등급
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* ML 확률 바 */}
+      <div>
+        <div className="flex items-center justify-between text-[10px] mb-1">
+          <span className="text-[var(--muted)]">신호 점수</span>
+          <span className={clsx('font-bold tabular', band.colorClass)}>{recScore}점</span>
+        </div>
+        <div className="h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
+          <div className={clsx('h-full rounded-full', band.barColorClass)} style={{ width: `${recScore}%` }} />
+        </div>
+      </div>
+
+      {/* 5일 스파크라인 */}
+      <MiniSparkline code={rec.code} />
+
+      {/* 가격 정보 */}
+      <div className="grid grid-cols-3 gap-1 text-center">
+        <div className="bg-[var(--bg)] rounded-lg p-1.5">
+          <div className="text-[9px] text-[var(--muted)] mb-0.5">진입가</div>
+          <div className="text-[11px] font-bold tabular text-[var(--fg)]">{fmt.price(rec.entry_price)}</div>
+        </div>
+        <div className="bg-red-500/10 rounded-lg p-1.5 border border-red-500/15">
+          <div className="text-[9px] text-red-400 mb-0.5">목표가</div>
+          <div className="text-[11px] font-bold tabular text-red-400">{fmt.price(rec.target_price)}</div>
+        </div>
+        <div className="bg-blue-500/10 rounded-lg p-1.5 border border-blue-500/15">
+          <div className="text-[9px] text-blue-400 mb-0.5">손절가</div>
+          <div className="text-[11px] font-bold tabular text-blue-400">{fmt.price(rec.stop_loss_price)}</div>
+        </div>
+      </div>
+
+      {/* 하단 메타 */}
+      <div className="flex items-center justify-between text-[10px] text-[var(--muted)]">
+        <div className="flex items-center gap-1.5">
+          {expectedReturn != null && (
+            <span className={clsx('font-semibold', expectedReturn >= 0 ? 'text-red-400' : 'text-blue-400')}>
+              {expectedReturn >= 0 ? '+' : ''}{expectedReturn.toFixed(1)}%
+            </span>
+          )}
+          {rr != null && <span>RR {rr.toFixed(1)}</span>}
+        </div>
+        <div className="flex items-center gap-1">
+          {supplyIcon}
+          {evtType && <Badge eventType={evtType} size="sm" />}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── 추천 카드 컴포넌트 ────────────────────────────────────────────────────────
 function RecCard({
   rec,
@@ -562,6 +717,7 @@ export function Recommendations() {
   const [filter,     setFilter]     = useState<'ALL' | 'BUY' | 'WAIT' | 'SKIP'>('BUY')
   const [minProb,    setMinProb]    = useState(0.30)
   const [dedupe,     setDedupe]     = useState(true)
+  const [viewMode,   setViewMode]   = useState<'card' | 'table'>('card')
   const [signalModal, setSignalModal] = useState<{ code: string; name: string } | null>(null)
   const [selectedRec, setSelectedRec] = useState<Recommendation | null>(null)
 
@@ -729,93 +885,149 @@ export function Recommendations() {
         >
           초기화
         </button>
+
+        {/* 뷰 전환 버튼 */}
+        <div className="flex items-center rounded-lg overflow-hidden border border-[var(--border)]">
+          <button
+            onClick={() => setViewMode('card')}
+            className={clsx(
+              'p-2 transition-colors',
+              viewMode === 'card' ? 'bg-cyan-500/20 text-cyan-400' : 'text-[var(--muted)] hover:text-[var(--fg)]'
+            )}
+            title="카드 뷰"
+          >
+            <LayoutGrid size={14} />
+          </button>
+          <button
+            onClick={() => setViewMode('table')}
+            className={clsx(
+              'p-2 transition-colors',
+              viewMode === 'table' ? 'bg-cyan-500/20 text-cyan-400' : 'text-[var(--muted)] hover:text-[var(--fg)]'
+            )}
+            title="테이블 뷰"
+          >
+            <List size={14} />
+          </button>
+        </div>
         <div className="text-sm text-[var(--muted)] font-medium">
           {isLoading ? '로딩 중…' : `${recs?.length ?? 0}건`}
         </div>
       </div>
 
-      {/* 신호 카드 그리드 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {isError && (
-          <div className="col-span-full">
-            <ErrorState error={error as Error} retry={refetch} />
-          </div>
-        )}
-        {isLoading && Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 space-y-3">
-            <div className="flex items-start justify-between">
-              <div className="space-y-1.5 flex-1">
-                <div className="h-4 skeleton rounded w-28" />
-                <div className="h-3 skeleton rounded w-20" />
+      {/* 신호 그리드 (카드 뷰 / 테이블 뷰) */}
+      {isError && <ErrorState error={error as Error} retry={refetch} />}
+
+      {/* 로딩 스켈레톤 */}
+      {isLoading && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 space-y-3">
+              <div className="flex items-start justify-between">
+                <div className="space-y-1.5 flex-1">
+                  <div className="h-4 skeleton rounded w-28" />
+                  <div className="h-3 skeleton rounded w-20" />
+                </div>
+                <div className="h-6 skeleton rounded w-12" />
               </div>
-              <div className="h-6 skeleton rounded w-12" />
-            </div>
-            <div className="space-y-1.5">
-              <div className="flex justify-between">
-                <div className="h-3 skeleton rounded w-16" />
-                <div className="h-3 skeleton rounded w-10" />
+              <div className="space-y-1.5">
+                <div className="flex justify-between">
+                  <div className="h-3 skeleton rounded w-16" />
+                  <div className="h-3 skeleton rounded w-10" />
+                </div>
+                <div className="h-2 skeleton rounded-full w-full" />
               </div>
-              <div className="h-2 skeleton rounded-full w-full" />
+              <div className="grid grid-cols-3 gap-2">
+                <div className="h-14 skeleton rounded-lg" />
+                <div className="h-14 skeleton rounded-lg" />
+                <div className="h-14 skeleton rounded-lg" />
+              </div>
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="h-14 skeleton rounded-lg" />
-              <div className="h-14 skeleton rounded-lg" />
-              <div className="h-14 skeleton rounded-lg" />
+          ))}
+        </div>
+      )}
+
+      {!isLoading && !isError && recs && recs.length > 0 && (() => {
+        const todayKST = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10)
+        const isToday = (rec: typeof recs[0]) => {
+          const d = rec.fe_detected_at ?? rec.created_at
+          return !!d && d.slice(0, 10) === todayKST
+        }
+        const scored = [...recs].sort((a, b) => {
+          const sa = a.rationale?.rec_score ?? probToScore(a.success_prob)
+          const sb = b.rationale?.rec_score ?? probToScore(b.success_prob)
+          return sb - sa
+        })
+        const todayRecs = scored.filter(isToday)
+        const olderRecs = scored.filter((r) => !isToday(r))
+        const todayCount = todayRecs.length
+        const allRecs = [...todayRecs, ...olderRecs]
+
+        // 카드 뷰 (미니 스파크라인 포함)
+        if (viewMode === 'card') {
+          return (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              {allRecs.map((rec, idx) => {
+                const today = isToday(rec)
+                const showDivider = todayCount > 0 && idx === todayCount
+                return (
+                  <React.Fragment key={rec.id}>
+                    {showDivider && (
+                      <div className="col-span-full flex items-center gap-3 py-1">
+                        <div className="flex-1 border-t border-dashed border-[var(--border)]" />
+                        <span className="text-xs text-[var(--muted)] whitespace-nowrap px-1">이전 추천</span>
+                        <div className="flex-1 border-t border-dashed border-[var(--border)]" />
+                      </div>
+                    )}
+                    <RecMiniCard
+                      rec={rec}
+                      isToday={today}
+                      onOpen={() => setSelectedRec(rec)}
+                      onNav={(code) => nav(`/search?code=${code}`)}
+                    />
+                  </React.Fragment>
+                )
+              })}
             </div>
+          )
+        }
+
+        // 테이블 뷰 (기존 RecCard 방식)
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {allRecs.map((rec, idx) => {
+              const crDelta = rec.current_price != null
+                ? ((rec.current_price - rec.entry_price) / rec.entry_price * 100)
+                : null
+              const today = isToday(rec)
+              const showDivider = todayCount > 0 && idx === todayCount
+              return (
+                <React.Fragment key={rec.id}>
+                  {showDivider && (
+                    <div className="col-span-full flex items-center gap-3 py-1">
+                      <div className="flex-1 border-t border-dashed border-[var(--border)]" />
+                      <span className="text-xs text-[var(--muted)] whitespace-nowrap px-1">이전 추천</span>
+                      <div className="flex-1 border-t border-dashed border-[var(--border)]" />
+                    </div>
+                  )}
+                  <RecCard
+                    rec={rec}
+                    crDelta={crDelta}
+                    normProb={toNorm(rec.success_prob)}
+                    isToday={today}
+                    onOpen={() => setSelectedRec(rec)}
+                    onSignalModal={() => setSignalModal({ code: rec.code, name: rec.name })}
+                    onNav={(code) => nav(`/search?code=${code}`)}
+                  />
+                </React.Fragment>
+              )
+            })}
           </div>
-        ))}
-        {(() => {
-          if (!recs || recs.length === 0) return null
-          const todayKST = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10)
-          const isToday = (rec: typeof recs[0]) => {
-            const d = rec.fe_detected_at ?? rec.created_at
-            return !!d && d.slice(0, 10) === todayKST
-          }
-          // 표시 점수(rec_score → probToScore 폴백) 기준 내림차순 정렬 후 그룹 분리
-          const scored = [...recs].sort((a, b) => {
-            const sa = a.rationale?.rec_score ?? probToScore(a.success_prob)
-            const sb = b.rationale?.rec_score ?? probToScore(b.success_prob)
-            return sb - sa
-          })
-          const todayRecs = scored.filter(isToday)
-          const olderRecs = scored.filter((r) => !isToday(r))
-          const todayCount = todayRecs.length
+        )
+      })()}
 
-          return [...todayRecs, ...olderRecs].map((rec, idx) => {
-            const crDelta = rec.current_price != null
-              ? ((rec.current_price - rec.entry_price) / rec.entry_price * 100)
-              : null
-            const today = isToday(rec)
-
-            // 오늘→이전 경계에 구분선 삽입
-            const showDivider = todayCount > 0 && idx === todayCount
-
-            return (
-              <React.Fragment key={rec.id}>
-                {showDivider && (
-                  <div className="col-span-full flex items-center gap-3 py-1">
-                    <div className="flex-1 border-t border-dashed border-[var(--border)]" />
-                    <span className="text-xs text-[var(--muted)] whitespace-nowrap px-1">이전 추천</span>
-                    <div className="flex-1 border-t border-dashed border-[var(--border)]" />
-                  </div>
-                )}
-                <RecCard
-                  rec={rec}
-                  crDelta={crDelta}
-                  normProb={toNorm(rec.success_prob)}
-                  isToday={today}
-                  onOpen={() => setSelectedRec(rec)}
-                  onSignalModal={() => setSignalModal({ code: rec.code, name: rec.name })}
-                  onNav={(code) => nav(`/search?code=${code}`)}
-                />
-              </React.Fragment>
-            )
-          })
-        })()}
-        {!isLoading && !isError && (!recs || recs.length === 0) && (
-          <div className="col-span-full py-16 text-center text-[var(--muted)] text-sm">조건에 맞는 신호가 없습니다</div>
-        )}
-      </div>
+      {!isLoading && !isError && (!recs || recs.length === 0) && (
+        <div className="py-16 text-center text-[var(--muted)] text-sm">조건에 맞는 신호가 없습니다</div>
+      )}
 
       {/* ── 개별 추천 상세 팝업 ───────────────────────────────────────────────── */}
       {selectedRec && (

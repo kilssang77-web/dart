@@ -205,6 +205,15 @@ export interface MarketRegime {
   error?:        string
 }
 
+export interface SectorHeatmapItem {
+  sector:         string
+  stock_count:    number
+  avg_change_pct: number
+  total_volume:   number
+  total_amount:   number
+  top_stocks:     { code: string; name: string; change_pct: number | null }[]
+}
+
 export const marketApi = {
   getSummary: () =>
     http.get<MarketSummary>('/market/summary').then((r) => r.data),
@@ -223,6 +232,9 @@ export const marketApi = {
 
   getThemes: () =>
     http.get<TrendingThemesResponse>('/themes/trending').then((r) => r.data.themes),
+
+  getSectorHeatmap: () =>
+    http.get<SectorHeatmapItem[]>('/market/sector-heatmap').then((r) => r.data),
 
   getDailyBars: (code: string, days = 120) =>
     http.get<DailyBar[]>(`/stocks/${code}/daily`, { params: { days } }).then((r) => r.data),

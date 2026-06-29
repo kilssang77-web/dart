@@ -350,3 +350,95 @@ async def new_highs(
 
     results = [dict(r) for r in rows]
     return {"since": since.isoformat(), "stocks": results, "total": len(results)}
+
+
+@router.get("/sector-heatmap")
+async def sector_heatmap(
+    db:    asyncpg.Pool = Depends(get_db),
+    redis: redis_lib.Redis = Depends(get_redis),
+):
+    """섹터별 등락 히트맵 (오늘 daily_bars 기준, 5분 캐시)."""
+    cache_key = "cache:sector_heatmap"
+    try:
+        cached = await redis.get(cache_key)
+        if cached:
+            return orjson.loads(cached)
+    except Exception:
+        pass
+
+    rows = await db.fetch("""
+        WITH
+        -- 충분한 종목 수(최소 100건)를 가진 가장 최근 날짜 선택
+        latest_dt AS (
+            SELECT date AS d FROM (
+                SELECT date, COUNT(*) AS cnt FROM daily_bars
+                GROUP BY date ORDER BY date DESC
+            ) sub WHERE cnt >= 100 LIMIT 1
+        ),
+        prev_dt   AS (SELECT MAX(date) AS d FROM daily_bars
+                       WHERE date < (SELECT d FROM latest_dt)),
+        computed AS (
+            SELECT
+                c.code,
+                COALESCE(
+                    CASE WHEN c.change_rate IS NOT NULL AND c.change_rate <> 0 THEN c.change_rate
+                         WHEN p.close IS NOT NULL AND p.close > 0
+                         THEN ROUND(((c.close - p.close)::NUMERIC / p.close * 100), 2)
+                         ELSE 0
+                    END, 0
+                ) AS change_rate,
+                c.volume,
+                c.amount
+            FROM daily_bars c
+            CROSS JOIN latest_dt
+            LEFT JOIN daily_bars p ON p.code = c.code
+                                   AND p.date = (SELECT d FROM prev_dt)
+            WHERE c.date = latest_dt.d AND c.close > 0
+        )
+        SELECT
+            s.sector,
+            COUNT(DISTINCT s.code)           AS stock_count,
+            ROUND(AVG(c.change_rate)::NUMERIC, 2) AS avg_change_pct,
+            SUM(c.volume)                    AS total_volume,
+            SUM(c.amount)                    AS total_amount,
+            json_agg(json_build_object(
+                'code', s.code,
+                'name', s.name,
+                'change_pct', c.change_rate
+            ) ORDER BY c.change_rate DESC) FILTER (WHERE c.change_rate IS NOT NULL) AS top_stocks_raw
+        FROM stocks s
+        JOIN computed c ON c.code = s.code
+        WHERE s.market IN ('KOSPI', 'KOSDAQ')
+          AND s.is_active = TRUE
+          AND s.sector IS NOT NULL
+          AND s.sector != ''
+        GROUP BY s.sector
+        ORDER BY avg_change_pct DESC
+    """)
+
+    result = []
+    for row in rows:
+        raw = row["top_stocks_raw"]
+        if isinstance(raw, str):
+            import json as _json
+            top_stocks = _json.loads(raw)[:5]
+        elif isinstance(raw, list):
+            top_stocks = raw[:5]
+        else:
+            top_stocks = []
+
+        result.append({
+            "sector":       row["sector"],
+            "stock_count":  row["stock_count"],
+            "avg_change_pct": float(row["avg_change_pct"] or 0),
+            "total_volume": int(row["total_volume"] or 0),
+            "total_amount": int(row["total_amount"] or 0),
+            "top_stocks":   top_stocks,
+        })
+
+    try:
+        await redis.setex(cache_key, 300, orjson.dumps(result))
+    except Exception:
+        pass
+
+    return result

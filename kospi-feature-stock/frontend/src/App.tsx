@@ -22,6 +22,8 @@ const NotificationHistory  = lazy(() => import('./pages/NotificationHistory').th
 const RecJourney           = lazy(() => import('./pages/RecommendationJourney').then((m) => ({ default: m.RecommendationJourney })))
 const SimilarCases         = lazy(() => import('./pages/SimilarCases').then((m) => ({ default: m.SimilarCases })))
 const PositionManagement   = lazy(() => import('./pages/PositionManagement').then((m) => ({ default: m.PositionManagement })))
+const RankingPage          = lazy(() => import('./pages/RankingPage').then((m) => ({ default: m.RankingPage })))
+const ScreenerPage         = lazy(() => import('./pages/ScreenerPage').then((m) => ({ default: m.ScreenerPage })))
 
 const META: Record<string, { title: string; subtitle?: string }> = {
   '/':               { title: '대시보드',    subtitle: '실시간 특징주 현황 요약' },
@@ -39,6 +41,8 @@ const META: Record<string, { title: string; subtitle?: string }> = {
   '/rec-journey':    { title: '성과 추적',    subtitle: '매수 추천 시점 이후 시간대별 주가 여정 · ML 재학습 피드백' },
   '/similar-cases':  { title: '유사사례',    subtitle: '과거 동일 패턴 종목 · 이벤트 기준 수익률 비교' },
   '/positions':      { title: '포지션 관리', subtitle: '추적 중 포지션 · 보유/손익 현황' },
+  '/ranking':        { title: '종합 랭킹',   subtitle: 'ML·수급·기술·모멘텀 통합 종합점수 랭킹' },
+  '/screener':       { title: '스크리너',    subtitle: 'RSI·수급·ML 조건 기반 종목 필터링' },
 }
 
 function Spinner() {
@@ -96,6 +100,8 @@ export default function App() {
               <Route path="/similar-cases"          element={<SimilarCases />} />
               <Route path="/similar-cases/:eventId" element={<SimilarCases />} />
               <Route path="/positions"              element={<PositionManagement />} />
+              <Route path="/ranking"               element={<RankingPage />} />
+              <Route path="/screener"              element={<ScreenerPage />} />
               {/* 제거된 라우트 → 리다이렉트 */}
               <Route path="/disclosures"     element={<Navigate to="/intel" replace />} />
               <Route path="/news"            element={<Navigate to="/intel" replace />} />

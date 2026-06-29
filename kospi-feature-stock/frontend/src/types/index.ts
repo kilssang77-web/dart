@@ -84,6 +84,7 @@ export interface RationaleDetail {
   active_themes?:       string[]
   theme_reversal?:      boolean
   theme_reversal_note?: string | null
+  supply_score?:        number
 }
 
 export interface SimilarCase {

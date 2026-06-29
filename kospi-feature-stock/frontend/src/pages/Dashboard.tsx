@@ -4,9 +4,11 @@ import { useNavigate, Link } from 'react-router-dom'
 import {
   TrendingUp, TrendingDown, Minus, ArrowUpRight, ArrowDownRight,
   Zap, BarChart3, Target, FileText, Users, Clock, History,
+  Flame, RefreshCw, ShieldOff,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { featuresApi } from '@/api/features'
+import { SectorHeatmap } from '@/components/SectorHeatmap'
 import { recommendationsApi } from '@/api/recommendations'
 import { marketApi } from '@/api/market'
 import { disclosuresApi } from '@/api/disclosures'
@@ -526,6 +528,186 @@ function MoversRow({ movers }: { movers: MarketMovers | undefined }) {
   )
 }
 
+// ── Today's Notable Changes 섹션 ────────────────────────────────────────────
+interface NotableItem {
+  code: string
+  name: string
+  value?: string
+  sub?: string
+}
+
+function NotableCard({
+  icon,
+  title,
+  color,
+  items,
+  emptyText,
+}: {
+  icon: React.ReactNode
+  title: string
+  color: string
+  items: NotableItem[]
+  emptyText: string
+}) {
+  const nav = useNavigate()
+  return (
+    <div className={`p-4 rounded-xl border bg-[var(--card)] border-${color}/20`}>
+      <div className={`flex items-center gap-2 mb-3 text-${color}`}>
+        {icon}
+        <span className="text-sm font-semibold">{title}</span>
+      </div>
+      {items.length === 0 ? (
+        <div className="text-xs text-[var(--muted)] py-2">{emptyText}</div>
+      ) : (
+        <div className="space-y-1.5">
+          {items.slice(0, 4).map((item) => (
+            <button
+              key={item.code}
+              onClick={() => nav(`/search?code=${item.code}`)}
+              className="w-full flex items-center justify-between hover:bg-[var(--border)]/20 rounded-lg px-2 py-1 transition-colors text-left"
+            >
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-xs font-medium text-[var(--fg)] truncate">{item.name}</span>
+                <span className="text-[10px] text-[var(--muted)] font-mono shrink-0">{item.code}</span>
+              </div>
+              {item.value && (
+                <span className={clsx('text-xs font-bold tabular shrink-0 ml-2', `text-${color}`)}>
+                  {item.value}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TodayNotableChanges({
+  topRecs,
+  recentFeatures,
+}: {
+  topRecs: import('@/types').Recommendation[] | undefined
+  recentFeatures: import('@/types').FeatureEvent[] | undefined
+}) {
+  const todayKST = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10)
+
+  // 점수 급상승 종목 — 오늘 신호 중 signal_score 높은 것 (상위 4개)
+  const scoreSurge: NotableItem[] = (() => {
+    if (!topRecs) return []
+    return topRecs
+      .filter((r) => {
+        const d = r.fe_detected_at ?? r.created_at
+        return !!d && d.slice(0, 10) === todayKST
+      })
+      .sort((a, b) => {
+        const sa = a.rationale?.rec_score ?? Math.round(a.success_prob * 100)
+        const sb = b.rationale?.rec_score ?? Math.round(b.success_prob * 100)
+        return sb - sa
+      })
+      .slice(0, 4)
+      .map((r) => ({
+        code:  r.code,
+        name:  r.name,
+        value: `${r.rationale?.rec_score ?? Math.round(r.success_prob * 100)}점`,
+        sub:   r.rationale?.event_type,
+      }))
+  })()
+
+  // 신규 이벤트 — 오늘 탐지된 이벤트 (중복 제거)
+  const newEvents: NotableItem[] = (() => {
+    if (!recentFeatures) return []
+    const seen = new Set<string>()
+    return recentFeatures
+      .filter((f) => {
+        const d = f.detected_at
+        return !!d && d.slice(0, 10) === todayKST
+      })
+      .filter((f) => {
+        if (seen.has(f.code)) return false
+        seen.add(f.code)
+        return true
+      })
+      .slice(0, 4)
+      .map((f) => ({
+        code:  f.code,
+        name:  f.name,
+        value: fmt.pct(f.change_rate),
+        sub:   f.event_type,
+      }))
+  })()
+
+  // 수급 전환 — 외국인 순매수 BUY 추천 종목
+  const supplyTurn: NotableItem[] = (() => {
+    if (!topRecs) return []
+    const seen = new Set<string>()
+    return topRecs
+      .filter((r) => r.action === 'BUY' && r.rationale?.supply_score != null && (r.rationale.supply_score as number) > 0)
+      .filter((r) => { if (seen.has(r.code)) return false; seen.add(r.code); return true })
+      .slice(0, 4)
+      .map((r) => ({
+        code:  r.code,
+        name:  r.name,
+        value: r.rationale?.supply_score != null ? `수급 ${(r.rationale.supply_score as number).toFixed(0)}` : undefined,
+      }))
+  })()
+
+  // 리스크 완화 — risk_score 낮은 BUY 종목
+  const riskRelief: NotableItem[] = (() => {
+    if (!topRecs) return []
+    const seen = new Set<string>()
+    return topRecs
+      .filter((r) => r.action === 'BUY' && r.risk_score != null && r.risk_score < 0.3)
+      .filter((r) => { if (seen.has(r.code)) return false; seen.add(r.code); return true })
+      .slice(0, 4)
+      .map((r) => ({
+        code:  r.code,
+        name:  r.name,
+        value: r.risk_score != null ? `위험 ${(r.risk_score * 100).toFixed(0)}%` : undefined,
+      }))
+  })()
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <Flame size={14} className="text-orange-400" />
+        <span className="text-sm font-semibold text-[var(--fg)]">Today's Notable Changes</span>
+        <span className="text-xs text-[var(--muted)]">{todayKST}</span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        <NotableCard
+          icon={<TrendingUp size={14} />}
+          title="점수 급상승"
+          color="green-400"
+          items={scoreSurge}
+          emptyText="오늘 신규 BUY 신호 없음"
+        />
+        <NotableCard
+          icon={<Zap size={14} />}
+          title="신규 이벤트"
+          color="yellow-400"
+          items={newEvents}
+          emptyText="오늘 탐지 이벤트 없음"
+        />
+        <NotableCard
+          icon={<RefreshCw size={14} />}
+          title="수급 전환"
+          color="cyan-400"
+          items={supplyTurn}
+          emptyText="수급 전환 종목 없음"
+        />
+        <NotableCard
+          icon={<ShieldOff size={14} />}
+          title="리스크 완화"
+          color="purple-400"
+          items={riskRelief}
+          emptyText="리스크 완화 종목 없음"
+        />
+      </div>
+    </div>
+  )
+}
+
 // ── 최근 검색 위젯 ───────────────────────────────────────────────────────────
 function RecentSearchesWidget() {
   const nav = useNavigate()
@@ -722,8 +904,20 @@ export function Dashboard() {
         </div>
       </div>
 
+      {/* ── Today's Notable Changes ─────────────────────────────────── */}
+      <TodayNotableChanges topRecs={topRecs} recentFeatures={recentFeatures} />
+
       {/* ── 최근 검색 ───────────────────────────────────────────────── */}
       <RecentSearchesWidget />
+
+      {/* ── 섹터별 현황 히트맵 ──────────────────────────────────────── */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <BarChart3 size={14} className="text-purple-400" />
+          <span className="text-sm font-semibold text-[var(--fg)]">섹터별 현황</span>
+        </div>
+        <SectorHeatmap />
+      </div>
 
       {/* ── 하단: 상승/하락 Movers ──────────────────────────────────── */}
       <MoversRow movers={movers} />

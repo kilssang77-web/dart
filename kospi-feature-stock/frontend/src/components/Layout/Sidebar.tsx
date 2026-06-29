@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Search, Activity, Settings2,
   FlaskConical, BarChart2, ServerCog, History,
   ChevronLeft, ChevronRight, X, Briefcase, TrendingUp, Newspaper, Bell,
-  Radio, Star, BookOpen,
+  Radio, Star, BookOpen, Trophy, Filter,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { featuresApi } from '@/api/features'
@@ -53,6 +53,8 @@ function buildNavGroups(badge?: string): NavGroup[] {
         { to: '/features',      icon: <Radio size={15} />,          label: '특징주 탐지' },
         { to: '/intel',         icon: <Newspaper size={15} />,      label: '공시/뉴스/테마' },
         { to: '/search',        icon: <BookOpen size={15} />,       label: '종목 검색' },
+        { to: '/ranking',       icon: <Trophy size={15} />,         label: '종합 랭킹' },
+        { to: '/screener',      icon: <Filter size={15} />,         label: '스크리너' },
       ],
     },
     {
