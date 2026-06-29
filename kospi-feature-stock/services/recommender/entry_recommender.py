@@ -23,6 +23,10 @@ _STOP_MIN_PCT    = float(os.environ.get("REC_STOP_MIN_PCT",    "0.03"))   # 최�
 _STOP_MAX_PCT    = float(os.environ.get("REC_STOP_MAX_PCT",    "0.12"))   # 최대 손절 12%
 _TARGET_MIN_PCT  = float(os.environ.get("REC_TARGET_MIN_PCT",  "0.06"))   # 최소 익절 6%
 
+# 갭업 과매수 필터: change_rate 초과 시 BUY → WAIT (풀백 대기)
+_GAP_UP_SKIP_PCT = float(os.environ.get("REC_GAP_UP_SKIP_PCT", "5.0"))   # 갭업 억제 기준 (%)
+_PULLBACK_RATIO  = float(os.environ.get("REC_PULLBACK_RATIO",  "0.38"))  # 피보나치 38.2% 풀백
+
 
 @dataclass
 class EntryRecommendation:
@@ -103,6 +107,16 @@ class EntryRecommender:
         risk   = self._risk(event, ml_result)
         action = self._decide(prob, risk, rr)
 
+        # 갭업 과매수 필터: 당일 변동률이 임계치 초과 시 BUY → WAIT (풀백 대기)
+        chg_now    = float(event.get("change_rate") or 0.0)
+        gap_pct    = round(chg_now, 2)
+        pullback_entry: int | None = None
+        gap_filtered   = False
+        if action == "BUY" and chg_now >= _GAP_UP_SKIP_PCT:
+            action       = "WAIT"
+            gap_filtered = True
+            pullback_entry = int(price * (1 - chg_now / 100 * _PULLBACK_RATIO))
+
         # 복합 조건 격하: ML 확률 낮음 AND 유사 패턴 수익 중위수 부정적 (최소 10건 이상)
         avg_sim_ret = sim_stats.get("avg_return_5d", 0)
         rf = self._risk_factors(event, ml_result)
@@ -146,6 +160,9 @@ class EntryRecommender:
                 "confidence_score":    confidence["score"],
                 "confidence_warnings": confidence["warnings"],
                 "rec_score":           rec_score,
+                "gap_pct":             gap_pct,
+                "gap_filtered":        gap_filtered,
+                "pullback_entry":      pullback_entry,
             },
             similar_cases=similar_cases[:5],
         )

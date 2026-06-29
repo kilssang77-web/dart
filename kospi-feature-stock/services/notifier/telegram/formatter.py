@@ -114,6 +114,15 @@ def format_price_alert(msg: dict) -> str:
             f"&#128200; 현재가: <b>{_fmt_price(current)}원</b>  (<code>{pnl_pct}</code>)\n"
             f"&#128679; <b>손절 실행 강력 권장</b>"
         )
+    elif alert_type == "trail_stop_hit":
+        trail_stop = msg.get("trail_stop_price", stop)
+        icon   = "📉"
+        title  = "트레일링 스탑 도달"
+        detail = (
+            f"&#128200; 현재가: <b>{_fmt_price(current)}원</b>  (<code>{pnl_pct}</code>)\n"
+            f"&#128038; 트레일링 스탑: <b>{_fmt_price(trail_stop)}원</b>\n"
+            f"&#9989; <b>이익 보전 매도 권장</b>"
+        )
     else:
         icon   = "📌"
         title  = "가격 알림"
