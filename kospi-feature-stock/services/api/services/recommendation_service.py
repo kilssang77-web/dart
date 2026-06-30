@@ -104,7 +104,7 @@ class RecommendationService:
                     r.feature_event_id,
                     COALESCE(db.close, r.entry_price)  AS current_price,
                     COALESCE(db.change_rate, 0)        AS current_change_rate,
-                    (COALESCE(fe.detected_at, r.created_at) AT TIME ZONE 'Asia/Seoul')::TEXT AS fe_detected_at,
+                    (r.created_at AT TIME ZONE 'Asia/Seoul')::TEXT AS fe_detected_at,
                     (SELECT COUNT(*) FROM recommendations r2
                      WHERE r2.code = r.code
                        AND r2.created_at >= NOW() - INTERVAL '168 hours') AS rec_count,
@@ -114,7 +114,6 @@ class RecommendationService:
                     ) AS rn
                 FROM recommendations r
                 LEFT JOIN stocks s ON s.code = r.code
-                LEFT JOIN feature_events fe ON fe.id = r.feature_event_id
                 LEFT JOIN LATERAL (
                     SELECT close, change_rate FROM daily_bars
                     WHERE code = r.code ORDER BY date DESC LIMIT 1
@@ -144,10 +143,9 @@ class RecommendationService:
                 1 AS rec_count,
                 COALESCE(db.close, r.entry_price)  AS current_price,
                 COALESCE(db.change_rate, 0)        AS current_change_rate,
-                (COALESCE(fe.detected_at, r.created_at) AT TIME ZONE 'Asia/Seoul')::TEXT AS fe_detected_at
+                (r.created_at AT TIME ZONE 'Asia/Seoul')::TEXT AS fe_detected_at
             FROM recommendations r
             LEFT JOIN stocks s ON s.code = r.code
-            LEFT JOIN feature_events fe ON fe.id = r.feature_event_id
             LEFT JOIN LATERAL (
                 SELECT close, change_rate FROM daily_bars
                 WHERE code = r.code ORDER BY date DESC LIMIT 1
@@ -204,7 +202,9 @@ class RecommendationService:
                 (fe.detected_at AT TIME ZONE 'Asia/Seoul')::TEXT AS fe_detected_at
             FROM recommendations r
             LEFT JOIN stocks s ON s.code = r.code
-            LEFT JOIN feature_events fe ON fe.id = r.feature_event_id
+            LEFT JOIN feature_events fe
+                ON fe.id = r.feature_event_id
+               AND fe.detected_at >= NOW() - (($2 + 48) * INTERVAL '1 hour')
             LEFT JOIN LATERAL (
                 SELECT close, change_rate FROM daily_bars
                 WHERE code = r.code ORDER BY date DESC LIMIT 1
