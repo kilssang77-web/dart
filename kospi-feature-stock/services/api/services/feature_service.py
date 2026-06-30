@@ -229,7 +229,7 @@ class FeatureService:
                         ORDER BY fe.pattern_vector <=> $1::vector
                         LIMIT $3
                         """,
-                        event["pattern_vector"], event["code"], top_k * 4,
+                        event["pattern_vector"], event["code"], top_k * 300,
                         timeout=60,
                     )
             if candidates:
@@ -245,9 +245,18 @@ class FeatureService:
                     sc_bonus   = 0.05 * max(0.0, 1.0 - score_diff)
                     return vec_sim * 0.60 + et_bonus + sec_bonus + sc_bonus
 
-                ranked = sorted(candidates, key=lambda r: _combined(dict(r)), reverse=True)[:top_k]
+                # (code, date) 기준 dedup — 같은 종목의 같은 날짜 이벤트는 vec_sim 최고 1건만 유지
+                seen: dict[tuple, dict] = {}
+                for r in candidates:
+                    rd = dict(r)
+                    key = (rd["code"], rd["detected_at"][:10])
+                    if key not in seen or float(rd["vec_sim"] or 0) > float(seen[key]["vec_sim"] or 0):
+                        seen[key] = rd
+                deduped = list(seen.values())
+
+                ranked = sorted(deduped, key=lambda r: _combined(r), reverse=True)[:top_k]
                 return [
-                    {**dict(r), "similarity": round(_combined(dict(r)), 4)}
+                    {**r, "similarity": round(_combined(r), 4)}
                     for r in ranked
                 ]
 

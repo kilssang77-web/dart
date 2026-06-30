@@ -268,8 +268,14 @@ async def process_date(pool: asyncpg.Pool, target_date, sem: asyncio.Semaphore) 
                      volume, volume_ratio, amount, signal_data,
                      signal_score, risk_score,
                      result_1d, result_3d, result_5d)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14)
-                ON CONFLICT DO NOTHING
+                SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM feature_events
+                    WHERE code       = $2
+                      AND event_type = $3
+                      AND detected_at >= DATE_TRUNC('day', $1)
+                      AND detected_at <  DATE_TRUNC('day', $1) + INTERVAL '1 day'
+                )
                 """,
                 insert_rows,
             )

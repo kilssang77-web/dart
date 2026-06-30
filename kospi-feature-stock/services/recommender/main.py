@@ -552,6 +552,8 @@ class RecommenderService:
             return None
         signal_data = event.get("signal_data") or {}
         try:
+            detected_at = datetime.fromisoformat(event.get("detected_at", datetime.now().isoformat()))
+            event_type  = event.get("event_type", "UNKNOWN")
             async with self._db.acquire() as conn:
                 event_id = await conn.fetchval(
                     """
@@ -559,12 +561,20 @@ class RecommenderService:
                         code, detected_at, event_type, price, change_rate,
                         volume, volume_ratio, amount, signal_score, risk_score,
                         signal_data
-                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                    )
+                    SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM feature_events
+                        WHERE code       = $1
+                          AND event_type = $3
+                          AND detected_at >= DATE_TRUNC('day', $2)
+                          AND detected_at <  DATE_TRUNC('day', $2) + INTERVAL '1 day'
+                    )
                     RETURNING id
                     """,
                     code,
-                    datetime.fromisoformat(event.get("detected_at", datetime.now().isoformat())),
-                    event.get("event_type", "UNKNOWN"),
+                    detected_at,
+                    event_type,
                     int(event.get("price", 0)),
                     float(event.get("change_rate", 0)),
                     int(event.get("volume", 0)) if event.get("volume") else None,
@@ -574,6 +584,18 @@ class RecommenderService:
                     float(event.get("risk_score", 0.3)),
                     orjson.dumps(signal_data).decode() if signal_data else None,
                 )
+                if event_id is None:
+                    event_id = await conn.fetchval(
+                        """
+                        SELECT id FROM feature_events
+                        WHERE code       = $1
+                          AND event_type = $2
+                          AND detected_at >= DATE_TRUNC('day', $3)
+                          AND detected_at <  DATE_TRUNC('day', $3) + INTERVAL '1 day'
+                        ORDER BY id DESC LIMIT 1
+                        """,
+                        code, event_type, detected_at,
+                    )
             logger.info(f"Feature event saved: {code} {event.get('event_type')} (id={event_id})")
 
             if event_id:
