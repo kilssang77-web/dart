@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { clsx } from 'clsx'
 import {
@@ -7,7 +7,7 @@ import {
   ChevronLeft, ChevronRight, X, Briefcase, TrendingUp, Newspaper, Bell,
   Radio, Star, BookOpen, Trophy, Filter,
 } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { featuresApi } from '@/api/features'
 import { useSidebarStore } from '@/store/sidebar'
 import { useIsMobile } from '@/hooks/useMediaQuery'
@@ -194,10 +194,33 @@ function SidebarContent({
 }
 
 function SidebarNavItem({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
+  const { pathname } = useLocation()
+  const navigate     = useNavigate()
+  const qc           = useQueryClient()
+
+  // 이미 활성화된 메뉴를 다시 클릭 시 모든 쿼리 무효화 → 실시간 새로고침
+  function handleClick(e: React.MouseEvent) {
+    const isExactActive = item.to === '/'
+      ? pathname === '/'
+      : pathname.startsWith(item.to)
+
+    if (isExactActive) {
+      // 현재 페이지 재클릭: 쿼리 전체 무효화
+      e.preventDefault()
+      qc.invalidateQueries()
+      navigate(item.to, { replace: true })
+    }
+    // 다른 페이지로 이동 시에도 쿼리 무효화하여 신선한 데이터 조회
+    else {
+      qc.invalidateQueries()
+    }
+  }
+
   return (
     <NavLink
       to={item.to}
       end={item.to === '/'}
+      onClick={handleClick}
       className={({ isActive }) => clsx(
         'flex items-center gap-2.5 mx-1.5 px-2.5 py-2 rounded-md text-sm font-medium transition-colors',
         'text-[var(--muted)] hover:text-[var(--fg)] hover:bg-[var(--border)]',

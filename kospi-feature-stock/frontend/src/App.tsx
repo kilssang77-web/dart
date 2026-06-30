@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { Sidebar } from './components/Layout/Sidebar'
 import { TopBar } from './components/Layout/TopBar'
 import { SystemBanner } from './components/Layout/SystemBanner'
+import { TopLoadingBar } from './components/ui/TopLoadingBar'
 import { useIsMobile } from './hooks/useMediaQuery'
 import { useSidebarStore } from './store/sidebar'
 import { useRealtimeStream } from './hooks/useRealtimeStream'
@@ -45,13 +46,32 @@ const META: Record<string, { title: string; subtitle?: string }> = {
   '/screener':       { title: '스크리너',    subtitle: 'RSI·수급·ML 조건 기반 종목 필터링' },
 }
 
-function Spinner() {
+/** Suspense fallback — lazy 청크 로딩 중 표시되는 페이지 스켈레톤 */
+function PageSkeleton() {
   return (
-    <div className="flex items-center justify-center h-48 text-[var(--muted)]">
-      <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24" fill="none">
-        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-      </svg>
+    <div className="p-5 space-y-4 animate-pulse">
+      {/* 헤더 영역 */}
+      <div className="flex items-center gap-4">
+        <div className="h-8 w-48 skeleton rounded-lg" />
+        <div className="h-5 w-32 skeleton rounded" />
+      </div>
+      {/* 상단 통계 카드 행 */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-20 skeleton rounded-xl" />
+        ))}
+      </div>
+      {/* 메인 콘텐츠 영역 */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div className="h-72 skeleton rounded-xl" />
+        <div className="h-72 skeleton rounded-xl" />
+      </div>
+      {/* 리스트/카드 영역 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="h-52 skeleton rounded-xl" />
+        ))}
+      </div>
     </div>
   )
 }
@@ -71,6 +91,7 @@ export default function App() {
 
   return (
     <div className="flex min-h-screen bg-[var(--bg)]">
+      <TopLoadingBar />
       <GlobalRealtimeStream />
       <Sidebar />
 
@@ -82,7 +103,7 @@ export default function App() {
         <SystemBanner />
 
         <main className="flex-1 overflow-auto">
-          <Suspense fallback={<Spinner />}>
+          <Suspense fallback={<PageSkeleton />}>
             <Routes>
               <Route path="/"                element={<Dashboard />} />
               <Route path="/features"        element={<Features />} />

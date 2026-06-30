@@ -78,6 +78,17 @@ body {
   border-radius: 4px;
 }
 
+/* ── 로딩 바 애니메이션 ───────────────────────────────────────────────── */
+@keyframes loadbar-slide {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@keyframes loadbar {
+  0%   { transform: translateX(-100%); }
+  50%  { transform: translateX(50%); }
+  100% { transform: translateX(200%); }
+}
+
 /* ── 모노 숫자 ────────────────────────────────────────────────────────── */
 .tabular { font-variant-numeric: tabular-nums; }
 

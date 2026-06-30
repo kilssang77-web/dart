@@ -247,8 +247,31 @@ export function SimilarCases() {
         </div>
 
         {listLoading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-14 skeleton rounded-xl" />)}
+          <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden">
+            {/* 로딩 진행 바 */}
+            <div className="h-1 w-full bg-[var(--border)] overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-purple-500 to-cyan-400 animate-[loadbar_1.2s_ease-in-out_infinite]" style={{ width: '60%' }} />
+            </div>
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4 px-5 py-4 border-b border-[var(--border)]/50">
+                <div className="flex-1 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="h-4 w-28 skeleton rounded" />
+                    <div className="h-4 w-12 skeleton rounded" />
+                    <div className="h-5 w-20 skeleton rounded-full" />
+                  </div>
+                  <div className="h-3 w-40 skeleton rounded" />
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="text-right space-y-1">
+                    <div className="h-3 w-12 skeleton rounded" />
+                    <div className="h-5 w-10 skeleton rounded" />
+                  </div>
+                  <div className="h-4 w-10 skeleton rounded" />
+                  <div className="w-4 h-4 skeleton rounded" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
           <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden">
@@ -294,11 +317,83 @@ export function SimilarCases() {
   // ── 로딩 / 에러 ──────────────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="p-5 space-y-4">
-        <div className="h-20 skeleton rounded-xl" />
-        <div className="h-64 skeleton rounded-xl" />
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-64 skeleton rounded-xl" />)}
+      <div className="p-5 space-y-5 max-w-[1400px]">
+        {/* 로딩 진행 바 */}
+        <div className="fixed top-0 left-0 right-0 z-[9998] h-[3px] overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-purple-500 via-cyan-400 to-purple-500"
+            style={{
+              backgroundSize: '200% 100%',
+              animation: 'loadbar-slide 1.4s linear infinite',
+            }}
+          />
+        </div>
+
+        {/* 헤더 스켈레톤 */}
+        <div className="flex items-start gap-4">
+          <div className="w-8 h-8 skeleton rounded-lg mt-1 flex-shrink-0" />
+          <div className="flex-1 space-y-2">
+            <div className="flex items-center gap-3">
+              <div className="h-6 w-48 skeleton rounded" />
+              <div className="h-5 w-24 skeleton rounded-full" />
+            </div>
+            <div className="h-4 w-64 skeleton rounded" />
+          </div>
+          {/* 통계 카드 스켈레톤 */}
+          <div className="flex items-center gap-6 bg-[var(--card)] border border-[var(--border)] rounded-xl px-5 py-3 shrink-0">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="text-center space-y-1.5">
+                <div className="h-3 w-16 skeleton rounded mx-auto" />
+                <div className="h-7 w-12 skeleton rounded mx-auto" />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 차트 2열 스켈레톤 */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+          <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
+            <div className="h-4 w-36 skeleton rounded mb-4" />
+            <div className="h-56 skeleton rounded-lg" />
+          </div>
+          <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
+            <div className="h-4 w-40 skeleton rounded mb-4" />
+            <div className="h-56 skeleton rounded-lg" />
+          </div>
+        </div>
+
+        {/* 유사사례 카드 스켈레톤 */}
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 skeleton rounded" />
+          <div className="h-5 w-32 skeleton rounded" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 space-y-3">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 skeleton rounded-full" />
+                  <div className="space-y-1">
+                    <div className="h-4 w-24 skeleton rounded" />
+                    <div className="h-3 w-20 skeleton rounded" />
+                  </div>
+                </div>
+                <div className="space-y-1 text-right">
+                  <div className="h-3 w-10 skeleton rounded" />
+                  <div className="h-4 w-8 skeleton rounded" />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 bg-[var(--bg)] rounded-xl p-3">
+                {Array.from({ length: 3 }).map((_, j) => (
+                  <div key={j} className="space-y-1 text-center">
+                    <div className="h-3 w-8 skeleton rounded mx-auto" />
+                    <div className="h-5 w-12 skeleton rounded mx-auto" />
+                  </div>
+                ))}
+              </div>
+              <div className="h-36 skeleton rounded-lg" />
+            </div>
+          ))}
         </div>
       </div>
     )
