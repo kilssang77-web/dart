@@ -951,6 +951,75 @@ def trigger_scsbid_collect(
     return {"message": f"scsbid 수집 시작됨 (최근 {days_back}일)"}
 
 
+@router.post("/rebuild/competitor-stats")
+def trigger_competitor_stats_rebuild(
+    background_tasks: BackgroundTasks,
+    _: User = Depends(require_role("admin")),
+):
+    """경쟁사 통계 재계산 + GMM 클러스터 재피팅 (백그라운드 실행)."""
+    def _run():
+        from ...database import SessionLocal
+        from ...services.competitor import rebuild_competitor_stats
+        from ...ml.competitor_cluster import fit_from_db
+        _db = SessionLocal()
+        try:
+            result = rebuild_competitor_stats(_db)
+            logger.info("경쟁사 통계 재계산(즉시): %s", result)
+            fit_from_db(_db)
+            logger.info("GMM 재피팅(즉시) 완료")
+        finally:
+            _db.close()
+
+    background_tasks.add_task(_run)
+    return {"message": "경쟁사 통계 재계산 + GMM 재피팅 시작됨"}
+
+
+@router.post("/collect/yega")
+def trigger_yega_collect(
+    background_tasks: BackgroundTasks,
+    days_back: int = 3,
+    _: User = Depends(require_role("admin")),
+):
+    """복수예가 즉시 수집 — 개찰 완료 공고의 예가상세 수집 (백그라운드)."""
+    def _run():
+        from ...database import SessionLocal
+        from ...collector.service import collect_g2b_yega_detail
+        _db = SessionLocal()
+        try:
+            result = collect_g2b_yega_detail(_db, days_back=days_back)
+            logger.info("yega 즉시 수집: %s", result)
+        finally:
+            _db.close()
+
+    background_tasks.add_task(_run)
+    return {"message": f"복수예가 수집 시작됨 (최근 {days_back}일)"}
+
+
+@router.post("/collect/missing-results")
+def trigger_missing_results_collect(
+    background_tasks: BackgroundTasks,
+    lookback_days: int = 90,
+    max_bids: int = 200,
+    _: User = Depends(require_role("admin")),
+):
+    """낙찰결과 누락 보완 수집 — bid_results 없는 건을 G2B API로 채우기 (백그라운드)."""
+    def _run():
+        from ...database import SessionLocal
+        from ...collector.service import collect_results_for_missing_bids
+        from ...collector.scheduler import _trigger_ml_retrain
+        _db = SessionLocal()
+        try:
+            result = collect_results_for_missing_bids(_db, lookback_days=lookback_days, max_bids=max_bids)
+            logger.info("missing-results 즉시 수집: %s", result)
+            if result.get("filled", 0) > 0:
+                _trigger_ml_retrain("낙찰결과 누락 보완(즉시) 완료")
+        finally:
+            _db.close()
+
+    background_tasks.add_task(_run)
+    return {"message": f"낙찰결과 누락 보완 수집 시작됨 (lookback={lookback_days}일, max={max_bids}건)"}
+
+
 @router.post("/sync-my-bids")
 def sync_my_bids(
     _: User = Depends(require_role("admin")),
@@ -1488,3 +1557,25 @@ def trigger_historical_backfill(
         "message": f"역사 데이터 백필 시작됨 ({date_from} ~ {date_to or '오늘'})",
         "note": "백그라운드 실행 중. /admin/collection-logs 에서 진행 확인",
     }
+
+
+@router.post("/rebuild/agency-budget-patterns")
+def rebuild_agency_budget_patterns_endpoint(
+    background_tasks: BackgroundTasks,
+    _: User = Depends(require_role("admin")),
+):
+    """발주기관 예산 집행 패턴 재계산 — 백그라운드 실행."""
+    def _run():
+        from ...database import SessionLocal
+        from ...services.agency import rebuild_agency_budget_patterns
+        _db = SessionLocal()
+        try:
+            result = rebuild_agency_budget_patterns(_db)
+            logger.info("agency_budget_patterns 즉시 재계산: %s", result)
+        except Exception as exc:
+            logger.error("agency_budget_patterns 즉시 재계산 실패: %s", exc)
+        finally:
+            _db.close()
+
+    background_tasks.add_task(_run)
+    return {"message": "발주기관 예산 집행 패턴 재계산 시작됨"}

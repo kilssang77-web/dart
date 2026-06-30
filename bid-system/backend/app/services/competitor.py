@@ -575,5 +575,72 @@ class RivalRadarService:
 
 
 # ==================================================
+# [Task #17] 경쟁사 통계 재계산 서비스 — bid_results 기반 GMM 강화
+# ==================================================
+
+def rebuild_competitor_stats(db: Session) -> dict:
+    """
+    bid_results 기반 competitor_stats 일괄 재계산.
+
+    연도별 집계 (period_month=0):
+      - total_bid_count, win_count, win_rate
+      - avg_bid_rate, std_bid_rate
+      - aggression_score: (0.92 - avg) * 2000 → 0~100
+      - consistency_score: 100 - std*5000 → 0~100
+
+    min 3건 이상 참여한 경쟁사만 포함.
+    Returns: {"upserted": int, "elapsed_s": float}
+    """
+    import time as _time
+    t0 = _time.monotonic()
+
+    result = db.execute(text("""
+        INSERT INTO competitor_stats
+            (competitor_id, period_year, period_month,
+             total_bid_count, win_count, win_rate,
+             avg_bid_rate, std_bid_rate,
+             aggression_score, consistency_score, updated_at)
+        SELECT
+            br.competitor_id,
+            EXTRACT(YEAR FROM b.bid_open_date)::smallint           AS period_year,
+            0::smallint                                             AS period_month,
+            COUNT(*)                                                AS total_bid_count,
+            COUNT(*) FILTER (WHERE br.is_winner)                   AS win_count,
+            ROUND(
+                COUNT(*) FILTER (WHERE br.is_winner)::numeric
+                / NULLIF(COUNT(*),0), 4)                           AS win_rate,
+            ROUND(AVG(br.bid_rate)::numeric, 4)                    AS avg_bid_rate,
+            ROUND(COALESCE(STDDEV(br.bid_rate),0)::numeric, 4)    AS std_bid_rate,
+            ROUND(GREATEST(0, LEAST(100,
+                (0.92 - AVG(br.bid_rate)) * 2000
+            ))::numeric, 2)                                        AS aggression_score,
+            ROUND(GREATEST(0, LEAST(100,
+                100 - COALESCE(STDDEV(br.bid_rate),0) * 5000
+            ))::numeric, 2)                                        AS consistency_score,
+            NOW()
+        FROM bid_results br
+        JOIN bids b ON b.id = br.bid_id
+        WHERE b.bid_open_date IS NOT NULL
+          AND br.bid_rate BETWEEN 0.80 AND 1.05
+        GROUP BY br.competitor_id, EXTRACT(YEAR FROM b.bid_open_date)
+        HAVING COUNT(*) >= 3
+        ON CONFLICT (competitor_id, period_year, period_month) DO UPDATE SET
+            total_bid_count  = EXCLUDED.total_bid_count,
+            win_count        = EXCLUDED.win_count,
+            win_rate         = EXCLUDED.win_rate,
+            avg_bid_rate     = EXCLUDED.avg_bid_rate,
+            std_bid_rate     = EXCLUDED.std_bid_rate,
+            aggression_score = EXCLUDED.aggression_score,
+            consistency_score= EXCLUDED.consistency_score,
+            updated_at       = NOW()
+    """))
+    db.commit()
+    upserted = result.rowcount
+    elapsed  = round(_time.monotonic() - t0, 2)
+    logger.info("경쟁사 통계 재계산 완료: %d건 upsert (%.1fs)", upserted, elapsed)
+    return {"upserted": upserted, "elapsed_s": elapsed}
+
+
+# ==================================================
 # 실측 낙찰 구간 서비스 — inpo21c 기반 실측 분포
 # ==================================================

@@ -302,6 +302,8 @@ export const agenciesApi = {
     api.get(`/agencies/${id}/strategy`, { params }).then((r) => r.data),
   rebuildStrategies: () =>
     api.post('/agencies/rebuild-strategies').then((r) => r.data),
+  budgetSurge: (params?: { months_ahead?: number; min_surge_index?: number; size?: number }): Promise<import('../types').AgencyBudgetSurgeForecast> =>
+    api.get('/agencies/budget-surge', { params }).then((r) => r.data),
 }
 
 // ── 수주율 최적화 시스템 ──────────────────────────────────────────
@@ -438,6 +440,17 @@ export const executionsApi = {
   delete: (id: number): Promise<void> =>
     api.delete(`/executions/${id}`).then(() => undefined),
 
+  pendingResults: (hours = 72): Promise<import('../types').PendingResultItem[]> =>
+    api.get('/executions/pending-results', { params: { hours } }).then((r) => r.data),
+
+  quickResult: (id: number, data: {
+    result: '낙찰' | '패찰'
+    winner_rate?: number
+    winner_amount?: number
+    result_rank?: number
+  }): Promise<{ ok: boolean; id: number; status: string }> =>
+    api.post(`/executions/${id}/quick-result`, data).then((r) => r.data),
+
   defeatAnalysis: (id: number): Promise<import('../types').DefeatAnalysis | null> =>
     api.get(`/executions/${id}/defeat-analysis`).then((r) => r.data),
 
@@ -548,6 +561,9 @@ export const preSpecApi = {
 
   summary: (days_back = 30): Promise<import('../types').PreSpecSummary> =>
     api.get('/pre-spec/summary', { params: { days_back } }).then((r) => r.data),
+
+  predictions: (days_back = 60): Promise<import('../types').PreSpecPredictionsResponse> =>
+    api.get('/pre-spec/predictions', { params: { days_back } }).then((r) => r.data),
 }
 
 // Phase 3 — 계약정보 API

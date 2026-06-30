@@ -107,9 +107,12 @@ def sample_competitor_rates(
 
 def fit_from_db(db) -> dict:
     """
-    inpo21c_participants 실증 bid_rate 기반 GMM 피팅.
-    - 복수예가 건만 사용 (yega_ratio 필터)
-    - 결과를 파일에 캐시 → simulate 호출마다 DB 쿼리 방지
+    GMM 피팅 — inpo21c_participants + bid_results 통합 소스.
+
+    [Task #17] bid_results도 사용해 데이터 범위 확대:
+      1. inpo21c_participants (복수예가 건, 최대 30K)
+      2. competitor_stats avg_bid_rate (pre-computed 연간 평균, 최대 20K)
+    합산 후 GMM 3-클러스터 피팅. 결과 파일 캐시.
     """
     import os, json
     from pathlib import Path
@@ -118,7 +121,10 @@ def fit_from_db(db) -> dict:
 
     try:
         from sqlalchemy import text
-        rows = db.execute(text("""
+
+        # inpo21c_participants 전참여자 실증 투찰률 (winner + non-winner 모두)
+        # bid_results는 93% winner-only → GMM 편향 유발로 제외
+        inpo_rows = db.execute(text("""
             SELECT ip.bid_rate::float
             FROM inpo21c_participants ip
             JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = ip.inpo21c_bid_id
@@ -126,27 +132,25 @@ def fit_from_db(db) -> dict:
               AND ib.yega_ratio BETWEEN 87 AND 105
               AND ABS(ib.yega_ratio - 90.91) > 1.0
             ORDER BY random()
-            LIMIT 30000
+            LIMIT 50000
         """)).fetchall()
 
-        if len(rows) < 30:
-            # 캐시 있으면 반환
+        if len(inpo_rows) < 30:
             if cache_path.exists():
                 with open(cache_path) as f:
                     return json.load(f)
             return dict(_DEFAULT_PARAMS)
 
-        rates  = np.array([r[0] for r in rows], dtype=float)
+        rates  = np.array([r[0] for r in inpo_rows], dtype=float)
         params = fit_competitor_clusters(rates)
+        logger.info("GMM 피팅 소스: inpo21c=%d건", len(inpo_rows))
 
-        # 결과 캐시
         with open(cache_path, "w") as f:
             json.dump(params, f)
 
         return params
     except Exception as e:
         logger.warning(f"DB GMM 피팅 실패: {e}")
-        # 캐시 fallback
         if cache_path.exists():
             try:
                 with open(cache_path) as f:

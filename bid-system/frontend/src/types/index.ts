@@ -1371,6 +1371,16 @@ export interface BidContext {
   status:               string | null
   agency_srate_profile: AgencySrateProfile | null
   personal_bias:        PersonalBiasInfo | null
+  // A값 비율 4단계 모델
+  a_ratio:              number | null
+  a_ratio_level:        'L4' | 'L3' | 'L2' | 'L1' | null
+  a_ratio_sample_count: number | null
+  a_ratio_std:          number | null
+  // 추가 Phase4 필드
+  pre_spec_gap_days:    number | null
+  has_pre_spec:         boolean
+  agency_contract_freq: number | null
+  joint_bid_prob:       number | null
 }
 
 export interface CompetitorZone {
@@ -1796,13 +1806,22 @@ export interface QuickDecisionResponse {
   win_prob: number | null
   go_decision: 'go' | 'pass' | 'neutral'
   go_score: number
+  grade: 'S' | 'A' | 'B' | 'C' | 'F'
+  data_quality_level: number  // 1~5
+  signals: {
+    win_prob: number
+    competition: number
+    data_quality: number
+    agency_rate: number
+    confidence: number
+  } | null
   confidence: number
   reasons: string[]
   risk_factors: string[]
   expected_competitors: number
   agency_win_rate: number | null
   best_rate_source: string | null
-  position_top4: number[]   // 상위 포지션 번호 목록
+  position_top4: number[]
   floor_rate: number
 }
 
@@ -1854,6 +1873,32 @@ export interface PreSpecSummary {
   agencies: number
   total_amount: number
   days_back: number
+}
+
+export interface PreSpecPrediction {
+  id: number
+  pre_spec_no: string
+  title: string | null
+  order_agency: string | null
+  demand_agency: string | null
+  estimated_amount: number | null
+  industry_name: string | null
+  reg_date: string | null
+  end_date: string | null
+  est_bid_date: string | null
+  days_to_bid: number | null
+  conv_prob: number
+  conv_stats_source: 'agency' | 'global'
+  urgency: 'imminent' | 'upcoming' | 'future' | 'overdue' | 'unknown'
+}
+
+export interface PreSpecPredictionsResponse {
+  predictions: PreSpecPrediction[]
+  stats: {
+    global_avg_gap_days: number
+    global_conv_rate: number
+    agency_count: number
+  }
 }
 
 // Phase 3 — 계약정보
@@ -1956,4 +2001,36 @@ export interface IntelAlerts {
   alerts: IntelAlert[]
 }
 
+export interface PendingResultItem {
+  id: number
+  title: string
+  agency_name: string | null
+  base_amount: number
+  bid_open_date: string | null
+  status: string
+  submitted_rate: number | null
+}
 
+
+
+export interface AgencyBudgetSurgeItem {
+  agency_id: number
+  agency_name: string
+  surge_index: number
+  avg_bid_count: number
+  avg_bid_amount: number
+  years_of_data: number
+}
+
+export interface AgencyBudgetSurgeForecastMonth {
+  year: number
+  month: number
+  label: string
+  agencies: AgencyBudgetSurgeItem[]
+}
+
+export interface AgencyBudgetSurgeForecast {
+  forecast: AgencyBudgetSurgeForecastMonth[]
+  months_ahead: number
+  min_surge_index: number
+}

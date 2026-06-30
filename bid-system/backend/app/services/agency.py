@@ -666,5 +666,173 @@ class JointSimulateService:
 
 
 # ==================================================
+# 발주기관 예산 집행 패턴 — 급증 시점 예측
+# ==================================================
+
+def rebuild_agency_budget_patterns(db: Session) -> dict:
+    """
+    기관별 월별 발주 패턴 재계산 → agency_budget_patterns upsert.
+
+    surge_index = 해당 월 평균 건수 / (연간 평균 건수/12)
+    · 1.0 = 평균, 1.5+ = 급증, 0.6- = 비수기
+    최소 2년치 데이터가 있는 기관만 계산.
+    """
+    import time
+    t0 = time.monotonic()
+
+    result = db.execute(text("""
+        WITH monthly_stats AS (
+            SELECT
+                agency_id,
+                EXTRACT(YEAR FROM bid_open_date)::int  AS yr,
+                EXTRACT(MONTH FROM bid_open_date)::int AS mo,
+                COUNT(*)                                AS cnt,
+                SUM(base_amount)                        AS amt
+            FROM bids
+            WHERE bid_open_date BETWEEN '2021-01-01' AND NOW()
+              AND base_amount > 0
+            GROUP BY agency_id, yr, mo
+        ),
+        agency_year_counts AS (
+            SELECT agency_id, COUNT(DISTINCT yr) AS years_cnt
+            FROM monthly_stats
+            GROUP BY agency_id
+            HAVING COUNT(DISTINCT yr) >= 2
+        ),
+        monthly_avg AS (
+            SELECT
+                ms.agency_id,
+                ms.mo,
+                ROUND(AVG(ms.cnt)::numeric, 2)           AS avg_cnt,
+                ROUND(AVG(ms.amt)::numeric)::bigint       AS avg_amt,
+                ayc.years_cnt
+            FROM monthly_stats ms
+            JOIN agency_year_counts ayc ON ayc.agency_id = ms.agency_id
+            GROUP BY ms.agency_id, ms.mo, ayc.years_cnt
+        ),
+        agency_annual_avg AS (
+            SELECT agency_id, SUM(avg_cnt) / 12.0 AS annual_monthly_avg
+            FROM monthly_avg
+            GROUP BY agency_id
+        )
+        INSERT INTO agency_budget_patterns
+            (agency_id, month_of_year, avg_bid_count, avg_bid_amount, surge_index, years_of_data, updated_at)
+        SELECT
+            ma.agency_id,
+            ma.mo,
+            ma.avg_cnt,
+            ma.avg_amt,
+            ROUND(
+                CASE WHEN aaa.annual_monthly_avg > 0
+                     THEN ma.avg_cnt / aaa.annual_monthly_avg
+                     ELSE 1.0 END::numeric, 3),
+            ma.years_cnt,
+            NOW()
+        FROM monthly_avg ma
+        JOIN agency_annual_avg aaa ON aaa.agency_id = ma.agency_id
+        ON CONFLICT (agency_id, month_of_year) DO UPDATE SET
+            avg_bid_count  = EXCLUDED.avg_bid_count,
+            avg_bid_amount = EXCLUDED.avg_bid_amount,
+            surge_index    = EXCLUDED.surge_index,
+            years_of_data  = EXCLUDED.years_of_data,
+            updated_at     = NOW()
+    """))
+    db.commit()
+    elapsed = round(time.monotonic() - t0, 1)
+    logger.info("agency_budget_patterns upsert: rows=%d elapsed=%.1fs", result.rowcount, elapsed)
+    return {"upserted": result.rowcount, "elapsed_s": elapsed}
+
+
+def get_upcoming_surge_agencies(
+    db: Session,
+    months_ahead: int = 3,
+    min_surge_index: float = 1.3,
+    size: int = 50,
+    industry_ids: list[int] | None = None,
+) -> dict:
+    """
+    향후 N개월에 발주 급증이 예상되는 기관 목록.
+
+    surge_index >= min_surge_index인 기관을 해당 월별로 묶어 반환.
+    industry_ids 필터는 bids.industry_id 기준.
+    """
+    from datetime import date
+    today = date.today()
+    target_months = []
+    for delta in range(1, months_ahead + 1):
+        m = (today.month - 1 + delta) % 12 + 1
+        y = today.year + ((today.month - 1 + delta) // 12)
+        target_months.append((y, m))
+
+    month_numbers = list({m for _, m in target_months})
+
+    industry_clause = ""
+    if industry_ids:
+        ids_str = ",".join(str(i) for i in industry_ids if str(i).isdigit())
+        industry_clause = f"AND b_last.industry_id IN ({ids_str})"
+
+    rows = db.execute(text(f"""
+        WITH last_bid AS (
+            SELECT DISTINCT ON (b.agency_id)
+                b.agency_id,
+                b.industry_id,
+                b.bid_open_date
+            FROM bids b
+            WHERE b.bid_open_date IS NOT NULL
+            ORDER BY b.agency_id, b.bid_open_date DESC
+        )
+        SELECT
+            abp.agency_id,
+            a.name         AS agency_name,
+            abp.month_of_year,
+            abp.surge_index,
+            abp.avg_bid_count,
+            abp.avg_bid_amount,
+            abp.years_of_data
+        FROM agency_budget_patterns abp
+        JOIN agencies a ON a.id = abp.agency_id
+        JOIN last_bid b_last ON b_last.agency_id = abp.agency_id
+        WHERE abp.month_of_year IN :months
+          AND abp.surge_index >= :min_si
+          AND abp.avg_bid_count >= 1.0
+          {industry_clause}
+        ORDER BY abp.surge_index DESC, abp.avg_bid_amount DESC
+        LIMIT :sz
+    """), {
+        "months": tuple(month_numbers),
+        "min_si": min_surge_index,
+        "sz": size,
+    }).fetchall()
+
+    # 월별로 그룹핑
+    from collections import defaultdict
+    by_month: dict[int, list] = defaultdict(list)
+    for r in rows:
+        by_month[r.month_of_year].append({
+            "agency_id":      r.agency_id,
+            "agency_name":    r.agency_name,
+            "surge_index":    float(r.surge_index),
+            "avg_bid_count":  float(r.avg_bid_count),
+            "avg_bid_amount": r.avg_bid_amount,
+            "years_of_data":  r.years_of_data,
+        })
+
+    forecast = []
+    for y, m in target_months:
+        forecast.append({
+            "year":        y,
+            "month":       m,
+            "label":       f"{y}년 {m}월",
+            "agencies":    by_month.get(m, [])[:size],
+        })
+
+    return {
+        "forecast":        forecast,
+        "months_ahead":    months_ahead,
+        "min_surge_index": min_surge_index,
+    }
+
+
+# ==================================================
 # 최종 투찰 추천 종합 서비스
 # ==================================================

@@ -728,6 +728,117 @@ def collect_scsbid_results(db: Session, days_back: int = 30) -> CollectionLog:
     return collect_results(db, client, days_back=days_back)
 
 
+def collect_results_for_missing_bids(
+    db: Session,
+    lookback_days: int = 90,
+    max_bids: int = 200,
+) -> dict:
+    """
+    개찰 완료 후 bid_results가 없는 bids를 찾아 G2B API로 결과 수집.
+
+    bid_executions에 등록된 공고 우선 처리 → 일반 bids 순으로.
+    G2B getOpengResultListInfoOpengCompt 엔드포인트 사용.
+    """
+    from app.config import get_settings
+    from sqlalchemy import text as _t
+
+    settings = get_settings()
+    try:
+        client = NarajangterClient(api_key=settings.g2b_api_key)
+    except Exception as e:
+        logger.warning("G2B 클라이언트 생성 실패 (API키 미설정?): %s", e)
+        return {"filled": 0, "skipped": 0, "fail": 0, "error": str(e)}
+
+    days = int(lookback_days)  # safe to embed in SQL (typed as int)
+
+    # 1) bid_executions 연결된 공고 중 결과 없는 건 (우선 처리)
+    exec_rows = db.execute(_t(f"""
+        SELECT DISTINCT b.id, b.announcement_no, b.bid_open_date
+        FROM bid_executions be
+        JOIN bids b ON b.id = be.bid_id
+        WHERE be.status IN ('개찰대기','낙찰','패찰')
+          AND b.bid_open_date >= NOW() - INTERVAL '{days} days'
+          AND NOT EXISTS (SELECT 1 FROM bid_results br WHERE br.bid_id = b.id)
+        ORDER BY b.bid_open_date DESC
+        LIMIT :max_b
+    """), {"max_b": max_bids // 2}).fetchall()
+
+    # 2) 일반 bids 중 결과 없는 건 (fallback)
+    general_rows = db.execute(_t(f"""
+        SELECT b.id, b.announcement_no
+        FROM bids b
+        WHERE b.bid_open_date BETWEEN NOW() - INTERVAL '{days} days' AND NOW() - INTERVAL '2 hours'
+          AND b.status IN ('closed', 'awarded')
+          AND NOT EXISTS (SELECT 1 FROM bid_results br WHERE br.bid_id = b.id)
+        ORDER BY b.bid_open_date DESC
+        LIMIT :max_b
+    """), {"max_b": max_bids}).fetchall()
+
+    # 중복 제거 후 (bid_id, announcement_no) 쌍만 추출 (exec 우선)
+    seen: set[int] = set()
+    combined: list[tuple[int, str]] = []
+    for row in (list(exec_rows) + list(general_rows)):
+        if row[0] not in seen:
+            seen.add(row[0])
+            combined.append((row[0], row[1]))
+
+    filled = skipped = fail = 0
+
+    for bid_id, announcement_no in combined[:max_bids]:
+        try:
+            participants = client.get_participants_for_bid(announcement_no)
+            if not participants:
+                skipped += 1
+                continue
+
+            inserted = 0
+            for p in participants:
+                if not p.competitor_name:
+                    continue
+                try:
+                    competitor = _upsert_competitor(db, p.competitor_name, p.biz_reg_no)
+                    existing = (
+                        db.query(BidResult)
+                        .filter(BidResult.bid_id == bid_id, BidResult.competitor_id == competitor.id)
+                        .first()
+                    )
+                    if not existing:
+                        db.add(BidResult(
+                            bid_id=bid_id,
+                            competitor_id=competitor.id,
+                            bid_amount=p.bid_amount,
+                            bid_rate=p.bid_rate,
+                            rank=p.rank,
+                            is_winner=p.is_winner,
+                            draw_no1=p.draw_no1,
+                            draw_no2=p.draw_no2,
+                            bid_dt=_parse_datetime(p.bid_dt) if p.bid_dt else None,
+                        ))
+                    else:
+                        if p.draw_no1 is not None:
+                            existing.draw_no1 = p.draw_no1
+                        if p.draw_no2 is not None:
+                            existing.draw_no2 = p.draw_no2
+                    inserted += 1
+                except Exception as e2:
+                    logger.debug("참여자 upsert 실패 {}/{}: {}", bid_id, p.competitor_name, e2)
+
+            db.commit()
+            if inserted > 0:
+                filled += 1
+                logger.info("missing_results 수집: bid_id={}, {}명", bid_id, inserted)
+            else:
+                skipped += 1
+
+        except Exception as exc:
+            db.rollback()
+            fail += 1
+            logger.warning("missing_results 수집 실패 {}: {}", announcement_no, exc)
+
+    logger.info("missing_results 완료: filled={} skipped={} fail={}", filled, skipped, fail)
+    return {"filled": filled, "skipped": skipped, "fail": fail}
+
+
 def collect_all_participants_g2b(db: Session, days_back: int = 7) -> dict:
     """
     getOpengResultListInfoOpengCompt — 개찰완료 전참여자 수집 (소스 최적화).

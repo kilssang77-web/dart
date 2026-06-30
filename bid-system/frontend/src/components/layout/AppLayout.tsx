@@ -58,6 +58,7 @@ const NAV_GROUPS = [
       { to: '/performance',     label: '성과센터',        icon: BarChart3 },
       { to: '/statistics',      label: '통계 분석',       icon: PieChart },
       { to: '/pre-spec',        label: '수주 예보',        icon: FileSearch },
+      { to: '/budget-surge',    label: '발주 급증 예보',   icon: TrendingUp },
       { to: '/contracts',       label: '계약 실적',        icon: FileText },
     ],
   },

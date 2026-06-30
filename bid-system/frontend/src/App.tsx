@@ -37,6 +37,7 @@ import TenderDecisionPage   from '@/pages/TenderDecisionPage'
 import JournalHistoryPage  from '@/pages/JournalHistoryPage'
 import PreSpecPage        from '@/pages/PreSpecPage'
 import ContractsPage      from '@/pages/ContractsPage'
+import AgencyBudgetSurgePage from '@/pages/AgencyBudgetSurgePage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -91,8 +92,9 @@ export default function App() {
           <Route path="decision"         element={<TenderDecisionPage />} />
           <Route path="journal-history"  element={<JournalHistoryPage />} />
           {/* Phase 2/3 — 사전규격·계약정보 */}
-          <Route path="pre-spec"   element={<PreSpecPage />} />
-          <Route path="contracts"  element={<ContractsPage />} />
+          <Route path="pre-spec"        element={<PreSpecPage />} />
+          <Route path="contracts"       element={<ContractsPage />} />
+          <Route path="budget-surge"    element={<AgencyBudgetSurgePage />} />
         </Route>
       </Routes>
     </BrowserRouter>

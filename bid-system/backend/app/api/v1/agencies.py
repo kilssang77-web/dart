@@ -101,3 +101,33 @@ def rebuild_agency_strategies(
     freq_result  = FrequencyService(db).rebuild_all()
     strat_result = AgencyStrategyService(db).rebuild_all()
     return {"freq": freq_result, "strategy": strat_result}
+
+
+@router.get("/budget-surge")
+def agency_budget_surge(
+    months_ahead:    int   = Query(3, ge=1, le=6),
+    min_surge_index: float = Query(1.3, ge=1.0, le=3.0),
+    size:            int   = Query(30, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _: User     = Depends(get_current_user),
+):
+    """향후 N개월 발주 급증 예상 기관 목록 (surge_index 기반)."""
+    from ...services.agency import get_upcoming_surge_agencies
+    return get_upcoming_surge_agencies(
+        db,
+        months_ahead=months_ahead,
+        min_surge_index=min_surge_index,
+        size=size,
+    )
+
+
+@router.post("/rebuild-budget-patterns")
+def rebuild_budget_patterns(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """발주기관 예산 집행 패턴 재계산 (admin/analyst 전용)."""
+    if current_user.role not in ("admin", "analyst"):
+        raise HTTPException(403, "권한 없음")
+    from ...services.agency import rebuild_agency_budget_patterns
+    return rebuild_agency_budget_patterns(db)

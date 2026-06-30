@@ -211,11 +211,16 @@ def run_inpo21c_region_job(region: str, industry: str = "") -> None:
 
 
 def run_post_open_collect_job() -> None:
-    """개찰 후 6시간 내 결과 수집 트리거 — 매일 10:00/16:00/22:00 KST 실행."""
+    """개찰 후 6시간 내 결과 + 복수예가 즉시 수집 (매일 10:30/16:30/22:30 KST).
+
+    [Task #16] 개찰 직후 복수예가(yega) 수집 추가:
+      - 결과 수집 완료 후 days_back=1 단기 예가상세 수집
+      - inpo21c 데이터 없는 공고만 G2B 예가 API 수집 (중복 최소화)
+    """
     from app.config import get_settings
     from app.database import SessionLocal
     from app.collector.client import NarajangterClient
-    from app.collector.service import collect_results
+    from app.collector.service import collect_results, collect_g2b_yega_detail
 
     settings = get_settings()
     db = SessionLocal()
@@ -224,6 +229,14 @@ def run_post_open_collect_job() -> None:
         result = collect_results(db, client, days_back=3)
         logger.info("개찰 후 결과 수집 완료: 성공=%d, 실패=%d", result.success_count, result.fail_count)
         _trigger_ml_retrain("개찰 후 결과 수집 완료")
+
+        # 복수예가 즉시 수집 (당일 개찰 건 — inpo21c 미수집 fallback)
+        try:
+            yega_result = collect_g2b_yega_detail(db, days_back=1)
+            logger.info("개찰 직후 예가수집: inserted=%d skipped_inpo=%d",
+                        yega_result.get("inserted", 0), yega_result.get("skipped_by_inpo", 0))
+        except Exception as ye:
+            logger.warning("개찰 직후 예가수집 실패: %s", ye)
     except Exception as exc:
         logger.error("개찰 후 결과 수집 실패: %s", exc)
     finally:
@@ -722,17 +735,19 @@ def run_g2b_all_participants_job() -> None:
 
 
 def run_g2b_yega_job() -> None:
-    """G2B 예비가격 상세 수집 (매일 19:15 KST — getOpengResultListInfoCnstwkPreparPcDetail).
+    """G2B 예비가격 상세 수집 (매일 21:15 KST — getOpengResultListInfoCnstwkPreparPcDetail).
 
-    최근 7일 개찰 완료 공고의 복수예가 15개(추첨여부 포함)를
-    g2b_yega_details 테이블에 upsert한다. ML pos_weights 학습 데이터로 활용.
+    [Task #16] days_back=3으로 확장 — 당일+전일 개찰 건 커버.
+    최근 3일 개찰 완료 공고의 복수예가 15개(추첨여부 포함)를
+    g2b_yega_details 테이블에 upsert. ML pos_weights 학습 데이터로 활용.
+    inpo21c_yega에 이미 데이터가 있는 공고는 자동 스킵.
     """
     from app.database import SessionLocal
     from app.collector.service import collect_g2b_yega_detail
 
     db = SessionLocal()
     try:
-        result = collect_g2b_yega_detail(db, days_back=7)
+        result = collect_g2b_yega_detail(db, days_back=3)
         logger.info("G2B 예가상세 수집 완료: %s", result)
     except Exception as exc:
         logger.error("G2B 예가상세 수집 실패: %s", exc)
@@ -781,6 +796,67 @@ def run_contract_collect_job() -> None:
         logger.info("계약정보 수집 완료: %s", result)
     except Exception as exc:
         logger.error("계약정보 수집 실패: %s", exc)
+    finally:
+        db.close()
+
+
+def run_competitor_stats_job() -> None:
+    """경쟁사 통계 재계산 + GMM 재피팅 (매주 일요일 04:30 KST).
+
+    bid_results 기반 competitor_stats upsert 후 GMM 클러스터 재피팅.
+    """
+    from app.database import SessionLocal
+    from app.services.competitor import rebuild_competitor_stats
+
+    db = SessionLocal()
+    try:
+        result = rebuild_competitor_stats(db)
+        logger.info("경쟁사 통계 재계산: %s", result)
+        # GMM 재피팅
+        from app.ml.competitor_cluster import fit_from_db
+        fit_from_db(db)
+        logger.info("GMM 클러스터 재피팅 완료")
+    except Exception as exc:
+        logger.error("경쟁사 통계 재계산 실패: %s", exc)
+    finally:
+        db.close()
+
+
+def run_missing_results_job() -> None:
+    """낙찰결과 누락 보완 수집 (매주 수요일 03:00 KST).
+
+    bid_executions(개찰대기/낙찰/패찰)에 bid_results가 없는 건을 G2B API로 보완.
+    lookback_days=90, max_bids=200
+    """
+    from app.database import SessionLocal
+    from app.collector.service import collect_results_for_missing_bids
+
+    db = SessionLocal()
+    try:
+        result = collect_results_for_missing_bids(db, lookback_days=90, max_bids=200)
+        logger.info("낙찰결과 누락 보완: %s", result)
+        if result.get("filled", 0) > 0:
+            _trigger_ml_retrain("낙찰결과 누락 보완 완료")
+    except Exception as exc:
+        logger.error("낙찰결과 누락 보완 실패: %s", exc)
+    finally:
+        db.close()
+
+
+def run_agency_budget_patterns_job() -> None:
+    """발주기관 예산 집행 패턴 재계산 (매주 월 05:30 KST).
+
+    bids 히스토리 기반 월별 surge_index 산출 → agency_budget_patterns upsert.
+    """
+    from app.database import SessionLocal
+    from app.services.agency import rebuild_agency_budget_patterns
+
+    db = SessionLocal()
+    try:
+        result = rebuild_agency_budget_patterns(db)
+        logger.info("agency_budget_patterns 재계산: %s", result)
+    except Exception as exc:
+        logger.error("agency_budget_patterns 재계산 실패: %s", exc)
     finally:
         db.close()
 
@@ -1025,6 +1101,33 @@ def create_scheduler() -> BackgroundScheduler:
         trigger=CronTrigger(day=2, hour=2, minute=0, timezone="Asia/Seoul"),
         id="backfill_incremental_monthly",
         name="G2B 역사데이터 증분 갱신 (매월 2일 02:00 KST)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    # [Task #14] 낙찰결과 누락 보완 수집 (매주 수요일 03:00 KST)
+    scheduler.add_job(
+        run_missing_results_job,
+        trigger=CronTrigger(day_of_week="wed", hour=3, minute=0, timezone="Asia/Seoul"),
+        id="collect_missing_results_weekly",
+        name="낙찰결과 누락 보완 수집 (매주 수 03:00 KST)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    # [Task #17] 경쟁사 통계 재계산 + GMM 재피팅 (매주 일요일 04:30 KST)
+    scheduler.add_job(
+        run_competitor_stats_job,
+        trigger=CronTrigger(day_of_week="sun", hour=4, minute=30, timezone="Asia/Seoul"),
+        id="competitor_stats_weekly",
+        name="경쟁사 통계 재계산+GMM 재피팅 (매주 일 04:30 KST)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    # [Task #18] 발주기관 예산 집행 패턴 재계산 (매주 월 05:30 KST)
+    scheduler.add_job(
+        run_agency_budget_patterns_job,
+        trigger=CronTrigger(day_of_week="mon", hour=5, minute=30, timezone="Asia/Seoul"),
+        id="agency_budget_patterns_weekly",
+        name="발주기관 예산 집행 패턴 재계산 (매주 월 05:30 KST)",
         replace_existing=True,
         max_instances=1,
     )

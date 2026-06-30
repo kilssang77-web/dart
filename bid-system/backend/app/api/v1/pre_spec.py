@@ -103,6 +103,147 @@ def pre_spec_summary(
     }
 
 
+@router.get("/predictions")
+def pre_spec_predictions(
+    days_back: int = Query(60, description="최근 N일 이내 사전규격 대상"),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """사전규격 → 입찰공고 전환 예측.
+
+    이력에서 전환율·전환 소요일을 계산하고, 미매핑 사전규격에 대해
+    예상 공고 날짜와 전환 확률을 반환한다.
+    urgency: imminent (≤3일) / upcoming (3-14일) / future (>14일) / overdue (지남)
+    """
+    # 1) 글로벌 + 기관별 전환 통계
+    stats_rows = db.execute(text("""
+        WITH matched AS (
+            SELECT
+                order_agency,
+                EXTRACT(EPOCH FROM (matched_at - end_date))/86400.0 AS gap_days
+            FROM pre_spec_notices
+            WHERE bid_id IS NOT NULL AND matched_at IS NOT NULL AND end_date IS NOT NULL
+        ),
+        global_stats AS (
+            SELECT
+                NULL::text       AS order_agency,
+                AVG(gap_days)    AS avg_gap,
+                COUNT(*)         AS matched_n
+            FROM matched
+        ),
+        agency_stats AS (
+            SELECT
+                order_agency,
+                AVG(gap_days)    AS avg_gap,
+                COUNT(*)         AS matched_n
+            FROM matched
+            GROUP BY order_agency
+            HAVING COUNT(*) >= 2
+        ),
+        agency_totals AS (
+            SELECT order_agency, COUNT(*) AS total_n
+            FROM pre_spec_notices
+            GROUP BY order_agency
+        )
+        SELECT
+            COALESCE(a.order_agency, 'GLOBAL')   AS agency,
+            a.avg_gap,
+            a.matched_n,
+            COALESCE(t.total_n, a.matched_n)     AS total_n
+        FROM agency_stats a
+        LEFT JOIN agency_totals t ON t.order_agency = a.order_agency
+        UNION ALL
+        SELECT 'GLOBAL', g.avg_gap, g.matched_n,
+               (SELECT COUNT(*) FROM pre_spec_notices) AS total_n
+        FROM global_stats g
+    """)).fetchall()
+
+    global_avg_gap = 0.0
+    global_conv_rate = 0.4
+    agency_gap: dict[str, float] = {}
+    agency_rate: dict[str, float] = {}
+
+    for row in stats_rows:
+        agency, avg_gap, matched_n, total_n = row[0], row[1], row[2], row[3]
+        conv_rate = float(matched_n) / float(total_n) if total_n else 0.4
+        if agency == "GLOBAL":
+            global_avg_gap = float(avg_gap or 0)
+            global_conv_rate = conv_rate
+        else:
+            agency_gap[agency] = float(avg_gap or 0)
+            agency_rate[agency] = conv_rate
+
+    # 2) 미매핑 사전규격 목록
+    unmatched = db.execute(text("""
+        SELECT
+            id, pre_spec_no, title, order_agency, demand_agency,
+            estimated_amount, industry_name, reg_date, end_date
+        FROM pre_spec_notices
+        WHERE bid_id IS NULL
+          AND reg_date >= NOW() - INTERVAL ':days days'
+        ORDER BY end_date ASC NULLS LAST
+    """.replace(":days days", f"{int(days_back)} days"))).fetchall()
+
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+
+    predictions = []
+    for row in unmatched:
+        pid, pre_spec_no, title, agency, demand, est_amount, industry, reg_date, end_date = row
+
+        gap = agency_gap.get(agency, global_avg_gap)
+        conv_prob = agency_rate.get(agency, global_conv_rate)
+        source = "agency" if agency in agency_gap else "global"
+
+        if end_date:
+            from datetime import timedelta
+            ed = end_date if end_date.tzinfo else end_date.replace(tzinfo=timezone.utc)
+            est_bid_dt = ed + timedelta(days=gap)
+            days_to_bid = (est_bid_dt - now).total_seconds() / 86400
+            if days_to_bid < 0:
+                urgency = "overdue"
+            elif days_to_bid <= 3:
+                urgency = "imminent"
+            elif days_to_bid <= 14:
+                urgency = "upcoming"
+            else:
+                urgency = "future"
+        else:
+            est_bid_dt = None
+            days_to_bid = None
+            urgency = "unknown"
+
+        predictions.append({
+            "id": pid,
+            "pre_spec_no": pre_spec_no,
+            "title": title,
+            "order_agency": agency,
+            "demand_agency": demand,
+            "estimated_amount": est_amount,
+            "industry_name": industry,
+            "reg_date": reg_date.isoformat() if reg_date else None,
+            "end_date": end_date.isoformat() if end_date else None,
+            "est_bid_date": est_bid_dt.isoformat() if est_bid_dt else None,
+            "days_to_bid": round(days_to_bid, 1) if days_to_bid is not None else None,
+            "conv_prob": round(conv_prob, 3),
+            "conv_stats_source": source,
+            "urgency": urgency,
+        })
+
+    # urgency 순서: imminent > upcoming > future > overdue > unknown
+    _urgency_order = {"imminent": 0, "upcoming": 1, "future": 2, "overdue": 3, "unknown": 4}
+    predictions.sort(key=lambda x: (_urgency_order.get(x["urgency"], 4), x["days_to_bid"] or 9999))
+
+    return {
+        "predictions": predictions,
+        "stats": {
+            "global_avg_gap_days": round(global_avg_gap, 1),
+            "global_conv_rate": round(global_conv_rate, 3),
+            "agency_count": len(agency_gap),
+        },
+    }
+
+
 @router.post("/collect", status_code=202)
 def trigger_collect(
     background_tasks: BackgroundTasks,
