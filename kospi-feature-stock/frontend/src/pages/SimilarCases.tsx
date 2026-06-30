@@ -41,7 +41,7 @@ function RetBadge({ value, label }: { value?: number | null; label: string }) {
     <div className="text-center">
       <div className="text-xs text-[var(--muted)] mb-0.5">{label}</div>
       <div className={clsx('text-sm font-bold tabular', pctColor(value))}>
-        {value >= 0 ? '+' : ''}{(value * 100).toFixed(1)}%
+        {value >= 0 ? '+' : ''}{value.toFixed(1)}%
       </div>
     </div>
   )
@@ -455,7 +455,7 @@ export function SimilarCases() {
             <div className="text-center">
               <div className="text-xs text-[var(--muted)] mb-0.5">평균 수익률</div>
               <div className={clsx('text-lg font-bold tabular', pctColor(avgReturn))}>
-                {avgReturn >= 0 ? '+' : ''}{(avgReturn * 100).toFixed(1)}%
+                {avgReturn >= 0 ? '+' : ''}{avgReturn.toFixed(1)}%
               </div>
             </div>
           )}

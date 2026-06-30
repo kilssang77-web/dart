@@ -962,11 +962,11 @@ class StockCollector:
                     UPDATE feature_events fe
                     SET
                         result_1d = CASE WHEN fwd.entry_price > 0 AND fwd.c1 IS NOT NULL
-                                         THEN (fwd.c1 - fwd.entry_price) / fwd.entry_price END,
+                                         THEN (fwd.c1 - fwd.entry_price) / fwd.entry_price * 100 END,
                         result_3d = CASE WHEN fwd.entry_price > 0 AND fwd.c3 IS NOT NULL
-                                         THEN (fwd.c3 - fwd.entry_price) / fwd.entry_price END,
+                                         THEN (fwd.c3 - fwd.entry_price) / fwd.entry_price * 100 END,
                         result_5d = CASE WHEN fwd.entry_price > 0 AND fwd.c5 IS NOT NULL
-                                         THEN (fwd.c5 - fwd.entry_price) / fwd.entry_price END
+                                         THEN (fwd.c5 - fwd.entry_price) / fwd.entry_price * 100 END
                     FROM fwd
                     WHERE fe.id = fwd.id
                       AND fwd.c5 IS NOT NULL
