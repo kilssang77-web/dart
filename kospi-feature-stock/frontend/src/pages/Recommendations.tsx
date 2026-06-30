@@ -109,7 +109,7 @@ function SignalSummary({ signals }: { signals: SignalItem[] }) {
           유사 과거 사례 <span className="text-[var(--fg)] font-semibold">{simCount}건</span>
           {simReturn != null && (
             <span className={clsx('ml-1 font-semibold', simReturn >= 0 ? 'text-red-400' : 'text-blue-400')}>
-              · 평균 {simReturn >= 0 ? '+' : ''}{(simReturn * 100).toFixed(1)}%
+              · 평균 {simReturn >= 0 ? '+' : ''}{simReturn.toFixed(1)}%
             </span>
           )}
           {atrBased && <span className="ml-2 text-cyan-400 font-semibold">· ATR 기반 손절/목표</span>}
@@ -237,7 +237,7 @@ function RecommendationNarrative({ signals }: { signals: SignalItem[] }) {
 
   // 4. 유사 과거 사례
   if (simCount > 0 && simReturn != null) {
-    const retStr  = (simReturn * 100).toFixed(1)
+    const retStr  = simReturn.toFixed(1)
     const retSign = simReturn >= 0 ? '+' : ''
     if (simReturn >= 0) {
       parts.push(
