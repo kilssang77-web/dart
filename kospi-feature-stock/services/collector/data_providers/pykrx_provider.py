@@ -34,10 +34,16 @@ class PyKRXProvider(DataProvider):
     def _date_before(days: int) -> str:
         return (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
 
-    async def _run(self, func):
-        """동기 callable을 기본 executor에서 실행하여 코루틴으로 반환한다."""
+    async def _run(self, func, timeout: float = 30.0):
+        """동기 callable을 기본 executor에서 실행하여 코루틴으로 반환한다.
+        timeout 초 초과 시 TimeoutError를 발생시켜 호출자가 fallback 처리하도록 한다.
+        """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, func)
+        future = loop.run_in_executor(None, func)
+        try:
+            return await asyncio.wait_for(future, timeout=timeout)
+        except asyncio.TimeoutError:
+            raise TimeoutError(f"pykrx call timed out after {timeout}s")
 
     # ------------------------------------------------------------------
     # 공개 메서드

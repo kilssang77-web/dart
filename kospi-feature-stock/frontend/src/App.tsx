@@ -31,14 +31,14 @@ const META: Record<string, { title: string; subtitle?: string }> = {
   '/features':       { title: '특징주 탐지', subtitle: '이벤트 기반 특징주 목록' },
   '/recommendations':{ title: '매매 추천',   subtitle: 'ML 기반 매수 신호 및 목표가' },
   '/intel':          { title: '공시/뉴스',   subtitle: '공시 · 뉴스 · 테마 통합 분석' },
-  '/search':         { title: '종목 검색',   subtitle: '종목 상세 정보 · 차트 · 추천 · 유사사례' },
+  '/search':         { title: '종목 분석',   subtitle: '종목 검색 · 상세 정보 · 차트 · 추천 · 유사사례' },
   '/watchlist':      { title: '관심종목',    subtitle: '즐겨찾기 종목 모니터링' },
   '/backtest':       { title: '백테스트',    subtitle: '이벤트 전략 기간별 성과 검증' },
   '/performance':    { title: '모델 성능',   subtitle: 'LightGBM AUC · F1 · 피처 중요도' },
   '/settings':       { title: '설정',        subtitle: '시스템 파라미터 · API 연결 관리' },
   '/analysis':       { title: '종목 분석',   subtitle: '주가 예측 · 매수/매도 전략 추천' },
   '/system-health':  { title: '시스템 헬스',  subtitle: 'ML 모델 · DB · Kafka · 데이터 신선도 전체 현황' },
-  '/notifications':  { title: '발송 이력',   subtitle: '텔레그램 발송 내역 · 매수신호 · 공시' },
+  '/notifications':  { title: '알림 이력',   subtitle: '텔레그램 발송 내역 · 매수신호 · 공시' },
   '/rec-journey':    { title: '성과 추적',    subtitle: '매수 추천 시점 이후 시간대별 주가 여정 · ML 재학습 피드백' },
   '/similar-cases':  { title: '유사사례',    subtitle: '과거 동일 패턴 종목 · 이벤트 기준 수익률 비교' },
   '/positions':      { title: '포지션 관리', subtitle: '추적 중 포지션 · 보유/손익 현황' },
@@ -123,7 +123,8 @@ export default function App() {
               <Route path="/positions"              element={<PositionManagement />} />
               <Route path="/ranking"               element={<RankingPage />} />
               <Route path="/screener"              element={<ScreenerPage />} />
-              {/* 제거된 라우트 → 리다이렉트 */}
+              {/* 통합·제거된 라우트 → 리다이렉트 */}
+              <Route path="/analysis"        element={<Navigate to="/search" replace />} />
               <Route path="/disclosures"     element={<Navigate to="/intel" replace />} />
               <Route path="/news"            element={<Navigate to="/intel" replace />} />
               <Route path="/themes"          element={<Navigate to="/intel" replace />} />

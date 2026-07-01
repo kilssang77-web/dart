@@ -7,9 +7,9 @@ logger = logging.getLogger(__name__)
 
 # (기간_일, Redis_키_suffix, 이벤트_타입, 기본점수)
 BREAKOUT_PERIODS = [
-    (260, "52w", "BREAKOUT_52W", 0.80),
-    (130, "26w", "BREAKOUT_26W", 0.70),
-    (65,  "13w", "BREAKOUT_13W", 0.60),
+    (260, "52w", "BREAKOUT_52W", 0.30),   # 실측 데이터 손실 신호 → 기준 완화
+    (130, "26w", "BREAKOUT_26W", 0.55),   # 중기 돌파 기준 완화
+    (65,  "13w", "BREAKOUT_13W", 0.20),   # 단기 돌파 → 낮은 기본점수
     (20,  "20d", "BREAKOUT_20D", 0.50),
 ]
 

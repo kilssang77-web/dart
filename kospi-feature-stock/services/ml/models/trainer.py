@@ -461,6 +461,77 @@ class LGBMTrainer:
         return entry_labels, risk_labels
 
     @staticmethod
+    def make_labels_market_alpha(
+        feat_df: pd.DataFrame,
+        raw_df: pd.DataFrame,
+        fwd: int = 5,
+        min_alpha: float = 0.015,
+        max_alpha_loss: float = -0.015,
+        top_pct: float = 0.20,
+        bot_pct: float = 0.10,
+    ) -> "tuple[pd.Series, pd.Series]":
+        """
+        시장(KOSPI) 초과수익 기반 레이블 — 단순 절대/상대 임계 대신 alpha 사용.
+
+        entry_label = 1  if (stock_ret_fwd5 - market_ret_fwd5) >= min_alpha
+                         AND 날짜별 alpha 상위 top_pct%
+        risk_label  = 1  if (stock_ret_fwd5 - market_ret_fwd5) <= max_alpha_loss
+                         AND 날짜별 alpha 하위 bot_pct%
+
+        KOSPI 지수 데이터는 raw_df의 code='0001' 행에서 추출.
+        없으면 make_labels_relative()로 fallback.
+        """
+        rdf = raw_df[["code", "date", "close"]].copy()
+        rdf["date"] = pd.to_datetime(rdf["date"])
+        rdf = rdf.sort_values(["code", "date"])
+        rdf["fwd_close"] = rdf.groupby("code")["close"].shift(-fwd)
+        rdf["ret"] = rdf["fwd_close"] / rdf["close"].replace(0, np.nan) - 1
+
+        # KOSPI index: code='0001'
+        kospi_rows = rdf[rdf["code"] == "0001"][["date", "ret"]].rename(columns={"ret": "market_ret"})
+        if kospi_rows.empty:
+            return LGBMTrainer.make_labels_relative(feat_df, raw_df, fwd=fwd, top_pct=top_pct, bot_pct=bot_pct)
+
+        rdf = rdf[rdf["code"] != "0001"].merge(kospi_rows, on="date", how="left")
+        rdf["alpha"] = rdf["ret"] - rdf["market_ret"].fillna(0)
+        rdf["alpha_rank"] = rdf.groupby("date")["alpha"].rank(pct=True)
+
+        if feat_df.empty or "__date" not in feat_df.columns:
+            empty = pd.Series(dtype="float64")
+            return empty, empty
+
+        fdf = feat_df[["__date", "__code"]].copy()
+        fdf["date"] = pd.to_datetime(fdf["__date"])
+        fdf["code"] = fdf["__code"]
+
+        merged = fdf[["code", "date"]].merge(
+            rdf[["code", "date", "alpha", "alpha_rank"]],
+            on=["code", "date"],
+            how="left",
+        )
+
+        alpha = merged["alpha"]
+        alpha_rank = merged["alpha_rank"]
+
+        entry_labels = pd.Series(
+            np.where(
+                alpha.notna(),
+                ((alpha_rank >= (1 - top_pct)) & (alpha >= min_alpha)).astype(float),
+                np.nan,
+            ),
+            dtype="float64",
+        )
+        risk_labels = pd.Series(
+            np.where(
+                alpha.notna(),
+                ((alpha_rank <= bot_pct) & (alpha <= max_alpha_loss)).astype(float),
+                np.nan,
+            ),
+            dtype="float64",
+        )
+        return entry_labels, risk_labels
+
+    @staticmethod
     def add_event_type_features(df: pd.DataFrame) -> pd.DataFrame:  # noqa: E302
         """
         event_type 컬럼을 그룹별 one-hot + 순서형 인코딩으로 변환.

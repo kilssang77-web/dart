@@ -1,6 +1,8 @@
 import asyncio
+import json
 import logging
 import os
+import pathlib
 import orjson
 import redis.asyncio as redis_lib
 from telegram.sender import TelegramSender
@@ -11,7 +13,23 @@ logger = logging.getLogger("notifier.consumer")
 _REDIS_KEY             = "telegram:config"
 _DEDUP_TTL_SIGNAL      = int(os.environ.get("DEDUP_TTL_SIGNAL",     "3600"))  # 1시간
 _DEDUP_TTL_DISCLOSURE  = int(os.environ.get("DEDUP_TTL_DISCLOSURE", "3600"))  # 1시간
-_DEFAULT_MIN_PROB            = float(os.environ.get("REC_MIN_PROB",       "0.22"))
+
+
+def _load_trained_threshold(default: float = 0.236) -> float:
+    for p in [
+        pathlib.Path("/models/lgbm/model_metrics.json"),
+        pathlib.Path(os.environ.get("ML_MODELS_DIR", "/models")) / "lgbm" / "model_metrics.json",
+    ]:
+        try:
+            if p.exists():
+                m = json.loads(p.read_text())
+                return float(m.get("optimal_threshold", default))
+        except Exception:
+            pass
+    return default
+
+
+_DEFAULT_MIN_PROB            = float(os.environ.get("REC_MIN_PROB") or _load_trained_threshold())
 _DEFAULT_MAX_RISK            = float(os.environ.get("REC_MAX_RISK",       "0.60"))
 _DEFAULT_MIN_RR              = float(os.environ.get("REC_MIN_RISK_REWARD", "2.0"))
 _DEFAULT_DISCLOSURE_KEYWORDS = ["무상증자"]

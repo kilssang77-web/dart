@@ -621,6 +621,11 @@ async def main(args):
         tr_le, tr_lr = LGBMTrainer.make_labels_target_hit(tr_feat, tr_raw, target_pct=args.entry_pct, stop_pct=args.risk_pct)
         va_le, va_lr = LGBMTrainer.make_labels_target_hit(va_feat, va_raw, target_pct=args.entry_pct, stop_pct=args.risk_pct)
         te_le, te_lr = LGBMTrainer.make_labels_target_hit(te_feat, te_raw, target_pct=args.entry_pct, stop_pct=args.risk_pct)
+    elif args.label_mode == "market_alpha":
+        logger.info("Generating labels (market_alpha — KOSPI 초과수익 상위 20%% / 하위 10%%)...")
+        tr_le, tr_lr = LGBMTrainer.make_labels_market_alpha(tr_feat, tr_raw)
+        va_le, va_lr = LGBMTrainer.make_labels_market_alpha(va_feat, va_raw)
+        te_le, te_lr = LGBMTrainer.make_labels_market_alpha(te_feat, te_raw)
     else:
         logger.info("Generating labels (5-day forward returns)...")
         tr_le, tr_lr = LGBMTrainer.make_labels_bulk(tr_feat, tr_raw, args.entry_pct, args.risk_pct)
@@ -814,8 +819,8 @@ if __name__ == "__main__":
                         help="SMOTE 오버샘플링 적용")
     parser.add_argument("--max-codes",   type=int, default=600,
                         help="거래대금 상위 N개 종목만 사용 (메모리 절감, 기본 600)")
-    parser.add_argument("--label-mode",  default="relative", choices=["absolute", "relative", "target_hit"],
-                        help="레이블 생성 방식: absolute=절대 수익률 임계, relative=날짜별 상위 20%% 랭크, target_hit=실제 고가/저가 기반 목표도달 여부")
+    parser.add_argument("--label-mode",  default="relative", choices=["absolute", "relative", "target_hit", "market_alpha"],
+                        help="레이블 생성 방식: absolute=절대 수익률 임계, relative=날짜별 상위 20%% 랭크, target_hit=실제 고가/저가 기반 목표도달 여부, market_alpha=KOSPI 초과수익 기반")
     parser.add_argument("--optuna-trials", type=int, default=0,
                         help="Optuna HPO 시도 횟수 (0=비활성화, 권장 30~50)")
     asyncio.run(main(parser.parse_args()))

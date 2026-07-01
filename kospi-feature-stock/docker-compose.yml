@@ -351,7 +351,7 @@ services:
         --smote
         --max-codes 600
         --model-dir /models/lgbm
-        --optuna-trials 0
+        --optuna-trials 30
     profiles:
       - tools
     restart: "no"
@@ -467,7 +467,7 @@ services:
     environment:
       ML_SERVICE_URL: "http://ml:8001"
       REC_COOLDOWN_MINUTES: "60"
-      REC_PERF_MIN_PROB: "0.30"
+      REC_PERF_MIN_PROB: "0.236"
       REC_RECOVERY_HOURS: "24"
     volumes:
       - ./services/recommender:/app

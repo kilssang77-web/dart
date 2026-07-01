@@ -14,9 +14,9 @@ router = APIRouter()
 # 전일 종가 대비 실시간 등락률 계산 CTE (change_rate=0 저장 문제 보정)
 _CHANGE_RATE_CTE = """
 WITH
-latest_dt AS (SELECT MAX(date) AS d FROM daily_bars),
+latest_dt AS (SELECT MAX(date) AS d FROM daily_bars WHERE date > NOW() - INTERVAL '14 days'),
 prev_dt   AS (SELECT MAX(date) AS d FROM daily_bars
-               WHERE date < (SELECT d FROM latest_dt)),
+               WHERE date < (SELECT d FROM latest_dt) AND date > NOW() - INTERVAL '21 days'),
 computed AS (
     SELECT
         c.code,
@@ -43,24 +43,28 @@ computed AS (
 @router.get("/summary")
 async def market_summary(db: asyncpg.Pool = Depends(get_db)):
     """KOSPI/KOSDAQ 등락 현황 (직전 종가 대비 실시간 계산, UNKNOWN 제외)."""
-    row = await db.fetchrow(f"""
-        {_CHANGE_RATE_CTE}
-        SELECT
-            MAX(c.date)::TEXT AS data_date,
-            ROUND(AVG(c.change_rate) FILTER (WHERE s.market='KOSPI' )::NUMERIC, 2) AS kospi_avg_change,
-            ROUND(AVG(c.change_rate) FILTER (WHERE s.market='KOSDAQ')::NUMERIC, 2) AS kosdaq_avg_change,
-            COUNT(*) FILTER (WHERE c.change_rate > 0 AND s.market IN ('KOSPI','KOSDAQ')) AS advancers,
-            COUNT(*) FILTER (WHERE c.change_rate < 0 AND s.market IN ('KOSPI','KOSDAQ')) AS decliners,
-            COUNT(*) FILTER (WHERE c.change_rate = 0 AND s.market IN ('KOSPI','KOSDAQ')) AS unchanged,
-            COUNT(*) FILTER (WHERE c.change_rate > 0 AND s.market='KOSPI')  AS kospi_up,
-            COUNT(*) FILTER (WHERE c.change_rate < 0 AND s.market='KOSPI')  AS kospi_down,
-            COUNT(*) FILTER (WHERE c.change_rate > 0 AND s.market='KOSDAQ') AS kosdaq_up,
-            COUNT(*) FILTER (WHERE c.change_rate < 0 AND s.market='KOSDAQ') AS kosdaq_down
-        FROM computed c
-        JOIN stocks s ON s.code = c.code
-        WHERE s.market IN ('KOSPI', 'KOSDAQ')
-    """)
-    return dict(row) if row else {}
+    try:
+        row = await db.fetchrow(f"""
+            {_CHANGE_RATE_CTE}
+            SELECT
+                MAX(c.date)::TEXT AS data_date,
+                ROUND(AVG(c.change_rate) FILTER (WHERE s.market='KOSPI' )::NUMERIC, 2) AS kospi_avg_change,
+                ROUND(AVG(c.change_rate) FILTER (WHERE s.market='KOSDAQ')::NUMERIC, 2) AS kosdaq_avg_change,
+                COUNT(*) FILTER (WHERE c.change_rate > 0 AND s.market IN ('KOSPI','KOSDAQ')) AS advancers,
+                COUNT(*) FILTER (WHERE c.change_rate < 0 AND s.market IN ('KOSPI','KOSDAQ')) AS decliners,
+                COUNT(*) FILTER (WHERE c.change_rate = 0 AND s.market IN ('KOSPI','KOSDAQ')) AS unchanged,
+                COUNT(*) FILTER (WHERE c.change_rate > 0 AND s.market='KOSPI')  AS kospi_up,
+                COUNT(*) FILTER (WHERE c.change_rate < 0 AND s.market='KOSPI')  AS kospi_down,
+                COUNT(*) FILTER (WHERE c.change_rate > 0 AND s.market='KOSDAQ') AS kosdaq_up,
+                COUNT(*) FILTER (WHERE c.change_rate < 0 AND s.market='KOSDAQ') AS kosdaq_down
+            FROM computed c
+            JOIN stocks s ON s.code = c.code
+            WHERE s.market IN ('KOSPI', 'KOSDAQ')
+        """, timeout=30)
+        return dict(row) if row else {}
+    except Exception as e:
+        logger.warning(f"market/summary query failed: {e}")
+        return {}
 
 
 @router.get("/movers")
@@ -74,25 +78,29 @@ async def market_movers(
     mkt_filter = "AND s.market = $2" if market else "AND s.market IN ('KOSPI','KOSDAQ')"
     params = [limit] + ([market.upper()] if market else [])
 
-    rows_up = await db.fetch(f"""
-        {_CHANGE_RATE_CTE}
-        SELECT c.code, s.name, s.market, s.sector,
-               c.close AS price, c.change_rate, c.volume
-        FROM computed c
-        JOIN stocks s ON s.code = c.code
-        WHERE c.change_rate IS NOT NULL {mkt_filter}
-        ORDER BY c.change_rate DESC LIMIT $1
-    """, *params)
+    try:
+        rows_up = await db.fetch(f"""
+            {_CHANGE_RATE_CTE}
+            SELECT c.code, s.name, s.market, s.sector,
+                   c.close AS price, c.change_rate, c.volume
+            FROM computed c
+            JOIN stocks s ON s.code = c.code
+            WHERE c.change_rate IS NOT NULL {mkt_filter}
+            ORDER BY c.change_rate DESC LIMIT $1
+        """, *params, timeout=30)
 
-    rows_down = await db.fetch(f"""
-        {_CHANGE_RATE_CTE}
-        SELECT c.code, s.name, s.market, s.sector,
-               c.close AS price, c.change_rate, c.volume
-        FROM computed c
-        JOIN stocks s ON s.code = c.code
-        WHERE c.change_rate IS NOT NULL {mkt_filter}
-        ORDER BY c.change_rate ASC LIMIT $1
-    """, *params)
+        rows_down = await db.fetch(f"""
+            {_CHANGE_RATE_CTE}
+            SELECT c.code, s.name, s.market, s.sector,
+                   c.close AS price, c.change_rate, c.volume
+            FROM computed c
+            JOIN stocks s ON s.code = c.code
+            WHERE c.change_rate IS NOT NULL {mkt_filter}
+            ORDER BY c.change_rate ASC LIMIT $1
+        """, *params, timeout=30)
+    except Exception as e:
+        logger.warning(f"market/movers query failed: {e}")
+        return {"gainers": [], "losers": []}
 
     gainers = [dict(r) for r in rows_up]
     losers  = [dict(r) for r in rows_down]

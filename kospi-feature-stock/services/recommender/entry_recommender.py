@@ -1,12 +1,31 @@
-﻿import logging
+﻿import json
+import logging
 import os
+import pathlib
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
+
+def _load_trained_threshold(default: float = 0.236) -> float:
+    """model_metrics.json에서 학습된 optimal_threshold를 로드한다.
+    파일 없거나 파싱 실패 시 default 반환."""
+    for p in [
+        pathlib.Path("/models/lgbm/model_metrics.json"),
+        pathlib.Path(os.environ.get("ML_MODELS_DIR", "/models")) / "lgbm" / "model_metrics.json",
+    ]:
+        try:
+            if p.exists():
+                m = json.loads(p.read_text())
+                return float(m.get("optimal_threshold", default))
+        except Exception:
+            pass
+    return default
+
+
 _MIN_RR        = float(os.environ.get("REC_MIN_RISK_REWARD", "2.0"))
 _MAX_RISK      = float(os.environ.get("REC_MAX_RISK", "0.60"))
-_MIN_PROB      = float(os.environ.get("REC_MIN_PROB", "0.28"))
+_MIN_PROB      = float(os.environ.get("REC_MIN_PROB") or _load_trained_threshold())
 _ENTRY_BAND    = float(os.environ.get("REC_ENTRY_BAND", "0.015"))
 _VOL_HEAT_H    = float(os.environ.get("REC_VOL_HEAT_HIGH", "20.0"))
 _VOL_HEAT_M    = float(os.environ.get("REC_VOL_HEAT_MED", "10.0"))

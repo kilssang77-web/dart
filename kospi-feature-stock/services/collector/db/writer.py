@@ -38,10 +38,11 @@ async def _update_technical_indicators(pool: asyncpg.Pool, code: str) -> None:
                 """
                 SELECT date, open, high, low, close, volume
                 FROM daily_bars WHERE code=$1
-                ORDER BY date ASC
+                ORDER BY date DESC LIMIT 200
                 """,
                 code,
             )
+        rows = list(reversed(rows))
         if len(rows) < 30:
             return
 

@@ -42,9 +42,11 @@ _BASE_CODES = [
 
 _BREAKOUT_CONF = [
     # (event_type, calendar_days_lookback, base_score)
-    ("BREAKOUT_52W", 400, 0.80),
-    ("BREAKOUT_26W", 200, 0.70),
-    ("BREAKOUT_13W", 100, 0.60),
+    # 주의: 실측 데이터(1,114건) 기준 BREAKOUT_52W(-2.62%/32%), BREAKOUT_13W(-5.76%/25%) 손실 패턴
+    # → base_score를 낮춰 ML 피처 가중치 축소; 추후 레이블 기반 재학습으로 근본 해결 필요
+    ("BREAKOUT_52W", 400, 0.30),
+    ("BREAKOUT_26W", 200, 0.55),
+    ("BREAKOUT_13W", 100, 0.20),
     ("BREAKOUT_20D",  30, 0.50),
 ]
 
@@ -324,9 +326,9 @@ class BatchScanner:
 
         # ── 3. 신고가 돌파 ──────────────────────────────────────
         high_keys = {
-            "BREAKOUT_52W": (highs.get("high_52w"), 0.80),
-            "BREAKOUT_26W": (highs.get("high_26w"), 0.70),
-            "BREAKOUT_13W": (highs.get("high_13w"), 0.60),
+            "BREAKOUT_52W": (highs.get("high_52w"), 0.30),
+            "BREAKOUT_26W": (highs.get("high_26w"), 0.55),
+            "BREAKOUT_13W": (highs.get("high_13w"), 0.20),
             "BREAKOUT_20D": (highs.get("high_20d"), 0.50),
         }
         for evt_type, (prev_high, base_score) in high_keys.items():
