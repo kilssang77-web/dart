@@ -273,7 +273,7 @@ services:
           memory: 128m
           cpus: '0.2'
 
-  # ── Collector: 일봉 재백필 (장외 시간, 매일) ────────────────────────────────
+  # ── Collector: 일봉 재백필 (수동 실행: docker compose --profile backfill up collector-bars-backfill) ─
   collector-bars-backfill:
     build:
       context: ./services/collector
@@ -291,7 +291,9 @@ services:
     volumes:
       - ./services/collector:/app
     command: ["python", "entrypoints/backfill_bars_worker.py"]
-    restart: unless-stopped
+    profiles:
+      - backfill
+    restart: "no"
     logging:
       driver: json-file
       options:
@@ -542,7 +544,9 @@ services:
           memory: 512m
           cpus: '0.5'
 
-  # ── ML: 자동 월별 재학습 (매월 28일 00:00 KST) ─────────────────────────────
+  # ── ML: 자동 월별 재학습 (수동 실행: docker compose --profile tools up ml-autoretrain) ─────────────
+  # 매월 28일 수동 실행 권장 (항상 켜두면 256MB 상시 소비)
+  # 실행: docker compose --profile tools up ml-autoretrain
   ml-autoretrain:
     build:
       context: ./services/ml
@@ -567,7 +571,9 @@ services:
       - ./services/ml:/app
       - model_cache:/models
     command: ["python", "auto_retrain.py"]
-    restart: unless-stopped
+    profiles:
+      - tools
+    restart: "no"
     logging:
       driver: json-file
       options:
@@ -576,9 +582,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256m
-          cpus: '0.2'
+          memory: 2048m
+          cpus: '2.0'
 
+  # ── 모니터링 (선택 실행: docker compose --profile monitoring up -d) ──────────
+  # 평소에는 꺼두고, 성능 분석이 필요할 때만 실행 (256+256=512MB 절약)
   prometheus:
     image: prom/prometheus:v2.52.0
     container_name: fstock-prometheus
@@ -593,6 +601,8 @@ services:
     depends_on:
       - api
       - ml
+    profiles:
+      - monitoring
     restart: unless-stopped
     logging:
       driver: json-file
@@ -619,6 +629,8 @@ services:
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
     depends_on:
       - prometheus
+    profiles:
+      - monitoring
     restart: unless-stopped
     logging:
       driver: json-file
