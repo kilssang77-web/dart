@@ -46,6 +46,32 @@ class Competitor(Base):
     updated_at     = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     results        = relationship("BidResult", back_populates="competitor")
     stats          = relationship("CompetitorStat", back_populates="competitor")
+    kiscon_profile = relationship("CompetitorKisconProfile", back_populates="competitor", uselist=False)
+
+
+class CompetitorKisconProfile(Base):
+    """KISCON 경쟁사 시공능력평가·주력기관·실적 프로필 (competitor_id당 1행)."""
+    __tablename__ = "competitor_kiscon_profiles"
+    id                   = Column(Integer, primary_key=True)
+    competitor_id        = Column(Integer, ForeignKey("competitors.id"), unique=True, nullable=False)
+    biz_reg_no           = Column(String(20), nullable=False)
+    corp_name            = Column(String(200))
+    eval_year            = Column(SmallInteger)
+    # KISCON API 수집 항목
+    license_types        = Column(ARRAY(Text), default=[])   # 면허 업종코드 목록
+    license_names        = Column(ARRAY(Text), default=[])   # 면허 업종명 목록
+    capacity_eval_amount = Column(BigInteger)                # 시공능력평가액 합계 (원)
+    main_biz_type        = Column(String(50))                # 최대 평가액 업종명
+    # bid_results 집계 항목
+    top_agencies         = Column(ARRAY(Text), default=[])   # 주력 발주기관 top5
+    top_agency_win_rates = Column(ARRAY(Float), default=[])  # 해당 기관 낙찰률
+    risk_agencies        = Column(ARRAY(Text), default=[])   # 강점 기관 (낙찰률 30%+)
+    bid_count_2y         = Column(Integer, default=0)        # 최근 2년 투찰 건수
+    win_count_2y         = Column(Integer, default=0)        # 최근 2년 낙찰 건수
+    win_amount_2y        = Column(BigInteger, default=0)     # 최근 2년 낙찰금액 합 (원)
+    stats_updated_at     = Column(DateTime(timezone=True))   # bid_results 집계 갱신 시각
+    kiscon_fetched_at    = Column(DateTime(timezone=True))   # KISCON API 마지막 수집 시각
+    competitor           = relationship("Competitor", back_populates="kiscon_profile")
 
 
 class Bid(Base):

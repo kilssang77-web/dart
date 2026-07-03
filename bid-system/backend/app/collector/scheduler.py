@@ -861,6 +861,34 @@ def run_agency_budget_patterns_job() -> None:
         db.close()
 
 
+def run_kiscon_collect_job() -> None:
+    """KISCON 경쟁사 시공능력평가·실적 수집 (매주 일 03:30 KST).
+
+    biz_reg_no 보유 상위 300개 경쟁사:
+    - KISCON API: 면허 업종·시공능력평가액 (api_key 있을 때)
+    - bid_results 집계: 주력 발주기관·낙찰률·2년 실적
+    → competitor_kiscon_profiles upsert
+    """
+    from app.config import get_settings
+    from app.database import SessionLocal
+    from app.collector.kiscon_service import collect_kiscon_profiles
+
+    settings = get_settings()
+    db = SessionLocal()
+    try:
+        result = collect_kiscon_profiles(
+            db,
+            limit=300,
+            force_refresh=False,
+            kiscon_api_key=settings.kiscon_api_key,
+        )
+        logger.info("KISCON 수집 완료: %s", result)
+    except Exception as exc:
+        logger.error("KISCON 수집 실패: %s", exc)
+    finally:
+        db.close()
+
+
 def run_backfill_incremental_job() -> None:
     """G2B 역사 낙찰 데이터 증분 갱신 (매월 2일 02:00 KST).
     전월 1개월치를 수집해 신규 낙찰 결과를 보완한다.
@@ -1128,6 +1156,15 @@ def create_scheduler() -> BackgroundScheduler:
         trigger=CronTrigger(day_of_week="mon", hour=5, minute=30, timezone="Asia/Seoul"),
         id="agency_budget_patterns_weekly",
         name="발주기관 예산 집행 패턴 재계산 (매주 월 05:30 KST)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    # [#8] KISCON 경쟁사 면허·실적 수집 (매주 일 03:30 KST — competitor_stats 재계산 전)
+    scheduler.add_job(
+        run_kiscon_collect_job,
+        trigger=CronTrigger(day_of_week="sun", hour=3, minute=30, timezone="Asia/Seoul"),
+        id="kiscon_profiles_weekly",
+        name="KISCON 경쟁사 면허·실적 수집 (매주 일 03:30 KST)",
         replace_existing=True,
         max_instances=1,
     )

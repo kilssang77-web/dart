@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     seed_demo_data: bool = True
 
     g2b_api_key: str = ""
+    kiscon_api_key: str = ""     # 공공데이터포털 KISCON 시공능력평가 API 키 (없으면 bid_results 집계만 수행)
     collect_enabled: bool = False
     inpo21c_cookie: str = ""
     inpo21c_id: str = ""
