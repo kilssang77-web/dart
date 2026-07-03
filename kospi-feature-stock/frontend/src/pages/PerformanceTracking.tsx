@@ -1,9 +1,12 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { Target, TrendingUp, TrendingDown, Activity, CheckCircle2, XCircle, Clock, AlertTriangle } from 'lucide-react'
+import { Target, TrendingUp, Activity, CheckCircle2, XCircle, Clock, AlertTriangle, LineChartIcon } from 'lucide-react'
 import { StatCard, Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card'
-import { BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
+import {
+  BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  ComposedChart, Line, Legend,
+} from 'recharts'
 import {
   recommendationsApi,
   type ActivePerformanceItem,
@@ -79,6 +82,35 @@ export function PerformanceTracking() {
     queryFn:         () => recommendationsApi.getPerformanceByEvent(historyDays),
     refetchInterval: 300_000,
   })
+
+  // 날짜별 성과 집계 (주간)
+  const trendData = useMemo(() => {
+    if (!history.length) return []
+    const byWeek: Record<string, { r1d: number[]; r5d: number[]; wins: number; total: number }> = {}
+    history.forEach((h) => {
+      const d = h.created_at?.slice(0, 10) ?? ''
+      if (!d) return
+      const dt = new Date(d)
+      const weekStart = new Date(dt)
+      weekStart.setDate(dt.getDate() - dt.getDay())
+      const key = weekStart.toISOString().slice(0, 10)
+      if (!byWeek[key]) byWeek[key] = { r1d: [], r5d: [], wins: 0, total: 0 }
+      if (h.r_1d != null) byWeek[key].r1d.push(h.r_1d)
+      if (h.r_5d != null) byWeek[key].r5d.push(h.r_5d)
+      byWeek[key].total++
+      if (h.is_success) byWeek[key].wins++
+    })
+    return Object.entries(byWeek)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-16)
+      .map(([week, v]) => ({
+        week: week.slice(5),
+        avg_r1d: v.r1d.length ? +(v.r1d.reduce((s, x) => s + x, 0) / v.r1d.length).toFixed(2) : null,
+        avg_r5d: v.r5d.length ? +(v.r5d.reduce((s, x) => s + x, 0) / v.r5d.length).toFixed(2) : null,
+        win_rate: v.total > 0 ? +(v.wins / v.total * 100).toFixed(1) : null,
+        count: v.total,
+      }))
+  }, [history])
 
   const returnDist = history.reduce<Record<string, number>>((acc, h) => {
     if (h.r_5d == null) return acc
@@ -161,6 +193,41 @@ export function PerformanceTracking() {
                   ))}
                 </Bar>
               </BarChart>
+            </ResponsiveContainer>
+          </CardBody>
+        </Card>
+      )}
+
+      {/* 주간 수익률 추이 */}
+      {trendData.length > 1 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              <span className="flex items-center gap-1.5">
+                <LineChartIcon size={14} className="text-cyan-400" />
+                주간 수익률 추이 (최근 16주)
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardBody>
+            <ResponsiveContainer width="100%" height={200}>
+              <ComposedChart data={trendData} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#71717a' }} />
+                <YAxis yAxisId="ret" tick={{ fontSize: 11, fill: '#71717a' }} tickFormatter={(v) => `${v}%`} />
+                <YAxis yAxisId="wr" orientation="right" tick={{ fontSize: 11, fill: '#71717a' }} tickFormatter={(v) => `${v}%`} domain={[0, 100]} />
+                <Tooltip
+                  contentStyle={TOOLTIP_STYLE}
+                  formatter={(v: number, name: string) => [
+                    `${v}%`,
+                    name === 'avg_r1d' ? '1일 평균' : name === 'avg_r5d' ? '5일 평균' : '승률',
+                  ]}
+                />
+                <Legend formatter={(v) => v === 'avg_r1d' ? '1일 평균%' : v === 'avg_r5d' ? '5일 평균%' : '승률%'} />
+                <Bar yAxisId="wr" dataKey="win_rate" fill="#22d3ee" opacity={0.3} radius={[2, 2, 0, 0]} name="win_rate" />
+                <Line yAxisId="ret" type="monotone" dataKey="avg_r1d" stroke="#f87171" strokeWidth={2} dot={{ r: 3 }} name="avg_r1d" connectNulls />
+                <Line yAxisId="ret" type="monotone" dataKey="avg_r5d" stroke="#4ade80" strokeWidth={2} dot={{ r: 3 }} name="avg_r5d" connectNulls />
+              </ComposedChart>
             </ResponsiveContainer>
           </CardBody>
         </Card>
@@ -303,6 +370,7 @@ export function PerformanceTracking() {
                     <th className="text-right py-2 font-medium">진입가</th>
                     <th className="text-right py-2 font-medium">예측</th>
                     <th className="text-right py-2 font-medium">1일</th>
+                    <th className="text-right py-2 font-medium">3일</th>
                     <th className="text-right py-2 font-medium">5일</th>
                     <th className="text-right py-2 font-medium">10일</th>
                     <th className="text-right py-2 font-medium">최고</th>
@@ -324,6 +392,7 @@ export function PerformanceTracking() {
                         <span className="text-[var(--muted)] text-[10px] ml-0.5">{(h.success_prob * 100).toFixed(0)}%</span>
                       </td>
                       <td className="py-2 text-right"><ReturnCell value={h.r_1d} /></td>
+                      <td className="py-2 text-right"><ReturnCell value={h.r_3d} /></td>
                       <td className="py-2 text-right"><ReturnCell value={h.r_5d} /></td>
                       <td className="py-2 text-right"><ReturnCell value={h.r_10d} /></td>
                       <td className="py-2 text-right">

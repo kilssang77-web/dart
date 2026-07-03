@@ -4,14 +4,17 @@ import { clsx } from 'clsx'
 import {
   Search, TrendingUp, TrendingDown, Minus, AlertTriangle,
   CheckCircle, Target, ShieldCheck, Zap, BarChart2, X, FileText, Newspaper, BookOpen, ExternalLink,
+  DollarSign, BarChart3, RefreshCw, BookMarked,
 } from 'lucide-react'
-import { stocksApi } from '@/api/stocks'
+import { stocksApi, type FinancialItem } from '@/api/stocks'
+import type { Orderbook } from '@/api/stocks'
 import { featuresApi } from '@/api/features'
 import { MarketBadge } from '@/components/ui/Badge'
 import { CandleChart } from '@/components/charts/CandleChart'
 import type { ChartEvent } from '@/components/charts/CandleChart'
 import { fmt, pctColor } from '@/lib/utils'
-import type { StockAnalysis, Stock } from '@/types'
+import type { StockAnalysis, Stock, Disclosure } from '@/types'
+import { DisclosureDetailModal } from '@/components/modals/DisclosureDetailModal'
 
 function fmtShares(v: number): string {
   const a = Math.abs(v); const s = v >= 0 ? '+' : '-'
@@ -189,6 +192,169 @@ function TechCell({ label, value, sub, color }: { label: string; value: string; 
   )
 }
 
+// ── 재무정보 탭 ───────────────────────────────────────────────────────────────
+function FinancialsTab({ data }: { data: FinancialItem[] }) {
+  if (!data.length) return (
+    <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-8 text-center text-sm text-[var(--muted)]">재무 데이터가 없습니다</div>
+  )
+  return (
+    <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
+      <div className="text-sm font-semibold text-[var(--fg)] mb-3 flex items-center gap-2">
+        <DollarSign size={14} className="text-cyan-400" />분기별 재무정보
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-[var(--muted)] border-b border-[var(--border)]">
+              <th className="text-left py-2 pr-3 font-medium whitespace-nowrap">기간</th>
+              <th className="text-right py-2 px-2 font-medium whitespace-nowrap">매출(억)</th>
+              <th className="text-right py-2 px-2 font-medium whitespace-nowrap">영업이익(억)</th>
+              <th className="text-right py-2 px-2 font-medium whitespace-nowrap">순이익(억)</th>
+              <th className="text-right py-2 px-2 font-medium whitespace-nowrap">EPS(원)</th>
+              <th className="text-right py-2 px-2 font-medium whitespace-nowrap">PER(배)</th>
+              <th className="text-right py-2 px-2 font-medium whitespace-nowrap">PBR(배)</th>
+              <th className="text-right py-2 px-2 font-medium whitespace-nowrap">ROE(%)</th>
+              <th className="text-right py-2 pl-2 font-medium whitespace-nowrap">부채비율</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--border)]">
+            {data.slice(0, 12).map((d, i) => (
+              <tr key={i} className="hover:bg-white/5">
+                <td className="py-2 pr-3 font-mono text-[var(--fg)] whitespace-nowrap">
+                  {d.year}{d.quarter ? `Q${d.quarter}` : '(연)'}
+                </td>
+                <td className="py-2 px-2 text-right tabular text-[var(--fg)]">
+                  {d.revenue != null ? (d.revenue / 1e8).toFixed(0) : '—'}
+                </td>
+                <td className={clsx('py-2 px-2 text-right tabular font-semibold',
+                  d.operating_profit == null ? 'text-[var(--muted)]' : d.operating_profit >= 0 ? 'text-red-400' : 'text-blue-400')}>
+                  {d.operating_profit != null ? (d.operating_profit / 1e8).toFixed(0) : '—'}
+                </td>
+                <td className={clsx('py-2 px-2 text-right tabular font-semibold',
+                  d.net_profit == null ? 'text-[var(--muted)]' : d.net_profit >= 0 ? 'text-red-400' : 'text-blue-400')}>
+                  {d.net_profit != null ? (d.net_profit / 1e8).toFixed(0) : '—'}
+                </td>
+                <td className="py-2 px-2 text-right tabular text-[var(--fg)]">
+                  {d.eps != null ? d.eps.toLocaleString() : '—'}
+                </td>
+                <td className={clsx('py-2 px-2 text-right tabular',
+                  d.per != null && d.per < 10 ? 'text-green-400' : d.per != null && d.per < 20 ? 'text-[var(--fg)]' : 'text-[var(--muted)]')}>
+                  {d.per != null ? d.per.toFixed(1) : '—'}
+                </td>
+                <td className={clsx('py-2 px-2 text-right tabular',
+                  d.pbr != null && d.pbr < 1 ? 'text-green-400' : d.pbr != null && d.pbr < 2 ? 'text-[var(--fg)]' : 'text-[var(--muted)]')}>
+                  {d.pbr != null ? d.pbr.toFixed(2) : '—'}
+                </td>
+                <td className={clsx('py-2 px-2 text-right tabular font-semibold',
+                  d.roe == null ? 'text-[var(--muted)]' : d.roe >= 15 ? 'text-green-400' : d.roe >= 5 ? 'text-[var(--fg)]' : 'text-red-400')}>
+                  {d.roe != null ? `${d.roe.toFixed(1)}%` : '—'}
+                </td>
+                <td className={clsx('py-2 pl-2 text-right tabular',
+                  d.debt_ratio == null ? 'text-[var(--muted)]' : d.debt_ratio > 300 ? 'text-red-400' : d.debt_ratio > 150 ? 'text-yellow-400' : 'text-green-400')}>
+                  {d.debt_ratio != null ? `${d.debt_ratio.toFixed(0)}%` : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-3 pt-3 border-t border-[var(--border)] text-xs text-[var(--muted)]">
+        PER 기준: 10배 미만=저평가, ROE 기준: 15%↑=우수 | 부채비율 기준: 150% 미만=양호
+      </div>
+    </div>
+  )
+}
+
+// ── 호가 잔량 탭 ──────────────────────────────────────────────────────────────
+function OrderbookTab({ data, currentPrice, onRefresh }: { data: Orderbook; currentPrice: number; onRefresh: () => void }) {
+  const allQtys = [...data.asks.map(a => a.qty), ...data.bids.map(b => b.qty)]
+  const maxQty = Math.max(...allQtys, 1)
+  const total  = data.total_ask_qty + data.total_bid_qty
+  const bidPct = total > 0 ? (data.total_bid_qty / total * 100) : 50
+  const askPct = 100 - bidPct
+
+  return (
+    <div className="space-y-3">
+      {/* 매수/매도 비율 */}
+      <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-semibold text-[var(--fg)]">호가 잔량</span>
+          <button onClick={onRefresh} className="flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 transition-colors">
+            <RefreshCw size={11} />새로고침
+          </button>
+        </div>
+        <div className="flex items-center gap-2 text-xs mb-2">
+          <span className="text-blue-400 font-semibold">{askPct.toFixed(1)}% 매도</span>
+          <div className="flex-1 h-3 rounded-full overflow-hidden bg-blue-400/30">
+            <div className="h-full bg-red-400/70 rounded-full" style={{ width: `${bidPct}%`, marginLeft: `${askPct}%` }} />
+          </div>
+          <span className="text-red-400 font-semibold">매수 {bidPct.toFixed(1)}%</span>
+        </div>
+        <div className="grid grid-cols-2 gap-3 text-center text-xs mt-3">
+          <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-2">
+            <div className="text-[var(--muted)]">총 매도잔량</div>
+            <div className="text-blue-400 font-bold tabular">{data.total_ask_qty.toLocaleString()}</div>
+          </div>
+          <div className="bg-red-500/5 border border-red-500/20 rounded-lg p-2">
+            <div className="text-[var(--muted)]">총 매수잔량</div>
+            <div className="text-red-400 font-bold tabular">{data.total_bid_qty.toLocaleString()}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* 호가 테이블 */}
+      <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
+        <div className="grid grid-cols-2 gap-4">
+          {/* 매도 호가 */}
+          <div>
+            <div className="text-xs text-blue-400 font-semibold mb-2 text-center">매도 호가</div>
+            <div className="space-y-0.5">
+              {[...data.asks].reverse().slice(0, 10).map((ask, i) => (
+                <div key={i} className="flex items-center gap-1.5 text-xs relative">
+                  <div className="flex-1 flex items-center gap-1">
+                    <div className="flex-1 h-4 relative">
+                      <div className="absolute right-0 top-0 h-full bg-blue-500/25 rounded-sm" style={{ width: `${(ask.qty / maxQty) * 100}%` }} />
+                    </div>
+                    <span className="tabular text-[var(--muted)] w-14 text-right shrink-0">{ask.qty.toLocaleString()}</span>
+                  </div>
+                  <span className={clsx('tabular font-semibold w-16 text-right shrink-0',
+                    ask.price > currentPrice ? 'text-blue-400' : 'text-[var(--fg)]')}>
+                    {ask.price.toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 매수 호가 */}
+          <div>
+            <div className="text-xs text-red-400 font-semibold mb-2 text-center">매수 호가</div>
+            <div className="space-y-0.5">
+              {data.bids.slice(0, 10).map((bid, i) => (
+                <div key={i} className="flex items-center gap-1.5 text-xs">
+                  <span className={clsx('tabular font-semibold w-16 shrink-0',
+                    bid.price < currentPrice ? 'text-red-400' : 'text-[var(--fg)]')}>
+                    {bid.price.toLocaleString()}
+                  </span>
+                  <div className="flex-1 flex items-center gap-1">
+                    <span className="tabular text-[var(--muted)] w-14 shrink-0">{bid.qty.toLocaleString()}</span>
+                    <div className="flex-1 h-4 relative">
+                      <div className="absolute left-0 top-0 h-full bg-red-500/25 rounded-sm" style={{ width: `${(bid.qty / maxQty) * 100}%` }} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        {data.ts && (
+          <div className="mt-3 text-xs text-[var(--muted)] text-right">기준: {fmt.dateTime(data.ts)}</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── 메인 페이지 ───────────────────────────────────────────────────────────────
 export function StockAnalysis() {
   const [inputCode,     setInputCode]     = useState('')
@@ -199,8 +365,10 @@ export function StockAnalysis() {
   const [purchaseInput, setPurchaseInput] = useState('')
   const [analyzing,     setAnalyzing]     = useState(false)
   const [purchasePrice, setPurchasePrice] = useState<number | undefined>()
-  const [showSearch,    setShowSearch]    = useState(false)
-  const [analysisKey,   setAnalysisKey]   = useState(0)
+  const [showSearch,         setShowSearch]         = useState(false)
+  const [analysisKey,        setAnalysisKey]        = useState(0)
+  const [analysisTab,        setAnalysisTab]        = useState<'analysis' | 'financials' | 'orderbook'>('analysis')
+  const [selectedDisclosure, setSelectedDisclosure] = useState<Disclosure | null>(null)
 
   const { data: searchResults } = useQuery({
     queryKey:  ['analysis-search', query],
@@ -234,6 +402,21 @@ export function StockAnalysis() {
         }))),
     enabled:   !!selCode,
     staleTime: 300_000,
+  })
+
+  const { data: financials = [] } = useQuery({
+    queryKey:  ['financials', selCode],
+    queryFn:   () => stocksApi.getFinancials(selCode),
+    enabled:   !!selCode,
+    staleTime: 3_600_000,
+  })
+
+  const { data: orderbook, refetch: refetchOrderbook } = useQuery({
+    queryKey:        ['orderbook', selCode],
+    queryFn:         () => stocksApi.getOrderbook(selCode),
+    enabled:         !!selCode && analyzing && analysisTab === 'orderbook',
+    staleTime:       30_000,
+    refetchInterval: analysisTab === 'orderbook' ? 30_000 : false,
   })
 
   function selectStock(stock: Stock) {
@@ -447,6 +630,43 @@ export function StockAnalysis() {
               <CandleChart data={dailyBars} height={260} showMA events={chartEvents} />
             </div>
           )}
+
+          {/* ── 탭 네비게이션 ── */}
+          <div className="flex gap-1 p-1 bg-[var(--bg)] border border-[var(--border)] rounded-xl">
+            {([
+              { key: 'analysis',   label: '분석',    icon: <BarChart2 size={13} /> },
+              { key: 'financials', label: '재무정보', icon: <DollarSign size={13} /> },
+              { key: 'orderbook',  label: '호가잔량', icon: <BarChart3 size={13} /> },
+            ] as const).map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setAnalysisTab(t.key)}
+                className={clsx(
+                  'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-colors',
+                  analysisTab === t.key
+                    ? 'bg-cyan-500 text-white'
+                    : 'text-[var(--muted)] hover:text-[var(--fg)]',
+                )}
+              >
+                {t.icon}{t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* ── 재무정보 탭 ── */}
+          {analysisTab === 'financials' && (
+            <FinancialsTab data={financials} />
+          )}
+
+          {/* ── 호가잔량 탭 ── */}
+          {analysisTab === 'orderbook' && (
+            orderbook
+              ? <OrderbookTab data={orderbook} currentPrice={analysis.current_price} onRefresh={() => refetchOrderbook()} />
+              : <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-8 text-center text-sm text-[var(--muted)]">호가 데이터 로딩 중…</div>
+          )}
+
+          {/* ── 분석 탭 콘텐츠 ── */}
+          {analysisTab === 'analysis' && (<>
 
           {/* ── 보유 중인 경우: P&L + ATR 매도 전략 ── */}
           {analysis.purchase_analysis && (() => {
@@ -685,30 +905,36 @@ export function StockAnalysis() {
                   <div className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">최근 공시</div>
                   {analysis.disclosures_recent.map((d, i) => {
                     const cat = d.category ?? 'neutral'
-                    const dartUrl = d.rcept_no
-                      ? `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${d.rcept_no}`
-                      : null
                     return (
-                      <div key={i} className="flex items-start gap-2 py-1.5 border-b border-[var(--border)]/40 last:border-0">
+                      <div
+                        key={i}
+                        className="flex items-start gap-2 py-1.5 border-b border-[var(--border)]/40 last:border-0 cursor-pointer hover:bg-[var(--border)]/20 rounded-lg px-1 transition-colors"
+                        onClick={() => setSelectedDisclosure(d as unknown as Disclosure)}
+                      >
                         <span className={clsx('text-xs font-bold mt-0.5 shrink-0 px-1 py-0.5 rounded',
                           cat === 'favorable' ? 'bg-red-500/15 text-red-400' : cat === 'unfavorable' ? 'bg-blue-500/15 text-blue-400' : 'bg-[var(--border)]/40 text-[var(--muted)]')}>
                           {cat === 'favorable' ? '호재' : cat === 'unfavorable' ? '악재' : '중립'}
                         </span>
                         <div className="flex-1 min-w-0">
-                          {dartUrl ? (
-                            <a
-                              href={dartUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-start gap-1 group"
-                            >
-                              <span className="text-sm text-[var(--fg)] leading-tight line-clamp-2 group-hover:text-cyan-400 transition-colors">{d.title}</span>
-                              <ExternalLink size={11} className="shrink-0 mt-0.5 text-[var(--muted)] group-hover:text-cyan-400 transition-colors" />
-                            </a>
-                          ) : (
-                            <div className="text-sm text-[var(--fg)] leading-tight line-clamp-2">{d.title}</div>
-                          )}
-                          <div className="text-xs text-[var(--muted)] mt-0.5">{fmt.dateTime(d.disclosed_at)}</div>
+                          <div className="flex items-start gap-1 group">
+                            <span className="text-sm text-[var(--fg)] leading-tight line-clamp-2 group-hover:text-cyan-400 transition-colors">{d.title}</span>
+                            <BookMarked size={11} className="shrink-0 mt-0.5 text-cyan-400/60" />
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs text-[var(--muted)]">{fmt.dateTime(d.disclosed_at)}</span>
+                            <span className="text-xs text-cyan-400/70">상세보기</span>
+                            {d.rcept_no && (
+                              <a
+                                href={`https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${d.rcept_no}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex items-center gap-0.5 text-xs text-amber-400/70 hover:text-amber-400 transition-colors"
+                              >
+                                <ExternalLink size={9} />DART
+                              </a>
+                            )}
+                          </div>
                         </div>
                       </div>
                     )
@@ -751,6 +977,7 @@ export function StockAnalysis() {
             <AlertTriangle size={11} className="shrink-0 mt-0.5 text-yellow-400" />
             <span>본 분석은 기술적 지표 기반 참고 정보이며 투자 권유가 아닙니다. 투자 결정은 본인 책임 하에 신중하게 판단하세요. 과거 데이터 기반 예측은 미래 성과를 보장하지 않습니다.</span>
           </div>
+          </>)}
         </div>
       )}
 
@@ -766,6 +993,14 @@ export function StockAnalysis() {
           <AlertTriangle size={14} className="text-yellow-400" />
           {analysis.error}
         </div>
+      )}
+
+      {/* 공시 상세 모달 */}
+      {selectedDisclosure && (
+        <DisclosureDetailModal
+          disclosure={selectedDisclosure}
+          onClose={() => setSelectedDisclosure(null)}
+        />
       )}
     </div>
   )

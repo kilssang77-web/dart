@@ -5,10 +5,11 @@ import { clsx } from 'clsx'
 import {
   FileText, Newspaper, Hash, Filter, TrendingUp, TrendingDown,
   ArrowUpDown, ArrowUp, ArrowDown, ExternalLink, ChevronDown, ChevronUp, BarChart2,
+  Layers, Link2,
 } from 'lucide-react'
 import { disclosuresApi } from '@/api/disclosures'
 import { newsApi } from '@/api/news'
-import { marketApi } from '@/api/market'
+import { marketApi, type ThemeDetail } from '@/api/market'
 import { SentimentBadge } from '@/components/ui/Badge'
 import { fmt, pctColor } from '@/lib/utils'
 import { DisclosureDetailModal } from '@/components/modals/DisclosureDetailModal'
@@ -215,12 +216,60 @@ function DisclosuresTab() {
   )
 }
 
+// ── 유사 뉴스 패널 ────────────────────────────────────────────────────────────
+function SimilarNewsPanel({ newsId, onClose }: { newsId: number; onClose: () => void }) {
+  const nav = useNavigate()
+  const { data, isLoading } = useQuery({
+    queryKey: ['news-similar', newsId],
+    queryFn:  () => newsApi.getSimilar(newsId, 5),
+    staleTime: 600_000,
+  })
+  return (
+    <div className="mt-2 pt-2 border-t border-[var(--border)]/50 space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] text-cyan-400 flex items-center gap-1 font-medium">
+          <Link2 size={9} /> 유사 뉴스
+        </span>
+        <button onClick={onClose} className="text-[10px] text-[var(--muted)] hover:text-[var(--fg)] transition-colors">
+          닫기
+        </button>
+      </div>
+      {isLoading && (
+        <div className="space-y-1">
+          {[1, 2, 3].map((i) => <div key={i} className="h-8 skeleton rounded w-full" />)}
+        </div>
+      )}
+      {!isLoading && !data?.length && (
+        <p className="text-[10px] text-[var(--muted)] py-1">유사 뉴스가 없습니다</p>
+      )}
+      {data?.map((item) => (
+        <div key={item.id} className="p-2 bg-[var(--bg)] rounded-lg border border-[var(--border)]/60 space-y-1">
+          <p className="text-xs text-[var(--fg)] leading-snug line-clamp-2">{item.title}</p>
+          <div className="flex items-center flex-wrap gap-1.5">
+            <SentimentBadge category={item.category} />
+            {(item.stock_links ?? []).slice(0, 2).map((s) => (
+              <button key={s.code} onClick={() => nav(`/search?code=${s.code}`)}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-colors">
+                {s.name}
+              </button>
+            ))}
+            <span className="text-[10px] text-[var(--muted)] ml-auto whitespace-nowrap">
+              {fmt.smartTime(item.published_at)}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── 뉴스 탭 ──────────────────────────────────────────────────────────────────
 function NewsTab() {
   const nav = useNavigate()
   const [category, setCategory] = useState('')
   const [hours,    setHours]    = useState('72')
-  const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [expandedId,  setExpandedId]  = useState<number | null>(null)
+  const [similarOpenId, setSimilarOpenId] = useState<number | null>(null)
 
   const { data: newsData, isLoading } = useQuery({
     queryKey: ['news-intel', category, hours],
@@ -322,15 +371,29 @@ function NewsTab() {
               </div>
               <div className="flex flex-col items-end gap-2 flex-shrink-0">
                 <SentimentBadge category={item.category} />
-                {item.url && (
-                  <a href={item.url} target="_blank" rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 transition-colors font-medium"
-                    onClick={(e) => e.stopPropagation()}>
-                    <ExternalLink size={10} />원문
-                  </a>
-                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setSimilarOpenId(similarOpenId === item.id ? null : item.id)}
+                    className={clsx('flex items-center gap-1 text-xs transition-colors font-medium',
+                      similarOpenId === item.id ? 'text-cyan-400' : 'text-[var(--muted)] hover:text-cyan-400'
+                    )}
+                  >
+                    <Link2 size={10} />유사뉴스
+                  </button>
+                  {item.url && (
+                    <a href={item.url} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 transition-colors font-medium"
+                      onClick={(e) => e.stopPropagation()}>
+                      <ExternalLink size={10} />원문
+                    </a>
+                  )}
+                </div>
               </div>
             </div>
+            {/* 유사 뉴스 패널 */}
+            {similarOpenId === item.id && (
+              <SimilarNewsPanel newsId={item.id} onClose={() => setSimilarOpenId(null)} />
+            )}
             {/* 본문 접기 */}
             {item.content && (
               <div className="mt-2.5 pt-2 border-t border-[var(--border)]/50">
@@ -354,12 +417,20 @@ function NewsTab() {
   )
 }
 
-// ── 테마 카드 (종목 토글 + 상승 필터) ───────────────────────────────────────
+// ── 테마 카드 (종목 토글 + 상승 필터 + 상세 패널) ────────────────────────────
 function ThemeCard({ theme }: { theme: import('@/api/market').TrendingTheme }) {
   const [expanded,    setExpanded]    = useState(false)
   const [risingOnly,  setRisingOnly]  = useState(false)
+  const [detailOpen,  setDetailOpen]  = useState(false)
   const nav   = useNavigate()
   const links = theme.stock_links ?? []
+
+  const { data: detail, isLoading: detailLoading } = useQuery({
+    queryKey: ['theme-detail', theme.theme],
+    queryFn:  () => marketApi.getThemeDetail(theme.theme),
+    enabled:  detailOpen,
+    staleTime: 300_000,
+  })
 
   // 실제 주가 방향 (daily_bars close vs open)
   const rising  = theme.rising_count  ?? 0
@@ -388,9 +459,22 @@ function ThemeCard({ theme }: { theme: import('@/api/market').TrendingTheme }) {
           <Hash size={12} className={theme.source === 'news' ? 'text-cyan-400' : 'text-purple-400'} />
           <span className="text-sm font-bold text-[var(--fg)]">{theme.theme}</span>
         </div>
-        <span className={clsx('text-xs px-1.5 py-0.5 rounded border font-semibold', priceColor, priceBg)}>
-          {priceLabel}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setDetailOpen((v) => !v)}
+            className={clsx(
+              'text-[10px] px-1.5 py-0.5 rounded border font-semibold transition-colors flex items-center gap-0.5',
+              detailOpen
+                ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
+                : 'text-[var(--muted)] border-[var(--border)] hover:text-cyan-400 hover:border-cyan-500/30'
+            )}
+          >
+            <Layers size={9} />상세
+          </button>
+          <span className={clsx('text-xs px-1.5 py-0.5 rounded border font-semibold', priceColor, priceBg)}>
+            {priceLabel}
+          </span>
+        </div>
       </div>
 
       {/* 메타 */}
@@ -480,6 +564,73 @@ function ThemeCard({ theme }: { theme: import('@/api/market').TrendingTheme }) {
         </span>
         <span className="text-xs text-[var(--muted)] tabular">{theme.count}건</span>
       </div>
+
+      {/* 상세 패널 */}
+      {detailOpen && (
+        <div className="pt-2 border-t border-[var(--border)] space-y-2">
+          {detailLoading ? (
+            <div className="space-y-1">
+              <div className="h-3 skeleton rounded w-2/3" />
+              <div className="h-8 skeleton rounded" />
+            </div>
+          ) : detail ? (
+            <>
+              {/* 시간별 탐지 추이 (CSS 스파크라인) */}
+              {detail.hourly.length > 0 && (
+                <div>
+                  <div className="text-[10px] text-[var(--muted)] mb-1.5">탐지 추이 (6h 단위)</div>
+                  <div className="flex items-end gap-px h-8">
+                    {(() => {
+                      const maxCount = Math.max(...detail.hourly.map((h) => h.count), 1)
+                      return detail.hourly.map((h, i) => (
+                        <div
+                          key={i}
+                          className="flex-1 bg-cyan-500/60 hover:bg-cyan-400/80 rounded-t transition-colors cursor-default"
+                          style={{ height: `${Math.max(8, (h.count / maxCount) * 100)}%` }}
+                          title={`${h.bucket.slice(5, 16)}: ${h.count}건`}
+                        />
+                      ))
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {/* 종목별 이벤트 요약 */}
+              {detail.stocks.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[10px]">
+                    <thead>
+                      <tr className="text-[var(--muted)] border-b border-[var(--border)]">
+                        <th className="text-left py-1 font-medium">종목</th>
+                        <th className="text-right py-1 font-medium">신호</th>
+                        <th className="text-right py-1 font-medium">점수</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.stocks.slice(0, 8).map((s) => (
+                        <tr key={s.code}
+                          className="hover:bg-white/5 cursor-pointer"
+                          onClick={() => nav(`/search?code=${s.code}`)}>
+                          <td className="py-1">
+                            <span className="text-cyan-400 font-medium">{s.name}</span>
+                            <span className="text-[var(--muted)] ml-1 font-mono">{s.code}</span>
+                          </td>
+                          <td className="py-1 text-right tabular text-[var(--muted)]">{s.event_count}건</td>
+                          <td className="py-1 text-right tabular text-yellow-400">{s.max_score.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {!detail.stocks.length && !detail.hourly.length && (
+                <p className="text-[10px] text-[var(--muted)]">최근 48시간 탐지 이력 없음</p>
+              )}
+            </>
+          ) : null}
+        </div>
+      )}
     </div>
   )
 }

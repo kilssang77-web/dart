@@ -4,7 +4,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import {
   TrendingUp, TrendingDown, Minus, ArrowUpRight, ArrowDownRight,
   Zap, BarChart3, Target, FileText, Users, Clock, History,
-  Flame, RefreshCw, ShieldOff,
+  Flame, RefreshCw, ShieldOff, Trophy,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { featuresApi } from '@/api/features'
@@ -847,6 +847,13 @@ export function Dashboard() {
     refetchInterval: 300_000,
   })
 
+  const { data: newHighs } = useQuery({
+    queryKey:  ['market-new-highs'],
+    queryFn:   marketApi.getNewHighs,
+    staleTime: 300_000,
+    refetchInterval: 300_000,
+  })
+
   const isRt = (indexLive as any)?.source === 'realtime'
   const buyCount = topRecs?.length
 
@@ -918,6 +925,42 @@ export function Dashboard() {
         </div>
         <SectorHeatmap />
       </div>
+
+      {/* ── 신고가 달성 종목 ──────────────────────────────────────── */}
+      {newHighs && Array.isArray(newHighs) && newHighs.length > 0 && (
+        <Card>
+          <CardHeader className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Trophy size={14} className="text-yellow-400" />
+              <CardTitle>신고가 달성 종목</CardTitle>
+              <span className="text-xs text-[var(--muted)]">52주 기준</span>
+            </div>
+            <span className="text-xs text-[var(--muted)]">{newHighs.length}종목</span>
+          </CardHeader>
+          <CardBody className="pt-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+              {newHighs.slice(0, 18).map((s: any) => (
+                <button
+                  key={s.code}
+                  onClick={() => nav(`/search?code=${s.code}`)}
+                  className="flex flex-col items-start p-2.5 rounded-xl border border-yellow-500/20 bg-yellow-500/5 hover:bg-yellow-500/10 transition-colors text-left"
+                >
+                  <span className="text-xs font-semibold text-[var(--fg)] truncate w-full">{s.name}</span>
+                  <span className="text-[10px] text-[var(--muted)] font-mono">{s.code}</span>
+                  {s.change_rate != null && (
+                    <span className={clsx('text-xs font-bold tabular mt-0.5', s.change_rate >= 0 ? 'text-red-400' : 'text-blue-400')}>
+                      {s.change_rate >= 0 ? '+' : ''}{s.change_rate.toFixed(2)}%
+                    </span>
+                  )}
+                  {s.price != null && (
+                    <span className="text-[10px] text-[var(--muted)] tabular">{s.price.toLocaleString()}원</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </CardBody>
+        </Card>
+      )}
 
       {/* ── 하단: 상승/하락 Movers ──────────────────────────────────── */}
       <MoversRow movers={movers} />

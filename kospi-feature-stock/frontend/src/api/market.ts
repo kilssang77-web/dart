@@ -214,6 +214,22 @@ export interface SectorHeatmapItem {
   top_stocks:     { code: string; name: string; change_pct: number | null }[]
 }
 
+export interface ThemeDetailStock {
+  code:          string
+  name:          string
+  sector?:       string | null
+  max_score:     number
+  event_count:   number
+  last_detected: string
+}
+
+export interface ThemeDetail {
+  theme:  string
+  hours:  number
+  stocks: ThemeDetailStock[]
+  hourly: { bucket: string; count: number }[]
+}
+
 export const marketApi = {
   getSummary: () =>
     http.get<MarketSummary>('/market/summary').then((r) => r.data),
@@ -232,6 +248,9 @@ export const marketApi = {
 
   getThemes: () =>
     http.get<TrendingThemesResponse>('/themes/trending').then((r) => r.data.themes),
+
+  getThemeDetail: (theme: string, hours = 48) =>
+    http.get<ThemeDetail>(`/themes/${encodeURIComponent(theme)}`, { params: { hours } }).then((r) => r.data),
 
   getSectorHeatmap: () =>
     http.get<SectorHeatmapItem[]>('/market/sector-heatmap').then((r) => r.data),
