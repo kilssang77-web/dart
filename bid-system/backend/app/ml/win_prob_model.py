@@ -28,6 +28,7 @@ MODEL_PATH    = MODEL_DIR / "win_prob_lgbm.pkl"
 IMPUTER_PATH  = MODEL_DIR / "win_prob_imputer.pkl"
 META_PATH     = MODEL_DIR / "win_prob_meta.json"
 RESULT_PATH   = MODEL_DIR / "win_prob_result.json"   # 학습 결과 영구 저장
+CALIB_PATH    = MODEL_DIR / "win_prob_calibrator.pkl" # Isotonic 캘리브레이터
 
 FEATURE_COLS = [
     "bid_rate",
@@ -176,8 +177,32 @@ def train(db, floor_rate: float = _DEFAULT_FLOOR) -> dict:
     top_k_idx = np.argsort(y_pred)[::-1][:k]
     lift_at_10 = float(y_val[top_k_idx].mean() / (y_val.mean() + 1e-9))
 
+    # ── Isotonic Regression 캘리브레이션 ──────────────────────────────────
+    # raw LightGBM probability → 실제 낙찰률로 보정 (ECE 개선 목표)
+    from sklearn.isotonic import IsotonicRegression
+    calibrator = IsotonicRegression(out_of_bounds="clip")
+    calibrator.fit(y_pred, y_val)
+
+    # 캘리브레이션 전후 ECE 비교
+    def _ece(probs, labels, n_bins=10):
+        bins = np.linspace(0, 1, n_bins + 1)
+        ece_val = 0.0
+        for i in range(n_bins):
+            mask = (probs >= bins[i]) & (probs < bins[i + 1])
+            if mask.sum() == 0:
+                continue
+            bin_acc  = labels[mask].mean()
+            bin_conf = probs[mask].mean()
+            ece_val += mask.sum() / len(probs) * abs(bin_acc - bin_conf)
+        return float(ece_val)
+
+    ece_before = _ece(y_pred, y_val)
+    y_calib = calibrator.predict(y_pred)
+    ece_after  = _ece(y_calib, y_val)
+
     joblib.dump(model, MODEL_PATH)
     joblib.dump(imputer, IMPUTER_PATH)
+    joblib.dump(calibrator, CALIB_PATH)
 
     fi = dict(zip(FEATURE_COLS, model.feature_importances_.tolist()))
 
@@ -194,6 +219,8 @@ def train(db, floor_rate: float = _DEFAULT_FLOOR) -> dict:
         "feature_importance": fi,
         "trained_at":         _time.time(),
         "meta":               meta,
+        "ece_before":         round(ece_before, 4),
+        "ece_after":          round(ece_after, 4),
     }
     # 학습 결과 영구 저장 → model_info() 에서 조회 가능
     with open(RESULT_PATH, "w") as f:
@@ -207,6 +234,17 @@ def train(db, floor_rate: float = _DEFAULT_FLOOR) -> dict:
     return result
 
 
+def _load_calibrator():
+    """캘리브레이터 로드 (없으면 None 반환)."""
+    if not CALIB_PATH.exists():
+        return None
+    try:
+        import joblib
+        return joblib.load(CALIB_PATH)
+    except Exception:
+        return None
+
+
 def predict(
     bid_rate:      float,
     srate:         float,
@@ -214,20 +252,23 @@ def predict(
     floor_rate:    float = _DEFAULT_FLOOR,
 ) -> float:
     """
-    단일 투찰율에 대한 낙찰확률 반환.
+    단일 투찰율에 대한 낙찰확률 반환 (캘리브레이션 적용).
     모델 미존재 시 -1.0 (호출측에서 fallback 처리).
     """
     if not MODEL_PATH.exists() or not IMPUTER_PATH.exists():
         return -1.0
     try:
         import joblib
-        model   = joblib.load(MODEL_PATH)
-        imputer = joblib.load(IMPUTER_PATH)
-        meta    = _load_meta()
-        row = _make_row(bid_rate, n_competitors, srate, floor_rate, meta)
-        X   = np.array([row], dtype=float)
+        model      = joblib.load(MODEL_PATH)
+        imputer    = joblib.load(IMPUTER_PATH)
+        calibrator = _load_calibrator()
+        meta       = _load_meta()
+        row   = _make_row(bid_rate, n_competitors, srate, floor_rate, meta)
+        X     = np.array([row], dtype=float)
         X_imp = imputer.transform(X)
-        prob = float(model.predict_proba(X_imp)[0, 1])
+        prob  = float(model.predict_proba(X_imp)[0, 1])
+        if calibrator is not None:
+            prob = float(calibrator.predict([prob])[0])
         return round(prob, 6)
     except Exception as e:
         logger.warning(f"win_prob 예측 실패: {e}")
@@ -248,11 +289,11 @@ def predict_curve(
         return []
     try:
         import joblib
-        model   = joblib.load(MODEL_PATH)
-        imputer = joblib.load(IMPUTER_PATH)
-        meta    = _load_meta()
+        model      = joblib.load(MODEL_PATH)
+        imputer    = joblib.load(IMPUTER_PATH)
+        calibrator = _load_calibrator()
+        meta       = _load_meta()
 
-        # bid_rate (투찰/예정가) 기준: floor_rate 직전부터 시작
         lo = max(floor_rate * 0.97, 0.83)
         hi = min(floor_rate * 1.08, 0.98)
         rates = np.linspace(lo, hi, n_points)
@@ -260,6 +301,8 @@ def predict_curve(
         X     = np.array(rows, dtype=float)
         X_imp = imputer.transform(X)
         probs = model.predict_proba(X_imp)[:, 1]
+        if calibrator is not None:
+            probs = calibrator.predict(probs)
 
         return [
             {"bid_rate": round(float(r), 5), "win_prob": round(float(p), 5)}
@@ -291,6 +334,9 @@ def model_info() -> dict:
                 "feature_cols":       FEATURE_COLS,
                 "model_path":         str(MODEL_PATH),
                 "trained_at":         result.get("trained_at"),
+                "ece_before":         result.get("ece_before"),
+                "ece_after":          result.get("ece_after"),
+                "calibrated":         CALIB_PATH.exists(),
             }
         # fallback: 모델 파일 직접 로드
         import joblib

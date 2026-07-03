@@ -20,7 +20,7 @@ class DecisionService:
         from .ml.a_value import calc_floor_rate
         from .ml.yega import load_inpo21c_yega_stats
         from .ml.competitor_predict import predict_bid_zone
-        from .ml.assessment import load_agency_srate_profile
+        from .ml.assessment import load_agency_srate_profile, predict_a_ratio
 
         b = db.query(Bid).filter(Bid.id == bid_id).first()
         if not b:
@@ -100,6 +100,13 @@ class DecisionService:
         except Exception:
             pass
 
+        # A값 비율 4단계 모델
+        a_ratio_result = {}
+        try:
+            a_ratio_result = predict_a_ratio(db, agency_id or None, industry_id or None, b.base_amount or 0)
+        except Exception:
+            pass
+
         return {
             "bid_id":               b.id,
             "announcement_no":      b.announcement_no,
@@ -131,6 +138,11 @@ class DecisionService:
             "has_pre_spec":         p4.get("has_pre_spec", False),
             "agency_contract_freq": p4.get("agency_contract_freq"),
             "joint_bid_prob":       p4.get("joint_bid_prob"),
+            # A값 비율 모델 (4단계 계층)
+            "a_ratio":              a_ratio_result.get("ratio"),
+            "a_ratio_level":        a_ratio_result.get("level", "L1"),
+            "a_ratio_sample_count": a_ratio_result.get("sample_count", 0),
+            "a_ratio_std":          a_ratio_result.get("std"),
         }
 
     def simulate_bid(self, db: Session, bid_id: int, req) -> dict:
@@ -960,6 +972,34 @@ class DecisionService:
         else:
             go_decision = "neutral"
 
+        # 5등급제: S/A/B/C/F
+        score_pct = go_score * 100
+        if score_pct >= 78:
+            grade = "S"
+        elif score_pct >= 65:
+            grade = "A"
+        elif score_pct >= 50:
+            grade = "B"
+        elif score_pct >= 38:
+            grade = "C"
+        else:
+            grade = "F"
+
+        # 데이터 품질 수준 (1~5) — string→int 변환
+        _dql_map = {"global": 1, "industry": 2, "bid_type": 3, "region": 3, "agency": 5}
+        _dql_raw = features.get("data_quality_level") or "global"
+        if isinstance(_dql_raw, str):
+            dql = _dql_map.get(_dql_raw, 1)
+        else:
+            dql = max(1, min(5, int(_dql_raw)))
+
+        # 신호별 점수 (0~1) — 프론트 신호 행렬용
+        signal_win_prob   = round(min(1.0, win_prob / 0.35), 3) if win_prob else 0.0
+        signal_competition = round(max(0.0, 1.0 - (expected_n - 3) / 17), 3)
+        signal_data_quality = round(dql / 5, 3)
+        signal_agency       = round(min(1.0, (agency_win_rate or 0.0) / 0.15), 3)
+        signal_confidence   = round(min(1.0, confidence / 0.70), 3)
+
         return {
             "bid_id":               bid_id,
             "title":                b.title,
@@ -969,6 +1009,15 @@ class DecisionService:
             "win_prob":             round(win_prob, 4),
             "go_decision":          go_decision,
             "go_score":             go_score,
+            "grade":                grade,
+            "data_quality_level":   dql,
+            "signals": {
+                "win_prob":     signal_win_prob,
+                "competition":  signal_competition,
+                "data_quality": signal_data_quality,
+                "agency_rate":  signal_agency,
+                "confidence":   signal_confidence,
+            },
             "confidence":           round(confidence, 3),
             "reasons":              reasons[:4],
             "risk_factors":         risks[:3],

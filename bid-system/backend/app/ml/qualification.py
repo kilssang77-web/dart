@@ -17,8 +17,11 @@ E2: 적격심사 엔진
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, TYPE_CHECKING
 import math
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 # ── 계약법별 기준 상수 ──────────────────────────────────────────────
@@ -257,6 +260,59 @@ def _build_fail_reason(breakdown: dict, crit: dict, experience: int, revenue: in
         reasons.append(f"종합점수 미달 (평균 {avg:.1f}점, 기준 {crit['pass_score']}점, 부족 {gap:.1f}점)")
 
     return " | ".join(reasons)
+
+
+def get_empirical_qualify_rate(
+    db: "Session",
+    user_id: int,
+    agency_id: Optional[int] = None,
+    amount_bucket: int = 2,
+) -> float:
+    """
+    실증 데이터 기반 적격통과율 추정 — P(qualify) 고정값 0.8 대체.
+
+    우선순위:
+    1. 유저 자신의 bid_executions 이력 (투찰완료 / 개찰대기 / 낙찰 / 패찰 vs 검토중/참여결정)
+    2. actual_bid_outcomes.disqualify_reason 이력 (명시적 탈락 기록)
+    3. amount_bucket별 업종 경험 기반 기본값
+    """
+    from sqlalchemy import text as _text
+
+    # 1. 유저 자신의 실전 이력: 투찰 실제 제출률
+    try:
+        row = db.execute(_text("""
+            SELECT
+                COUNT(*)                                                             AS total,
+                SUM(CASE WHEN status IN ('투찰완료','개찰대기','낙찰','패찰') THEN 1 ELSE 0 END) AS submitted
+            FROM bid_executions
+            WHERE user_id = :uid
+              AND status NOT IN ('검토중', '참여결정')
+              AND created_at >= NOW() - INTERVAL '24 months'
+        """), {"uid": user_id}).fetchone()
+        if row and row[0] and int(row[0]) >= 5:
+            rate = float(row[1]) / float(row[0])
+            return max(0.50, min(0.98, rate))
+    except Exception:
+        pass
+
+    # 2. disqualify_reason 이력 (명시적 탈락 기록)
+    try:
+        row2 = db.execute(_text("""
+            SELECT COUNT(*) AS total,
+                   SUM(CASE WHEN disqualify_reason IS NOT NULL THEN 1 ELSE 0 END) AS disq
+            FROM actual_bid_outcomes
+            WHERE user_id = :uid
+              AND created_at >= NOW() - INTERVAL '24 months'
+        """), {"uid": user_id}).fetchone()
+        if row2 and row2[0] and int(row2[0]) >= 3:
+            disq_rate = float(row2[1]) / float(row2[0])
+            return max(0.50, min(0.98, 1.0 - disq_rate))
+    except Exception:
+        pass
+
+    # 3. 금액구간 기반 기본값 (경험상 고액일수록 적격 장벽 높음)
+    defaults = {1: 0.92, 2: 0.88, 3: 0.85, 4: 0.80, 5: 0.75}
+    return defaults.get(amount_bucket, 0.85)
 
 
 def get_valid_bid_range(

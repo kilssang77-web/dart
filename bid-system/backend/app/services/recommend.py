@@ -811,12 +811,15 @@ class BidSelectionService:
         from .agency import QualificationService
         qual_svc  = QualificationService()
 
-        # 적격심사 사전 체크 (profile 없으면 기본값)
+        # 적격심사 사전 체크 (profile 없으면 실증 기반 동적 계산)
         try:
             qual = qual_svc.check(db, bid_id, user_id)
             qualify_prob = qual["pass_prob"]
         except Exception:
-            qualify_prob = 0.8
+            from ..ml.qualification import get_empirical_qualify_rate
+            _bucket = (1 if bid.base_amount < 1e8 else 2 if bid.base_amount < 3e8
+                       else 3 if bid.base_amount < 1e9 else 4 if bid.base_amount < 5e9 else 5)
+            qualify_prob = get_empirical_qualify_rate(db, user_id, bid.agency_id, _bucket)
 
         # 면허 / 지역 매칭
         license_match = True

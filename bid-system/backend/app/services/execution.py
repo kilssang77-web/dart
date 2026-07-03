@@ -137,9 +137,10 @@ class ExecutionService:
                 body=f"축하합니다! 낙찰 확정되었습니다. 투찰률: {obj.submitted_rate:.3%}" if obj.submitted_rate else "낙찰 확정",
                 link="/executions",
             )
-        # 낙찰/패찰 확정 시 actual_bid_outcomes 자동 동기화
+        # 낙찰/패찰 확정 시 actual_bid_outcomes + bid_journal 자동 동기화
         if data.status in ("낙찰", "패찰") and obj.submitted_rate:
             self._sync_actual_bid_outcome(obj)
+            self._create_journal_from_execution(obj, obj.user_id)
         self.db.commit()
         self.db.refresh(obj)
         return obj
@@ -282,7 +283,7 @@ class ExecutionService:
     def import_sucview(self, file_bytes: bytes, user_id: int):
         import openpyxl
         wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
-        imported, skipped, competitors_added = 0, 0, 0
+        imported, skipped, competitors_added, journal_created = 0, 0, 0, 0
         errors, details = [], []
 
         for sheet_name in wb.sheetnames:
@@ -292,6 +293,7 @@ class ExecutionService:
                 imported += result["imported"]
                 skipped += result["skipped"]
                 competitors_added += result["competitors_added"]
+                journal_created += result.get("journal_created", 0)
                 details.extend(result["details"])
             except Exception as e:
                 errors.append(f"시트 {sheet_name}: {e}")
@@ -301,6 +303,7 @@ class ExecutionService:
             "imported": imported,
             "skipped": skipped,
             "competitors_added": competitors_added,
+            "journal_created": journal_created,
             "errors": errors,
             "details": details,
         }
@@ -389,8 +392,51 @@ class ExecutionService:
         self.db.flush()
 
         comp_added = self._update_our_competitors_raw(participants)
+        j_created = 1 if self._create_journal_from_execution(exec_obj, user_id) else 0
         detail_msg = f"가져옴: {data.get('title', '')[:40]}"
-        return {"imported": 1, "skipped": 0, "competitors_added": comp_added, "details": [detail_msg]}
+        if j_created:
+            detail_msg += " [저널생성]"
+        return {"imported": 1, "skipped": 0, "competitors_added": comp_added, "journal_created": j_created, "details": [detail_msg]}
+
+    def _create_journal_from_execution(self, exec_obj: "BidExecution", user_id: int) -> bool:
+        """SUCVIEW/인포 import 후 bid_journal 레코드 자동 생성 (피드백 루프용)."""
+        if not exec_obj.announcement_no:
+            return False
+
+        bid = self.db.query(Bid).filter(Bid.announcement_no == exec_obj.announcement_no).first()
+        if not bid:
+            return False
+
+        existing = self.db.query(BidJournal).filter(
+            BidJournal.bid_id == bid.id,
+            BidJournal.user_id == user_id,
+        ).first()
+        if existing:
+            return False
+
+        result = "낙찰" if exec_obj.status == "낙찰" else "패찰"
+        winner_rate_val = float(exec_obj.winner_rate) if exec_obj.winner_rate else None
+        submitted_val = float(exec_obj.submitted_rate) if exec_obj.submitted_rate else None
+        rate_gap = round(winner_rate_val - submitted_val, 6) if (winner_rate_val and submitted_val) else None
+
+        journal = BidJournal(
+            bid_id=bid.id,
+            user_id=user_id,
+            announcement_no=exec_obj.announcement_no,
+            opened_at=exec_obj.opened_at,
+            result=result,
+            submitted_rate=exec_obj.submitted_rate,
+            floor_rate=exec_obj.floor_rate,
+            actual_srate=exec_obj.floor_rate,
+            winner_rate=exec_obj.winner_rate,
+            winner_amount=exec_obj.winner_amount,
+            winner_biz_no=exec_obj.winner_biz_no,
+            winner_name=exec_obj.winner_name,
+            total_bidders=exec_obj.total_bidders,
+            rate_gap=rate_gap,
+        )
+        self.db.add(journal)
+        return True
 
     def _update_our_competitors_raw(self, participants: list) -> int:
         added = 0
@@ -426,7 +472,7 @@ class ExecutionService:
         import openpyxl
         wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
         ws = wb.active
-        imported, skipped = 0, 0
+        imported, skipped, journal_created = 0, 0, 0
         errors, details = [], []
 
         headers = []
@@ -478,6 +524,10 @@ class ExecutionService:
                     source="inpo_history",
                 )
                 self.db.add(exec_obj)
+                self.db.flush()
+                if status in ("낙찰", "패찰"):
+                    if self._create_journal_from_execution(exec_obj, user_id):
+                        journal_created += 1
                 imported += 1
                 details.append(f"가져옴: {title[:40]}")
             except Exception as e:
@@ -489,6 +539,7 @@ class ExecutionService:
             "imported": imported,
             "skipped": skipped,
             "competitors_added": 0,
+            "journal_created": journal_created,
             "errors": errors,
             "details": details,
         }

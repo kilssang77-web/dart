@@ -1,5 +1,5 @@
 ﻿from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime, date
 
 
@@ -1304,6 +1304,7 @@ class SucviewImportResult(BaseModel):
     imported:         int
     skipped:          int
     competitors_added: int
+    journal_created:  int = 0
     errors:           List[str] = []
     details:          List[str] = []
 
@@ -1354,6 +1355,11 @@ class BidContextResponse(BaseModel):
     pre_spec_gap_days:    Optional[int]   = None
     agency_contract_freq: Optional[float] = None
     joint_bid_prob:       Optional[float] = None
+    # A값 비율 4단계 모델
+    a_ratio:              Optional[float] = None
+    a_ratio_level:        Optional[str]   = None   # L4/L3/L2/L1
+    a_ratio_sample_count: Optional[int]   = None
+    a_ratio_std:          Optional[float] = None
 
 
 class SimulateBidRequest(BaseModel):
@@ -1565,6 +1571,9 @@ class QuickDecisionResponse(BaseModel):
     win_prob:              float           = 0.0
     go_decision:           str             = "neutral"  # go | pass | neutral
     go_score:              float           = 0.0        # 0~1
+    grade:                 str             = "B"        # S / A / B / C / F
+    data_quality_level:    int             = 1          # 1~5
+    signals:               Optional[Dict[str, float]] = None
     confidence:            float           = 0.0
     reasons:               List[str]       = []
     risk_factors:          List[str]       = []

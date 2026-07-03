@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { decisionApi, journalApi } from '@/api'
-import type { BidContext, SimulateBidResponse, ZoneItem, JournalOut, AgencyWinHistogram, CompetitorPredictionResponse, HotZoneResponse, BestRateResponse, ParticipantStats } from '@/types'
+import type { BidContext, SimulateBidResponse, ZoneItem, JournalOut, AgencyWinHistogram, CompetitorPrediction, CompetitorPredictionResponse, HotZoneResponse, BestRateResponse, ParticipantStats } from '@/types'
 import { bidsApi } from '@/api'
 import BestRateCard from '@/components/BestRateCard'
 import PositionPatternCard from '@/components/PositionPatternCard'
@@ -197,6 +197,113 @@ function YegaGrid({ values, onChange, baseAmount }: { values: (string | number)[
       {filledCount === 0 && (
         <p className="text-xs text-gray-400 mt-2">엑셀 15개 셀 복사 후 이 영역에 붙여넣기(Ctrl+V)하면 자동 입력됩니다</p>
       )}
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────
+   경쟁사 집계 투찰 구간 히스토그램
+───────────────────────────────────────────────────────────── */
+function CompetitorBidHistogram({ competitors, floorRate }: {
+  competitors: CompetitorPrediction[]
+  floorRate?: number
+}) {
+  const BIN_STEP = 0.05   // 0.05% 단위 bin
+  const RANGE_MIN = 87.0
+  const RANGE_MAX = 95.5
+  const binCount = Math.round((RANGE_MAX - RANGE_MIN) / BIN_STEP)
+
+  // 각 경쟁사를 가우시안으로 bin에 누적
+  const bins = Array(binCount).fill(0) as number[]
+
+  competitors.forEach(c => {
+    const mu = c.avg_rate_pct
+    const sigma = c.std_pct ?? 0.3
+    const weight = Math.log(c.total_bids + 1)  // 투찰 많을수록 가중
+
+    for (let i = 0; i < binCount; i++) {
+      const x = RANGE_MIN + (i + 0.5) * BIN_STEP
+      const z = (x - mu) / sigma
+      const pdf = Math.exp(-0.5 * z * z) / (sigma * Math.sqrt(2 * Math.PI))
+      bins[i] += pdf * weight * BIN_STEP
+    }
+  })
+
+  const maxVal = Math.max(...bins, 0.001)
+  const floorPct = floorRate ? floorRate * 100 : 87.5
+
+  // TOP 3 bin 위치
+  const sorted = [...bins.map((v, i) => ({ v, i }))]
+    .sort((a, b) => b.v - a.v)
+    .slice(0, 3)
+    .map(x => x.i)
+
+  if (competitors.length === 0) return null
+
+  return (
+    <div className="space-y-2">
+      <div className="text-xs text-gray-500 mb-1">
+        {competitors.length}개 경쟁사 가우시안 분포 집계 — 높을수록 해당 구간에 경쟁사 집중
+      </div>
+      <div className="relative h-20 bg-gray-50 rounded-lg p-2 overflow-hidden">
+        <div className="flex items-end gap-0 h-full">
+          {bins.map((v, i) => {
+            const ratePct = RANGE_MIN + (i + 0.5) * BIN_STEP
+            const h = (v / maxVal) * 100
+            const isFloor = ratePct < floorPct
+            const isTop = sorted.includes(i)
+            return (
+              <div
+                key={i}
+                className="flex-1 group"
+                title={`${ratePct.toFixed(2)}% | 집중도: ${(v / maxVal * 100).toFixed(0)}%`}
+              >
+                <div
+                  className={cn(
+                    'w-full rounded-t transition-all',
+                    isFloor ? 'bg-red-200' :
+                    isTop ? 'bg-amber-400' :
+                    'bg-indigo-300 group-hover:bg-indigo-400',
+                  )}
+                  style={{ height: `${Math.max(h, v > 0 ? 1 : 0)}%` }}
+                />
+              </div>
+            )
+          })}
+        </div>
+        {/* 낙찰하한 수직선 */}
+        {floorPct > RANGE_MIN && floorPct < RANGE_MAX && (
+          <div
+            className="absolute top-0 bottom-0 w-px bg-red-500 opacity-70"
+            style={{ left: `${((floorPct - RANGE_MIN) / (RANGE_MAX - RANGE_MIN)) * 100}%` }}
+            title={`낙찰하한 ${floorPct.toFixed(4)}%`}
+          />
+        )}
+      </div>
+      <div className="flex justify-between text-[10px] text-gray-400 font-mono">
+        <span>{RANGE_MIN.toFixed(2)}%</span>
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 bg-amber-400 rounded" /> 집중 TOP3</span>
+          <span className="flex items-center gap-1"><span className="w-px h-3 bg-red-500 inline-block" /> 낙찰하한</span>
+        </div>
+        <span>{RANGE_MAX.toFixed(2)}%</span>
+      </div>
+      {/* 집중 구간 TOP3 배지 */}
+      <div className="flex flex-wrap gap-1.5">
+        {sorted.map((idx, rank) => {
+          const rate = RANGE_MIN + (idx + 0.5) * BIN_STEP
+          return (
+            <span key={rank} className={cn(
+              'text-[10px] px-2 py-0.5 rounded-full font-semibold border',
+              rank === 0 ? 'bg-amber-100 text-amber-700 border-amber-200' :
+              rank === 1 ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
+              'bg-gray-50 text-gray-600 border-gray-200',
+            )}>
+              #{rank + 1} {rate.toFixed(2)}% 집중
+            </span>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -1316,6 +1423,48 @@ export default function TenderDecisionPage() {
                           </div>
                         </div>
                       )}
+                      {ctx.a_ratio != null && (
+                        <div className="mt-2 pt-2 border-t border-dashed space-y-1.5">
+                          <div className="text-xs font-semibold text-gray-500 flex items-center justify-between">
+                            <span>A값 비율 모델</span>
+                            <span className={cn(
+                              'text-[10px] px-1.5 py-0.5 rounded font-medium',
+                              ctx.a_ratio_level === 'L4' ? 'bg-emerald-100 text-emerald-700' :
+                              ctx.a_ratio_level === 'L3' ? 'bg-blue-100 text-blue-700' :
+                              ctx.a_ratio_level === 'L2' ? 'bg-amber-100 text-amber-700' :
+                              'bg-gray-100 text-gray-500'
+                            )}>
+                              {ctx.a_ratio_level === 'L4' ? '기관×공종' :
+                               ctx.a_ratio_level === 'L3' ? '기관' :
+                               ctx.a_ratio_level === 'L2' ? '금액구간' : '전국평균'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-xs text-gray-500">
+                            <span>예정가/기초금액</span>
+                            <span className="font-mono font-semibold text-purple-700">
+                              {(ctx.a_ratio * 100).toFixed(4)}%
+                            </span>
+                          </div>
+                          {ctx.a_ratio_std != null && (
+                            <div className="flex justify-between text-xs text-gray-400">
+                              <span>표준편차</span>
+                              <span className="font-mono">{(ctx.a_ratio_std * 100).toFixed(4)}%</span>
+                            </div>
+                          )}
+                          {(ctx.a_ratio_sample_count ?? 0) > 0 && (
+                            <div className="flex justify-between text-xs text-gray-400">
+                              <span>근거 데이터</span>
+                              <span className="font-mono">{ctx.a_ratio_sample_count}건</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between text-xs text-gray-500">
+                            <span>예측 예정가격</span>
+                            <span className="font-mono font-semibold text-purple-600">
+                              {fmt(Math.round(ctx.base_amount * ctx.a_ratio))}원
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                     <div className="space-y-3">
                       <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide">경쟁 환경</div>
@@ -1417,6 +1566,18 @@ export default function TenderDecisionPage() {
                         <span className="flex items-center gap-1"><span className="inline-block w-0.5 h-3 bg-indigo-600" /> 중앙값(P50)</span>
                         <span className="ml-auto">87% ─────── 95%</span>
                       </div>
+                      {competitorPred.competitors.length >= 2 && (
+                        <div className="mt-4 pt-4 border-t border-dashed">
+                          <div className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
+                            <BarChart3 className="w-3.5 h-3.5 text-amber-500" />
+                            경쟁사 집계 투찰 분포
+                          </div>
+                          <CompetitorBidHistogram
+                            competitors={competitorPred.competitors}
+                            floorRate={result?.floor_rate}
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
                 </Collapsible>

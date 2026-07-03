@@ -5,6 +5,7 @@
 - 패찰 원인 자동 분류
 """
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from datetime import datetime
@@ -45,6 +46,69 @@ def execution_summary(
     """상태별 건수 요약 + 오늘 마감 공고"""
     svc = ExecutionService(db)
     return svc.get_summary(user_id=current_user.id)
+
+
+@router.get("/pending-results", response_model=list)
+def pending_results(
+    hours: int = Query(72, ge=1, le=168),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    개찰이 이미 지났으나 결과 미입력인 투찰 목록.
+    TodayPage 미입력 배너 + 빠른 결과 입력용.
+    """
+    rows = db.execute(text("""
+        SELECT id, title, agency_name, base_amount, bid_open_date, status, submitted_rate
+        FROM bid_executions
+        WHERE user_id = :uid
+          AND status IN ('투찰완료', '개찰대기')
+          AND bid_open_date IS NOT NULL
+          AND bid_open_date <= NOW()
+          AND bid_open_date >= NOW() - INTERVAL ':h hours'
+        ORDER BY bid_open_date DESC
+        LIMIT 20
+    """.replace(":h", str(hours))), {"uid": current_user.id}).fetchall()
+
+    return [
+        {
+            "id": r[0],
+            "title": r[1],
+            "agency_name": r[2],
+            "base_amount": r[3],
+            "bid_open_date": r[4].isoformat() if r[4] else None,
+            "status": r[5],
+            "submitted_rate": float(r[6]) if r[6] else None,
+        }
+        for r in rows
+    ]
+
+
+@router.post("/{exec_id}/quick-result", response_model=dict)
+def quick_result(
+    exec_id: int,
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    원클릭 빠른 결과 입력.
+    body: { result: '낙찰'|'패찰', winner_rate?: float, winner_amount?: int, result_rank?: int }
+    """
+    result_status = body.get("result")
+    if result_status not in ("낙찰", "패찰"):
+        raise HTTPException(400, "result는 '낙찰' 또는 '패찰'이어야 합니다")
+
+    svc = ExecutionService(db)
+    from ...schemas import BidExecutionUpdate
+    update = BidExecutionUpdate(
+        status=result_status,
+        winner_rate=body.get("winner_rate"),
+        winner_amount=body.get("winner_amount"),
+        result_rank=body.get("result_rank"),
+    )
+    updated = svc.update(exec_id=exec_id, user_id=current_user.id, data=update)
+    return {"ok": True, "id": exec_id, "status": result_status}
 
 
 @router.get("/defeat-summary", response_model=dict)

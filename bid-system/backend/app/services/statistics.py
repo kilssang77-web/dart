@@ -852,7 +852,13 @@ class PortfolioService:
             verdict       = dec.verdict if dec else "WATCH"
             sel_score     = float(dec.selection_score or 5.0) if dec else 5.0
             ev_score      = dec.ev_score or 0 if dec else 0
-            qualify_prob  = float(dec.qualify_prob or 0.8) if dec else 0.8
+            if dec and dec.qualify_prob:
+                qualify_prob = float(dec.qualify_prob)
+            else:
+                from ..ml.qualification import get_empirical_qualify_rate
+                _bucket = (1 if bid.base_amount < 1e8 else 2 if bid.base_amount < 3e8
+                           else 3 if bid.base_amount < 1e9 else 4 if bid.base_amount < 5e9 else 5)
+                qualify_prob = get_empirical_qualify_rate(db, user_id, bid.agency_id, _bucket)
             win_prob      = float(dec.win_prob_best or 0.3) if dec else 0.3
             rec_rate      = float(dec.recommended_rate or 0.0) if dec else 0.0
             bond_exposure = int(bid.base_amount * 0.1)  # 기초금액의 10% 보증 근사

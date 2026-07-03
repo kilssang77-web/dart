@@ -29,6 +29,24 @@ MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
 GLOBAL_SRATE_DEFAULT = 0.8850   # 복수예가 방식 실데이터 기반 평균 (실측 0.8813)
 
+# 발주유형(contract_method) → 정수 ID 매핑 (5단계 Fallback 용)
+BID_TYPE_MAP = {
+    "제한경쟁": 1,
+    "일반경쟁": 2,
+    "지명경쟁": 3,
+    "수의계약": 4,
+}
+
+def _normalize_bid_type(contract_method: Optional[str]) -> Optional[int]:
+    """contract_method 문자열 → bid_type_id (제한경쟁 계열은 1로 통합)"""
+    if not contract_method:
+        return None
+    cm = contract_method.strip()
+    if cm.startswith("제한경쟁"):
+        return 1
+    return BID_TYPE_MAP.get(cm)
+
+
 SRATE_FEATURE_COLS = [
     "agency_srate_mean", "agency_srate_std", "agency_srate_trend", "agency_srate_n",
     "industry_srate_mean", "industry_srate_std",
@@ -51,6 +69,7 @@ def load_srate_stats(
     region_id: int,
     base_amount: int,
     bid_date: Optional[datetime] = None,
+    contract_method: Optional[str] = None,
 ) -> dict:
     dt = bid_date or datetime.now()
 
@@ -71,6 +90,10 @@ def load_srate_stats(
     ind = _q("industry", industry_id)
     reg = _q("region",   region_id)
     glb = _q("global",   None)
+
+    # 발주유형(bid_type) 통계 — 5단계 Fallback의 3번째 계층
+    bid_type_id = _normalize_bid_type(contract_method)
+    bdt = _q("bid_type", bid_type_id) if bid_type_id else None
 
     def _amount_bucket(amt):
         if amt < 1e8:    return 1
@@ -127,38 +150,42 @@ def load_srate_stats(
     """)).fetchone()
 
     return {
-        "agency_srate_mean":   float(ag[0])   if ag  else None,
-        "agency_srate_std":    float(ag[1])   if ag  else 0.012,
-        "agency_srate_trend":  float(ag[2])   if ag  else 0.0,
-        "agency_srate_n":      int(ag[3])      if ag  else 0,
-        "agency_srate_p25":    float(ag[4])   if ag  else None,
-        "agency_srate_p75":    float(ag[5])   if ag  else None,
-        "industry_srate_mean": float(ind[0])  if ind else None,
-        "industry_srate_std":  float(ind[1])  if ind else 0.012,
-        "region_srate_mean":   float(reg[0])  if reg else None,
-        "global_srate_mean":   float(glb[0])  if glb else GLOBAL_SRATE_DEFAULT,
-        "global_srate_std":    float(glb[1])  if glb else 0.012,
-        "amount_log10":        round(math.log10(max(base_amount, 1)), 4),
-        "amount_bucket":       _amount_bucket(base_amount),
-        "month_of_year":       dt.month,
-        "quarter":             (dt.month - 1) // 3 + 1,
-        "is_q4":               int(dt.month >= 10),
+        "agency_srate_mean":    float(ag[0])   if ag  else None,
+        "agency_srate_std":     float(ag[1])   if ag  else 0.012,
+        "agency_srate_trend":   float(ag[2])   if ag  else 0.0,
+        "agency_srate_n":       int(ag[3])      if ag  else 0,
+        "agency_srate_p25":     float(ag[4])   if ag  else None,
+        "agency_srate_p75":     float(ag[5])   if ag  else None,
+        "region_srate_mean":    float(reg[0])  if reg else None,
+        "region_srate_std":     float(reg[1])  if reg else 0.012,
+        "bid_type_srate_mean":  float(bdt[0])  if bdt else None,
+        "bid_type_srate_std":   float(bdt[1])  if bdt else 0.012,
+        "industry_srate_mean":  float(ind[0])  if ind else None,
+        "industry_srate_std":   float(ind[1])  if ind else 0.012,
+        "global_srate_mean":    float(glb[0])  if glb else GLOBAL_SRATE_DEFAULT,
+        "global_srate_std":     float(glb[1])  if glb else 0.012,
+        "amount_log10":         round(math.log10(max(base_amount, 1)), 4),
+        "amount_bucket":        _amount_bucket(base_amount),
+        "month_of_year":        dt.month,
+        "quarter":              (dt.month - 1) // 3 + 1,
+        "is_q4":                int(dt.month >= 10),
         # inpo21c 실측값 (복수예가 건설공사 기준)
-        "inpo21c_srate_mean":  float(inpo_ag[0])  if inpo_ag and inpo_ag[0]  else None,
-        "inpo21c_srate_std":   float(inpo_ag[1])  if inpo_ag and inpo_ag[1]  else 0.007,
-        "inpo21c_srate_n":     int(inpo_ag[2])    if inpo_ag and inpo_ag[2]  else 0,
-        "inpo21c_global_mean": float(inpo_glb[0]) if inpo_glb and inpo_glb[0] else None,
+        "inpo21c_srate_mean":   float(inpo_ag[0])  if inpo_ag and inpo_ag[0]  else None,
+        "inpo21c_srate_std":    float(inpo_ag[1])  if inpo_ag and inpo_ag[1]  else 0.007,
+        "inpo21c_srate_n":      int(inpo_ag[2])    if inpo_ag and inpo_ag[2]  else 0,
+        "inpo21c_global_mean":  float(inpo_glb[0]) if inpo_glb and inpo_glb[0] else None,
         # 경쟁업체 수 (inpo21c 전참여자 기반: 기관 실측 → 전국 평균 fallback)
         "expected_competitor_count": (
             float(_comp_ag[0]) if _comp_ag and _comp_ag[0] and int(_comp_ag[1]) >= 3
             else None
         ),
         "global_comp_count":  float(_comp_glb[0]) if _comp_glb and _comp_glb[0] else 8.0,
-        # 데이터 품질 레벨 (assessment_rate_stats 가용 깊이)
+        # 데이터 품질 레벨 — 5단계 계층 (기관→지역→발주유형→공종→전국)
         "data_quality_level": (
-            "agency"   if ag  and int(ag[3])  >= 5  else
-            "industry" if ind and ind[0]             else
+            "agency"   if ag  and int(ag[3])  >= 5 else
             "region"   if reg and reg[0]             else
+            "bid_type" if bdt and bdt[0]             else
+            "industry" if ind and ind[0]             else
             "global"
         ),
         # Journal 피드백 편향 (실전 개찰 결과 기반)
@@ -222,6 +249,7 @@ def compute_and_store_stats(db: Session) -> int:
             b.agency_id,
             b.industry_id,
             b.region_id,
+            b.contract_method,
             EXTRACT(YEAR  FROM b.bid_open_date)::int AS yr,
             EXTRACT(MONTH FROM b.bid_open_date)::int AS mo,
             (b.estimated_price::numeric / NULLIF(b.base_amount, 0)) AS srate
@@ -237,7 +265,7 @@ def compute_and_store_stats(db: Session) -> int:
         logger.warning("사정율 집계: 대상 데이터 없음 (estimated_price 미수집)")
         return 0
 
-    df = pd.DataFrame(rows, columns=["agency_id","industry_id","region_id","yr","mo","srate"])
+    df = pd.DataFrame(rows, columns=["agency_id","industry_id","region_id","contract_method","yr","mo","srate"])
     df["srate"] = pd.to_numeric(df["srate"], errors="coerce")
     df = df[df["srate"].between(0.80, 1.05)]   # 이상치 제거 (복수예가 실범위)
 
@@ -297,6 +325,15 @@ def compute_and_store_stats(db: Session) -> int:
         _upsert("industry", int(gid), grp)
     for gid, grp in df.groupby("region_id"):
         _upsert("region", int(gid), grp)
+
+    # bid_type 집계 (contract_method 정규화)
+    if "contract_method" in df.columns:
+        df["bid_type_id"] = df["contract_method"].apply(
+            lambda x: 1 if (isinstance(x, str) and x.startswith("제한경쟁")) else
+                      BID_TYPE_MAP.get(str(x).strip()) if x else None
+        )
+        for gid, grp in df.dropna(subset=["bid_type_id"]).groupby("bid_type_id"):
+            _upsert("bid_type", int(gid), grp)
 
     db.commit()
     logger.info(f"사정율 집계 완료: {total}개 그룹 업서트, 원본 {len(df)}건")
@@ -431,11 +468,18 @@ def predict_srate(features_a: dict, base_amount: int) -> dict:
     srate_models_path = MODEL_DIR / "srate_models.pkl"
     srate_imputer_path = MODEL_DIR / "srate_imputer.pkl"
 
+    # 5단계 계층적 Fallback: 기관 → 지역 → 발주유형 → 공종 → 전국
     center = (features_a.get("agency_srate_mean")
+              or features_a.get("region_srate_mean")
+              or features_a.get("bid_type_srate_mean")
               or features_a.get("industry_srate_mean")
               or features_a.get("global_srate_mean")
               or GLOBAL_SRATE_DEFAULT)
-    std    = features_a.get("agency_srate_std") or 0.012
+    std    = (features_a.get("agency_srate_std")
+              or features_a.get("region_srate_std")
+              or features_a.get("bid_type_srate_std")
+              or features_a.get("industry_srate_std")
+              or 0.012)
     trend  = features_a.get("agency_srate_trend") or 0.0
     n      = features_a.get("agency_srate_n") or 0
     is_q4  = features_a.get("is_q4", 0)
@@ -758,19 +802,87 @@ def compute_srate_frequency_v2(db: Session) -> int:
 
 
 # ──────────────────────────────────────────────
-# ② A값 비율 조회 (발주처 실적 기반)
+# ② A값 비율 예측 — 기관×공종×금액구간 4단계 계층 모델
 # ──────────────────────────────────────────────
 
-def get_agency_a_ratio(db: Session, agency_id: int | None) -> float:
-    """
-    inpo21c 실측 데이터에서 발주처별 예정가격/기초금액 비율 반환.
-    데이터 없으면 전국 평균(0.910) 반환.
-    """
-    NATIONAL_AVG = 0.9100
+# 금액구간별 전국 평균 (inpo21c 실측 사전 계산값)
+_BUCKET_AVG: dict[str, float] = {
+    "1억미만": 0.9115,
+    "1-3억":   0.9100,
+    "3-10억":  0.9106,
+    "10-50억": 0.9122,
+    "50억이상": 0.9196,
+}
+_NATIONAL_A_RATIO = 0.9100
 
+
+def _amount_bucket(base_amount: int) -> str:
+    if base_amount < 100_000_000:
+        return "1억미만"
+    if base_amount < 300_000_000:
+        return "1-3억"
+    if base_amount < 1_000_000_000:
+        return "3-10억"
+    if base_amount < 5_000_000_000:
+        return "10-50억"
+    return "50억이상"
+
+
+def predict_a_ratio(
+    db: Session,
+    agency_id: Optional[int],
+    industry_id: Optional[int] = None,
+    base_amount: int = 0,
+) -> dict:
+    """
+    A값 비율(예정가격/기초금액) 예측 — 4단계 계층 Fallback.
+
+    Fallback 우선순위:
+      L4: 기관 × 공종 (≥5건)
+      L3: 기관 전체 (≥5건)
+      L2: 금액구간 전국 평균
+      L1: 전국 평균 (0.910)
+
+    Returns:
+        ratio:       예측 A값 비율
+        std:         표준편차 (없으면 None)
+        sample_count: 사용된 샘플 수
+        level:       사용된 Fallback 단계 (L4/L3/L2/L1)
+    """
+    MIN_SAMPLES = 5
+
+    # L4: 기관 × 공종
+    if agency_id and industry_id:
+        row = db.execute(text("""
+            SELECT
+                AVG(ib.estimated_amount::float / ib.base_amount) AS avg_r,
+                STDDEV(ib.estimated_amount::float / ib.base_amount) AS std_r,
+                COUNT(*) AS cnt
+            FROM inpo21c_bids ib
+            JOIN bids b ON b.announcement_no = ib.announcement_no
+            JOIN agencies a ON (
+                TRIM(a.name) = TRIM(ib.agency_name)
+                OR TRIM(ib.agency_name) LIKE '%%' || TRIM(a.name) || '%%'
+            )
+            WHERE a.id = :ag AND b.industry_id = :ind
+              AND ib.estimated_amount IS NOT NULL AND ib.base_amount > 0
+              AND ib.estimated_amount::float / ib.base_amount BETWEEN 0.70 AND 1.10
+        """), {"ag": agency_id, "ind": industry_id}).fetchone()
+        if row and row[2] and int(row[2]) >= MIN_SAMPLES and 0.70 < float(row[0]) < 1.10:
+            return {
+                "ratio":        round(float(row[0]), 4),
+                "std":          round(float(row[1]), 5) if row[1] else None,
+                "sample_count": int(row[2]),
+                "level":        "L4",
+            }
+
+    # L3: 기관 전체
     if agency_id:
         row = db.execute(text("""
-            SELECT AVG(ib.estimated_amount::float / NULLIF(ib.base_amount, 0))
+            SELECT
+                AVG(ib.estimated_amount::float / ib.base_amount),
+                STDDEV(ib.estimated_amount::float / ib.base_amount),
+                COUNT(*)
             FROM inpo21c_bids ib
             JOIN agencies a ON (
                 TRIM(a.name) = TRIM(ib.agency_name)
@@ -778,23 +890,41 @@ def get_agency_a_ratio(db: Session, agency_id: int | None) -> float:
                 OR TRIM(a.name) LIKE '%%' || TRIM(ib.agency_name) || '%%'
             )
             WHERE a.id = :ag
-              AND ib.estimated_amount IS NOT NULL
-              AND ib.base_amount > 0
+              AND ib.estimated_amount IS NOT NULL AND ib.base_amount > 0
               AND ib.estimated_amount::float / ib.base_amount BETWEEN 0.70 AND 1.10
-        """), {"ag": agency_id}).scalar()
+        """), {"ag": agency_id}).fetchone()
+        if row and row[2] and int(row[2]) >= MIN_SAMPLES and 0.70 < float(row[0]) < 1.10:
+            return {
+                "ratio":        round(float(row[0]), 4),
+                "std":          round(float(row[1]), 5) if row[1] else None,
+                "sample_count": int(row[2]),
+                "level":        "L3",
+            }
 
-        if row and 0.70 < float(row) < 1.10:
-            return round(float(row), 4)
+    # L2: 금액구간 전국 평균 (사전 계산 상수)
+    if base_amount > 0:
+        bucket = _amount_bucket(base_amount)
+        bucket_ratio = _BUCKET_AVG.get(bucket, _NATIONAL_A_RATIO)
+        return {
+            "ratio":        bucket_ratio,
+            "std":          None,
+            "sample_count": 0,
+            "level":        "L2",
+        }
 
-    # 전국 평균
-    row = db.execute(text("""
-        SELECT AVG(estimated_amount::float / NULLIF(base_amount, 0))
-        FROM inpo21c_bids
-        WHERE estimated_amount IS NOT NULL AND base_amount > 0
-          AND estimated_amount::float / base_amount BETWEEN 0.70 AND 1.10
-    """)).scalar()
+    # L1: 전국 평균
+    return {
+        "ratio":        _NATIONAL_A_RATIO,
+        "std":          None,
+        "sample_count": 0,
+        "level":        "L1",
+    }
 
-    return round(float(row), 4) if row else NATIONAL_AVG
+
+def get_agency_a_ratio(db: Session, agency_id: int | None) -> float:
+    """기존 호환성 유지 — predict_a_ratio L3/L1 수준 결과 반환."""
+    result = predict_a_ratio(db, agency_id)
+    return result["ratio"]
 
 
 # ──────────────────────────────────────────────
@@ -806,6 +936,8 @@ def get_prism_zones(
     agency_id: int | None,
     period_type: str = "24M",
     top_n: int = 10,
+    industry_id: Optional[int] = None,
+    base_amount: int = 0,
 ) -> dict:
     """
     rate_frequency_tables 기반 프리즘 분석.
@@ -872,14 +1004,17 @@ def get_prism_zones(
     for idx, z in enumerate(top_zones, 1):
         z["rank"] = idx
 
-    a_ratio = get_agency_a_ratio(db, agency_id)
+    a_ratio_result = predict_a_ratio(db, agency_id, industry_id, base_amount)
+    a_ratio = a_ratio_result["ratio"]
 
     return {
-        "histogram":   histogram,
-        "top_zones":   top_zones,
-        "a_ratio":     a_ratio,
-        "data_source": source,
-        "period_type": period_type,
+        "histogram":    histogram,
+        "top_zones":    top_zones,
+        "a_ratio":      a_ratio,
+        "a_ratio_level": a_ratio_result["level"],
+        "a_ratio_sample_count": a_ratio_result["sample_count"],
+        "data_source":  source,
+        "period_type":  period_type,
         "total_bids":  sum(h["count"] for h in histogram),
         "total_wins":  sum(h["win_count"] for h in histogram),
     }

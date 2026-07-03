@@ -9,15 +9,74 @@ import {
   Sparkles, AlertCircle, Clock, Trophy, Target,
   TrendingUp, TrendingDown, ChevronRight, CheckCircle2,
   Building2, Calendar, Zap, BarChart2, Search, ListChecks, Plus,
-  BookOpen, ClipboardCheck, Crosshair,
+  BookOpen, ClipboardCheck, Crosshair, Bell, X,
 } from 'lucide-react'
 import { bidsApi, statsApi, selectionApi, kpiApi, executionsApi, journalApi } from '@/api'
-import type { BidRecommendItem, OverviewStatsWithChange, ExecutionSummary, JournalStats } from '@/types'
+import type { BidRecommendItem, OverviewStatsWithChange, ExecutionSummary, JournalStats, PendingResultItem } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+
+function QuickResultModal({
+  item,
+  onClose,
+  onSubmit,
+  isPending,
+}: {
+  item: PendingResultItem
+  onClose: () => void
+  onSubmit: (data: { result: '낙찰' | '패찰'; winner_rate?: number }) => void
+  isPending: boolean
+}) {
+  const [result, setResult] = useState<'낙찰' | '패찰'>('패찰')
+  const [winnerRate, setWinnerRate] = useState('')
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-semibold text-slate-800">빠른 결과 입력</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="h-4 w-4" /></button>
+        </div>
+        <p className="text-xs text-slate-500 mb-4 truncate">{item.title}</p>
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          {(['낙찰', '패찰'] as const).map((r) => (
+            <button
+              key={r}
+              onClick={() => setResult(r)}
+              className={cn(
+                'py-3 rounded-xl font-semibold text-sm border-2 transition-all',
+                result === r
+                  ? r === '낙찰' ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-red-500 text-white border-red-500'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+              )}
+            >{r}</button>
+          ))}
+        </div>
+        <div className="mb-4">
+          <label className="text-xs font-medium text-slate-600 mb-1 block">낙찰자 투찰률 (선택)</label>
+          <input
+            type="number"
+            step="0.0001"
+            placeholder="예: 0.8712"
+            value={winnerRate}
+            onChange={(e) => setWinnerRate(e.target.value)}
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <Button
+          className="w-full gap-2 bg-blue-600 hover:bg-blue-700"
+          disabled={isPending}
+          onClick={() => onSubmit({ result, winner_rate: winnerRate ? parseFloat(winnerRate) : undefined })}
+        >
+          {isPending ? '저장 중...' : '결과 저장'}
+        </Button>
+      </div>
+    </div>
+  )
+}
 
 function fmtAmt(n: number) {
   if (n >= 1e8) return (n / 1e8).toFixed(0) + '억'
@@ -152,6 +211,23 @@ export default function TodayPage() {
     },
   })
 
+  // 개찰 후 결과 미입력 감지
+  const { data: pendingResults } = useQuery<PendingResultItem[]>({
+    queryKey: ['pending-results'],
+    queryFn: () => executionsApi.pendingResults(72),
+    staleTime: 60_000,
+  })
+  const [quickResultItem, setQuickResultItem] = useState<PendingResultItem | null>(null)
+  const quickResultMutation = useMutation({
+    mutationFn: (data: { id: number; result: '낙찰' | '패찰'; winner_rate?: number }) =>
+      executionsApi.quickResult(data.id, { result: data.result, winner_rate: data.winner_rate }),
+    onSuccess: () => {
+      setQuickResultItem(null)
+      queryClient.invalidateQueries({ queryKey: ['pending-results'] })
+      queryClient.invalidateQueries({ queryKey: ['execution-summary'] })
+    },
+  })
+
   type PendingJournalItem = { journal_id: number; title: string; agency_name: string; bid_open_date: string | null; submitted_rate: number | null; recommended_rate: number | null }
   const pendingList: PendingJournalItem[] = ((pendingJournals as unknown as { items?: PendingJournalItem[] } | null)?.items ?? [])
 
@@ -204,8 +280,62 @@ export default function TodayPage() {
         </div>
       </div>
 
+      {/* 모달 */}
+      {quickResultItem && (
+        <QuickResultModal
+          item={quickResultItem}
+          onClose={() => setQuickResultItem(null)}
+          isPending={quickResultMutation.isPending}
+          onSubmit={(data) => quickResultMutation.mutate({ id: quickResultItem.id, ...data })}
+        />
+      )}
+
       {/* 콘텐츠 */}
       <div className="flex-1 p-6 space-y-5 max-w-[1440px] mx-auto w-full">
+
+        {/* ── 개찰 결과 미입력 배너 ── */}
+        {pendingResults && pendingResults.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+            <div className="flex items-center gap-3 mb-3">
+              <Bell className="h-5 w-5 text-amber-500 shrink-0" />
+              <div>
+                <span className="font-semibold text-amber-800 text-sm">
+                  개찰 완료 {pendingResults.length}건 — 결과 미입력
+                </span>
+                <p className="text-xs text-amber-600 mt-0.5">
+                  결과를 입력하면 AI 예측 정확도가 향상됩니다
+                </p>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              {pendingResults.slice(0, 3).map((item) => (
+                <div key={item.id} className="flex items-center gap-2 bg-white border border-amber-100 rounded-lg px-3 py-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-slate-700 truncate">{item.title}</p>
+                    <p className="text-xs text-slate-500">
+                      {item.agency_name} · {item.bid_open_date ? new Date(item.bid_open_date).toLocaleDateString('ko-KR') : '?'}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    className="h-7 px-2.5 text-xs bg-amber-500 hover:bg-amber-600 text-white shrink-0"
+                    onClick={() => setQuickResultItem(item)}
+                  >
+                    결과 입력
+                  </Button>
+                </div>
+              ))}
+              {pendingResults.length > 3 && (
+                <button
+                  className="text-xs text-amber-600 hover:underline w-full text-center py-1"
+                  onClick={() => navigate('/executions')}
+                >
+                  +{pendingResults.length - 3}건 더 보기 →
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* 상단 KPI 4개 */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
