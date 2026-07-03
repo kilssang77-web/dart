@@ -134,7 +134,26 @@ export function Watchlist() {
         </CardHeader>
         <CardBody className="pt-3 px-0 pb-0">
           {isLoading ? (
-            <div className="py-12 text-center text-xs text-[var(--muted)]">로딩 중...</div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <tbody>
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <tr key={i} className="border-b border-[var(--border)]/50">
+                      <td className="py-3 pl-5 pr-3">
+                        <div className="h-4 skeleton rounded w-20 mb-1.5" />
+                        <div className="h-3 skeleton rounded w-14" />
+                      </td>
+                      <td className="py-3 pr-3"><div className="h-4 skeleton rounded w-16 ml-auto" /></td>
+                      <td className="py-3 pr-3"><div className="h-4 skeleton rounded w-14 ml-auto" /></td>
+                      <td className="py-3 pr-3"><div className="h-4 skeleton rounded w-28" /></td>
+                      <td className="py-3 pr-3"><div className="h-4 skeleton rounded w-20 ml-auto" /></td>
+                      <td className="py-3 pr-3 text-center"><div className="h-6 skeleton rounded-full w-16 mx-auto" /></td>
+                      <td className="py-3 pr-5" />
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : items.length === 0 ? (
             <div className="py-12 text-center text-xs text-[var(--muted)]">
               관심종목이 없습니다. 위에서 종목을 추가해보세요.

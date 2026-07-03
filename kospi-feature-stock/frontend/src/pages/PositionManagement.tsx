@@ -143,7 +143,29 @@ export function PositionManagement() {
         </div>
 
         {activeLoading ? (
-          <div className="py-12 text-center text-[var(--muted)] text-sm">로딩 중...</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <tbody>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={i} className="border-b border-[var(--border)]">
+                    <td className="px-4 py-3">
+                      <div className="h-4 skeleton rounded w-16 mb-1.5" />
+                      <div className="h-3 skeleton rounded w-24 mb-1" />
+                      <div className="h-3 skeleton rounded w-20" />
+                    </td>
+                    {Array.from({ length: 6 }).map((__, j) => (
+                      <td key={j} className="px-4 py-3 text-right">
+                        <div className="h-4 skeleton rounded w-14 ml-auto" />
+                      </td>
+                    ))}
+                    <td className="px-4 py-3 text-center">
+                      <div className="h-6 skeleton rounded-full w-20 mx-auto" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : active.length === 0 ? (
           <div className="py-12 text-center text-[var(--muted)] text-sm">
             <TrendingDown size={32} className="mx-auto mb-3 opacity-30" />

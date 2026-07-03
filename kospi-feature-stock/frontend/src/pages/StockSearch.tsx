@@ -487,7 +487,16 @@ export function StockSearch() {
                     <BarChart2 size={14} />종합 분석 의견
                   </div>
                   {analysisLoading ? (
-                    <div className="py-8 text-center text-xs text-[var(--muted)]">분석 중...</div>
+                    <div className="space-y-3 py-2">
+                      <div className="h-4 skeleton rounded w-3/4" />
+                      <div className="h-4 skeleton rounded w-full" />
+                      <div className="h-4 skeleton rounded w-5/6" />
+                      <div className="h-4 skeleton rounded w-2/3" />
+                      <div className="h-16 skeleton rounded-xl mt-4" />
+                      <div className="grid grid-cols-3 gap-2 mt-2">
+                        {[1,2,3].map((k) => <div key={k} className="h-12 skeleton rounded-xl" />)}
+                      </div>
+                    </div>
                   ) : analysis?.opinion ? (
                     <OpinionText text={analysis.opinion} />
                   ) : (

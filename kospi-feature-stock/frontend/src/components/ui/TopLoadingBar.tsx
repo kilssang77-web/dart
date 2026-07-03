@@ -1,49 +1,67 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
+import { useIsFetching } from '@tanstack/react-query'
 
 /**
- * 페이지 이동 시 상단에 얇은 진행 바를 표시.
- * useLocation 변화를 감지 → 짧은 애니메이션 후 사라짐.
+ * 페이지 이동 + API 초기 로딩 시 상단에 얇은 진행 바를 표시.
+ * - 네비게이션: 700ms 후 자동 완료
+ * - API 초기 로딩(status=pending): 데이터 도착까지 유지
  */
 export function TopLoadingBar() {
   const location = useLocation()
-  const [progress, setProgress] = useState(0)
+  // 데이터 없이 처음 로딩 중인 쿼리만 집계 (background refetch 제외)
+  const isFetching = useIsFetching({
+    predicate: (query) => query.state.status === 'pending',
+  })
+
+  const [width,   setWidth]   = useState(0)
   const [visible, setVisible] = useState(false)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const animRef  = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([])
 
-  useEffect(() => {
-    // 이전 타이머 정리
-    if (timerRef.current) clearTimeout(timerRef.current)
-    if (animRef.current)  clearTimeout(animRef.current)
+  const clearAll = () => {
+    timers.current.forEach(clearTimeout)
+    timers.current = []
+  }
 
-    // 시작: 즉시 30%까지 빠르게 채우기
+  const after = (fn: () => void, ms: number) => {
+    const t = setTimeout(fn, ms)
+    timers.current.push(t)
+  }
+
+  const startBar = () => {
+    clearAll()
     setVisible(true)
-    setProgress(30)
+    setWidth(20)
+    after(() => setWidth(50), 120)
+    after(() => setWidth(78), 350)
+  }
 
-    // 70%까지 점진 진행
-    timerRef.current = setTimeout(() => setProgress(70), 150)
+  const finishBar = () => {
+    clearAll()
+    setWidth(100)
+    after(() => { setVisible(false); setWidth(0) }, 380)
+  }
 
-    // 90%에서 잠시 멈춤 (데이터 로딩 대기 효과)
-    animRef.current = setTimeout(() => {
-      setProgress(95)
-      // 완료: 100%로 채운 뒤 숨김
-      timerRef.current = setTimeout(() => {
-        setProgress(100)
-        animRef.current = setTimeout(() => {
-          setVisible(false)
-          setProgress(0)
-        }, 300)
-      }, 200)
-    }, 400)
-
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current)
-      if (animRef.current)  clearTimeout(animRef.current)
-    }
+  // 네비게이션 → 시작 후 700ms 자동 완료 (API 로딩 없을 때)
+  useEffect(() => {
+    startBar()
+    after(finishBar, 700)
+    return clearAll
   }, [location.pathname, location.search])
 
-  if (!visible && progress === 0) return null
+  // API 초기 로딩 → 로딩 시작 시 바 유지, 완료 시 종료
+  const prevFetch = useRef(0)
+  useEffect(() => {
+    const was = prevFetch.current
+    prevFetch.current = isFetching
+    if (isFetching > 0 && was === 0) {
+      startBar()           // 새 로딩 시작: 타이머 재설정 (nav auto-finish 취소)
+    } else if (isFetching === 0 && was > 0) {
+      finishBar()          // 모든 초기 로딩 완료
+    }
+  }, [isFetching])
+
+  if (!visible) return null
 
   return (
     <div
@@ -53,13 +71,13 @@ export function TopLoadingBar() {
       <div
         style={{
           height: '100%',
-          width: `${progress}%`,
+          width: `${width}%`,
           background: 'linear-gradient(90deg, #22d3ee 0%, #818cf8 60%, #a78bfa 100%)',
-          boxShadow: '0 0 8px rgba(34,211,238,0.6)',
-          transition: progress === 100
-            ? 'width 0.15s ease-out, opacity 0.3s ease-out'
-            : 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-          opacity: progress === 100 ? 0 : 1,
+          boxShadow: '0 0 10px rgba(34,211,238,0.55)',
+          opacity: width === 100 ? 0 : 1,
+          transition: width === 100
+            ? 'width 0.15s ease-out, opacity 0.35s ease-out'
+            : 'width 0.38s cubic-bezier(0.4,0,0.2,1)',
         }}
       />
     </div>

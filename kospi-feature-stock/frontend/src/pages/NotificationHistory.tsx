@@ -289,7 +289,23 @@ export function NotificationHistory() {
       {/* 테이블 */}
       <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden">
         {logsQ.isLoading ? (
-          <div className="flex items-center justify-center h-40 text-[var(--muted)]">로딩 중…</div>
+          <table className="w-full text-sm">
+            <tbody>
+              {Array.from({ length: 8 }).map((_, i) => (
+                <tr key={i} className="border-b border-[var(--border)]/60">
+                  <td className="px-5 py-3"><div className="h-3 skeleton rounded w-28" /></td>
+                  <td className="px-4 py-3"><div className="h-5 skeleton rounded-full w-16" /></td>
+                  <td className="px-4 py-3">
+                    <div className="h-4 skeleton rounded w-16 mb-1" />
+                    <div className="h-3 skeleton rounded w-10" />
+                  </td>
+                  <td className="px-4 py-3"><div className="h-4 skeleton rounded w-48" /></td>
+                  <td className="px-4 py-3 text-center"><div className="h-4 skeleton rounded w-10 mx-auto" /></td>
+                  <td className="px-4 py-3 text-center"><div className="h-6 skeleton rounded w-14 mx-auto" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         ) : !data?.items.length ? (
           <div className="flex flex-col items-center justify-center h-40 gap-3 text-[var(--muted)]">
             <Send size={28} className="opacity-40" />
