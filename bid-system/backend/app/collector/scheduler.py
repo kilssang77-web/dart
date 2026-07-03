@@ -862,29 +862,24 @@ def run_agency_budget_patterns_job() -> None:
 
 
 def run_kiscon_collect_job() -> None:
-    """KISCON 경쟁사 시공능력평가·실적 수집 (매주 일 03:30 KST).
+    """경쟁사 실적 프로필 집계 (매주 일 03:30 KST).
 
-    biz_reg_no 보유 상위 300개 경쟁사:
-    - KISCON API: 면허 업종·시공능력평가액 (api_key 있을 때)
-    - bid_results 집계: 주력 발주기관·낙찰률·2년 실적
+    biz_reg_no 보유 상위 300개 경쟁사에 대해 bid_results 집계:
+    - 면허 업종 역추론 (참여 공고 industry 분포)
+    - 주력 발주기관 top5 + 낙찰률
+    - 강점 기관 (낙찰률 30%+, 회피 전략 대상)
+    - 최근 2년 투찰·낙찰·금액 실적
     → competitor_kiscon_profiles upsert
     """
-    from app.config import get_settings
     from app.database import SessionLocal
     from app.collector.kiscon_service import collect_kiscon_profiles
 
-    settings = get_settings()
     db = SessionLocal()
     try:
-        result = collect_kiscon_profiles(
-            db,
-            limit=300,
-            force_refresh=False,
-            kiscon_api_key=settings.kiscon_api_key,
-        )
-        logger.info("KISCON 수집 완료: %s", result)
+        result = collect_kiscon_profiles(db, limit=300, force_refresh=False)
+        logger.info("경쟁사 실적 프로필 집계 완료: %s", result)
     except Exception as exc:
-        logger.error("KISCON 수집 실패: %s", exc)
+        logger.error("경쟁사 실적 프로필 집계 실패: %s", exc)
     finally:
         db.close()
 

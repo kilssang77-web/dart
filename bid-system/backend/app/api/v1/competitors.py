@@ -123,10 +123,9 @@ def competitor_kiscon_profile(
 def competitor_kiscon_refresh(
     competitor_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    _: User = Depends(get_current_user),
 ):
-    """단일 경쟁사 KISCON 프로필 즉시 갱신."""
-    from app.config import get_settings
+    """경쟁사 실적 프로필 즉시 재집계."""
     from app.collector.kiscon_service import collect_kiscon_profiles
     from app.models import Competitor
     from fastapi import HTTPException
@@ -137,11 +136,5 @@ def competitor_kiscon_refresh(
     if not comp.biz_reg_no:
         raise HTTPException(status_code=400, detail="사업자등록번호가 없는 경쟁사입니다.")
 
-    settings = get_settings()
-    result = collect_kiscon_profiles(
-        db,
-        limit=1,
-        force_refresh=True,
-        kiscon_api_key=settings.kiscon_api_key,
-    )
+    result = collect_kiscon_profiles(db, limit=1, force_refresh=True)
     return {"ok": True, **result}
