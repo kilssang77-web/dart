@@ -106,7 +106,11 @@ class OpportunityScoreService:
         }
 
     def get_top_recommended(self, user_id: int, limit: int = 5) -> list:
-        """7일 이내 개찰 예정 open 공고 중 점수 상위 limit개 반환."""
+        """7일 이내 개찰 예정 open 공고 중 점수 상위 limit개 반환.
+
+        NO-GO 사전 체크: 추천 점수가 높아도 시장 낙찰율·경쟁 강도 기준
+        NO-GO로 판정될 공고는 목록에서 제외해 투찰결정과 일관성을 유지한다.
+        """
         now = datetime.now(timezone.utc)
         cutoff = now + timedelta(days=7)
 
@@ -130,18 +134,101 @@ class OpportunityScoreService:
             if scored.get("error"):
                 continue
             results.append({
-                "bid_id": bid.id,
-                "title": bid.title,
-                "agency_name": bid.agency.name if bid.agency else "",
-                "score": scored["score"],
-                "grade": scored["grade"],
-                "open_date": bid.bid_open_date.isoformat() if bid.bid_open_date else None,
-                "base_amount": bid.base_amount,
+                "bid_id":        bid.id,
+                "title":         bid.title,
+                "agency_name":   bid.agency.name if bid.agency else "",
+                "score":         scored["score"],
+                "grade":         scored["grade"],
+                "open_date":     bid.bid_open_date.isoformat() if bid.bid_open_date else None,
+                "base_amount":   bid.base_amount,
                 "score_breakdown": scored["breakdown"],
+                "_agency_id":    bid.agency_id,
+                "_industry_id":  bid.industry_id,
             })
 
         results.sort(key=lambda x: (x["score"] or 0), reverse=True)
-        return results[:limit]
+
+        # NO-GO 사전 체크 — 상위 후보(limit×3)에서 일관성 검증 후 limit개 반환
+        pool = results[: limit * 3]
+        filtered = []
+        for item in pool:
+            quick = self._quick_go_check(item["_agency_id"], item["_industry_id"])
+            if quick != "pass":
+                item["quick_go"] = quick  # "go" | "neutral"
+                filtered.append(item)
+            if len(filtered) >= limit:
+                break
+
+        # 전부 NO-GO인 극단 케이스: 원본 순서 그대로 반환하되 quick_go 표시
+        final = filtered if filtered else results[:limit]
+        for item in final:
+            item.setdefault("quick_go", "neutral")
+            item.pop("_agency_id", None)
+            item.pop("_industry_id", None)
+        return final
+
+    def _quick_go_check(self, agency_id: int, industry_id: int) -> str:
+        """ML 없이 DB 집계만으로 NO-GO 사전 판정.
+
+        투찰결정(decision_service) 과 동일한 임계값 사용:
+          - 시장 낙찰율 < 5%  → -0.15
+          - 평균 경쟁자 ≥ 15 → -0.20
+          go_score ≤ 0.38 → "pass" (NO-GO)
+        """
+        go_score = 0.5
+
+        # ① 시장 낙찰율 (inpo21c_participants 기반 — win_prob 대리 지표)
+        try:
+            win_rate = self.db.execute(text("""
+                SELECT ROUND(AVG(CASE WHEN ip.is_winner THEN 1.0 ELSE 0.0 END), 4)
+                FROM inpo21c_participants ip
+                JOIN inpo21c_bids ib USING (inpo21c_bid_id)
+                JOIN agencies a ON TRIM(a.name) = TRIM(ib.agency_name)
+                WHERE a.id = :aid
+                  AND ib.open_datetime >= NOW() - INTERVAL '24 months'
+                HAVING COUNT(*) >= 5
+            """), {"aid": agency_id}).scalar()
+
+            if win_rate is not None:
+                wr = float(win_rate)
+                if wr >= 0.12:
+                    go_score += 0.20
+                elif wr >= 0.05:
+                    go_score += 0.05
+                else:
+                    go_score -= 0.15
+        except Exception:
+            pass
+
+        # ② 평균 경쟁자 수 (최근 6개월)
+        try:
+            rows = self.db.execute(text("""
+                SELECT AVG(sub.cnt) FROM (
+                    SELECT COUNT(r.id) AS cnt
+                    FROM bids b
+                    JOIN bid_results r ON r.bid_id = b.id
+                    WHERE b.agency_id = :aid AND b.industry_id = :iid
+                      AND b.bid_open_date >= NOW() - INTERVAL '6 months'
+                    GROUP BY b.id
+                ) sub
+            """), {"aid": agency_id, "iid": industry_id}).scalar()
+
+            if rows is not None:
+                avg_n = float(rows)
+                if avg_n <= 5:
+                    go_score += 0.15
+                elif avg_n >= 15:
+                    go_score -= 0.20
+        except Exception:
+            pass
+
+        go_score = round(max(0.0, min(1.0, go_score)), 3)
+
+        if go_score <= 0.38:
+            return "pass"
+        if go_score >= 0.65:
+            return "go"
+        return "neutral"
 
     def _competition_score(self, bid: "Bid") -> dict:
         # 최근 해당 발주처 + 업종 낙찰 데이터로 경쟁강도 추정

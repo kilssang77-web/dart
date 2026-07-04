@@ -698,6 +698,7 @@ export interface BidRecommendItem {
   grade:           'A' | 'B' | 'C' | 'D' | null
   open_date:       string | null
   base_amount:     number
+  quick_go?:       'go' | 'neutral'
   score_breakdown: {
     competition:    ScoreComponent
     personal_track: ScoreComponent

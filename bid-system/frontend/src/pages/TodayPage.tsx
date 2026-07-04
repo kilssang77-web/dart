@@ -490,6 +490,9 @@ export default function TodayPage() {
                             <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
                               <VerdictBadge score={b.score} />
                               {days !== null && days <= 5 && <DeadlineBadge days={days} />}
+                              {b.quick_go === 'go' && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">GO</span>
+                              )}
                             </div>
                             <p className="text-sm font-semibold text-slate-800 truncate group-hover:text-blue-700 transition-colors">
                               {b.title}
