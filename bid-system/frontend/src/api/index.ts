@@ -411,6 +411,7 @@ export const executionsApi = {
     api.get(`/executions/${id}`).then((r) => r.data),
 
   create: (data: {
+    bid_id?: number
     title: string
     agency_name?: string
     base_amount?: number
@@ -420,9 +421,13 @@ export const executionsApi = {
     floor_rate?: number
     a_value?: number
     recommended_rate?: number
+    status?: string
     note?: string
   }): Promise<import('../types').BidExecution> =>
     api.post('/executions', data).then((r) => r.data),
+
+  autoFillResults: (): Promise<{ filled: { id: number; title: string; status: string; winner_rate: number }[]; skipped: { id: number; title: string; reason: string }[]; total_pending: number }> =>
+    api.post('/executions/auto-fill-results').then((r) => r.data),
 
   update: (id: number, data: Partial<{
     status: string

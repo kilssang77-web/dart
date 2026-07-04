@@ -94,7 +94,17 @@ class ExecutionService:
         return self.db.query(BidExecution).filter(BidExecution.id == exec_id).first()
 
     def create(self, user_id: int, data) -> BidExecution:
-        obj = BidExecution(user_id=user_id, **data.model_dump(exclude_none=True))
+        dump = data.model_dump(exclude_none=True)
+        # bid_id 있고 recommended_rate 미제공 시 DecisionService에서 자동 주입
+        if dump.get("bid_id") and not dump.get("recommended_rate"):
+            try:
+                from ..decision_service import DecisionService
+                qd = DecisionService().get_quick_decision(self.db, dump["bid_id"], user_id)
+                if qd.get("recommended_rate"):
+                    dump["recommended_rate"] = float(qd["recommended_rate"])
+            except Exception:
+                pass
+        obj = BidExecution(user_id=user_id, **dump)
         self.db.add(obj)
         self.db.commit()
         self.db.refresh(obj)
@@ -111,6 +121,9 @@ class ExecutionService:
         updates = data.model_dump(exclude_none=True)
         for k, v in updates.items():
             setattr(obj, k, v)
+        # submitted_rate 입력 시 winner_gap 자동 계산 (추천 대비 괴리)
+        if data.submitted_rate and obj.recommended_rate:
+            obj.winner_gap = round(float(data.submitted_rate) - float(obj.recommended_rate), 6)
         # 패찰 → 자동 원인 분석 + 알림
         if data.status == "패찰":
             self._auto_defeat_analysis(obj)
@@ -608,6 +621,94 @@ class ExecutionService:
             "avg_rate_adj":       round(sum(adjs) / len(adjs), 4) if adjs else None,
             "recent":             recent,
         }
+
+    def auto_fill_results_from_inpo(self, user_id: int) -> dict:
+        """
+        개찰 완료됐으나 결과 미입력인 실행건을 inpo21c_bids로 자동 보완.
+        announcement_no 매칭 → winner_rate / winner_name / total_bidders 자동 채움.
+        """
+        pending = self.db.execute(text("""
+            SELECT id, announcement_no, bid_id, title
+            FROM bid_executions
+            WHERE user_id = :uid
+              AND status IN ('투찰완료', '개찰대기')
+              AND bid_open_date IS NOT NULL
+              AND bid_open_date <= NOW() - INTERVAL '2 hours'
+              AND winner_rate IS NULL
+            ORDER BY bid_open_date DESC
+            LIMIT 50
+        """), {"uid": user_id}).fetchall()
+
+        filled, skipped = [], []
+        for row in pending:
+            exec_id, ann_no, bid_id, title = row
+
+            # inpo21c_bids에서 낙찰 결과 조회
+            inpo_row = None
+            if ann_no:
+                inpo_row = self.db.execute(text("""
+                    SELECT ib.winner_rate, ib.winner_name, ib.n_bidders,
+                           ip.base_ratio, ip.is_winner, ip.rank
+                    FROM inpo21c_bids ib
+                    LEFT JOIN inpo21c_participants ip ON ip.inpo21c_bid_id = ib.inpo21c_bid_id
+                        AND ip.company_name = (SELECT name FROM company_profiles LIMIT 1)
+                    WHERE ib.announcement_no = :ann
+                    LIMIT 1
+                """), {"ann": ann_no}).fetchone()
+
+            if not inpo_row:
+                # bid_results 테이블로 fallback
+                if ann_no:
+                    br = self.db.execute(text("""
+                        SELECT br.winner_rate, br.winner_name, br.n_bidders
+                        FROM bid_results br
+                        JOIN bids b ON b.id = br.bid_id
+                        WHERE b.announcement_no = :ann
+                        LIMIT 1
+                    """), {"ann": ann_no}).fetchone()
+                    if br:
+                        inpo_row = (br[0], br[1], br[2], None, None, None)
+
+            if not inpo_row or inpo_row[0] is None:
+                skipped.append({"id": exec_id, "title": title[:40], "reason": "inpo21c 매칭 실패"})
+                continue
+
+            winner_rate = float(inpo_row[0])
+            winner_name = inpo_row[1]
+            n_bidders   = int(inpo_row[2]) if inpo_row[2] else None
+            our_is_winner = bool(inpo_row[4]) if inpo_row[4] is not None else None
+
+            new_status = "낙찰" if our_is_winner else "패찰"
+            obj = self.db.query(BidExecution).filter(BidExecution.id == exec_id).first()
+            if not obj:
+                continue
+
+            obj.winner_rate  = winner_rate
+            obj.winner_name  = winner_name
+            obj.total_bidders = n_bidders
+            obj.status       = new_status
+            if inpo_row[3] is not None:
+                obj.submitted_rate = float(inpo_row[3])
+            if obj.submitted_rate and obj.recommended_rate:
+                obj.winner_gap = round(float(obj.submitted_rate) - float(obj.recommended_rate), 6)
+
+            # 피드백 루프
+            if new_status in ("낙찰", "패찰") and obj.submitted_rate:
+                try:
+                    self._sync_actual_bid_outcome(obj)
+                    self._create_journal_from_execution(obj, user_id)
+                except Exception:
+                    pass
+
+            filled.append({
+                "id": exec_id,
+                "title": title[:40],
+                "status": new_status,
+                "winner_rate": winner_rate,
+            })
+
+        self.db.commit()
+        return {"filled": filled, "skipped": skipped, "total_pending": len(pending)}
 
 
 # ==================================================

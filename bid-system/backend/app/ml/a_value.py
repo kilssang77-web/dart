@@ -53,6 +53,76 @@ def calc_floor_price(a_value: int, floor_rate: float) -> int:
     return round(a_value * floor_rate)
 
 
+def load_agency_a_ratio(db, agency_id: int, period_months: int = 24) -> dict:
+    """
+    inpo21c 낙찰자 역산으로 기관별 A값 비율(a_ratio = 예정가/기초금액) 학습.
+
+    낙찰자 투찰률(base_ratio)은 ≈ 투찰금액/기초금액.
+    복수예가 구조에서 낙찰자 base_ratio ≈ srate (사정율).
+    따라서 a_ratio(=예정가/기초금액) 는 winner들의 base_ratio 분포 중앙값으로 근사.
+
+    Returns:
+        agency_a_ratio: 기관별 A값 비율 (없으면 None)
+        sample_count: 학습에 사용된 샘플 수
+        confidence: 신뢰도 (0~1)
+    """
+    from sqlalchemy import text as _text
+    if not db or not agency_id:
+        return {"agency_a_ratio": None, "sample_count": 0, "confidence": 0.0}
+
+    try:
+        row = db.execute(_text("""
+            SELECT
+                ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ip.base_ratio)::numeric, 5) AS median_ratio,
+                ROUND(STDDEV(ip.base_ratio)::numeric, 5) AS std_ratio,
+                COUNT(*) AS n
+            FROM inpo21c_participants ip
+            JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = ip.inpo21c_bid_id
+            JOIN agencies a ON (
+                TRIM(a.name) = TRIM(ib.agency_name)
+                OR TRIM(ib.agency_name) LIKE '%%' || TRIM(a.name) || '%%'
+                OR TRIM(a.name) LIKE '%%' || TRIM(ib.agency_name) || '%%'
+            )
+            WHERE a.id = :aid
+              AND ip.is_winner = TRUE
+              AND ip.base_ratio BETWEEN 0.80 AND 1.05
+              AND ib.open_datetime >= NOW() - INTERVAL ':m months'
+        """.replace(":m", str(period_months))), {"aid": agency_id}).fetchone()
+
+        if not row or row[0] is None:
+            return {"agency_a_ratio": None, "sample_count": 0, "confidence": 0.0}
+
+        n = int(row[2])
+        median_ratio = float(row[0])
+        confidence = min(1.0, n / 30)  # 30건 이상이면 신뢰도 1.0
+        return {
+            "agency_a_ratio": round(median_ratio, 5),
+            "sample_count": n,
+            "confidence": round(confidence, 3),
+            "std": float(row[1]) if row[1] else None,
+        }
+    except Exception:
+        return {"agency_a_ratio": None, "sample_count": 0, "confidence": 0.0}
+
+
+def calc_floor_rate_with_agency(db, agency_id: int, industry_name: str) -> dict:
+    """
+    낙찰하한율 + 기관 A값 비율 통합 반환.
+    decision_service에서 호출해 추천 투찰율의 기준점을 보정한다.
+    """
+    floor_rate = calc_floor_rate(industry_name)
+    a_ratio_data = load_agency_a_ratio(db, agency_id)
+    a_ratio = a_ratio_data.get("agency_a_ratio") or 0.910
+
+    return {
+        "floor_rate": floor_rate,
+        "a_ratio": a_ratio,
+        "a_ratio_source": "agency" if a_ratio_data.get("agency_a_ratio") else "national_avg",
+        "a_ratio_sample_count": a_ratio_data.get("sample_count", 0),
+        "a_ratio_confidence": a_ratio_data.get("confidence", 0.0),
+    }
+
+
 def calc_bid_range(
     base_amount: int,
     srate_center: float,

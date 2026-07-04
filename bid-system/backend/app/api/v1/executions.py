@@ -195,6 +195,21 @@ async def import_inpo_history(
     return svc.import_inpo_history(file_bytes=content, user_id=current_user.id)
 
 
+# ── 결과 자동 보완 (inpo21c 매칭) ────────────────────────────
+
+@router.post("/auto-fill-results", response_model=dict)
+def auto_fill_results(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    개찰이 지났으나 결과 미입력인 실행건을 inpo21c_bids로 자동 보완.
+    낙찰/패찰 상태 + winner_rate + n_bidders 자동 입력.
+    """
+    svc = ExecutionService(db)
+    return svc.auto_fill_results_from_inpo(user_id=current_user.id)
+
+
 # ── CRUD (dynamic /{exec_id} routes LAST) ────────────────────
 
 @router.post("", response_model=BidExecutionOut)

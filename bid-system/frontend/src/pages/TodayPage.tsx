@@ -22,6 +22,135 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 
+// ── 투찰 등록 모달 (인라인 패널 → 원클릭) ──────────────────
+function RegisterExecutionModal({
+  bid,
+  inlineData,
+  onClose,
+  onSubmit,
+  isPending,
+}: {
+  bid: BidRecommendItem
+  inlineData: InlineDecision
+  onClose: () => void
+  onSubmit: (data: {
+    bid_id: number; title: string; agency_name?: string; base_amount?: number
+    bid_open_date?: string; announcement_no?: string; industry_name?: string
+    recommended_rate?: number; submitted_rate?: number; status: string; note?: string
+  }) => void
+  isPending: boolean
+}) {
+  const defaultRate = inlineData.recommended_rate ? (inlineData.recommended_rate * 100).toFixed(4) : ''
+  const [submittedRate, setSubmittedRate] = useState(defaultRate)
+  const [status, setStatus] = useState<'참여결정' | '투찰완료'>('참여결정')
+  const [note, setNote] = useState('')
+
+  const fmt = (n: number) => new Intl.NumberFormat('ko-KR').format(Math.round(n))
+  const ratePct = parseFloat(submittedRate) || 0
+  const submittedAmt = ratePct > 0 && bid.base_amount ? Math.round(ratePct / 100 * bid.base_amount) : 0
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-semibold text-slate-800 flex items-center gap-2">
+            <Plus className="h-4 w-4 text-blue-600" />
+            투찰 등록
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="h-4 w-4" /></button>
+        </div>
+
+        <p className="text-xs text-slate-600 font-medium mb-1 truncate">{bid.title}</p>
+        <p className="text-xs text-slate-400 mb-4">{bid.agency_name} · {fmt(bid.base_amount)}원</p>
+
+        {/* AI 추천 투찰율 표시 */}
+        {inlineData.recommended_rate && (
+          <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 mb-4 flex items-center justify-between">
+            <div>
+              <p className="text-[10px] text-blue-500 font-medium">AI 추천 투찰율</p>
+              <p className="text-xl font-bold text-blue-700 font-mono">{(inlineData.recommended_rate * 100).toFixed(4)}%</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] text-blue-500">낙찰확률</p>
+              <p className="text-base font-bold text-blue-600">{(inlineData.win_prob * 100).toFixed(1)}%</p>
+            </div>
+          </div>
+        )}
+
+        {/* 투찰율 입력 */}
+        <div className="mb-3">
+          <label className="text-xs font-semibold text-slate-600 mb-1.5 block">
+            투찰율 (%) <span className="text-slate-400 font-normal">— 추천율 기입 또는 직접 수정</span>
+          </label>
+          <input
+            type="number"
+            step="0.0001"
+            placeholder={`예: ${defaultRate || '89.7637'}`}
+            value={submittedRate}
+            onChange={(e) => setSubmittedRate(e.target.value)}
+            className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          {submittedAmt > 0 && (
+            <p className="text-xs text-slate-500 mt-1.5">투찰금액: <span className="font-semibold text-slate-700">{fmt(submittedAmt)}원</span></p>
+          )}
+        </div>
+
+        {/* 상태 선택 */}
+        <div className="mb-4">
+          <label className="text-xs font-semibold text-slate-600 mb-1.5 block">등록 상태</label>
+          <div className="grid grid-cols-2 gap-2">
+            {(['참여결정', '투찰완료'] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setStatus(s)}
+                className={cn(
+                  'py-2 rounded-lg text-sm font-medium border-2 transition-all',
+                  status === s
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
+                )}
+              >{s}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* 메모 */}
+        <div className="mb-5">
+          <label className="text-xs font-semibold text-slate-600 mb-1.5 block">메모 (선택)</label>
+          <input
+            type="text"
+            placeholder="특이사항, 전략 메모 등"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
+        <div className="flex gap-2">
+          <Button
+            className="flex-1 bg-blue-600 hover:bg-blue-700 gap-1.5"
+            disabled={isPending}
+            onClick={() => onSubmit({
+              bid_id: bid.bid_id,
+              title: bid.title,
+              agency_name: bid.agency_name,
+              base_amount: bid.base_amount,
+              bid_open_date: bid.open_date ?? undefined,
+              recommended_rate: inlineData.recommended_rate ?? undefined,
+              submitted_rate: ratePct > 0 ? ratePct / 100 : undefined,
+              status,
+              note: note || undefined,
+            })}
+          >
+            {isPending ? '등록 중...' : '투찰 등록'}
+          </Button>
+          <Button variant="outline" className="px-4" onClick={onClose}>취소</Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function QuickResultModal({
   item,
   onClose,
@@ -369,6 +498,7 @@ export default function TodayPage() {
   const [expandedBidId, setExpandedBidId] = useState<number | null>(null)
   const [inlineDataMap, setInlineDataMap] = useState<Record<number, InlineDecision>>({})
   const [loadingInline, setLoadingInline] = useState<Record<number, boolean>>({})
+  const [registerTarget, setRegisterTarget] = useState<{ bid: BidRecommendItem; inline: InlineDecision } | null>(null)
 
   const toggleInlineDecision = useCallback(async (bid: BidRecommendItem, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -458,7 +588,9 @@ export default function TodayPage() {
   const createExecMutation = useMutation({
     mutationFn: executionsApi.create,
     onSuccess: () => {
+      setRegisterTarget(null)
       queryClient.invalidateQueries({ queryKey: ['execution-summary'] })
+      queryClient.invalidateQueries({ queryKey: ['pending-results'] })
       navigate('/executions')
     },
   })
@@ -532,13 +664,24 @@ export default function TodayPage() {
         </div>
       </div>
 
-      {/* 모달 */}
+      {/* 결과 입력 모달 */}
       {quickResultItem && (
         <QuickResultModal
           item={quickResultItem}
           onClose={() => setQuickResultItem(null)}
           isPending={quickResultMutation.isPending}
           onSubmit={(data) => quickResultMutation.mutate({ id: quickResultItem.id, ...data })}
+        />
+      )}
+
+      {/* 투찰 등록 모달 */}
+      {registerTarget && (
+        <RegisterExecutionModal
+          bid={registerTarget.bid}
+          inlineData={registerTarget.inline}
+          onClose={() => setRegisterTarget(null)}
+          isPending={createExecMutation.isPending}
+          onSubmit={(data) => createExecMutation.mutate(data)}
         />
       )}
 
@@ -783,14 +926,7 @@ export default function TodayPage() {
                                   baseAmount={b.base_amount}
                                   isPending={createExecMutation.isPending}
                                   onFull={() => navigate(`/decision?bid=${b.bid_id}`)}
-                                  onExecute={() => {
-                                    createExecMutation.mutate({
-                                      title: b.title,
-                                      agency_name: b.agency_name,
-                                      base_amount: b.base_amount,
-                                      bid_open_date: b.open_date ?? undefined,
-                                    })
-                                  }}
+                                  onExecute={() => setRegisterTarget({ bid: b, inline: inlineDataMap[b.bid_id] })}
                                 />
                               ) : (
                                 <p className="mt-2 text-xs text-red-500">분석 데이터를 불러올 수 없습니다.</p>

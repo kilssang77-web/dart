@@ -872,7 +872,12 @@ class DecisionService:
         agency_id     = b.agency_id or 0
         industry_id   = b.industry_id or 0
         base_amount   = b.base_amount or 0
-        floor_rate    = calc_floor_rate(industry_name)
+        from .ml.a_value import calc_floor_rate_with_agency
+        _floor_data = calc_floor_rate_with_agency(db, agency_id, industry_name)
+        floor_rate    = _floor_data["floor_rate"]
+        _agency_a_ratio = _floor_data["a_ratio"]
+        _a_ratio_confidence = _floor_data["a_ratio_confidence"]
+        _a_ratio_sample_count = _floor_data["a_ratio_sample_count"]
 
         features = load_srate_stats(db, agency_id, industry_id, 0, base_amount)
         ep        = predict_srate(features, base_amount)
@@ -952,6 +957,14 @@ class DecisionService:
             elif agency_win_rate <= 0.05:
                 go_score -= 0.10
                 risks.append(f"이 기관 낙찰율 {agency_win_rate*100:.1f}% — 낮은 편")
+
+        # 기관 A값 자동학습 신뢰도 반영
+        if _a_ratio_confidence >= 0.7:
+            go_score += 0.04
+            reasons.append(f"기관 A값 비율 자동학습 고신뢰 ({_a_ratio_sample_count}건, {_agency_a_ratio*100:.2f}%)")
+        elif _a_ratio_confidence >= 0.3:
+            go_score += 0.01
+            reasons.append(f"기관 A값 부분 학습 ({_a_ratio_sample_count}건)")
 
         # 포지션 데이터 신뢰도
         if pos.get("confidence", 0) >= 0.60:
@@ -1094,6 +1107,9 @@ class DecisionService:
             "floor_rate":           floor_rate,
             "kiscon_risk_count":    kiscon_risk_count,
             "kiscon_strong_count":  kiscon_strong_count,
+            "agency_a_ratio":       round(_agency_a_ratio, 5),
+            "a_ratio_confidence":   round(_a_ratio_confidence, 3),
+            "a_ratio_sample_count": _a_ratio_sample_count,
         }
 
     def get_pq_floor(self, db: Session, bid_id: int) -> dict:
