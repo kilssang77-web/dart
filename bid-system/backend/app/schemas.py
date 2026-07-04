@@ -775,6 +775,7 @@ class BidRecommendItem(BaseModel):
     open_date:       Optional[str]
     base_amount:     int
     score_breakdown: Optional[dict]
+    quick_go:        Optional[str] = None   # "go" | "neutral" | None
 
 
 class YegaNumberPattern(BaseModel):

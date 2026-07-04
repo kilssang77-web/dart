@@ -119,9 +119,10 @@ def load_srate_stats(
         WHERE yega_ratio BETWEEN 87 AND 105
     """)).fetchone()
 
-    # ── 경쟁업체 수 (inpo21c_participants 실측 — bid_results는 낙찰자만 저장) ──
-    # 기관별: inpo21c_bids.agency_name ↔ agencies.name 매칭
+    # ── 경쟁업체 수 (우선순위: ①inpo21c 기관별 → ②bid_results 기관별 → ③전국평균cap) ──
+    # ① inpo21c 기관별 (전참여자 저장된 경우만 유효 — HAVING >= 2)
     _comp_ag = None
+    _comp_br = None   # bid_results fallback
     if agency_id:
         _comp_ag = db.execute(text("""
             SELECT ROUND(AVG(c)::numeric, 1)::float, COUNT(*) AS n_bids
@@ -129,7 +130,9 @@ def load_srate_stats(
                 SELECT COUNT(*) AS c
                 FROM inpo21c_participants ip
                 JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = ip.inpo21c_bid_id
-                JOIN agencies a ON a.name = ib.agency_name
+                JOIN agencies a ON TRIM(a.name) = TRIM(ib.agency_name)
+                                OR TRIM(ib.agency_name) LIKE '%' || TRIM(a.name) || '%'
+                                OR TRIM(a.name) LIKE '%' || TRIM(ib.agency_name) || '%'
                 WHERE a.id = :aid
                   AND ip.company_name != '유찰'
                 GROUP BY ip.inpo21c_bid_id
@@ -137,9 +140,23 @@ def load_srate_stats(
             ) t
         """), {"aid": agency_id}).fetchone()
 
-    # 전국 평균 (inpo21c 전체 참여자 기준)
+        # ② bid_results 기관별 (우리 경험 데이터 — inpo21c 없을 때 사용)
+        _comp_br = db.execute(text("""
+            SELECT ROUND(AVG(cnt)::numeric, 1)::float, COUNT(*) AS n_bids
+            FROM (
+                SELECT br.bid_id, COUNT(*) AS cnt
+                FROM bid_results br
+                JOIN bids b ON b.id = br.bid_id
+                WHERE b.agency_id = :aid
+                GROUP BY br.bid_id
+                HAVING COUNT(*) >= 1
+            ) t
+        """), {"aid": agency_id}).fetchone()
+
+    # ③ 전국 평균 — inpo21c 전체 참여자 (HAVING >= 2인 공고만: 대형공고 편향 주의)
+    #    cap 30: 소규모 지역 공고 대상 시스템이므로 99 그대로 사용하지 않음
     _comp_glb = db.execute(text("""
-        SELECT ROUND(AVG(c)::numeric, 1)::float
+        SELECT LEAST(ROUND(AVG(c)::numeric, 1)::float, 30.0)
         FROM (
             SELECT COUNT(*) AS c
             FROM inpo21c_participants
@@ -174,9 +191,10 @@ def load_srate_stats(
         "inpo21c_srate_std":    float(inpo_ag[1])  if inpo_ag and inpo_ag[1]  else 0.007,
         "inpo21c_srate_n":      int(inpo_ag[2])    if inpo_ag and inpo_ag[2]  else 0,
         "inpo21c_global_mean":  float(inpo_glb[0]) if inpo_glb and inpo_glb[0] else None,
-        # 경쟁업체 수 (inpo21c 전참여자 기반: 기관 실측 → 전국 평균 fallback)
+        # 경쟁업체 수 (①inpo21c 기관 → ②bid_results 기관 → ③전국평균cap30)
         "expected_competitor_count": (
-            float(_comp_ag[0]) if _comp_ag and _comp_ag[0] and int(_comp_ag[1]) >= 3
+            float(_comp_ag[0]) if _comp_ag and _comp_ag[0] and int(_comp_ag[1] or 0) >= 3
+            else float(_comp_br[0]) if _comp_br and _comp_br[0] and int(_comp_br[1] or 0) >= 5
             else None
         ),
         "global_comp_count":  float(_comp_glb[0]) if _comp_glb and _comp_glb[0] else 8.0,

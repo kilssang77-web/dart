@@ -152,7 +152,9 @@ class OpportunityScoreService:
         pool = results[: limit * 3]
         filtered = []
         for item in pool:
-            quick = self._quick_go_check(item["_agency_id"], item["_industry_id"])
+            quick = self._quick_go_check(
+                item["_agency_id"], item["_industry_id"], item["bid_id"], item["base_amount"]
+            )
             if quick != "pass":
                 item["quick_go"] = quick  # "go" | "neutral"
                 filtered.append(item)
@@ -167,17 +169,60 @@ class OpportunityScoreService:
             item.pop("_industry_id", None)
         return final
 
-    def _quick_go_check(self, agency_id: int, industry_id: int) -> str:
-        """ML 없이 DB 집계만으로 NO-GO 사전 판정.
-
-        투찰결정(decision_service) 과 동일한 임계값 사용:
-          - 시장 낙찰율 < 5%  → -0.15
-          - 평균 경쟁자 ≥ 15 → -0.20
-          go_score ≤ 0.38 → "pass" (NO-GO)
+    def _quick_go_check(
+        self, agency_id: int, industry_id: int,
+        bid_id: int = 0, base_amount: int = 0
+    ) -> str:
         """
-        go_score = 0.5
+        win_prob_model 기반 GO/PASS 사전 판정.
 
-        # ① 시장 낙찰율 (inpo21c_participants 기반 — win_prob 대리 지표)
+        투찰결정(decision_service)과 동일한 ML 모델을 사용하여
+        추천 목록의 GO/PASS 판정이 일관되도록 한다.
+
+        판정 우선순위:
+          1. win_prob_model 실제 예측 → win_prob < 0.15 → 즉시 pass
+          2. inpo21c 기관 낙찰율 + 경쟁자 수 보조 신호
+        """
+        go_score = 0.50
+
+        # ① win_prob_model 실제 호출 (가장 신뢰도 높은 신호)
+        try:
+            from ..ml.assessment import load_srate_stats, predict_srate
+            from ..ml.hotzone import get_best_rate
+            from ..ml.win_prob_model import predict as _wpm_predict
+            from ..ml.a_value import calc_floor_rate
+
+            features = load_srate_stats(self.db, agency_id, industry_id, 0, base_amount or None)
+            ep = predict_srate(features, base_amount or 0)
+            srate_med = float(ep["srate_range"]["center"])
+            expected_n = int(
+                features.get("expected_competitor_count")
+                or features.get("global_comp_count")
+                or 8
+            )
+
+            best = get_best_rate(self.db, agency_id, base_amount or 0, period_type="24M")
+            recommended_rate = best.get("recommended_srate")
+
+            if recommended_rate and srate_med > 0:
+                from ..models import Industry
+                ind = self.db.query(Industry).filter(Industry.id == industry_id).first()
+                floor_rate = calc_floor_rate(ind.name if ind else "")
+                wp = _wpm_predict(recommended_rate, srate_med, expected_n, floor_rate)
+                wp = max(0.0, float(wp))
+
+                if wp < 0.15:
+                    return "pass"   # win_prob < 15% → 무조건 제외
+                elif wp >= 0.30:
+                    go_score += 0.20
+                elif wp >= 0.20:
+                    go_score += 0.08
+                else:
+                    go_score -= 0.05
+        except Exception:
+            pass
+
+        # ② inpo21c 기관 낙찰율 (보조 신호)
         try:
             win_rate = self.db.execute(text("""
                 SELECT ROUND(AVG(CASE WHEN ip.is_winner THEN 1.0 ELSE 0.0 END), 4)
@@ -192,39 +237,40 @@ class OpportunityScoreService:
             if win_rate is not None:
                 wr = float(win_rate)
                 if wr >= 0.12:
-                    go_score += 0.20
-                elif wr >= 0.05:
-                    go_score += 0.05
-                else:
-                    go_score -= 0.15
+                    go_score += 0.10
+                elif wr < 0.04:
+                    go_score -= 0.10
         except Exception:
             pass
 
-        # ② 평균 경쟁자 수 (최근 6개월)
+        # ③ inpo21c 기반 평균 경쟁자 수 (bid_results 대신 — 더 신뢰도 높음)
         try:
-            rows = self.db.execute(text("""
-                SELECT AVG(sub.cnt) FROM (
-                    SELECT COUNT(r.id) AS cnt
-                    FROM bids b
-                    JOIN bid_results r ON r.bid_id = b.id
-                    WHERE b.agency_id = :aid AND b.industry_id = :iid
-                      AND b.bid_open_date >= NOW() - INTERVAL '6 months'
-                    GROUP BY b.id
+            avg_n_row = self.db.execute(text("""
+                SELECT AVG(sub.n) FROM (
+                    SELECT COUNT(*) AS n
+                    FROM inpo21c_bids ib
+                    JOIN inpo21c_participants ip USING (inpo21c_bid_id)
+                    JOIN agencies a ON TRIM(a.name) = TRIM(ib.agency_name)
+                    WHERE a.id = :aid
+                      AND ib.open_datetime >= NOW() - INTERVAL '12 months'
+                    GROUP BY ib.inpo21c_bid_id
                 ) sub
-            """), {"aid": agency_id, "iid": industry_id}).scalar()
+            """), {"aid": agency_id}).scalar()
 
-            if rows is not None:
-                avg_n = float(rows)
+            if avg_n_row is not None:
+                avg_n = float(avg_n_row)
                 if avg_n <= 5:
-                    go_score += 0.15
-                elif avg_n >= 15:
-                    go_score -= 0.20
+                    go_score += 0.08
+                elif avg_n >= 20:
+                    go_score -= 0.15
+                elif avg_n >= 10:
+                    go_score -= 0.05
         except Exception:
             pass
 
         go_score = round(max(0.0, min(1.0, go_score)), 3)
 
-        if go_score <= 0.38:
+        if go_score <= 0.40:
             return "pass"
         if go_score >= 0.65:
             return "go"
