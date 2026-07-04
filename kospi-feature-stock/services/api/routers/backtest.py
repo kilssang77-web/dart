@@ -1,4 +1,5 @@
 from __future__ import annotations
+import dataclasses
 import json
 from datetime import date, timedelta
 from fastapi import APIRouter, Depends, Body, Query, HTTPException
@@ -73,18 +74,22 @@ def _make_query(use_ml: bool, has_market: bool) -> str:
 
 @router.post("/run")
 async def run_backtest(
-    start:         str         = Body(...),
-    end:           str         = Body(...),
-    event_type:    str | None  = Body(default=None),
-    event_types:   list[str] | None = Body(default=None),
-    market:        str | None  = Body(default=None),
-    min_score:     float       = Body(default=0.5),
-    ml_min_prob:   float       = Body(default=0.0),
-    stop_loss_pct: float       = Body(default=0.05),
-    target_pct:    float       = Body(default=0.10),
-    slippage:          float       = Body(default=0.0005),
-    walkforward:       bool        = Body(default=False),
-    max_daily_entries: int         = Body(default=0),
+    start:            str            = Body(...),
+    end:              str            = Body(...),
+    event_type:       str | None     = Body(default=None),
+    event_types:      list[str] | None = Body(default=None),
+    market:           str | None     = Body(default=None),
+    min_score:        float          = Body(default=0.5),
+    ml_min_prob:      float          = Body(default=0.0),
+    stop_loss_pct:    float          = Body(default=0.05),
+    target_pct:       float          = Body(default=0.10),
+    max_hold_days:    int            = Body(default=10),
+    initial_capital:  float          = Body(default=10_000_000),
+    invest_per_trade: float          = Body(default=500_000),
+    max_positions:    int            = Body(default=5),
+    sizing_method:    str            = Body(default="fixed"),
+    invest_pct:       float          = Body(default=10.0),
+    walkforward:      bool           = Body(default=False),
     db: asyncpg.Pool = Depends(get_db),
 ):
     start_d = date.fromisoformat(start)
@@ -113,10 +118,14 @@ async def run_backtest(
         return await db.fetch(q, *params, timeout=120)
 
     engine = BacktestEngine(
-        stop_loss_pct=-stop_loss_pct,
+        stop_loss_pct=-abs(stop_loss_pct),
         target_pct=target_pct,
-        slippage=max(0.0, min(slippage, 0.02)),
-        max_daily_entries=max(0, max_daily_entries),
+        max_hold_days=max_hold_days,
+        initial_capital=initial_capital,
+        invest_per_trade=invest_per_trade,
+        max_positions=max_positions,
+        sizing_method=sizing_method,
+        invest_pct=invest_pct,
     )
 
     params_out = {
@@ -128,15 +137,16 @@ async def run_backtest(
         "ml_min_prob":      ml_min_prob,
         "stop_loss_pct":    stop_loss_pct,
         "target_pct":       target_pct,
-        "slippage":         slippage,
         "market":           mkt,
         "walkforward":      walkforward,
-        "max_daily_entries": max_daily_entries,
+        "initial_capital":  initial_capital,
+        "invest_per_trade": invest_per_trade,
+        "max_positions":    max_positions,
         "cost_note":        "소형주(<50억) round-trip ~1.13%, 대형주 ~0.43% (거래세 0.3%)",
     }
 
     _SIG_COLS = ["code", "date", "close", "volume", "amount", "signal_score"]
-    _BAR_COLS = ["code", "date", "open", "high", "low", "close", "volume"]
+    _BAR_COLS = ["code", "date", "open", "high", "low", "close", "volume", "amount"]
 
     async def _run_window(s_d: date, e_d: date):
         sig_rows = await _fetch(s_d, e_d)
@@ -145,7 +155,8 @@ async def run_backtest(
         sigs = pd.DataFrame(sig_rows, columns=_SIG_COLS)
         codes = sigs["code"].unique().tolist()
         bar_rows = await db.fetch(
-            "SELECT code, date::TEXT, open, high, low, close, volume "
+            "SELECT code, date::TEXT, open, high, low, close, volume, "
+            "COALESCE(close * volume, 0) AS amount "
             "FROM daily_bars WHERE code = ANY($1) AND date BETWEEN $2 AND $3 "
             "ORDER BY code, date",
             codes, s_d, e_d,
@@ -183,7 +194,7 @@ async def run_backtest(
                     "equity_curve": r.equity_curve,
                 })
 
-        combined = engine._stats(all_trades) if all_trades else None
+        combined = engine._stats(all_trades, {}) if all_trades else None
         # 종목명 조회
         wf_codes = list({t.code for t in all_trades})
         wf_name_rows = await db.fetch(
@@ -192,7 +203,7 @@ async def run_backtest(
         wf_code_name = {r["code"]: r["name"] for r in wf_name_rows}
 
         def _wf_trade(t):
-            d = t.to_dict()
+            d = dataclasses.asdict(t)
             d["name"] = wf_code_name.get(t.code, "")
             return d
 
@@ -212,13 +223,12 @@ async def run_backtest(
                      "이벤트 타입을 선택하거나 기간을 조정해 보세요."
         }
 
-    _SIG_COLS = ["code", "date", "close", "volume", "amount", "signal_score"]
-    _BAR_COLS = ["code", "date", "open", "high", "low", "close", "volume"]
     signals = pd.DataFrame(sig_rows, columns=_SIG_COLS)
 
     codes = signals["code"].unique().tolist()
     bar_rows = await db.fetch(
-        "SELECT code, date::TEXT, open, high, low, close, volume "
+        "SELECT code, date::TEXT, open, high, low, close, volume, "
+        "COALESCE(close * volume, 0) AS amount "
         "FROM daily_bars WHERE code = ANY($1) AND date BETWEEN $2 AND $3 "
         "ORDER BY code, date",
         codes, start_d, end_d,
@@ -234,7 +244,7 @@ async def run_backtest(
     code_name = {r["code"]: r["name"] for r in name_rows}
 
     def _trade_dict(t):
-        d = t.to_dict()
+        d = dataclasses.asdict(t)
         d["name"] = code_name.get(t.code, "")
         return d
 
