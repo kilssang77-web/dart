@@ -13,7 +13,7 @@
 
 3. **환경변수는 반드시 `.env` 파일과 `os.getenv()`로 관리한다.** API 키·비밀값·DSN을 코드에 하드코딩하지 않는다.
 
-4. **Kafka 메시지 발행/소비는 각 서비스의 `kafka/` 서브모듈을 통해서만 수행한다.** 라우터나 비즈니스 로직 모듈에서 직접 Kafka 클라이언트를 생성하지 않는다.
+4. **서비스 간 비동기 메시지는 Redis Pub/Sub를 통해서만 수행한다.** 채널: `ch:recommendation`(추천 신호), `ch:feature`(탐지 이벤트). 라우터나 비즈니스 로직 모듈에서 직접 Redis 클라이언트를 생성하지 않는다.
 
 5. **모든 FastAPI 라우터 함수는 Pydantic 스키마(schemas/)를 통해 요청/응답을 정의한다.** `dict` 또는 `Any` 타입을 응답으로 반환하지 않는다.
 
@@ -32,8 +32,8 @@
 
 ### 마이크로서비스 간 통신
 - **동기**: FastAPI REST (서비스간 직접 HTTP 호출 최소화)
-- **비동기**: Kafka 토픽 발행/소비
-- **캐시/Pub-Sub**: Redis
+- **비동기**: Redis Pub/Sub 채널 발행/소비 (`ch:recommendation`, `ch:feature`)
+- **캐시/상태**: Redis (가격·통계·손실가드 등)
 
 ### DB / 인프라
 - PostgreSQL 쿼리: asyncpg 파라미터 바인딩 (`$1`, `$2`)
@@ -47,7 +47,7 @@
 
 > 세부 사항은 `.harness/docs/ARCHITECTURE.md` 참조.
 
-- **데이터 흐름**: collector → Kafka → detector/analyzer → Kafka → recommender → Redis/DB → api
+- **데이터 흐름**: collector → DB/Redis → detector/analyzer → Redis Pub/Sub → recommender → Redis/DB → api → trader
 - **서비스 독립성**: 각 서비스는 독립 배포 가능. 타 서비스 DB에 직접 접근하지 않는다.
 - **설정**: 모든 임계값·파라미터는 환경변수로 노출. 하드코딩 금지.
 

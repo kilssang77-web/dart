@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import os
+import httpx
 from datetime import datetime, timezone
 from pathlib import Path
 from deps import get_db, get_redis
@@ -93,14 +94,39 @@ async def system_status(
     # ML 모드: 모델 로드 여부
     model_mode = "ml" if model_loaded else "fallback"
 
-    # Kafka lag (Redis에 탐지기가 기록한 값)
-    kafka_lags: dict = {}
-    for topic in ["feature-detected", "recommendation", "disclosure", "minute-bar"]:
+    # 마이크로서비스 헬스 체크
+    _ML_URL     = os.getenv("ML_SERVICE_URL",     "http://ml:8001")
+    _TRADER_URL = os.getenv("TRADER_SERVICE_URL", "http://trader:8004")
+
+    async def _svc_ok(url: str) -> bool:
         try:
-            v = await redis.get(f"kafka:lag:{topic}")
-            kafka_lags[topic] = int(v or 0)
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                r = await client.get(f"{url}/health")
+                return r.status_code < 400
         except Exception:
-            kafka_lags[topic] = -1
+            return False
+
+    ml_ok, trader_ok = await asyncio.gather(_svc_ok(_ML_URL), _svc_ok(_TRADER_URL))
+
+    # recommender 헬스: HTTP 엔드포인트 없음 — 최근 추천 생성 여부로 대체 (48시간 이내)
+    latest_rec_str = freshness["latest_rec"]
+    rec_ok = False
+    if latest_rec_str:
+        try:
+            from datetime import timezone as _tz
+            dt = datetime.fromisoformat(latest_rec_str.replace("Z", "+00:00"))
+            rec_ok = (datetime.now(_tz.utc) - dt).total_seconds() < 48 * 3600
+        except Exception:
+            pass
+
+    # Redis Pub/Sub 채널 구독자 수 (선택적 정보)
+    redis_channels: dict = {}
+    for ch in ["ch:recommendation", "ch:feature"]:
+        try:
+            info = await redis.pubsub_numsub(ch)
+            redis_channels[ch] = info.get(ch, 0) if isinstance(info, dict) else 0
+        except Exception:
+            redis_channels[ch] = -1
 
     return {
         "ml": {
@@ -127,10 +153,13 @@ async def system_status(
             "redis_stats_count":       stats_key_count,
         },
         "services": {
-            "db":    db_ok,
-            "redis": redis_ok,
+            "db":          db_ok,
+            "redis":       redis_ok,
+            "ml":          ml_ok,
+            "recommender": rec_ok,
+            "trader":      trader_ok,
         },
-        "kafka_lag": kafka_lags,
+        "redis_channels": redis_channels,
     }
 
 

@@ -25,6 +25,7 @@ const SimilarCases         = lazy(() => import('./pages/SimilarCases').then((m) 
 const PositionManagement   = lazy(() => import('./pages/PositionManagement').then((m) => ({ default: m.PositionManagement })))
 const RankingPage          = lazy(() => import('./pages/RankingPage').then((m) => ({ default: m.RankingPage })))
 const ScreenerPage         = lazy(() => import('./pages/ScreenerPage').then((m) => ({ default: m.ScreenerPage })))
+const TraderPage           = lazy(() => import('./pages/TraderPage').then((m) => ({ default: m.TraderPage })))
 
 const META: Record<string, { title: string; subtitle?: string }> = {
   '/':               { title: '대시보드',    subtitle: '실시간 특징주 현황 요약' },
@@ -44,6 +45,7 @@ const META: Record<string, { title: string; subtitle?: string }> = {
   '/positions':      { title: '포지션 관리', subtitle: '추적 중 포지션 · 보유/손익 현황' },
   '/ranking':        { title: '종합 랭킹',   subtitle: 'ML·수급·기술·모멘텀 통합 종합점수 랭킹' },
   '/screener':       { title: '스크리너',    subtitle: 'RSI·수급·ML 조건 기반 종목 필터링' },
+  '/trader':         { title: '자동 매매',   subtitle: 'KIS 주문 API · 포지션 관리 · 일일 손익' },
 }
 
 /** Suspense fallback — lazy 청크 로딩 중 표시되는 페이지 스켈레톤 */
@@ -120,9 +122,10 @@ export default function App() {
               <Route path="/rec-journey"    element={<RecJourney />} />
               <Route path="/similar-cases"          element={<SimilarCases />} />
               <Route path="/similar-cases/:eventId" element={<SimilarCases />} />
-              <Route path="/positions"              element={<PositionManagement />} />
+              <Route path="/positions"              element={<Navigate to="/trader" replace />} />
               <Route path="/ranking"               element={<RankingPage />} />
               <Route path="/screener"              element={<ScreenerPage />} />
+              <Route path="/trader"               element={<TraderPage />} />
               {/* 통합·제거된 라우트 → 리다이렉트 */}
               <Route path="/analysis"        element={<Navigate to="/search" replace />} />
               <Route path="/disclosures"     element={<Navigate to="/intel" replace />} />

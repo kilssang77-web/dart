@@ -38,23 +38,6 @@ function ServiceRow({ label, ok }: { label: string; ok: boolean }) {
   )
 }
 
-function LagRow({ topic, lag }: { topic: string; lag: number }) {
-  const level = lag < 0 ? 'unknown' : lag > 5000 ? 'critical' : lag > 1000 ? 'warn' : 'ok'
-  return (
-    <div className="flex items-center justify-between py-2.5 border-b border-[var(--border)] last:border-0">
-      <span className="text-sm text-[var(--fg)] font-mono">{topic}</span>
-      <span className={clsx(
-        'text-xs font-semibold tabular',
-        level === 'ok'       && 'text-green-400',
-        level === 'warn'     && 'text-yellow-400',
-        level === 'critical' && 'text-red-400',
-        level === 'unknown'  && 'text-[var(--muted)]',
-      )}>
-        {lag < 0 ? '—' : lag.toLocaleString()}
-      </span>
-    </div>
-  )
-}
 
 function DataRow({ label, value, stale }: { label: string; value: string | null; stale?: boolean }) {
   return (
@@ -122,10 +105,10 @@ function HealthTab({ data, isLoading, dataUpdatedAt, refetch, isFetching }: {
   refetch: () => void
   isFetching: boolean
 }) {
-  const ml   = data?.ml
-  const dat  = data?.data
-  const svc  = data?.services
-  const lags = data?.kafka_lag ?? {}
+  const ml       = data?.ml
+  const dat      = data?.data
+  const svc      = data?.services
+  const channels = data?.redis_channels ?? {}
 
   return (
     <div className="space-y-5">
@@ -154,7 +137,7 @@ function HealthTab({ data, isLoading, dataUpdatedAt, refetch, isFetching }: {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* ML 모델 상태 */}
         <Card>
           <CardHeader>
@@ -181,11 +164,11 @@ function HealthTab({ data, isLoading, dataUpdatedAt, refetch, isFetching }: {
           </CardBody>
         </Card>
 
-        {/* 서비스 상태 */}
+        {/* 인프라 연결 */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-1.5">
-              <Database size={14} className="text-cyan-400" /> 서비스 연결
+              <Database size={14} className="text-cyan-400" /> 인프라 연결
             </CardTitle>
           </CardHeader>
           <CardBody>
@@ -202,27 +185,58 @@ function HealthTab({ data, isLoading, dataUpdatedAt, refetch, isFetching }: {
           </CardBody>
         </Card>
 
-        {/* Kafka Lag */}
+        {/* 마이크로서비스 상태 */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-1.5">
-              <Radio size={14} className="text-cyan-400" /> Kafka 처리 지연
+              <Activity size={14} className="text-cyan-400" /> 마이크로서비스
             </CardTitle>
-            <span className="text-xs text-[var(--muted)]">메시지 수</span>
           </CardHeader>
           <CardBody>
             {isLoading ? (
-              <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-8 skeleton rounded" />)}</div>
+              <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-8 skeleton rounded" />)}</div>
+            ) : svc ? (
+              <div>
+                <ServiceRow label="ML 서비스 (8001)"          ok={svc.ml} />
+                <ServiceRow label="추천 서비스 (Recommender)"  ok={svc.recommender} />
+                <ServiceRow label="자동매매 서비스 (Trader)"   ok={svc.trader} />
+              </div>
             ) : (
-              Object.entries(lags).map(([topic, lag]) => (
-                <LagRow key={topic} topic={topic} lag={lag} />
-              ))
+              <p className="text-sm text-[var(--muted)]">데이터 없음</p>
+            )}
+          </CardBody>
+        </Card>
+
+        {/* Redis Pub/Sub 채널 */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5">
+              <Radio size={14} className="text-cyan-400" /> Redis Pub/Sub
+            </CardTitle>
+            <span className="text-xs text-[var(--muted)]">구독자 수</span>
+          </CardHeader>
+          <CardBody>
+            {isLoading ? (
+              <div className="space-y-2">{Array.from({ length: 2 }).map((_, i) => <div key={i} className="h-8 skeleton rounded" />)}</div>
+            ) : (
+              Object.entries(channels).length > 0 ? (
+                Object.entries(channels).map(([ch, cnt]) => (
+                  <div key={ch} className="flex items-center justify-between py-2.5 border-b border-[var(--border)] last:border-0">
+                    <span className="text-sm text-[var(--fg)] font-mono">{ch}</span>
+                    <span className={`text-xs font-semibold tabular ${cnt > 0 ? 'text-green-400' : 'text-[var(--muted)]'}`}>
+                      {cnt < 0 ? '—' : cnt}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-[var(--muted)]">채널 정보 없음</p>
+              )
             )}
           </CardBody>
         </Card>
 
         {/* 데이터 신선도 */}
-        <Card className="md:col-span-2 lg:col-span-3">
+        <Card className="md:col-span-2 lg:col-span-4">
           <CardHeader>
             <CardTitle className="flex items-center gap-1.5">
               <Clock size={14} className="text-cyan-400" /> 데이터 신선도

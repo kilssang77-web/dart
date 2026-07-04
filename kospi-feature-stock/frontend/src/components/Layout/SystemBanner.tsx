@@ -56,10 +56,10 @@ export function SystemBanner() {
     warnings.push({ level: 'error', msg: 'Redis 연결 불가 — 실시간 스트리밍이 중단됩니다.' })
   }
 
-  const highLag = Object.entries(data.kafka_lag).filter(([, v]) => v > 5000)
-  if (highLag.length > 0) {
-    const topics = highLag.map(([t]) => t).join(', ')
-    warnings.push({ level: 'warn', msg: `Kafka 처리 지연 (${topics})` })
+  const offlineSvcs = Object.entries(data.services).filter(([k, v]) => !v && k !== 'db' && k !== 'redis')
+  if (offlineSvcs.length > 0) {
+    const names = offlineSvcs.map(([k]) => k).join(', ')
+    warnings.push({ level: 'warn', msg: `마이크로서비스 오프라인: ${names}` })
   }
 
   if (warnings.length === 0) return null

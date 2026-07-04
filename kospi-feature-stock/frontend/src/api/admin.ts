@@ -55,8 +55,8 @@ export interface SystemStatus {
     pattern_vector_coverage: number
     redis_stats_count: number
   }
-  services: { db: boolean; redis: boolean }
-  kafka_lag: Record<string, number>
+  services: { db: boolean; redis: boolean; ml: boolean; recommender: boolean; trader: boolean }
+  redis_channels: Record<string, number>
 }
 
 export interface BootstrapStep {
