@@ -567,8 +567,8 @@ class RecommenderService:
                         SELECT 1 FROM feature_events
                         WHERE code       = $1
                           AND event_type = $3
-                          AND detected_at >= DATE_TRUNC('day', $2)
-                          AND detected_at <  DATE_TRUNC('day', $2) + INTERVAL '1 day'
+                          AND detected_at >= DATE_TRUNC('day', $2::timestamptz)
+                          AND detected_at <  DATE_TRUNC('day', $2::timestamptz) + INTERVAL '1 day'
                     )
                     RETURNING id
                     """,
@@ -590,8 +590,8 @@ class RecommenderService:
                         SELECT id FROM feature_events
                         WHERE code       = $1
                           AND event_type = $2
-                          AND detected_at >= DATE_TRUNC('day', $3)
-                          AND detected_at <  DATE_TRUNC('day', $3) + INTERVAL '1 day'
+                          AND detected_at >= DATE_TRUNC('day', $3::timestamptz)
+                          AND detected_at <  DATE_TRUNC('day', $3::timestamptz) + INTERVAL '1 day'
                         ORDER BY id DESC LIMIT 1
                         """,
                         code, event_type, detected_at,
