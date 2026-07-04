@@ -9,6 +9,7 @@ import {
   ChevronRight, ChevronDown, ListChecks, FlaskConical,
   ClipboardCheck, BarChart3, Sparkles, BookOpen,
   Zap, Building2, LineChart, Layers, FileSearch, FileText,
+  History,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { authApi, notificationsApi } from '@/api'
@@ -43,11 +44,12 @@ const NAV_GROUPS = [
     label: 'AI 분석',
     defaultOpen: false,
     items: [
-      { to: '/agencies',    label: '발주기관 분석',  icon: Building2 },
-      { to: '/competitors', label: '경쟁사 분석',    icon: Users },
-      { to: '/yega',        label: '예가 빈도 분석', icon: TrendingUp },
-      { to: '/market-intel',label: '시장 지능',      icon: LineChart },
-      { to: '/backtest',    label: '백테스트 엔진',  icon: FlaskConical },
+      { to: '/agencies',        label: '발주기관 분석',  icon: Building2 },
+      { to: '/competitors',     label: '경쟁사 분석',    icon: Users },
+      { to: '/our-competitors', label: '우리 경쟁사',    icon: ShieldAlert },
+      { to: '/yega',            label: '예가 빈도 분석', icon: TrendingUp },
+      { to: '/market-intel',    label: '시장 지능',      icon: LineChart },
+      { to: '/backtest',        label: '백테스트 엔진',  icon: FlaskConical },
     ],
   },
   {
@@ -55,6 +57,7 @@ const NAV_GROUPS = [
     defaultOpen: false,
     items: [
       { to: '/journal-history', label: '투찰 이력 분석', icon: ClipboardCheck },
+      { to: '/my-bids',         label: '나의 투찰 이력', icon: History },
       { to: '/performance',     label: '성과센터',        icon: BarChart3 },
       { to: '/statistics',      label: '통계 분석',       icon: PieChart },
       { to: '/pre-spec',        label: '수주 예보',        icon: FileSearch },

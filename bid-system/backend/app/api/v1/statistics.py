@@ -2,6 +2,7 @@
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from typing import Optional
+from datetime import datetime, timezone, timedelta
 
 from ...database import get_db
 from ...models import User
@@ -117,6 +118,102 @@ def model_info(
     _: User = Depends(get_current_user),
 ):
     return svc.model_info(db, months)
+
+
+@router.get("/recommendation-compliance")
+def recommendation_compliance(
+    days: int = Query(90, ge=14, le=365),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    시스템 추천 이행율 & 낙찰률 비교.
+
+    - recommended_rate IS NOT NULL → 추천 시스템이 투찰율을 제안한 건
+    - |submitted_rate - recommended_rate| <= 0.003 → 추천 이행 (±0.3% 허용)
+    - status IN ('낙찰','패찰') → 결과 있는 건
+    - follow_win_rate vs deviate_win_rate 비교로 시스템 가치 측정
+    """
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    rows = db.execute(text("""
+        SELECT
+            be.id,
+            be.title,
+            be.agency_name,
+            be.submitted_rate,
+            be.recommended_rate,
+            be.status,
+            be.bid_open_date,
+            be.winner_rate,
+            be.base_amount
+        FROM bid_executions be
+        WHERE be.user_id = :uid
+          AND be.created_at >= :since
+        ORDER BY be.created_at DESC
+    """), {"uid": user.id, "since": since}).fetchall()
+
+    total = len(rows)
+    with_rec = [r for r in rows if r[4] is not None]       # recommended_rate not null
+    concluded = [r for r in with_rec if r[5] in ("낙찰", "패찰")]
+
+    def _followed(r) -> bool:
+        if r[3] is None or r[4] is None:
+            return False
+        return abs(float(r[3]) - float(r[4])) <= 0.003
+
+    followed   = [r for r in with_rec if _followed(r)]
+    deviated   = [r for r in with_rec if not _followed(r)]
+    followed_concluded = [r for r in followed if r[5] in ("낙찰", "패찰")]
+    deviated_concluded = [r for r in deviated if r[5] in ("낙찰", "패찰")]
+
+    def _win_rate(lst):
+        if not lst:
+            return None
+        wins = sum(1 for r in lst if r[5] == "낙찰")
+        return round(wins / len(lst), 4)
+
+    # 최근 미실행 공고는 여기서 추적 불가 (recommendation API 호출 로그 없음)
+    # 대신 "추천율이 있는 bid_executions" 기준 분석
+
+    recent_items = [
+        {
+            "id":               int(r[0]),
+            "title":            r[1],
+            "agency_name":      r[2],
+            "submitted_rate":   float(r[3]) if r[3] else None,
+            "recommended_rate": float(r[4]) if r[4] else None,
+            "status":           r[5],
+            "bid_open_date":    r[6].strftime("%Y-%m-%d") if r[6] else None,
+            "winner_rate":      float(r[7]) if r[7] else None,
+            "base_amount":      int(r[8]) if r[8] else 0,
+            "followed":         _followed(r) if r[4] is not None else None,
+        }
+        for r in rows[:20]
+    ]
+
+    return {
+        "period_days":           days,
+        "total_executions":      total,
+        "with_recommendation":   len(with_rec),
+        "followed_count":        len(followed),
+        "deviated_count":        len(deviated),
+        "follow_rate":           round(len(followed) / len(with_rec), 4) if with_rec else None,
+        "concluded_count":       len(concluded),
+        "outcomes": {
+            "followed": {
+                "count":    len(followed_concluded),
+                "win_rate": _win_rate(followed_concluded),
+                "wins":     sum(1 for r in followed_concluded if r[5] == "낙찰"),
+            },
+            "deviated": {
+                "count":    len(deviated_concluded),
+                "win_rate": _win_rate(deviated_concluded),
+                "wins":     sum(1 for r in deviated_concluded if r[5] == "낙찰"),
+            },
+        },
+        "recent_items":          recent_items,
+    }
 
 
 @router.get("/our-win-map")

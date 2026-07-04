@@ -506,3 +506,195 @@ def participant_stats(
         "data_source":      "inpo21c_agency" if inpo_stats else "inpo21c_global",
         "agency_name":      agency_name,
     }
+
+
+@router.get("/{bid_id}/similar-wins")
+def similar_wins(
+    bid_id: int,
+    limit: int = Query(8, ge=3, le=20),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """
+    유사 공고 실제 낙찰 이력.
+    같은 기관+공종, ±60% 금액 범위, 실제 낙찰자 데이터 포함 공고 반환.
+    info21c 대체 핵심 기능 — 실전 낙찰율 직접 표시.
+    """
+    from sqlalchemy import text
+
+    bid = db.query(Bid).filter(Bid.id == bid_id).first()
+    if not bid:
+        raise HTTPException(404, "공고를 찾을 수 없습니다")
+
+    base_amount = bid.base_amount or 0
+    lower = max(1, int(base_amount * 0.4))
+    upper = int(base_amount * 2.5)
+
+    rows = db.execute(text("""
+        WITH winners AS (
+            SELECT br.bid_id,
+                   br.bid_rate   AS winner_rate,
+                   br.assessment_rate
+            FROM bid_results br
+            WHERE br.is_winner = true
+        ),
+        participant_counts AS (
+            SELECT bid_id, COUNT(*) AS n_bidders
+            FROM bid_results
+            GROUP BY bid_id
+        )
+        SELECT
+            b.id,
+            b.title,
+            b.base_amount,
+            b.bid_open_date,
+            b.announcement_no,
+            a.name  AS agency_name,
+            i.name  AS industry_name,
+            w.winner_rate,
+            w.assessment_rate,
+            COALESCE(pc.n_bidders, 0) AS n_bidders
+        FROM bids b
+        LEFT JOIN agencies a ON a.id = b.agency_id
+        LEFT JOIN industries i ON i.id = b.industry_id
+        INNER JOIN winners w ON w.bid_id = b.id
+        LEFT JOIN participant_counts pc ON pc.bid_id = b.id
+        WHERE b.id != :bid_id
+          AND b.agency_id = :agency_id
+          AND b.industry_id = :industry_id
+          AND b.base_amount BETWEEN :lower AND :upper
+        ORDER BY b.bid_open_date DESC NULLS LAST
+        LIMIT :lim
+    """), {
+        "bid_id":     bid_id,
+        "agency_id":  bid.agency_id,
+        "industry_id": bid.industry_id,
+        "lower":      lower,
+        "upper":      upper,
+        "lim":        limit,
+    }).fetchall()
+
+    # 기관+공종 결과 부족 시 기관만으로 fallback
+    if len(rows) < 3 and bid.agency_id:
+        rows = db.execute(text("""
+            WITH winners AS (
+                SELECT br.bid_id, br.bid_rate AS winner_rate, br.assessment_rate
+                FROM bid_results br WHERE br.is_winner = true
+            ),
+            participant_counts AS (
+                SELECT bid_id, COUNT(*) AS n_bidders FROM bid_results GROUP BY bid_id
+            )
+            SELECT b.id, b.title, b.base_amount, b.bid_open_date, b.announcement_no,
+                   a.name AS agency_name, i.name AS industry_name,
+                   w.winner_rate, w.assessment_rate, COALESCE(pc.n_bidders, 0)
+            FROM bids b
+            LEFT JOIN agencies a ON a.id = b.agency_id
+            LEFT JOIN industries i ON i.id = b.industry_id
+            INNER JOIN winners w ON w.bid_id = b.id
+            LEFT JOIN participant_counts pc ON pc.bid_id = b.id
+            WHERE b.id != :bid_id
+              AND b.agency_id = :agency_id
+              AND b.base_amount BETWEEN :lower AND :upper
+            ORDER BY b.bid_open_date DESC NULLS LAST
+            LIMIT :lim
+        """), {
+            "bid_id": bid_id, "agency_id": bid.agency_id,
+            "lower": lower, "upper": upper, "lim": limit,
+        }).fetchall()
+
+    items = [
+        {
+            "bid_id":         int(r[0]),
+            "title":          r[1],
+            "base_amount":    int(r[2]) if r[2] else 0,
+            "bid_open_date":  r[3].isoformat() if r[3] else None,
+            "announcement_no": r[4],
+            "agency_name":    r[5] or "",
+            "industry_name":  r[6] or "",
+            "winner_rate":    float(r[7]) if r[7] else None,
+            "assessment_rate": float(r[8]) if r[8] else None,
+            "n_bidders":      int(r[9]),
+        }
+        for r in rows
+    ]
+
+    winner_rates = [x["winner_rate"] for x in items if x["winner_rate"]]
+    return {
+        "bid_id":  bid_id,
+        "items":   items,
+        "summary": {
+            "count":           len(items),
+            "avg_winner_rate": round(sum(winner_rates) / len(winner_rates), 4) if winner_rates else None,
+            "min_winner_rate": round(min(winner_rates), 4) if winner_rates else None,
+            "max_winner_rate": round(max(winner_rates), 4) if winner_rates else None,
+            "agency_match":    bid.agency_id is not None,
+            "industry_match":  bid.industry_id is not None,
+        },
+    }
+
+
+@router.get("/{bid_id}/inline-decision")
+def inline_decision(
+    bid_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    추천 카드 인라인 의사결정 — GO/NO-GO + 추천금액 + 유사낙찰이력을 단일 호출로 반환.
+    TodayPage 카드 확장 패널 전용.
+    """
+    from ...decision_service import DecisionService
+    from sqlalchemy import text
+
+    # ── 빠른 의사결정 ──────────────────────────────────────────
+    qd = DecisionService().get_quick_decision(db, bid_id, user_id=user.id)
+    if not qd:
+        raise HTTPException(404, "공고를 찾을 수 없습니다")
+
+    bid = db.query(Bid).filter(Bid.id == bid_id).first()
+    base_amount = bid.base_amount or 0
+
+    # ── 유사 낙찰 이력 (최근 5건) ──────────────────────────────
+    lower = max(1, int(base_amount * 0.4))
+    upper = int(base_amount * 2.5)
+
+    sim_rows = db.execute(text("""
+        WITH winners AS (
+            SELECT br.bid_id, br.bid_rate AS winner_rate
+            FROM bid_results br WHERE br.is_winner = true
+        )
+        SELECT b.title, b.base_amount, b.bid_open_date, w.winner_rate,
+               a.name AS agency_name
+        FROM bids b
+        INNER JOIN winners w ON w.bid_id = b.id
+        LEFT JOIN agencies a ON a.id = b.agency_id
+        WHERE b.id != :bid_id
+          AND b.agency_id = :agency_id
+          AND b.base_amount BETWEEN :lower AND :upper
+        ORDER BY b.bid_open_date DESC NULLS LAST
+        LIMIT 5
+    """), {
+        "bid_id": bid_id, "agency_id": bid.agency_id,
+        "lower": lower, "upper": upper,
+    }).fetchall()
+
+    similar_wins = [
+        {
+            "title":        r[0],
+            "base_amount":  int(r[1]) if r[1] else 0,
+            "date":         r[2].strftime("%Y-%m-%d") if r[2] else None,
+            "winner_rate":  float(r[3]) if r[3] else None,
+            "agency_name":  r[4] or "",
+        }
+        for r in sim_rows
+    ]
+
+    winner_rates = [x["winner_rate"] for x in similar_wins if x["winner_rate"]]
+    avg_winner_rate = round(sum(winner_rates) / len(winner_rates), 4) if winner_rates else None
+
+    return {
+        **qd,
+        "similar_wins":      similar_wins,
+        "avg_winner_rate":   avg_winner_rate,
+        "similar_wins_count": len(similar_wins),
+    }

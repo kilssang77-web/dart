@@ -963,6 +963,72 @@ class DecisionService:
             go_score += 0.05
             reasons.append("실증 낙찰자 분포 기반 추천율 활용")
 
+        # ── KISCON 경쟁사 위험도 연동 ──────────────────────────────
+        kiscon_risk_count = 0
+        kiscon_strong_count = 0
+        try:
+            from sqlalchemy import text as _ksql
+            agency_display = db.execute(_ksql(
+                "SELECT name FROM agencies WHERE id = :aid"
+            ), {"aid": agency_id}).scalar() or ""
+
+            if agency_display:
+                # 강점 기관(risk_agencies)에 이 발주처가 있는 경쟁사 수
+                risk_rows = db.execute(_ksql("""
+                    SELECT ckp.corp_name, ckp.win_count_2y, ckp.bid_count_2y
+                    FROM competitor_kiscon_profiles ckp
+                    WHERE :agency LIKE ANY(
+                        SELECT '%' || unnest(ckp.risk_agencies) || '%'
+                    )
+                    AND ckp.win_count_2y > 0
+                    LIMIT 10
+                """), {"agency": agency_display}).fetchall()
+
+                # 주력 기관(top_agencies)에 이 발주처가 있는 경쟁사 수
+                top_rows = db.execute(_ksql("""
+                    SELECT COUNT(*)
+                    FROM competitor_kiscon_profiles ckp
+                    WHERE :agency LIKE ANY(
+                        SELECT '%' || unnest(ckp.top_agencies) || '%'
+                    )
+                    AND ckp.bid_count_2y >= 3
+                """), {"agency": agency_display}).scalar() or 0
+
+                kiscon_risk_count  = len(risk_rows)
+                kiscon_strong_count = int(top_rows)
+
+                if kiscon_risk_count >= 3:
+                    go_score -= 0.12
+                    risks.append(f"KISCON 강점 경쟁사 {kiscon_risk_count}개 — 이 기관 낙찰률 30%+ 업체들")
+                elif kiscon_risk_count >= 1:
+                    go_score -= 0.05
+                    risks.append(f"KISCON 위험 경쟁사 {kiscon_risk_count}개 활동 중")
+
+                if kiscon_strong_count >= 5:
+                    go_score -= 0.05
+                    risks.append(f"주력 경쟁사 {kiscon_strong_count}개 이 기관 집중")
+        except Exception:
+            pass
+
+        # ── 기관 시즌 패턴 반영 ────────────────────────────────────
+        try:
+            from datetime import datetime as _dt2
+            import calendar as _cal
+            open_dt = b.bid_open_date
+            if open_dt:
+                month = open_dt.month if hasattr(open_dt, 'month') else open_dt.split('-')[1]
+                month = int(month)
+                # Q4 예산 소진기 (10-12월): 기관 집중 발주 → 경쟁 심화
+                if month in (10, 11, 12):
+                    go_score -= 0.03
+                    risks.append("Q4 예산소진기 — 경쟁 집중 시기")
+                # Q1 (1-3월): 신규 예산 집행 시작 → 경쟁 완화
+                elif month in (1, 2, 3):
+                    go_score += 0.03
+                    reasons.append("Q1 신규예산기 — 경쟁 완화 시기")
+        except Exception:
+            pass
+
         go_score = round(max(0.0, min(1.0, go_score)), 3)
 
         if go_score >= 0.65:
@@ -1019,13 +1085,15 @@ class DecisionService:
                 "confidence":   signal_confidence,
             },
             "confidence":           round(confidence, 3),
-            "reasons":              reasons[:4],
-            "risk_factors":         risks[:3],
+            "reasons":              reasons[:5],
+            "risk_factors":         risks[:4],
             "expected_competitors": expected_n,
             "agency_win_rate":      round(agency_win_rate, 4) if agency_win_rate else None,
             "best_rate_source":     best_source,
             "position_top4":        position_top4,
             "floor_rate":           floor_rate,
+            "kiscon_risk_count":    kiscon_risk_count,
+            "kiscon_strong_count":  kiscon_strong_count,
         }
 
     def get_pq_floor(self, db: Session, bid_id: int) -> dict:

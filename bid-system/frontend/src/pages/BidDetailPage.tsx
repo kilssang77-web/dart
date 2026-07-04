@@ -3,6 +3,7 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import {
   ArrowLeft, ExternalLink, Sparkles, Target, Handshake, Radar,
   Building2, Trophy, AlertTriangle, FileText, Brain, Shield, Users, BarChart2, TrendingUp, Plus,
+  History,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -14,6 +15,7 @@ import type {
   SrateHistogramResponse, AgencyRecentResultsResponse,
   YegaFrequencyResult, OpportunityScore, ActualWinZonesResponse,
   BidRangeResponse, MetaData, FinalRecommendStrategy, InpoYegaResponse,
+  SimilarWinsResponse,
 } from '@/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -54,6 +56,12 @@ function TabInfo({ bid, score }: { bid: BidDetail; score: OpportunityScore | und
     queryKey: ['inpo-yega', bid.id],
     queryFn: () => bidsApi.yega(bid.id),
     enabled: bid.status === 'closed',
+  })
+
+  const { data: similarWins } = useQuery<SimilarWinsResponse>({
+    queryKey: ['similar-wins', bid.id],
+    queryFn: () => bidsApi.similarWins(bid.id, 8),
+    staleTime: 600_000,
   })
 
   const grade = score?.grade
@@ -316,6 +324,113 @@ function TabInfo({ bid, score }: { bid: BidDetail; score: OpportunityScore | und
           </CardContent>
         </Card>
       )}
+
+      {/* 유사 공고 실제 낙찰 이력 — info21c 대체 핵심 정보 */}
+      <Card className="bg-white border-slate-200 shadow-sm">
+        <CardHeader className="border-b border-slate-100 pb-3">
+          <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
+            <History className="h-4 w-4 text-blue-600" />
+            유사 공고 실제 낙찰 이력
+            {similarWins && similarWins.summary.count > 0 && (
+              <span className="ml-auto text-xs text-slate-500 font-normal">
+                {similarWins.summary.count}건 · 평균 낙찰율{' '}
+                <span className="font-bold text-blue-700">
+                  {similarWins.summary.avg_winner_rate != null
+                    ? `${(similarWins.summary.avg_winner_rate * 100).toFixed(3)}%`
+                    : '-'}
+                </span>
+              </span>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-3 pb-2">
+          {!similarWins ? (
+            <div className="space-y-2">
+              {[0,1,2].map(i => <div key={i} className="h-10 bg-slate-100 rounded animate-pulse" />)}
+            </div>
+          ) : similarWins.items.length === 0 ? (
+            <p className="text-xs text-slate-400 py-4 text-center">
+              동일 기관/공종 낙찰 이력이 없습니다 (데이터 누적 중)
+            </p>
+          ) : (
+            <>
+              {similarWins.summary.avg_winner_rate && (
+                <div className="mb-3 flex gap-4 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2.5 text-xs">
+                  <div>
+                    <p className="text-blue-400">평균 낙찰율</p>
+                    <p className="font-bold text-blue-700 text-sm font-mono">
+                      {(similarWins.summary.avg_winner_rate * 100).toFixed(3)}%
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-blue-400">최저</p>
+                    <p className="font-bold text-blue-700 font-mono">
+                      {similarWins.summary.min_winner_rate != null
+                        ? `${(similarWins.summary.min_winner_rate * 100).toFixed(3)}%`
+                        : '-'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-blue-400">최고</p>
+                    <p className="font-bold text-blue-700 font-mono">
+                      {similarWins.summary.max_winner_rate != null
+                        ? `${(similarWins.summary.max_winner_rate * 100).toFixed(3)}%`
+                        : '-'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-blue-400">분석건수</p>
+                    <p className="font-bold text-slate-700">{similarWins.summary.count}건</p>
+                  </div>
+                </div>
+              )}
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50 hover:bg-slate-50 border-b border-slate-200">
+                    <TableHead className="text-xs text-slate-500">공고명</TableHead>
+                    <TableHead className="text-xs text-right text-slate-500">기초금액</TableHead>
+                    <TableHead className="text-xs text-right text-slate-500">낙찰율</TableHead>
+                    <TableHead className="text-xs text-right text-slate-500">사정율</TableHead>
+                    <TableHead className="text-xs text-right text-slate-500">경쟁자</TableHead>
+                    <TableHead className="text-xs text-right text-slate-500">개찰일</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {similarWins.items.map((item) => (
+                    <TableRow
+                      key={item.bid_id}
+                      className="border-b border-slate-100 last:border-0 hover:bg-slate-50 cursor-pointer"
+                      onClick={() => window.open(`/bids/${item.bid_id}`, '_blank')}
+                    >
+                      <TableCell className="max-w-[200px]">
+                        <p className="text-xs font-medium text-slate-800 truncate">{item.title}</p>
+                        <p className="text-[10px] text-slate-400 truncate">{item.agency_name}</p>
+                      </TableCell>
+                      <TableCell className="text-xs text-right font-mono text-slate-600">
+                        {item.base_amount >= 1e8
+                          ? `${(item.base_amount / 1e8).toFixed(1)}억`
+                          : `${Math.round(item.base_amount / 1e4)}만`}
+                      </TableCell>
+                      <TableCell className="text-xs text-right font-mono font-bold text-blue-700">
+                        {item.winner_rate != null ? `${(item.winner_rate * 100).toFixed(3)}%` : '-'}
+                      </TableCell>
+                      <TableCell className="text-xs text-right font-mono text-slate-500">
+                        {item.assessment_rate != null ? `${(item.assessment_rate * 100).toFixed(3)}%` : '-'}
+                      </TableCell>
+                      <TableCell className="text-xs text-right text-slate-500">
+                        {item.n_bidders > 0 ? `${item.n_bidders}개사` : '-'}
+                      </TableCell>
+                      <TableCell className="text-xs text-right text-slate-400">
+                        {item.bid_open_date ? item.bid_open_date.slice(0, 10) : '-'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

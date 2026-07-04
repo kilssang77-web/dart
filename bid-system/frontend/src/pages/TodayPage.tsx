@@ -2,19 +2,22 @@
  * 오늘의 입찰 — 메인 허브
  * 입찰 담당자가 출근 후 30초 안에 오늘 할 일을 파악하는 화면
  */
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
-  Sparkles, AlertCircle, Clock, Trophy, Target,
+  Sparkles, AlertCircle, Clock, Trophy,
   TrendingUp, TrendingDown, ChevronRight, CheckCircle2,
   Building2, Calendar, Zap, BarChart2, Search, ListChecks, Plus,
-  BookOpen, ClipboardCheck, Crosshair, Bell, X,
+  BookOpen, ClipboardCheck, Crosshair, Bell, X, ChevronDown, ChevronUp,
+  ShieldCheck, ShieldAlert, Minus, Activity, History,
 } from 'lucide-react'
 import { bidsApi, statsApi, selectionApi, kpiApi, executionsApi, journalApi } from '@/api'
-import type { BidRecommendItem, OverviewStatsWithChange, ExecutionSummary, JournalStats, PendingResultItem } from '@/types'
+import type {
+  BidRecommendItem, OverviewStatsWithChange, ExecutionSummary,
+  JournalStats, PendingResultItem, InlineDecision, RecommendationCompliance,
+} from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
@@ -132,6 +135,226 @@ function ScoreBar({ score }: { score: number | null }) {
   )
 }
 
+// ── 인라인 결정 패널 ──────────────────────────────────────
+
+function GradeBadge({ grade }: { grade: string }) {
+  const map: Record<string, string> = {
+    S: 'bg-violet-600 text-white',
+    A: 'bg-emerald-600 text-white',
+    B: 'bg-blue-600 text-white',
+    C: 'bg-amber-500 text-white',
+    F: 'bg-red-500 text-white',
+  }
+  return (
+    <span className={cn('inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold shrink-0', map[grade] ?? 'bg-slate-300 text-slate-700')}>
+      {grade}
+    </span>
+  )
+}
+
+function SignalBar({ label, value }: { label: string; value: number }) {
+  const pct = Math.round(value * 100)
+  const color = pct >= 70 ? 'bg-emerald-500' : pct >= 40 ? 'bg-amber-400' : 'bg-red-400'
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="w-16 text-slate-500 shrink-0 truncate">{label}</span>
+      <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+        <div className={cn('h-1.5 rounded-full', color)} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="w-7 text-right font-mono text-slate-500 shrink-0">{pct}%</span>
+    </div>
+  )
+}
+
+function InlineDecisionPanel({
+  data,
+  baseAmount,
+  onExecute,
+  onFull,
+  isPending,
+}: {
+  data: InlineDecision
+  baseAmount: number
+  onExecute: () => void
+  onFull: () => void
+  isPending: boolean
+}) {
+  const decisionColor =
+    data.go_decision === 'go'   ? 'text-emerald-700 bg-emerald-50 border-emerald-200' :
+    data.go_decision === 'pass' ? 'text-red-700 bg-red-50 border-red-200' :
+                                  'text-amber-700 bg-amber-50 border-amber-200'
+  const decisionLabel =
+    data.go_decision === 'go'   ? 'GO — 참여 권장' :
+    data.go_decision === 'pass' ? 'NO-GO — 참여 비권장' : 'NEUTRAL — 추가 검토'
+  const decisionIcon =
+    data.go_decision === 'go'   ? <ShieldCheck className="h-3.5 w-3.5" /> :
+    data.go_decision === 'pass' ? <ShieldAlert className="h-3.5 w-3.5" /> :
+                                  <Minus className="h-3.5 w-3.5" />
+
+  const fmt = (n: number) => new Intl.NumberFormat('ko-KR').format(Math.round(n))
+
+  return (
+    <div className="mt-2 rounded-xl border bg-slate-50 p-3 space-y-3 text-xs">
+      {/* 판정 헤더 */}
+      <div className="flex items-center gap-2">
+        <GradeBadge grade={data.grade} />
+        <span className={cn('flex items-center gap-1 px-2 py-1 rounded-lg font-semibold border text-xs', decisionColor)}>
+          {decisionIcon}{decisionLabel}
+        </span>
+        <span className="ml-auto text-slate-400 font-mono">낙찰확률 {(data.win_prob * 100).toFixed(1)}%</span>
+      </div>
+
+      {/* 추천 투찰가 */}
+      {data.recommended_rate && (
+        <div className="bg-white border border-blue-100 rounded-lg px-3 py-2.5 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] text-slate-400 mb-0.5">AI 추천 투찰율</p>
+            <p className="text-lg font-bold text-blue-700 font-mono">
+              {(data.recommended_rate * 100).toFixed(4)}%
+            </p>
+          </div>
+          {data.recommended_amount && (
+            <div className="text-right">
+              <p className="text-[10px] text-slate-400 mb-0.5">추천 금액</p>
+              <p className="font-semibold text-slate-700">{fmt(data.recommended_amount)}원</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 신호 분석 */}
+      <div className="space-y-1.5">
+        <SignalBar label="낙찰확률" value={data.signals.win_prob} />
+        <SignalBar label="경쟁강도" value={data.signals.competition} />
+        <SignalBar label="기관승률" value={data.signals.agency_rate} />
+        <SignalBar label="데이터" value={data.signals.data_quality} />
+      </div>
+
+      {/* 근거 & 위험 */}
+      <div className="grid grid-cols-2 gap-2">
+        {data.reasons.length > 0 && (
+          <div>
+            <p className="text-[10px] font-semibold text-emerald-600 mb-1">✓ 긍정 신호</p>
+            {data.reasons.slice(0, 2).map((r, i) => (
+              <p key={i} className="text-slate-600 leading-tight mb-0.5">· {r}</p>
+            ))}
+          </div>
+        )}
+        {data.risk_factors.length > 0 && (
+          <div>
+            <p className="text-[10px] font-semibold text-red-500 mb-1">⚠ 위험 신호</p>
+            {data.risk_factors.slice(0, 2).map((r, i) => (
+              <p key={i} className="text-slate-600 leading-tight mb-0.5">· {r}</p>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 유사 공고 낙찰 이력 */}
+      {data.similar_wins.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold text-slate-500 mb-1.5 flex items-center gap-1">
+            <History className="h-3 w-3" />
+            유사 공고 실제 낙찰율
+            {data.avg_winner_rate && (
+              <span className="ml-auto text-blue-600 font-mono">평균 {(data.avg_winner_rate * 100).toFixed(3)}%</span>
+            )}
+          </p>
+          <div className="space-y-1">
+            {data.similar_wins.slice(0, 3).map((w, i) => (
+              <div key={i} className="flex items-center gap-2 bg-white border border-slate-100 rounded-lg px-2 py-1.5">
+                <div className="flex-1 min-w-0">
+                  <p className="truncate text-slate-700 font-medium">{w.title}</p>
+                  <p className="text-slate-400">{w.date?.slice(0, 7)} · {w.agency_name}</p>
+                </div>
+                {w.winner_rate && (
+                  <span className="font-mono font-bold text-blue-700 shrink-0">
+                    {(w.winner_rate * 100).toFixed(3)}%
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 액션 버튼 */}
+      <div className="flex gap-2 pt-1 border-t border-slate-200">
+        <Button
+          size="sm"
+          className={cn(
+            'flex-1 h-8 text-xs gap-1.5',
+            data.go_decision === 'pass'
+              ? 'bg-slate-400 hover:bg-slate-500 text-white'
+              : 'bg-emerald-600 hover:bg-emerald-700 text-white',
+          )}
+          disabled={isPending}
+          onClick={onExecute}
+        >
+          <Plus className="h-3 w-3" />
+          참여 결정
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="flex-1 h-8 text-xs gap-1 border-blue-200 text-blue-600 hover:bg-blue-50"
+          onClick={onFull}
+        >
+          <Crosshair className="h-3 w-3" />
+          전체 분석
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// ── 추천 이행율 위젯 ─────────────────────────────────────
+
+function ComplianceWidget({ data }: { data: RecommendationCompliance }) {
+  const followed = data.outcomes.followed
+  const deviated = data.outcomes.deviated
+  if (data.with_recommendation === 0) return null
+  return (
+    <Card className="bg-white border-slate-200 shadow-sm">
+      <CardHeader className="pb-2 pt-4 px-4">
+        <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+          <Activity className="h-4 w-4 text-violet-500" />
+          AI 추천 이행 분석
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="px-4 pb-4 space-y-2.5">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-slate-500">추천 이행율</span>
+          <span className="font-bold text-violet-700">
+            {data.follow_rate != null ? `${(data.follow_rate * 100).toFixed(0)}%` : '-'}
+          </span>
+        </div>
+        {data.follow_rate != null && (
+          <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+            <div className="h-1.5 bg-violet-500 rounded-full" style={{ width: `${(data.follow_rate * 100).toFixed(0)}%` }} />
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-2 pt-1">
+          <div className="bg-emerald-50 rounded-lg p-2 text-center">
+            <p className="text-[10px] text-emerald-600 font-medium">추천 따름</p>
+            <p className="text-sm font-bold text-emerald-700">
+              {followed.win_rate != null ? `${(followed.win_rate * 100).toFixed(0)}%` : '-'}
+            </p>
+            <p className="text-[10px] text-emerald-500">{followed.count}건 중 {followed.wins}낙찰</p>
+          </div>
+          <div className="bg-slate-50 rounded-lg p-2 text-center">
+            <p className="text-[10px] text-slate-500 font-medium">추천 무시</p>
+            <p className="text-sm font-bold text-slate-600">
+              {deviated.win_rate != null ? `${(deviated.win_rate * 100).toFixed(0)}%` : '-'}
+            </p>
+            <p className="text-[10px] text-slate-400">{deviated.count}건 중 {deviated.wins}낙찰</p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 interface KPIData {
   total_bids: number
   total_wins: number
@@ -143,6 +366,28 @@ interface KPIData {
 export default function TodayPage() {
   const navigate = useNavigate()
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set())
+  const [expandedBidId, setExpandedBidId] = useState<number | null>(null)
+  const [inlineDataMap, setInlineDataMap] = useState<Record<number, InlineDecision>>({})
+  const [loadingInline, setLoadingInline] = useState<Record<number, boolean>>({})
+
+  const toggleInlineDecision = useCallback(async (bid: BidRecommendItem, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (expandedBidId === bid.bid_id) {
+      setExpandedBidId(null)
+      return
+    }
+    setExpandedBidId(bid.bid_id)
+    if (inlineDataMap[bid.bid_id]) return
+    setLoadingInline((prev) => ({ ...prev, [bid.bid_id]: true }))
+    try {
+      const data = await bidsApi.inlineDecision(bid.bid_id)
+      setInlineDataMap((prev) => ({ ...prev, [bid.bid_id]: data }))
+    } catch {
+      // keep expanded but show nothing
+    } finally {
+      setLoadingInline((prev) => ({ ...prev, [bid.bid_id]: false }))
+    }
+  }, [expandedBidId, inlineDataMap])
 
   const today = new Date()
   const dateStr = today.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })
@@ -193,6 +438,13 @@ export default function TodayPage() {
   const { data: journalStats } = useQuery<JournalStats>({
     queryKey: ['journal-stats'],
     queryFn: () => journalApi.stats(),
+    staleTime: 300_000,
+  })
+
+  // 추천 이행율 분석
+  const { data: compliance } = useQuery<RecommendationCompliance>({
+    queryKey: ['recommendation-compliance'],
+    queryFn: () => statsApi.recommendationCompliance(90),
     staleTime: 300_000,
   })
 
@@ -493,6 +745,9 @@ export default function TodayPage() {
                               {b.quick_go === 'go' && (
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">GO</span>
                               )}
+                              {expandedBidId === b.bid_id && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-blue-100 text-blue-700 border border-blue-200">분석중</span>
+                              )}
                             </div>
                             <p className="text-sm font-semibold text-slate-800 truncate group-hover:text-blue-700 transition-colors">
                               {b.title}
@@ -513,43 +768,64 @@ export default function TodayPage() {
                             <div className="mt-2">
                               <ScoreBar score={b.score} />
                             </div>
+
+                            {/* 인라인 결정 패널 */}
+                            {expandedBidId === b.bid_id && (
+                              loadingInline[b.bid_id] ? (
+                                <div className="mt-2 space-y-1.5">
+                                  <Skeleton className="h-10 w-full" />
+                                  <Skeleton className="h-16 w-full" />
+                                  <Skeleton className="h-12 w-full" />
+                                </div>
+                              ) : inlineDataMap[b.bid_id] ? (
+                                <InlineDecisionPanel
+                                  data={inlineDataMap[b.bid_id]}
+                                  baseAmount={b.base_amount}
+                                  isPending={createExecMutation.isPending}
+                                  onFull={() => navigate(`/decision?bid=${b.bid_id}`)}
+                                  onExecute={() => {
+                                    createExecMutation.mutate({
+                                      title: b.title,
+                                      agency_name: b.agency_name,
+                                      base_amount: b.base_amount,
+                                      bid_open_date: b.open_date ?? undefined,
+                                    })
+                                  }}
+                                />
+                              ) : (
+                                <p className="mt-2 text-xs text-red-500">분석 데이터를 불러올 수 없습니다.</p>
+                              )
+                            )}
                           </div>
 
                           <div className="flex flex-col gap-1 shrink-0">
                             <Button
                               size="sm"
-                              className="h-7 px-2.5 text-xs gap-1 bg-blue-600 hover:bg-blue-700 text-white"
-                              onClick={(e) => { e.stopPropagation(); navigate(`/decision?bid=${b.bid_id}`) }}
+                              className={cn(
+                                'h-7 px-2.5 text-xs gap-1',
+                                expandedBidId === b.bid_id
+                                  ? 'bg-slate-600 hover:bg-slate-700 text-white'
+                                  : 'bg-blue-600 hover:bg-blue-700 text-white',
+                              )}
+                              onClick={(e) => toggleInlineDecision(b, e)}
                             >
-                              <Crosshair className="h-3 w-3" />
-                              AI 투찰 결정
+                              {loadingInline[b.bid_id] ? (
+                                <span className="h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              ) : expandedBidId === b.bid_id ? (
+                                <ChevronUp className="h-3 w-3" />
+                              ) : (
+                                <Crosshair className="h-3 w-3" />
+                              )}
+                              {expandedBidId === b.bid_id ? '닫기' : 'AI 결정'}
                             </Button>
                             <Button
                               size="sm"
                               variant="ghost"
                               className="h-7 px-2.5 text-xs gap-1 text-slate-500 hover:text-blue-600 hover:bg-blue-50"
-                              onClick={(e) => { e.stopPropagation(); navigate(`/bids/${b.bid_id}?tab=strategy`) }}
+                              onClick={(e) => { e.stopPropagation(); navigate(`/bids/${b.bid_id}`) }}
                             >
-                              전략
+                              상세
                               <ChevronRight className="h-3 w-3" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 px-2.5 text-xs gap-1 text-violet-600 hover:text-violet-700 hover:bg-violet-50"
-                              disabled={createExecMutation.isPending}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                createExecMutation.mutate({
-                                  title: b.title,
-                                  agency_name: b.agency_name,
-                                  base_amount: b.base_amount,
-                                  bid_open_date: b.open_date ?? undefined,
-                                })
-                              }}
-                            >
-                              <Plus className="h-3 w-3" />
-                              등록
                             </Button>
                           </div>
                         </div>
@@ -683,6 +959,11 @@ export default function TodayPage() {
                   )}
                 </CardContent>
               </Card>
+            )}
+
+            {/* 추천 이행율 분석 위젯 */}
+            {compliance && compliance.with_recommendation > 0 && (
+              <ComplianceWidget data={compliance} />
             )}
 
             {/* AI 피드백 현황 */}

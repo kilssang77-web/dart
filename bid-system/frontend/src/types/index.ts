@@ -2035,3 +2035,102 @@ export interface AgencyBudgetSurgeForecast {
   months_ahead: number
   min_surge_index: number
 }
+
+// ── 유사 낙찰 이력 ────────────────────────────────────────
+
+export interface SimilarWinItem {
+  bid_id:           number
+  title:            string
+  base_amount:      number
+  bid_open_date:    string | null
+  announcement_no:  string | null
+  agency_name:      string
+  industry_name:    string
+  winner_rate:      number | null
+  assessment_rate:  number | null
+  n_bidders:        number
+}
+
+export interface SimilarWinsResponse {
+  bid_id:  number
+  items:   SimilarWinItem[]
+  summary: {
+    count:           number
+    avg_winner_rate: number | null
+    min_winner_rate: number | null
+    max_winner_rate: number | null
+    agency_match:    boolean
+    industry_match:  boolean
+  }
+}
+
+// ── 인라인 의사결정 ───────────────────────────────────────
+
+export interface InlineDecisionSignals {
+  win_prob:     number
+  competition:  number
+  data_quality: number
+  agency_rate:  number
+  confidence:   number
+}
+
+export interface InlineDecisionSimilarWin {
+  title:       string
+  base_amount: number
+  date:        string | null
+  winner_rate: number | null
+  agency_name: string
+}
+
+export interface InlineDecision {
+  bid_id:               number
+  title:                string
+  base_amount:          number
+  recommended_rate:     number | null
+  recommended_amount:   number | null
+  win_prob:             number
+  go_decision:          'go' | 'neutral' | 'pass'
+  go_score:             number
+  grade:                'S' | 'A' | 'B' | 'C' | 'F'
+  data_quality_level:   number
+  signals:              InlineDecisionSignals
+  confidence:           number
+  reasons:              string[]
+  risk_factors:         string[]
+  expected_competitors: number
+  agency_win_rate:      number | null
+  floor_rate:           number | null
+  similar_wins:         InlineDecisionSimilarWin[]
+  avg_winner_rate:      number | null
+  similar_wins_count:   number
+}
+
+// ── 추천 이행율 & 결과 추적 ──────────────────────────────
+
+export interface ComplianceItem {
+  id:               number
+  title:            string
+  agency_name:      string | null
+  submitted_rate:   number | null
+  recommended_rate: number | null
+  status:           string
+  bid_open_date:    string | null
+  winner_rate:      number | null
+  base_amount:      number
+  followed:         boolean | null
+}
+
+export interface RecommendationCompliance {
+  period_days:         number
+  total_executions:    number
+  with_recommendation: number
+  followed_count:      number
+  deviated_count:      number
+  follow_rate:         number | null
+  concluded_count:     number
+  outcomes: {
+    followed: { count: number; win_rate: number | null; wins: number }
+    deviated: { count: number; win_rate: number | null; wins: number }
+  }
+  recent_items: ComplianceItem[]
+}

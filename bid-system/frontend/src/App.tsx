@@ -60,14 +60,14 @@ export default function App() {
           }
         >
           <Route index element={<Navigate to="/today" replace />} />
-          <Route path="dashboard"    element={<DashboardPage />} />
+          <Route path="dashboard"    element={<Navigate to="/today" replace />} />
           <Route path="today"        element={<TodayPage />} />
           <Route path="performance"  element={<PerformancePage />} />
           <Route path="bids"                       element={<BidsPage />} />
           <Route path="bids/:id"                 element={<BidDetailPage />} />
           <Route path="bids/:id/final-recommend" element={<TenderRecommendPage />} />
           <Route path="bids/:id/joint-sim"      element={<JointSimPage />} />
-          <Route path="recommend"   element={<RecommendPage />} />
+          <Route path="recommend"   element={<Navigate to="/today" replace />} />
           <Route path="competitors" element={<CompetitorPage />} />
           <Route path="statistics"  element={<StatisticsPage />} />
           <Route path="keywords"    element={<KeywordsPage />} />

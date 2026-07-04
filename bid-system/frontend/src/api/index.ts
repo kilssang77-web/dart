@@ -76,6 +76,10 @@ export const bidsApi = {
     api.get(`/bids/${bidId}/yega`).then((r) => r.data),
   participantStats: (bidId: number): Promise<import('../types').ParticipantStats> =>
     api.get(`/bids/${bidId}/participant-stats`).then((r) => r.data),
+  similarWins: (bidId: number, limit = 8): Promise<import('../types').SimilarWinsResponse> =>
+    api.get(`/bids/${bidId}/similar-wins`, { params: { limit } }).then((r) => r.data),
+  inlineDecision: (bidId: number): Promise<import('../types').InlineDecision> =>
+    api.get(`/bids/${bidId}/inline-decision`).then((r) => r.data),
 }
 
 // -- 시장 인텔리전스 --------------------------------------------------
@@ -165,6 +169,8 @@ export const statsApi = {
     api.get('/stats/top-srate-trends', { params: { limit } }).then((r) => r.data),
   ourWinMap: (months = 24, topAgencies = 15): Promise<import('../types').OurWinMap> =>
     api.get('/stats/our-win-map', { params: { months, top_agencies: topAgencies } }).then((r) => r.data),
+  recommendationCompliance: (days = 90): Promise<import('../types').RecommendationCompliance> =>
+    api.get('/stats/recommendation-compliance', { params: { days } }).then((r) => r.data),
 }
 
 // -- 키워드 --------------------------------------------------

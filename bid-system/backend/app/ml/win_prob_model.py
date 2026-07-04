@@ -32,10 +32,18 @@ CALIB_PATH    = MODEL_DIR / "win_prob_calibrator.pkl" # Isotonic 캘리브레이
 
 FEATURE_COLS = [
     "bid_rate",
-    "inv_n_comp",     # 1/n_competitors → 경쟁 강도 역수
+    "inv_n_comp",       # 1/n_competitors → 경쟁 강도 역수
     "srate",
     "bid_vs_floor",
-    "win_rank_est",   # GMM CDF at bid_rate ≈ 경쟁자 대비 상위 비율 (학습/추론 일관)
+    "win_rank_est",     # GMM CDF at bid_rate ≈ 경쟁자 대비 상위 비율 (학습/추론 일관)
+    "agency_win_rate",  # 기관 역사 낙찰율 (inpo21c 기반)
+    "month_sin",        # 개찰월 사인 인코딩 (계절성)
+    "month_cos",        # 개찰월 코사인 인코딩 (계절성)
+]
+
+# v2 이전 모델 호환 (5-feature): inference 시 model file 크기로 자동 감지
+FEATURE_COLS_V2 = [
+    "bid_rate", "inv_n_comp", "srate", "bid_vs_floor", "win_rank_est",
 ]
 
 _DEFAULT_FLOOR = 0.8745
@@ -59,13 +67,14 @@ def _load_meta() -> dict:
 
 def train(db, floor_rate: float = _DEFAULT_FLOOR) -> dict:
     """
-    inpo21c 복수예가 데이터로 낙찰확률 모델 v2 학습.
+    inpo21c 복수예가 데이터로 낙찰확률 모델 v3 학습.
 
-    변경점:
-      · per-bid avg/std → bid_z_score 계산
-      · inv_n_comp 피처 추가
+    v3 개선사항:
+      · agency_win_rate: 기관 역사 낙찰율 피처 추가 (inpo21c 집계)
+      · month_sin/cos: 개찰월 사이클 인코딩 (계절성 반영)
+      · inv_n_comp: 경쟁 강도 역수
       · scale_pos_weight^0.5 완화 (과도한 positive 쏠림 방지)
-      · early_stopping=100, n_estimators=2000 (충분한 학습 보장)
+      · early_stopping=100, n_estimators=2000
 
     Returns:
         dict: success, n_train, n_pos, auc, feature_importance, meta
@@ -88,7 +97,9 @@ def train(db, floor_rate: float = _DEFAULT_FLOOR) -> dict:
             ib.yega_ratio / 100.0                                  AS srate,
             ip.is_winner::int                                      AS won,
             cnt.avg_bid_rate,
-            cnt.std_bid_rate
+            cnt.std_bid_rate,
+            COALESCE(awr.agency_win_rate, 0.10)                    AS agency_win_rate,
+            EXTRACT(MONTH FROM ib.open_datetime)::int              AS open_month
         FROM inpo21c_participants ip
         JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = ip.inpo21c_bid_id
         JOIN (
@@ -103,6 +114,17 @@ def train(db, floor_rate: float = _DEFAULT_FLOOR) -> dict:
             GROUP BY inpo21c_bid_id
             HAVING COUNT(*) BETWEEN 3 AND 100
         ) cnt ON cnt.inpo21c_bid_id = ip.inpo21c_bid_id
+        LEFT JOIN (
+            SELECT
+                ib2.agency_name,
+                AVG(CASE WHEN ip2.is_winner THEN 1.0 ELSE 0.0 END) AS agency_win_rate
+            FROM inpo21c_participants ip2
+            JOIN inpo21c_bids ib2 ON ib2.inpo21c_bid_id = ip2.inpo21c_bid_id
+            WHERE ip2.bid_rate BETWEEN 0.80 AND 1.05
+              AND ip2.company_name != '유찰'
+            GROUP BY ib2.agency_name
+            HAVING COUNT(*) >= 10
+        ) awr ON awr.agency_name = ib.agency_name
         WHERE ip.bid_rate BETWEEN 0.80 AND 1.05
           AND ip.company_name != '유찰'
           AND ib.yega_ratio BETWEEN 87 AND 105
@@ -246,13 +268,17 @@ def _load_calibrator():
 
 
 def predict(
-    bid_rate:      float,
-    srate:         float,
-    n_competitors: int,
-    floor_rate:    float = _DEFAULT_FLOOR,
+    bid_rate:        float,
+    srate:           float,
+    n_competitors:   int,
+    floor_rate:      float = _DEFAULT_FLOOR,
+    agency_win_rate: float = 0.10,
+    open_month:      int   = 6,
 ) -> float:
     """
     단일 투찰율에 대한 낙찰확률 반환 (캘리브레이션 적용).
+    v3: agency_win_rate, open_month 피처 추가.
+    구버전 모델(5-feature) 자동 호환.
     모델 미존재 시 -1.0 (호출측에서 fallback 처리).
     """
     if not MODEL_PATH.exists() or not IMPUTER_PATH.exists():
@@ -263,10 +289,15 @@ def predict(
         imputer    = joblib.load(IMPUTER_PATH)
         calibrator = _load_calibrator()
         meta       = _load_meta()
-        row   = _make_row(bid_rate, n_competitors, srate, floor_rate, meta)
-        X     = np.array([row], dtype=float)
-        X_imp = imputer.transform(X)
-        prob  = float(model.predict_proba(X_imp)[0, 1])
+
+        full_row = _make_row(bid_rate, n_competitors, srate, floor_rate, meta,
+                             agency_win_rate, open_month)
+        # 구버전 모델(5-feature) 자동 호환
+        n_feat = getattr(imputer, "n_features_in_", len(FEATURE_COLS))
+        row    = full_row[:n_feat]
+        X      = np.array([row], dtype=float)
+        X_imp  = imputer.transform(X)
+        prob   = float(model.predict_proba(X_imp)[0, 1])
         if calibrator is not None:
             prob = float(calibrator.predict([prob])[0])
         return round(prob, 6)
@@ -373,14 +404,45 @@ def _gmm_cdf(bid_rate: float, meta: dict) -> float:
 
 
 def _make_row(
+    bid_rate:        float,
+    n_competitors:   int,
+    srate:           float,
+    floor_rate:      float,
+    meta:            dict,
+    agency_win_rate: float = 0.10,
+    open_month:      int   = 6,
+) -> list[float]:
+    inv_n        = 1.0 / max(n_competitors, 1)
+    win_rank_est = _gmm_cdf(bid_rate, meta)
+    import math as _math
+    month_sin = _math.sin(2 * _math.pi * open_month / 12)
+    month_cos = _math.cos(2 * _math.pi * open_month / 12)
+
+    row = [
+        bid_rate,
+        inv_n,
+        srate,
+        bid_rate - (floor_rate * srate),
+        win_rank_est,
+        agency_win_rate,
+        month_sin,
+        month_cos,
+    ]
+    # 구버전 모델(5-feature) 호환: model이 5피처면 앞 5개만 사용
+    # → predict()에서 model의 feature 수에 따라 슬라이싱
+    return row
+
+
+def _make_row_v2(
     bid_rate:      float,
     n_competitors: int,
     srate:         float,
     floor_rate:    float,
     meta:          dict,
 ) -> list[float]:
+    """v2 모델 (5-feature) 호환용."""
     inv_n        = 1.0 / max(n_competitors, 1)
-    win_rank_est = _gmm_cdf(bid_rate, meta)   # P(경쟁자 < my_bid) — 높을수록 상위
+    win_rank_est = _gmm_cdf(bid_rate, meta)
     return [
         bid_rate,
         inv_n,
@@ -392,18 +454,25 @@ def _make_row(
 
 def _build_features(rows, floor_rate: float):
     import pandas as pd
+    import math as _math
     df = pd.DataFrame(
         rows,
-        columns=["bid_rate", "n_competitors", "srate", "won", "avg_bid_rate", "std_bid_rate"],
+        columns=["bid_rate", "n_competitors", "srate", "won",
+                 "avg_bid_rate", "std_bid_rate", "agency_win_rate", "open_month"],
     )
-    for col in ["bid_rate", "n_competitors", "srate", "won", "avg_bid_rate", "std_bid_rate"]:
+    for col in ["bid_rate", "n_competitors", "srate", "won",
+                "avg_bid_rate", "std_bid_rate", "agency_win_rate", "open_month"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
     df = df.dropna(subset=["bid_rate", "n_competitors", "won"])
+    df["agency_win_rate"] = df["agency_win_rate"].fillna(0.10)
+    df["open_month"]      = df["open_month"].fillna(6).astype(int)
 
-    df["inv_n_comp"]   = 1.0 / df["n_competitors"].clip(lower=1)
-    df["bid_vs_floor"] = df["bid_rate"] - (floor_rate * df["srate"].fillna(0.90))
+    df["inv_n_comp"]      = 1.0 / df["n_competitors"].clip(lower=1)
+    df["bid_vs_floor"]    = df["bid_rate"] - (floor_rate * df["srate"].fillna(0.90))
+    df["month_sin"]       = df["open_month"].apply(lambda m: _math.sin(2 * _math.pi * m / 12))
+    df["month_cos"]       = df["open_month"].apply(lambda m: _math.cos(2 * _math.pi * m / 12))
     # win_rank_est는 GMM 피팅 후 batch 계산 (train()에서 호출 시점에 GMM 확정)
-    df["win_rank_est"] = 0.5   # 초기값; train()에서 GMM 피팅 후 덮어씀
+    df["win_rank_est"]    = 0.5   # 초기값; train()에서 GMM 피팅 후 덮어씀
 
     return df
