@@ -565,8 +565,8 @@ class RecommenderService:
                     SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11
                     WHERE NOT EXISTS (
                         SELECT 1 FROM feature_events
-                        WHERE code       = $1
-                          AND event_type = $3
+                        WHERE code::text       = $1
+                          AND event_type::text = $3
                           AND detected_at >= DATE_TRUNC('day', $2::timestamptz)
                           AND detected_at <  DATE_TRUNC('day', $2::timestamptz) + INTERVAL '1 day'
                     )
