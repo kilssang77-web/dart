@@ -52,7 +52,7 @@ function SummaryCard({
       </div>
       <div className={clsx(
         'text-lg font-bold',
-        color ?? (positive === true ? 'text-green-400' : positive === false ? 'text-red-400' : 'text-[var(--fg)]')
+        color ?? (positive === true ? 'text-red-400' : positive === false ? 'text-blue-400' : 'text-[var(--fg)]')
       )}>
         {value}
       </div>
@@ -609,10 +609,10 @@ export function TraderPage() {
                         <div>{pct(pnlPct)}</div>
                         <div className="text-xs">{pnlAmt != null ? krw(pnlAmt) : '—'}</div>
                       </td>
-                      <td className="px-4 py-3 text-right text-green-400/70 font-mono text-xs">
+                      <td className="px-4 py-3 text-right text-red-400/70 font-mono text-xs">
                         {pos.target_price?.toLocaleString() ?? '—'}
                       </td>
-                      <td className="px-4 py-3 text-right text-red-400/70 font-mono text-xs">
+                      <td className="px-4 py-3 text-right text-blue-400/70 font-mono text-xs">
                         {pos.stop_loss_price?.toLocaleString() ?? '—'}
                       </td>
                       <td className="px-4 py-3 text-center text-xs text-[var(--muted)]">{pos.entry_date}</td>
@@ -676,8 +676,8 @@ export function TraderPage() {
                           {pct(pos.pnl_pct)} / {krw(pos.pnl_amount)}
                         </td>
                         <td className="px-4 py-2 text-center text-[var(--muted)]">
-                          {pos.close_reason === 'TARGET_HIT' ? <span className="text-green-400">목표도달</span>
-                          : pos.close_reason === 'STOP_HIT'  ? <span className="text-red-400">손절</span>
+                          {pos.close_reason === 'TARGET_HIT' ? <span className="text-red-400">목표도달</span>
+                          : pos.close_reason === 'STOP_HIT'  ? <span className="text-blue-400">손절</span>
                           : pos.close_reason === 'MANUAL'    ? '수동'
                           : pos.close_reason}
                         </td>
@@ -730,7 +730,7 @@ export function TraderPage() {
                     <td className="px-4 py-3 text-center">
                       <span className={clsx(
                         'px-2 py-0.5 rounded-full border font-semibold',
-                        o.side === 'BUY' ? 'border-green-500/30 text-green-400' : 'border-red-500/30 text-red-400'
+                        o.side === 'BUY' ? 'border-red-500/30 text-red-400' : 'border-blue-500/30 text-blue-400'
                       )}>
                         {o.side === 'BUY' ? '매수' : '매도'}
                       </span>
@@ -787,16 +787,16 @@ export function TraderPage() {
                 ) : pnlData.map(d => (
                   <tr key={d.trade_date} className="border-b border-[var(--border)] hover:bg-[var(--border)]/20 text-xs">
                     <td className="px-4 py-3 font-semibold">{d.trade_date}</td>
-                    <td className={clsx('px-4 py-3 text-right font-bold', d.realized_pnl >= 0 ? 'text-green-400' : 'text-red-400')}>
+                    <td className={clsx('px-4 py-3 text-right font-bold', d.realized_pnl >= 0 ? 'text-red-400' : 'text-blue-400')}>
                       {krw(d.realized_pnl)}
                     </td>
                     <td className="px-4 py-3 text-right text-[var(--muted)]">{krw(d.buy_amount)}</td>
                     <td className="px-4 py-3 text-right text-[var(--muted)]">{krw(d.sell_amount)}</td>
                     <td className="px-4 py-3 text-center">{d.total_trades}</td>
                     <td className="px-4 py-3 text-center">
-                      <span className="text-green-400">{d.win_trades}승</span> / <span className="text-red-400">{d.loss_trades}패</span>
+                      <span className="text-red-400">{d.win_trades}승</span> / <span className="text-blue-400">{d.loss_trades}패</span>
                     </td>
-                    <td className={clsx('px-4 py-3 text-right font-semibold', (d.win_rate ?? 0) >= 50 ? 'text-green-400' : 'text-red-400')}>
+                    <td className={clsx('px-4 py-3 text-right font-semibold', (d.win_rate ?? 0) >= 50 ? 'text-red-400' : 'text-blue-400')}>
                       {d.win_rate != null ? `${d.win_rate.toFixed(1)}%` : '—'}
                     </td>
                     <td className="px-4 py-3 text-center">
@@ -843,20 +843,20 @@ export function TraderPage() {
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span className={clsx('px-2 py-0.5 rounded-full border text-xs',
-                        o.side === 'BUY' ? 'border-green-500/30 text-green-400' : 'border-red-500/30 text-red-400'
+                        o.side === 'BUY' ? 'border-red-500/30 text-red-400' : 'border-blue-500/30 text-blue-400'
                       )}>{o.side === 'BUY' ? '자동매수' : '자동매도'}</span>
                     </td>
                     <td className="px-4 py-3 text-right font-mono">{o.avg_filled_price?.toLocaleString() ?? o.order_price.toLocaleString()}</td>
                     <td className="px-4 py-3 text-right font-mono">{o.filled_qty || o.order_qty}</td>
                     <td className="px-4 py-3 text-right">
                       {o.rec_prob != null ? (
-                        <span className={clsx('font-semibold', o.rec_prob >= 0.5 ? 'text-green-400' : 'text-[var(--muted)]')}>
+                        <span className={clsx('font-semibold', o.rec_prob >= 0.5 ? 'text-red-400' : 'text-[var(--muted)]')}>
                           {(o.rec_prob * 100).toFixed(1)}%
                         </span>
                       ) : '—'}
                     </td>
-                    <td className="px-4 py-3 text-right text-green-400/70 font-mono">{(o as any).rec_target?.toLocaleString() ?? '—'}</td>
-                    <td className="px-4 py-3 text-right text-red-400/70 font-mono">{(o as any).rec_stop?.toLocaleString() ?? '—'}</td>
+                    <td className="px-4 py-3 text-right text-red-400/70 font-mono">{(o as any).rec_target?.toLocaleString() ?? '—'}</td>
+                    <td className="px-4 py-3 text-right text-blue-400/70 font-mono">{(o as any).rec_stop?.toLocaleString() ?? '—'}</td>
                     <td className="px-4 py-3 text-center">
                       <span className={clsx('px-2 py-0.5 rounded-full border', statusBadge(o.status))}>{o.status}</span>
                     </td>

@@ -38,20 +38,20 @@ function StatusBadge({ hit_target, hit_stop, is_success }: {
   is_success?: boolean | null
 }) {
   if (hit_target) return (
-    <span className="flex items-center gap-1 text-xs text-green-400 font-semibold">
+    <span className="flex items-center gap-1 text-xs text-red-400 font-semibold">
       <CheckCircle2 size={11} /> 목표달성
     </span>
   )
   if (hit_stop) return (
-    <span className="flex items-center gap-1 text-xs text-red-400 font-semibold">
+    <span className="flex items-center gap-1 text-xs text-blue-400 font-semibold">
       <XCircle size={11} /> 손절
     </span>
   )
   if (is_success === true) return (
-    <span className="text-xs text-green-400 font-semibold">성공</span>
+    <span className="text-xs text-red-400 font-semibold">성공</span>
   )
   if (is_success === false) return (
-    <span className="text-xs text-red-400 font-semibold">실패</span>
+    <span className="text-xs text-blue-400 font-semibold">실패</span>
   )
   return <span className="flex items-center gap-1 text-xs text-cyan-400"><Clock size={10} /> 추적중</span>
 }
@@ -125,7 +125,7 @@ export function PerformanceTracking() {
 
   const distData = ['10%+', '5~10%', '0~5%', '-5~0%', '-5%↓'].map((b) => ({
     bucket: b, count: returnDist[b] ?? 0,
-    fill: b.startsWith('-') ? '#f87171' : '#4ade80',
+    fill: b.startsWith('-') ? '#3b82f6' : '#ef4444',
   }))
 
   return (
@@ -168,9 +168,9 @@ export function PerformanceTracking() {
           <StatCard label="추적 중" value={summary.active_count.toString()} sub="BUY 추천" valueColor="text-cyan-400" />
           <StatCard label="완료" value={summary.completed.toLocaleString()} sub={`최근 ${summary.days}일`} valueColor="text-[var(--fg)]" />
           <StatCard label="승률" value={`${summary.win_rate.toFixed(1)}%`} sub="5일 기준"
-            valueColor={summary.win_rate >= 55 ? 'text-green-400' : summary.win_rate >= 40 ? 'text-yellow-400' : 'text-red-400'} />
-          <StatCard label="목표 달성" value={summary.hit_target.toString()} sub="hit_target" valueColor="text-green-400" />
-          <StatCard label="손절 발생" value={summary.hit_stop.toString()} sub="hit_stop" valueColor="text-red-400" />
+            valueColor={summary.win_rate >= 55 ? 'text-red-400' : summary.win_rate >= 40 ? 'text-yellow-400' : 'text-blue-400'} />
+          <StatCard label="목표 달성" value={summary.hit_target.toString()} sub="hit_target" valueColor="text-red-400" />
+          <StatCard label="손절 발생" value={summary.hit_stop.toString()} sub="hit_stop" valueColor="text-blue-400" />
           <StatCard label="평균 5일 수익" value={`${summary.avg_return_5d >= 0 ? '+' : ''}${summary.avg_return_5d.toFixed(2)}%`} sub="완료 건"
             valueColor={pctColor(summary.avg_return_5d)} />
         </div>
@@ -226,7 +226,7 @@ export function PerformanceTracking() {
                 <Legend formatter={(v) => v === 'avg_r1d' ? '1일 평균%' : v === 'avg_r5d' ? '5일 평균%' : '승률%'} />
                 <Bar yAxisId="wr" dataKey="win_rate" fill="#22d3ee" opacity={0.3} radius={[2, 2, 0, 0]} name="win_rate" />
                 <Line yAxisId="ret" type="monotone" dataKey="avg_r1d" stroke="#f87171" strokeWidth={2} dot={{ r: 3 }} name="avg_r1d" connectNulls />
-                <Line yAxisId="ret" type="monotone" dataKey="avg_r5d" stroke="#4ade80" strokeWidth={2} dot={{ r: 3 }} name="avg_r5d" connectNulls />
+                <Line yAxisId="ret" type="monotone" dataKey="avg_r5d" stroke="#f97316" strokeWidth={2} dot={{ r: 3 }} name="avg_r5d" connectNulls />
               </ComposedChart>
             </ResponsiveContainer>
           </CardBody>
@@ -266,7 +266,7 @@ export function PerformanceTracking() {
                       <td className="py-2 text-right tabular text-[var(--muted)]">{ev.evaluated}</td>
                       <td className="py-2 text-right tabular">
                         {ev.win_rate != null
-                          ? <span className={clsx('font-semibold', ev.win_rate >= 60 ? 'text-green-400' : ev.win_rate >= 40 ? 'text-yellow-400' : 'text-red-400')}>
+                          ? <span className={clsx('font-semibold', ev.win_rate >= 60 ? 'text-red-400' : ev.win_rate >= 40 ? 'text-yellow-400' : 'text-blue-400')}>
                               {ev.win_rate.toFixed(1)}%
                             </span>
                           : <span className="text-[var(--muted)]">—</span>}
@@ -323,8 +323,8 @@ export function PerformanceTracking() {
                         <div className="text-[var(--muted)] font-mono">{a.code}</div>
                       </td>
                       <td className="py-2 text-right tabular text-[var(--fg)]">{fmt.price(a.entry_price)}</td>
-                      <td className="py-2 text-right tabular text-green-400">{fmt.price(a.target_price)}</td>
-                      <td className="py-2 text-right tabular text-red-400">{fmt.price(a.stop_loss_price)}</td>
+                      <td className="py-2 text-right tabular text-red-400">{fmt.price(a.target_price)}</td>
+                      <td className="py-2 text-right tabular text-blue-400">{fmt.price(a.stop_loss_price)}</td>
                       <td className="py-2 text-right tabular">
                         <span className={clsx('font-bold', scoreBarColor(probToScore(a.success_prob)).replace('bg-', 'text-'))}>{probToScore(a.success_prob)}점</span>
                         <span className="text-[var(--muted)] text-[10px] ml-0.5">{(a.success_prob * 100).toFixed(0)}%</span>
@@ -380,7 +380,7 @@ export function PerformanceTracking() {
                 </thead>
                 <tbody className="divide-y divide-[var(--border)]">
                   {history.map((h) => (
-                    <tr key={h.id} className={clsx('hover:bg-white/5', h.is_success === true && 'bg-green-500/3', h.is_success === false && 'bg-red-500/3')}>
+                    <tr key={h.id} className={clsx('hover:bg-white/5', h.is_success === true && 'bg-red-500/3', h.is_success === false && 'bg-blue-500/3')}>
                       <td className="py-2">
                         <div className="font-semibold text-[var(--fg)]">{h.name}</div>
                         <div className="text-[var(--muted)] font-mono">{h.code}</div>
@@ -397,7 +397,7 @@ export function PerformanceTracking() {
                       <td className="py-2 text-right"><ReturnCell value={h.r_10d} /></td>
                       <td className="py-2 text-right">
                         {h.max_return != null
-                          ? <span className="tabular text-green-400 font-semibold">+{h.max_return.toFixed(2)}%</span>
+                          ? <span className="tabular text-red-400 font-semibold">+{h.max_return.toFixed(2)}%</span>
                           : <span className="text-[var(--muted)]">—</span>}
                       </td>
                       <td className="py-2 text-center">

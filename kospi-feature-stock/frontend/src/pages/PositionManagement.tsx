@@ -10,7 +10,7 @@ function pct(v?: number | null) {
 
 function statusColor(v?: number | null) {
   if (v == null) return 'text-[var(--muted)]'
-  return v >= 0 ? 'text-green-400' : 'text-red-400'
+  return v >= 0 ? 'text-red-400' : 'text-blue-400'
 }
 
 function daysAgo(signal_time: string) {
@@ -52,11 +52,11 @@ function PositionRow({ item }: { item: TrackingItem }) {
       </td>
       <td className="px-4 py-3 text-center">
         {item.hit_target ? (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-green-500/10 text-green-400">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-red-500/10 text-red-400">
             <Target size={10} /> 목표도달
           </span>
         ) : item.hit_stop ? (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-red-500/10 text-red-400">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-blue-500/10 text-blue-400">
             <ShieldOff size={10} /> 손절
           </span>
         ) : (
@@ -73,7 +73,7 @@ function SummaryCard({ label, value, sub, positive }: { label: string; value: st
   return (
     <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
       <div className="text-xs text-[var(--muted)] mb-1">{label}</div>
-      <div className={`text-xl font-bold ${positive === true ? 'text-green-400' : positive === false ? 'text-red-400' : ''}`}>
+      <div className={`text-xl font-bold ${positive === true ? 'text-red-400' : positive === false ? 'text-blue-400' : ''}`}>
         {value}
       </div>
       {sub && <div className="text-xs text-[var(--muted)] mt-0.5">{sub}</div>}

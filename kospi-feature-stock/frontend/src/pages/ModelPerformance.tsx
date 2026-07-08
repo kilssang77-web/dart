@@ -250,9 +250,9 @@ export function ModelPerformance() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="기간 추천 건수" value={totalRecs.toLocaleString()} sub={`최근 ${trendDays}일`} valueColor="text-[var(--fg)]" />
         <StatCard label="승률" value={`${avgWinRate}%`} sub="5일 기준"
-          valueColor={avgWinRate >= 55 ? 'text-green-400' : avgWinRate >= 40 ? 'text-yellow-400' : 'text-red-400'} />
+          valueColor={avgWinRate >= 55 ? 'text-red-400' : avgWinRate >= 40 ? 'text-yellow-400' : 'text-blue-400'} />
         <StatCard label="평균 5일 수익률" value={`${avgReturn5d}%`} sub="완료된 추천"
-          valueColor={parseFloat(avgReturn5d) >= 0 ? 'text-green-400' : 'text-red-400'} />
+          valueColor={parseFloat(avgReturn5d) >= 0 ? 'text-red-400' : 'text-blue-400'} />
         <StatCard label="이벤트 유형 수" value={eventPerf.length.toString()} sub={`최근 ${eventDays}일 활성`} valueColor="text-cyan-400" />
       </div>
 
@@ -300,7 +300,7 @@ export function ModelPerformance() {
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <ReferenceLine yAxisId="left" y={50} stroke="#71717a" strokeDasharray="4 4" />
                 <Line yAxisId="left" type="monotone" dataKey="win_rate" name="승률"
-                  stroke="#4ade80" strokeWidth={2} dot={false} />
+                  stroke="#ef4444" strokeWidth={2} dot={false} />
                 <Line yAxisId="right" type="monotone" dataKey="avg_return_5d" name="5일수익률"
                   stroke="#22d3ee" strokeWidth={2} dot={false} />
                 <Line yAxisId="right" type="monotone" dataKey="avg_return_1d" name="1일수익률"
@@ -352,7 +352,7 @@ export function ModelPerformance() {
                     tickFormatter={(v) => `${v}%`} />
                   <Tooltip contentStyle={TOOLTIP_STYLE} />
                   <ReferenceLine yAxisId="left" y={50} stroke="#71717a" strokeDasharray="4 4" />
-                  <Bar yAxisId="left" dataKey="승률" fill="#4ade80" radius={[3, 3, 0, 0]} opacity={0.85} />
+                  <Bar yAxisId="left" dataKey="승률" fill="#ef4444" radius={[3, 3, 0, 0]} opacity={0.85} />
                   <Bar yAxisId="right" dataKey="평균수익률" fill="#22d3ee" radius={[3, 3, 0, 0]} opacity={0.75} />
                 </BarChart>
               </ResponsiveContainer>
@@ -376,11 +376,11 @@ export function ModelPerformance() {
                         </td>
                         <td className="py-1.5 text-right tabular text-[var(--muted)]">{e.total}</td>
                         <td className={clsx('py-1.5 text-right tabular font-semibold',
-                          e.win_rate >= 55 ? 'text-green-400' : e.win_rate >= 40 ? 'text-yellow-400' : 'text-red-400')}>
+                          e.win_rate >= 55 ? 'text-red-400' : e.win_rate >= 40 ? 'text-yellow-400' : 'text-blue-400')}>
                           {e.win_rate.toFixed(1)}%
                         </td>
                         <td className={clsx('py-1.5 text-right tabular',
-                          e.avg_return_5d >= 0 ? 'text-green-400' : 'text-red-400')}>
+                          e.avg_return_5d >= 0 ? 'text-red-400' : 'text-blue-400')}>
                           {e.avg_return_5d >= 0 ? '+' : ''}{e.avg_return_5d.toFixed(2)}%
                         </td>
                         <td className="py-1.5 text-right tabular text-cyan-400">

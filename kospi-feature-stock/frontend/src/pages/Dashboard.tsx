@@ -48,9 +48,9 @@ function isRecent(isoDate?: string | null): boolean {
 function RegimePill({ regime }: { regime: MarketRegime | undefined }) {
   if (!regime || regime.phase === 'unknown') return null
   const colors = {
-    bull:    'border-green-500/30 text-green-400 bg-green-500/10',
+    bull:    'border-red-500/30 text-red-400 bg-red-500/10',
     neutral: 'border-amber-500/30 text-amber-400 bg-amber-500/10',
-    bear:    'border-red-500/30 text-red-400 bg-red-500/10',
+    bear:    'border-blue-500/30 text-blue-400 bg-blue-500/10',
   }
   const labels = { bull: '상승장', neutral: '중립장', bear: '하락장' }
   const pct = regime.pct_from_ma20
@@ -384,7 +384,7 @@ function TodaySummaryPanel({
             <span className="text-xs text-[var(--muted)]">30일 성공률</span>
             <span className={clsx(
               'text-sm font-bold tabular',
-              p?.success_rate != null ? (p.success_rate >= 0.55 ? 'text-green-400' : 'text-red-400') : 'text-[var(--muted)]'
+              p?.success_rate != null ? (p.success_rate >= 0.55 ? 'text-red-400' : 'text-blue-400') : 'text-[var(--muted)]'
             )}>
               {p?.success_rate != null ? `${(p.success_rate * 100).toFixed(1)}%` : '—'}
             </span>
@@ -439,7 +439,7 @@ function TodaySummaryPanel({
                 <div className="text-[10px] text-[var(--muted)] mb-1">성공률</div>
                 <div className={clsx(
                   'text-xl font-bold tabular',
-                  p.success_rate >= 0.55 ? 'text-green-400' : 'text-red-400'
+                  p.success_rate >= 0.55 ? 'text-red-400' : 'text-blue-400'
                 )}>
                   {(p.success_rate * 100).toFixed(1)}%
                 </div>
