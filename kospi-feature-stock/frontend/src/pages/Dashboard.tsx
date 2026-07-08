@@ -4,7 +4,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import {
   TrendingUp, TrendingDown, Minus, ArrowUpRight, ArrowDownRight,
   Zap, BarChart3, Target, FileText, Users, Clock, History,
-  Flame, RefreshCw, ShieldOff, Trophy,
+  Flame, RefreshCw, ShieldOff, Trophy, AlertTriangle, CheckCircle2,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { featuresApi } from '@/api/features'
@@ -12,6 +12,7 @@ import { SectorHeatmap } from '@/components/SectorHeatmap'
 import { recommendationsApi } from '@/api/recommendations'
 import { marketApi } from '@/api/market'
 import { disclosuresApi } from '@/api/disclosures'
+import { adminApi, type PipelineStatus, type TrackingSummary } from '@/api/admin'
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Badge, MarketBadge, EVENT_LABELS } from '@/components/ui/Badge'
@@ -37,6 +38,96 @@ const EVENT_ICONS: Record<string, React.ReactNode> = {
 
 function getEventIcon(eventType: string): React.ReactNode {
   return EVENT_ICONS[eventType] ?? <Zap size={14} className="text-[var(--muted)]" />
+}
+
+// ── 시스템 헬스 경고 배너 ─────────────────────────────────────────────────────
+function SystemAlertBanner({ pipeline }: { pipeline: PipelineStatus | undefined }) {
+  if (!pipeline) return null
+  const issues: { level: 'error' | 'warn'; msg: string }[] = []
+
+  if (pipeline.realtime.status === 'degraded') {
+    issues.push({
+      level: 'error',
+      msg: `Redis 탐지 통계 미적재 (${pipeline.realtime.redis_stats_keys.toLocaleString()}개) — 거래량/수급 기반 탐지 정확도 저하`,
+    })
+  }
+  const nowH = new Date().getHours()
+  const isMarketHours = nowH >= 9 && nowH < 16
+  if (isMarketHours && pipeline.realtime.events_24h === 0) {
+    issues.push({ level: 'warn', msg: '장 중이지만 24시간 내 특징주 탐지 0건 — Detector/Kafka 상태를 확인하세요' })
+  }
+  if (pipeline.ml.result_coverage_pct === 0 && pipeline.ml.total_events > 0) {
+    issues.push({ level: 'warn', msg: 'ML 결과 레이블 0% — feature_events.result_5d 미갱신. 재학습 데이터 없음' })
+  }
+
+  if (!issues.length) return null
+
+  return (
+    <div className="space-y-2">
+      {issues.map((iss, i) => (
+        <div
+          key={i}
+          className={clsx(
+            'flex items-start gap-2.5 px-4 py-3 rounded-xl border text-sm font-medium',
+            iss.level === 'error'
+              ? 'bg-red-500/10 border-red-500/40 text-red-300'
+              : 'bg-yellow-500/10 border-yellow-500/40 text-yellow-300',
+          )}
+        >
+          <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+          <span>{iss.msg}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Paper 모드 30일 성과 배너 ──────────────────────────────────────────────────
+function PaperPerformanceBar({ tracking }: { tracking: TrackingSummary | undefined }) {
+  if (!tracking || tracking.completed === 0) return null
+  const wr = tracking.success_rate ?? 0
+  const r5d = tracking.avg_r_5d ?? 0
+  const r1d = tracking.avg_r_1d ?? 0
+  const maxR = tracking.avg_max_return ?? 0
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 py-3 rounded-xl border border-cyan-500/20 bg-cyan-500/5 text-sm">
+      <div className="flex items-center gap-2">
+        <CheckCircle2 size={14} className="text-cyan-400" />
+        <span className="font-semibold text-cyan-300">Paper 30일 성과</span>
+        <span className="text-xs text-[var(--muted)]">({tracking.completed.toLocaleString()}건 추적완료)</span>
+      </div>
+      <div className="w-px h-4 bg-[var(--border)]" />
+      <div className="flex items-center gap-1">
+        <span className="text-xs text-[var(--muted)]">승률</span>
+        <span className={clsx('font-bold tabular', wr >= 60 ? 'text-red-400' : wr >= 50 ? 'text-yellow-400' : 'text-blue-400')}>
+          {wr.toFixed(1)}%
+        </span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-xs text-[var(--muted)]">5일 수익률</span>
+        <span className={clsx('font-bold tabular', r5d >= 0 ? 'text-red-400' : 'text-blue-400')}>
+          {r5d >= 0 ? '+' : ''}{r5d.toFixed(2)}%
+        </span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-xs text-[var(--muted)]">1일</span>
+        <span className={clsx('font-bold tabular', r1d >= 0 ? 'text-red-400' : 'text-blue-400')}>
+          {r1d >= 0 ? '+' : ''}{r1d.toFixed(2)}%
+        </span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-xs text-[var(--muted)]">최대 수익</span>
+        <span className="font-bold tabular text-red-400">+{maxR.toFixed(2)}%</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-xs text-[var(--muted)]">목표달성</span>
+        <span className="font-bold tabular text-[var(--fg)]">{tracking.hit_target_cnt}</span>
+        <span className="text-xs text-[var(--muted)]">손절</span>
+        <span className="font-bold tabular text-[var(--fg)]">{tracking.hit_stop_cnt}</span>
+      </div>
+    </div>
+  )
 }
 
 function isRecent(isoDate?: string | null): boolean {
@@ -847,6 +938,18 @@ export function Dashboard() {
     refetchInterval: 300_000,
   })
 
+  const { data: pipeline } = useQuery({
+    queryKey:        ['pipeline-status'],
+    queryFn:         adminApi.getPipelineStatus,
+    refetchInterval: 120_000,
+  })
+
+  const { data: tracking30 } = useQuery({
+    queryKey:        ['tracking-summary-30'],
+    queryFn:         () => adminApi.getTrackingSummary(30),
+    refetchInterval: 300_000,
+  })
+
   const { data: newHighs } = useQuery({
     queryKey:  ['market-new-highs'],
     queryFn:   marketApi.getNewHighs,
@@ -863,6 +966,9 @@ export function Dashboard() {
   return (
     <div className="p-6 space-y-5">
 
+      {/* ── 시스템 헬스 경고 배너 ─────────────────────────────────────── */}
+      <SystemAlertBanner pipeline={pipeline} />
+
       {/* ── 액션 바 ─────────────────────────────────────────────────────── */}
       <ActionBar
         buyCount={buyCount}
@@ -872,6 +978,9 @@ export function Dashboard() {
         isRt={isRt}
         regime={regime}
       />
+
+      {/* ── Paper 30일 성과 배너 ───────────────────────────────────────── */}
+      <PaperPerformanceBar tracking={tracking30} />
 
       {/* ── 2열 레이아웃: 피드(75%) + 요약(25%) ─────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">

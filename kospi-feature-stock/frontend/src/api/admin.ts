@@ -39,6 +39,9 @@ export interface SystemStatus {
     trained_at: string | null
     auc: number | null
     f1: number | null
+    opt_f1: number | null
+    opt_recall: number | null
+    opt_precision: number | null
     optimal_threshold: number | null
   }
   data: {
@@ -106,8 +109,56 @@ export interface DataQuality {
   }
 }
 
+export interface PipelineStatus {
+  realtime: {
+    events_24h: number
+    recs_24h: number
+    redis_stats_keys: number
+    last_stats_refresh: string | null
+    status: 'ok' | 'degraded'
+  }
+  disclosures: { count_24h: number; status: string }
+  news: { count_24h: number; with_sentiment: number; sentiment_redis_keys: number; status: string }
+  ml: { events_with_result: number; events_with_vector: number; total_events: number; result_coverage_pct: number; vector_coverage_pct: number }
+}
+
+export interface TrackingSummary {
+  total: number
+  completed: number
+  success: number
+  fail: number
+  avg_r_1d: number | null
+  avg_r_3d: number | null
+  avg_r_5d: number | null
+  avg_r_10d: number | null
+  avg_max_return: number | null
+  success_rate: number | null
+  hit_target_cnt: number
+  hit_stop_cnt: number
+  by_event: { event_type: string; cnt: number; win_rate: number | null; avg_r5d: number | null }[]
+}
+
+export interface DailyPnlItem {
+  date: string
+  avg_r5d: number
+  cum_r: number
+  cnt: number
+  wins: number
+  win_rate: number
+}
+
+export interface DailyPnl {
+  items: DailyPnlItem[]
+  mdd: number
+  total_return: number
+}
+
 export const adminApi = {
   getSystemStatus:    () => http.get<SystemStatus>('/admin/system-status').then(r => r.data),
+  getPipelineStatus:  () => http.get<PipelineStatus>('/admin/pipeline-status').then(r => r.data),
+  getTrackingSummary: (days = 30) => http.get<TrackingSummary>('/tracking/summary', { params: { days } }).then(r => r.data),
+  forceRefreshStats:  () => http.post('/admin/force-refresh-stats').then(r => r.data),
+  triggerMlRetrain:   () => http.post('/ml/retrain').then(r => r.data),
   getBootstrapStatus: () => http.get<BootstrapStatus>('/admin/bootstrap-status').then(r => r.data),
   runLoadStocks:       () => http.post('/admin/bootstrap/load-stocks').then(r => r.data),
   runFetchHistorical:  () => http.post('/admin/bootstrap/fetch-historical').then(r => r.data),
@@ -123,4 +174,6 @@ export const adminApi = {
     http.post('/admin/backfill/trigger', null, { params: { job_type } }).then(r => r.data),
   getScheduleStatus:  () => http.get<ScheduleStatus>('/admin/schedule-status').then(r => r.data),
   getDataQuality:     () => http.get<DataQuality>('/admin/data-quality').then(r => r.data),
+  getWeeklyBacktest:  () => http.get<any>('/admin/weekly-backtest').then(r => r.data),
+  getDailyPnl:        (days = 90) => http.get<DailyPnl>('/tracking/daily-pnl', { params: { days } }).then(r => r.data),
 }

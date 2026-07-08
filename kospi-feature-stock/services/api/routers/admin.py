@@ -136,6 +136,9 @@ async def system_status(
             "trained_at":        model_metrics.get("trained_at"),
             "auc":               model_metrics.get("auc"),
             "f1":                model_metrics.get("f1"),
+            "opt_f1":            model_metrics.get("opt_f1"),
+            "opt_recall":        model_metrics.get("opt_recall"),
+            "opt_precision":     model_metrics.get("opt_precision"),
             "optimal_threshold": model_metrics.get("optimal_threshold"),
         },
         "data": {
@@ -620,6 +623,20 @@ async def force_refresh_stats(
     """Redis 탐지 통계 즉시 강제 갱신 (관리자용)."""
     background_tasks.add_task(_run_refresh_stats, db, redis)
     return {"status": "started", "message": "Redis 탐지 통계 갱신이 백그라운드에서 시작되었습니다"}
+
+
+@router.get("/weekly-backtest")
+async def get_weekly_backtest(redis: redis_lib.Redis = Depends(get_redis)):
+    """주간 자동 백테스트 결과 조회."""
+    raw = await redis.get("backtest:weekly_result")
+    if not raw:
+        return {"available": False}
+    try:
+        result = json.loads(raw)
+        result["available"] = True
+        return result
+    except Exception:
+        return {"available": False}
 
 
 # ── 백필 이력 / 스케줄 현황 ────────────────────────────────────────────────────

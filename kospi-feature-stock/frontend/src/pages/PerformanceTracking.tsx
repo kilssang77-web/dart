@@ -1,11 +1,11 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { Target, TrendingUp, Activity, CheckCircle2, XCircle, Clock, AlertTriangle, LineChartIcon } from 'lucide-react'
+import { Target, TrendingUp, Activity, CheckCircle2, XCircle, Clock, AlertTriangle, LineChartIcon, TrendingDown } from 'lucide-react'
 import { StatCard, Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card'
 import {
   BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  ComposedChart, Line, Legend,
+  ComposedChart, Line, Legend, AreaChart, Area, ReferenceLine,
 } from 'recharts'
 import {
   recommendationsApi,
@@ -14,6 +14,7 @@ import {
   type PerformanceSummary,
   type EventPerformanceItem,
 } from '@/api/recommendations'
+import { adminApi, type DailyPnl } from '@/api/admin'
 import { fmt, pctColor, probToScore, scoreBarColor } from '@/lib/utils'
 
 type HistoryDays = 30 | 90 | 180 | 365
@@ -80,6 +81,12 @@ export function PerformanceTracking() {
   const { data: byEvent = [] } = useQuery<EventPerformanceItem[]>({
     queryKey:        ['perf-by-event', historyDays],
     queryFn:         () => recommendationsApi.getPerformanceByEvent(historyDays),
+    refetchInterval: 300_000,
+  })
+
+  const { data: pnl } = useQuery<DailyPnl>({
+    queryKey:        ['daily-pnl', historyDays],
+    queryFn:         () => adminApi.getDailyPnl(historyDays),
     refetchInterval: 300_000,
   })
 
@@ -174,6 +181,52 @@ export function PerformanceTracking() {
           <StatCard label="평균 5일 수익" value={`${summary.avg_return_5d >= 0 ? '+' : ''}${summary.avg_return_5d.toFixed(2)}%`} sub="완료 건"
             valueColor={pctColor(summary.avg_return_5d)} />
         </div>
+      )}
+
+      {/* 누적 P&L 곡선 */}
+      {pnl && pnl.items.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp size={15} className="text-cyan-400" />
+              누적 수익률 (Paper)
+            </CardTitle>
+            <div className="flex items-center gap-4 ml-auto text-xs">
+              <span className={clsx('font-semibold', pctColor(pnl.total_return))}>
+                총 수익: {pnl.total_return >= 0 ? '+' : ''}{pnl.total_return.toFixed(2)}%
+              </span>
+              <span className="flex items-center gap-1 text-blue-400 font-semibold">
+                <TrendingDown size={12} />
+                MDD: {pnl.mdd.toFixed(2)}%
+              </span>
+            </div>
+          </CardHeader>
+          <CardBody>
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={pnl.items} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
+                <defs>
+                  <linearGradient id="pnlGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#71717a' }}
+                  tickFormatter={(v) => v.slice(5)} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 11, fill: '#71717a' }}
+                  tickFormatter={(v) => `${v.toFixed(1)}%`} />
+                <Tooltip contentStyle={TOOLTIP_STYLE}
+                  formatter={(v: number, name: string) => [
+                    `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`,
+                    name === 'cum_r' ? '누적 수익' : '일별 5일 수익'
+                  ]} />
+                <ReferenceLine y={0} stroke="var(--border)" strokeDasharray="4 2" />
+                <Area type="monotone" dataKey="cum_r" stroke="#ef4444" fill="url(#pnlGrad)"
+                  strokeWidth={2} dot={false} name="cum_r" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </CardBody>
+        </Card>
       )}
 
       {/* 수익률 분포 차트 */}

@@ -148,8 +148,9 @@ async def run_once(db, redis) -> int:
                         if p <= stop_p:   updates["hit_stop"]   = True
 
         def _merged(col):
-            """업데이트 dict 우선, 없으면 DB row에서 조회."""
-            return updates[col] if col in updates else row[col]
+            """업데이트 dict 우선, 없으면 DB row에서 조회. Decimal → float 변환."""
+            v = updates[col] if col in updates else row[col]
+            return float(v) if v is not None else None
 
         # ── is_success: r_5d 확보 즉시 판정 (tracking_complete 불필요)
         current_r5d = _merged("r_5d")

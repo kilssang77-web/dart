@@ -933,6 +933,9 @@ class StockCollector:
             # ML 재학습 플래그 설정 (월요일 + 500개+ 레이블)
             await self._maybe_trigger_ml_retrain()
 
+            # 주간 백테스트 자동 검증 (월요일)
+            await self._maybe_run_weekly_backtest()
+
     # ── result_5d 자동 백필 ───────────────────────────────────
     async def _backfill_result_5d(self) -> int:
         """7일+ 경과 feature_events의 result_1d/3d/5d를 daily_bars 기준으로 계산."""
@@ -1000,6 +1003,70 @@ class StockCollector:
                 )
         except Exception as e:
             logger.error(f"[ML] Retrain trigger error: {e}")
+
+    # ── 주간 자동 백테스트 검증 ───────────────────────────────
+    async def _maybe_run_weekly_backtest(self) -> None:
+        """월요일마다 최근 4주 추천 신호를 백테스트 → 결과를 Redis에 저장."""
+        try:
+            today_str = datetime.now(_KST).strftime("%Y%m%d")
+            last = await self.redis.get("backtest:weekly_last_date")
+            if last and (last.decode() if isinstance(last, bytes) else last) == today_str:
+                return
+            if datetime.now(_KST).weekday() != 0:  # 월요일(0)만
+                return
+
+            async with self.db.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT rp.code, rp.entry_price, rp.r_5d, rp.r_1d, rp.is_success,
+                           rp.hit_target, rp.hit_stop, rp.max_return, rp.event_type
+                    FROM recommendation_performance rp
+                    WHERE rp.tracking_complete = TRUE
+                      AND rp.signal_time >= NOW() - INTERVAL '28 days'
+                    ORDER BY rp.signal_time DESC
+                    LIMIT 2000
+                    """
+                )
+
+            if not rows:
+                return
+
+            total = len(rows)
+            wins  = sum(1 for r in rows if r["is_success"])
+            hit_t = sum(1 for r in rows if r["hit_target"])
+            hit_s = sum(1 for r in rows if r["hit_stop"])
+            r5d_list = [float(r["r_5d"]) for r in rows if r["r_5d"] is not None]
+            r1d_list = [float(r["r_1d"]) for r in rows if r["r_1d"] is not None]
+            maxr_list = [float(r["max_return"]) for r in rows if r["max_return"] is not None]
+
+            def _mean(lst): return sum(lst) / len(lst) if lst else 0.0
+            def _sharpe(lst):
+                if len(lst) < 2: return 0.0
+                import statistics
+                avg = _mean(lst)
+                std = statistics.stdev(lst)
+                return round(avg / std * (252 ** 0.5), 3) if std > 0 else 0.0
+
+            result = {
+                "total": total,
+                "win_rate": round(wins / total * 100, 1) if total else 0.0,
+                "hit_target": hit_t,
+                "hit_stop": hit_s,
+                "avg_r_5d": round(_mean(r5d_list), 3),
+                "avg_r_1d": round(_mean(r1d_list), 3),
+                "avg_max_return": round(_mean(maxr_list), 3),
+                "sharpe_5d": _sharpe(r5d_list),
+                "date": today_str,
+            }
+            import json as _json
+            await self.redis.set("backtest:weekly_result", _json.dumps(result), ex=604_800)
+            await self.redis.set("backtest:weekly_last_date", today_str, ex=172_800)
+            logger.info(
+                f"[WeeklyBacktest] Done: total={total}, win_rate={result['win_rate']}%, "
+                f"avg_r_5d={result['avg_r_5d']}%, sharpe={result['sharpe_5d']}"
+            )
+        except Exception as e:
+            logger.error(f"[WeeklyBacktest] Error: {e}")
 
     # ── Redis 통계 갱신 ──────────────────────────────────────
     async def _update_redis_stats(self, codes: list[str]):

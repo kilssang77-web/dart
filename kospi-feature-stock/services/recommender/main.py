@@ -137,6 +137,12 @@ class RecommenderService:
         # 기동 시 미처리 이벤트 복구
         await self._recover_missed_events(recommender)
 
+        # 주기적 미처리 이벤트 재스캔 (메시지 유실 방지)
+        _recovery_interval = int(os.environ.get("REC_PERIODIC_RECOVERY_MINUTES", "30")) * 60
+        recovery_task = asyncio.create_task(
+            self._periodic_recovery_loop(recommender, _recovery_interval)
+        )
+
         pubsub = self._redis.pubsub()
         await pubsub.subscribe("ch:feature-detected")
         logger.info("Recommender service started")
@@ -162,11 +168,22 @@ class RecommenderService:
                 except Exception as e:
                     logger.error(f"Recommend error {event.get('code')}: {e}")
         finally:
+            recovery_task.cancel()
             try:
                 await pubsub.unsubscribe()
                 await pubsub.aclose()
             except Exception:
                 pass
+
+    async def _periodic_recovery_loop(self, recommender, interval: int) -> None:
+        """주기적으로 미처리 feature_events를 재스캔해 pub/sub 유실 방지."""
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                logger.info("[periodic-recovery] scanning missed events...")
+                await self._recover_missed_events(recommender)
+            except Exception as e:
+                logger.error(f"[periodic-recovery] error: {e}")
 
     async def _recover_missed_events(self, recommender):
         """기동 시 추천이 없는 feature_events를 재처리한다."""

@@ -88,6 +88,55 @@ async def performance_summary(request: Request, days: int = Query(30, ge=1, le=3
     }
 
 
+@router.get("/daily-pnl")
+async def daily_pnl(request: Request, days: int = Query(90, ge=7, le=365)):
+    """일별 P&L 누적 곡선 + MDD — 완료된 추천 기준 (r_5d 사용)."""
+    sql = """
+        SELECT
+            DATE(signal_time AT TIME ZONE 'Asia/Seoul') AS sig_date,
+            ROUND(AVG(r_5d)::NUMERIC, 3)               AS avg_r5d,
+            COUNT(*) FILTER (WHERE r_5d IS NOT NULL)    AS cnt,
+            COUNT(*) FILTER (WHERE is_success = TRUE)   AS wins
+        FROM recommendation_performance
+        WHERE signal_time >= NOW() - ($1 * INTERVAL '1 day')
+          AND r_5d IS NOT NULL
+        GROUP BY sig_date
+        ORDER BY sig_date ASC
+    """
+    async with request.app.state.db.acquire() as conn:
+        rows = await conn.fetch(sql, days)
+
+    if not rows:
+        return {"items": [], "mdd": 0.0, "total_return": 0.0}
+
+    cum = 0.0
+    peak = 0.0
+    mdd = 0.0
+    items = []
+    for r in rows:
+        avg = float(r["avg_r5d"] or 0)
+        cum += avg
+        if cum > peak:
+            peak = cum
+        dd = (cum - peak)
+        if dd < mdd:
+            mdd = dd
+        items.append({
+            "date":    str(r["sig_date"]),
+            "avg_r5d": round(avg, 3),
+            "cum_r":   round(cum, 3),
+            "cnt":     int(r["cnt"]),
+            "wins":    int(r["wins"]),
+            "win_rate": round(int(r["wins"]) / int(r["cnt"]) * 100, 1) if int(r["cnt"]) > 0 else 0,
+        })
+
+    return {
+        "items":        items,
+        "mdd":          round(mdd, 3),
+        "total_return": round(cum, 3),
+    }
+
+
 @router.get("/ml-export")
 async def ml_export(request: Request, days: int = Query(90, ge=7, le=365)):
     """ML 학습용 데이터 — tracking_complete=True 인 행만"""

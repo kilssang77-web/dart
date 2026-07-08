@@ -13,6 +13,8 @@ import {
   type BackfillStatus,
   type ScheduleStatus,
   type DataQuality,
+  type PipelineStatus,
+  type TrackingSummary,
 } from '@/api/admin'
 import { StatCard, Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -154,7 +156,9 @@ function HealthTab({ data, isLoading, dataUpdatedAt, refetch, isFetching }: {
                 <DataRow label="모델 상태"     value={ml.model_loaded ? '로드됨' : '미로드'} stale={!ml.model_loaded} />
                 <DataRow label="학습 일시"     value={ml.trained_at ? fmt.smartTime(ml.trained_at) : null} />
                 <DataRow label="AUC"           value={ml.auc != null ? ml.auc.toFixed(4) : null} />
-                <DataRow label="F1"            value={ml.f1 != null ? ml.f1.toFixed(4) : null} />
+                <DataRow label="최적임계 Recall"value={ml.opt_recall != null ? (ml.opt_recall * 100).toFixed(1) + '%' : null} />
+                <DataRow label="최적임계 Prec" value={ml.opt_precision != null ? (ml.opt_precision * 100).toFixed(1) + '%' : null} />
+                <DataRow label="최적임계 F1"   value={ml.opt_f1 != null ? ml.opt_f1.toFixed(4) : null} />
                 <DataRow label="최적 임계값"   value={ml.optimal_threshold != null ? ml.optimal_threshold.toFixed(3) : null} />
                 <DataRow label="모델 경로"     value={ml.model_dir} />
               </div>
@@ -551,6 +555,37 @@ function ScheduleTab() {
   )
 }
 
+// ── ML 재학습 버튼 ────────────────────────────────────────────────────────────
+function MlRetrainButton() {
+  const qc = useQueryClient()
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const retrain = useMutation({
+    mutationFn: adminApi.triggerMlRetrain,
+    onSuccess: (data: any) => {
+      setMsg(data?.message ?? '재학습 요청이 전송되었습니다')
+      setTimeout(() => setMsg(null), 5000)
+      qc.invalidateQueries({ queryKey: ['system-status'] })
+      qc.invalidateQueries({ queryKey: ['data-quality'] })
+    },
+    onError: (e: Error) => setMsg(`오류: ${e.message}`),
+  })
+
+  return (
+    <div className="mt-3">
+      <button
+        onClick={() => retrain.mutate()}
+        disabled={retrain.isPending}
+        className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-purple-500/40 bg-purple-500/10 text-purple-300 text-xs font-semibold hover:bg-purple-500/20 transition-colors disabled:opacity-50"
+      >
+        <RefreshCw size={12} className={retrain.isPending ? 'animate-spin' : ''} />
+        {retrain.isPending ? '재학습 요청 중...' : 'ML 재학습 수동 트리거'}
+      </button>
+      {msg && <p className="mt-1.5 text-[10px] text-[var(--muted)] text-center">{msg}</p>}
+    </div>
+  )
+}
+
 // ── 탭4: 데이터 품질 ─────────────────────────────────────────────────────────
 
 function CoverageBar({ pct, warn = 90, danger = 70 }: { pct: number; warn?: number; danger?: number }) {
@@ -730,6 +765,13 @@ function DataQualityTab() {
                   </div>
                   <CoverageBar pct={ml.vector_coverage_pct} warn={75} danger={30} />
                 </div>
+                {ml.auc != null && ml.auc < 0.57 && (
+                  <div className="mt-2 p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-300 flex items-start gap-1.5">
+                    <AlertTriangle size={11} className="shrink-0 mt-0.5" />
+                    AUC={ml.auc.toFixed(4)} — 기준치(0.57) 미달. 즉시 재학습 권장
+                  </div>
+                )}
+                <MlRetrainButton />
               </div>
             ) : (
               <p className="text-sm text-[var(--muted)]">데이터 없음</p>
