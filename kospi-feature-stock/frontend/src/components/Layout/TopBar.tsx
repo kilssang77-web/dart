@@ -52,6 +52,7 @@ export function TopBar({ title, subtitle }: TopBarProps) {
   }
 
   return (
+    <>
     <header className={clsx(
       'sticky top-0 z-40 flex items-center justify-between',
       'px-4 md:px-6 py-3.5 border-b border-[var(--border)]',
@@ -157,13 +158,15 @@ export function TopBar({ title, subtitle }: TopBarProps) {
         </button>
       </div>
 
-      {/* 매뉴얼 모달 */}
+    </header>
+
+      {/* 매뉴얼 모달 — header 바깥에 두어야 backdrop-filter 영향 없이 fixed inset-0이 뷰포트 기준으로 동작 */}
       {showManual && (
         <div
-          className="fixed inset-0 z-[9999] flex flex-col bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm"
           onClick={(e) => { if (e.target === e.currentTarget) closeManual() }}
         >
-          <div className="relative flex flex-col w-full h-full max-w-[1400px] mx-auto my-4 rounded-xl overflow-hidden border border-[var(--border)] bg-[var(--bg)] shadow-2xl">
+          <div className="relative flex flex-col w-[92vw] h-[92vh] rounded-xl overflow-hidden border border-[var(--border)] bg-[var(--bg)] shadow-2xl">
             {/* 모달 헤더 */}
             <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border)] bg-[var(--bg2)] shrink-0">
               <div className="flex items-center gap-2">
@@ -197,6 +200,6 @@ export function TopBar({ title, subtitle }: TopBarProps) {
           </div>
         </div>
       )}
-    </header>
+    </>
   )
 }
