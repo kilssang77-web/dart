@@ -469,6 +469,29 @@ def run_auto_qualify_bids_job() -> None:
         db.close()
 
 
+def run_vacuum_analyze_job() -> None:
+    """VACUUM ANALYZE — 주요 테이블 통계 갱신 (매주 토 02:00 KST)."""
+    from app.database import SessionLocal
+    from sqlalchemy import text
+
+    db = SessionLocal()
+    try:
+        # VACUUM은 트랜잭션 밖에서 실행해야 하므로 autocommit 연결 사용
+        raw_conn = db.connection().engine.raw_connection()
+        raw_conn.set_isolation_level(0)
+        cur = raw_conn.cursor()
+        for tbl in ["bids", "bid_results", "agencies", "inpo21c_participants", "notifications"]:
+            cur.execute(f"VACUUM ANALYZE {tbl}")
+            logger.info("VACUUM ANALYZE 완료: %s", tbl)
+        cur.close()
+        raw_conn.set_isolation_level(1)
+        raw_conn.close()
+    except Exception as exc:
+        logger.error("VACUUM ANALYZE 실패: %s", exc)
+    finally:
+        db.close()
+
+
 def run_freq_rebuild_job() -> None:
     """발주기관 빈도표 + 전략 DB 주간 재계산 (매주 일요일 03:00 KST)."""
     from app.database import SessionLocal
@@ -1326,6 +1349,16 @@ def create_scheduler() -> BackgroundScheduler:
         trigger=CronTrigger(day_of_week="sun", hour=3, minute=30, timezone="Asia/Seoul"),
         id="kiscon_profiles_weekly",
         name="KISCON 경쟁사 면허·실적 수집 (매주 일 03:30 KST)",
+        replace_existing=True,
+        max_instances=1,
+    )
+
+    # [#13] VACUUM ANALYZE 정기 실행 (매주 토 02:00 KST)
+    scheduler.add_job(
+        run_vacuum_analyze_job,
+        trigger=CronTrigger(day_of_week="sat", hour=2, minute=0, timezone="Asia/Seoul"),
+        id="vacuum_analyze_weekly",
+        name="VACUUM ANALYZE 주간 실행 (매주 토 02:00 KST)",
         replace_existing=True,
         max_instances=1,
     )

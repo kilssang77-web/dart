@@ -13,9 +13,10 @@ const queryClient = new QueryClient({
         if (status === 404 || status === 403 || status === 401) return false
         return failureCount < 1
       },
-      staleTime: 30_000,
-      // 창 포커스 복귀 시 자동 refetch — 폴링 중복 방지
+      staleTime: 300_000,   // 5분 — 메뉴 이동 시 캐시 재사용
+      gcTime: 600_000,      // 10분 — 캐시 유지 시간
       refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
     },
   },
 })

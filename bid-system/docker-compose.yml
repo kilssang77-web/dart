@@ -3,6 +3,17 @@ services:
     image: postgres:16-alpine
     container_name: bid_postgres
     restart: unless-stopped
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c work_mem=16MB
+      -c random_page_cost=1.5
+      -c effective_cache_size=512MB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c shared_preload_libraries=pg_stat_statements
+      -c pg_stat_statements.track=all
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-biddb}
       POSTGRES_USER: ${POSTGRES_USER:-biduser}
@@ -18,10 +29,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512m
+          memory: 768m
           cpus: '0.5'
         reservations:
-          memory: 256m
+          memory: 384m
 
   redis:
     image: redis:7-alpine

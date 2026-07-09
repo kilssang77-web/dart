@@ -90,6 +90,19 @@ async def lifespan(app: FastAPI):
     except Exception as _e:
         logger.warning(f"ML 엔진 워밍업 실패 (무시): {_e}")
 
+    # 발주기관 인메모리 캐시 로드 (id → name 딕셔너리)
+    _cache_db = SessionLocal()
+    try:
+        from sqlalchemy import text as _ct
+        _rows = _cache_db.execute(_ct("SELECT id, name FROM agencies")).fetchall()
+        from .common import agency_cache
+        agency_cache.load({int(r[0]): r[1] for r in _rows})
+        logger.info("발주기관 인메모리 캐시 로드 완료: %d건", len(_rows))
+    except Exception as _ce:
+        logger.warning("발주기관 캐시 로드 실패 (무시): %s", _ce)
+    finally:
+        _cache_db.close()
+
     # 발주기관 빈도표 + 전략 DB pre-warm (테이블이 비어있을 때만)
     _db_warm = SessionLocal()
     try:

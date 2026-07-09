@@ -8,6 +8,7 @@ from ...models import User, Agency, Industry, Region, Bid
 from ...schemas import BidCreate, BidResultCreate, BookmarkResponse, OpportunityScoreResponse, BidRecommendItem, JointPartnersResponse, JointSimRequest, JointSimResponse, FinalRecommendResponse, BestRateResponse
 from ...services import BidService, BookmarkService, get_active_industry_ids, OpportunityScoreService, JointQualService, JointSimulateService, FinalRecommendService, InpoParticipantService, RivalRadarService, ActualWinZoneService, HotZoneService, BestRateService
 from ...common.security import get_current_user
+from ...common.cache import get_redis, cache_get, cache_set
 
 router = APIRouter(prefix="/bids", tags=["입찰"])
 svc = BidService()
@@ -43,7 +44,12 @@ def list_bids(
 
 @router.get("/meta")
 def get_meta(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    """프론트엔드 필터용 기준 데이터."""
+    """프론트엔드 필터용 기준 데이터 — Redis 600초 캐시."""
+    rc = get_redis()
+    cached = cache_get(rc, "bids:meta")
+    if cached is not None:
+        return cached
+
     active_ids = get_active_industry_ids(db)
     if active_ids is None:
         industries_q = db.query(Industry).all()
@@ -51,11 +57,13 @@ def get_meta(db: Session = Depends(get_db), _: User = Depends(get_current_user))
         industries_q = []
     else:
         industries_q = db.query(Industry).filter(Industry.id.in_(active_ids)).all()
-    return {
+    result = {
         "agencies":   [{"id": a.id, "name": a.name} for a in db.query(Agency).all()],
         "industries": [{"id": i.id, "name": i.name} for i in industries_q],
         "regions":    [{"id": r.id, "name": r.name} for r in db.query(Region).all()],
     }
+    cache_set(rc, "bids:meta", result, ttl=600)
+    return result
 
 
 @router.get("/upcoming-openings")
@@ -165,7 +173,16 @@ def recommended_bids(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    return OpportunityScoreService(db).get_top_recommended(user.id, limit)
+    """AI 추천 — 사용자별 Redis 120초 캐시."""
+    rc = get_redis()
+    cache_key = f"bids:recommended:{user.id}:{limit}"
+    cached = cache_get(rc, cache_key)
+    if cached is not None:
+        return cached
+    result = OpportunityScoreService(db).get_top_recommended(user.id, limit)
+    serializable = [item.model_dump() if hasattr(item, "model_dump") else item for item in result]
+    cache_set(rc, cache_key, serializable, ttl=120)
+    return result
 
 
 @router.get("/bookmarks")

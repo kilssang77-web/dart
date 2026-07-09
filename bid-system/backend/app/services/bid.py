@@ -31,7 +31,6 @@ class BidService:
             joinedload(Bid.agency),
             joinedload(Bid.industry),
             joinedload(Bid.region),
-            joinedload(Bid.results),
         )
         if agency_id:   q = q.filter(Bid.agency_id == agency_id)
         if industry_id: q = q.filter(Bid.industry_id == industry_id)
@@ -64,10 +63,25 @@ class BidService:
         bids = q.offset((page-1)*size).limit(size).all()
 
         bid_ids = [b.id for b in bids]
-        # 자동 적격 판정 결과 배치 조회 (admin user_id=1)
+        # bid_results: winner_rate + 참여자 수 배치 집계 (SELECT * joinedload 대체)
+        winner_map: dict = {}
+        count_map: dict = {}
         auto_verdicts: dict = {}
         if bid_ids:
             from sqlalchemy import text as _t
+            # winner rate + count in one query
+            br_rows = db.execute(_t("""
+                SELECT bid_id,
+                       MAX(bid_rate) FILTER (WHERE is_winner = true) AS winner_rate,
+                       COUNT(*) AS total_count
+                FROM bid_results
+                WHERE bid_id = ANY(:ids)
+                GROUP BY bid_id
+            """), {"ids": bid_ids}).fetchall()
+            for row in br_rows:
+                winner_map[int(row[0])] = float(row[1]) if row[1] else None
+                count_map[int(row[0])] = int(row[2])
+
             qc_rows = db.execute(_t("""
                 SELECT bid_id, verdict, pass_prob, fail_reason
                 FROM qualification_checks
@@ -81,7 +95,6 @@ class BidService:
 
         items = []
         for b in bids:
-            winner = next((r for r in b.results if r.is_winner), None)
             qv = auto_verdicts.get(b.id)
             items.append({
                 "id": b.id, "announcement_no": b.announcement_no,
@@ -96,11 +109,11 @@ class BidService:
                 "bid_open_date":    b.bid_open_date,
                 "status":           b.status,
                 "source":           b.source,
-                "winner_rate":      float(winner.bid_rate) if winner else None,
+                "winner_rate":      winner_map.get(b.id),
                 "min_bid_rate":     float(b.min_bid_rate) if b.min_bid_rate else None,
                 "yega_method":      b.yega_method,
                 "contract_method":  b.contract_method,
-                "competitor_count": len(b.results),
+                "competitor_count": count_map.get(b.id, 0),
                 # 자동 적격 판정
                 "auto_verdict":     qv["verdict"] if qv else None,
                 "auto_pass_prob":   qv["pass_prob"] if qv else None,

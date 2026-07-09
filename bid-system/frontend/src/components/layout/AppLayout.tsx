@@ -11,7 +11,7 @@ import {
   Zap, Building2,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
-import { authApi, notificationsApi } from '@/api'
+import { authApi, notificationsApi, bidsApi } from '@/api'
 import { silentRefresh, tokenMsRemaining } from '@/api/client'
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -168,6 +168,8 @@ export default function AppLayout() {
   )
 
   const { data: user } = useQuery({ queryKey: ['me'], queryFn: authApi.me, retry: false })
+  // meta 데이터 App 최상위 1회 프리패치 — 모든 하위 페이지가 캐시 재사용
+  useQuery({ queryKey: ['meta'], queryFn: bidsApi.meta, staleTime: 600_000, enabled: !!user })
   const { data: notifData } = useQuery({
     queryKey: ['notifications', 'unread-count'],
     queryFn: notificationsApi.unreadCount,

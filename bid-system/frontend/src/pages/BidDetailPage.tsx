@@ -1,4 +1,5 @@
 import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import {
   ArrowLeft, ExternalLink, Sparkles, Target, Handshake, Radar,
@@ -51,17 +52,18 @@ const SCORE_BAR_COLORS: Record<string, string> = {
   amount_fit:     'bg-purple-500',
 }
 
-function TabInfo({ bid, score }: { bid: BidDetail; score: OpportunityScore | undefined }) {
+function TabInfo({ bid, score, active }: { bid: BidDetail; score: OpportunityScore | undefined; active: boolean }) {
   const { data: yegaData } = useQuery<InpoYegaResponse>({
     queryKey: ['inpo-yega', bid.id],
     queryFn: () => bidsApi.yega(bid.id),
-    enabled: bid.status === 'closed',
+    enabled: active && bid.status === 'closed',
   })
 
   const { data: similarWins } = useQuery<SimilarWinsResponse>({
     queryKey: ['similar-wins', bid.id],
     queryFn: () => bidsApi.similarWins(bid.id, 8),
     staleTime: 600_000,
+    enabled: active,
   })
 
   const grade = score?.grade
@@ -437,14 +439,16 @@ function TabInfo({ bid, score }: { bid: BidDetail; score: OpportunityScore | und
 
 // ── TabStrategy ──────────────────────────────────────────────────────────
 
-function TabStrategy({ bidId, bid }: { bidId: number; bid: BidDetail }) {
+function TabStrategy({ bidId, bid, active }: { bidId: number; bid: BidDetail; active: boolean }) {
   const { data: rec, isLoading } = useQuery<FinalRecommendResult>({
     queryKey: ['final-recommend', bidId],
     queryFn: () => bidsApi.finalRecommend(bidId),
+    enabled: active,
   })
   const { data: winZones } = useQuery<ActualWinZonesResponse>({
     queryKey: ['actual-win-zones', bidId],
     queryFn: () => bidsApi.actualWinZones(bidId),
+    enabled: active,
   })
 
   if (isLoading) return <Skeleton className="h-64 w-full" />
@@ -664,10 +668,11 @@ function TabStrategy({ bidId, bid }: { bidId: number; bid: BidDetail }) {
 
 // ── TabQualification ─────────────────────────────────────────────────────
 
-function TabQualification({ bid }: { bid: BidDetail }) {
+function TabQualification({ bid, active }: { bid: BidDetail; active: boolean }) {
   const { data: range, isLoading } = useQuery<BidRangeResponse>({
     queryKey: ['bid-range', bid.id],
     queryFn: () => recommendApi.bidRange({ base_amount: bid.base_amount }),
+    enabled: active,
   })
 
   if (isLoading) return <Skeleton className="h-48 w-full" />
@@ -741,11 +746,12 @@ function TabQualification({ bid }: { bid: BidDetail }) {
 
 // ── TabCompetitors ───────────────────────────────────────────────────────
 
-function TabCompetitors({ bidId }: { bidId: number }) {
+function TabCompetitors({ bidId, active }: { bidId: number; active: boolean }) {
   const navigate = useNavigate()
   const { data: radar, isLoading } = useQuery<RivalRadarResponse>({
     queryKey: ['rival-radar', bidId],
     queryFn: () => bidsApi.rivalRadar(bidId, 15),
+    enabled: active,
   })
 
   if (isLoading) return <Skeleton className="h-48 w-full" />
@@ -878,16 +884,16 @@ function TabCompetitors({ bidId }: { bidId: number }) {
 
 // ── TabAgency ────────────────────────────────────────────────────────────
 
-function TabAgency({ agencyId, agencyName }: { agencyId: number | undefined; agencyName: string }) {
+function TabAgency({ agencyId, agencyName, active }: { agencyId: number | undefined; agencyName: string; active: boolean }) {
   const { data: histogram, isLoading: histLoading } = useQuery<SrateHistogramResponse>({
     queryKey: ['agency-srate-histogram', agencyId],
     queryFn: () => agenciesApi.srateHistogram(agencyId!),
-    enabled: agencyId != null,
+    enabled: active && agencyId != null,
   })
   const { data: recentResults, isLoading: recLoading } = useQuery<AgencyRecentResultsResponse>({
     queryKey: ['agency-recent-results', agencyId],
     queryFn: () => agenciesApi.recentResults(agencyId!, 20),
-    enabled: agencyId != null,
+    enabled: active && agencyId != null,
   })
 
   if (agencyId == null) {
@@ -986,11 +992,12 @@ function TabAgency({ agencyId, agencyName }: { agencyId: number | undefined; age
 
 // ── TabYega ──────────────────────────────────────────────────────────────
 
-function TabYega({ bid }: { bid: BidDetail }) {
+function TabYega({ bid, active }: { bid: BidDetail; active: boolean }) {
   const { data: yega, isLoading } = useQuery<YegaFrequencyResult>({
     queryKey: ['yega-frequency', bid.id],
     queryFn: () =>
       recommendApi.yegaFrequency(bid.base_amount, bid.a_value ?? undefined),
+    enabled: active,
   })
 
   if (isLoading) return <Skeleton className="h-48 w-full" />
@@ -1091,6 +1098,7 @@ export default function BidDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const bidId = Number(id)
+  const [activeTab, setActiveTab] = useState('info')
 
   const { data: bid, isLoading } = useQuery<BidDetail>({
     queryKey: ['bid', id],
@@ -1210,7 +1218,7 @@ export default function BidDetailPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <Tabs defaultValue="info" className="h-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full">
           <div className="bg-white border-b border-slate-200 px-6 pt-3">
             <TabsList className="bg-slate-100 border border-slate-200 h-9 gap-0">
               <TabsTrigger value="info" className="text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-blue-600">
@@ -1239,22 +1247,22 @@ export default function BidDetailPage() {
 
           <div className="px-6 pb-6 pt-5">
             <TabsContent value="info" className="mt-0">
-              <TabInfo bid={bid} score={score} />
+              <TabInfo bid={bid} score={score} active={activeTab === 'info'} />
             </TabsContent>
             <TabsContent value="strategy" className="mt-0">
-              <TabStrategy bidId={bidId} bid={bid} />
+              <TabStrategy bidId={bidId} bid={bid} active={activeTab === 'strategy'} />
             </TabsContent>
             <TabsContent value="qualification" className="mt-0">
-              <TabQualification bid={bid} />
+              <TabQualification bid={bid} active={activeTab === 'qualification'} />
             </TabsContent>
             <TabsContent value="competitors" className="mt-0">
-              <TabCompetitors bidId={bidId} />
+              <TabCompetitors bidId={bidId} active={activeTab === 'competitors'} />
             </TabsContent>
             <TabsContent value="agency" className="mt-0">
-              <TabAgency agencyId={agencyId} agencyName={bid.agency_name} />
+              <TabAgency agencyId={agencyId} agencyName={bid.agency_name} active={activeTab === 'agency'} />
             </TabsContent>
             <TabsContent value="yega" className="mt-0">
-              <TabYega bid={bid} />
+              <TabYega bid={bid} active={activeTab === 'yega'} />
             </TabsContent>
             <TabsContent value="prism" className="mt-0">
               <div className="space-y-4">
