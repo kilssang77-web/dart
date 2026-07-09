@@ -586,7 +586,7 @@ function MoversRow({ movers }: { movers: MarketMovers | undefined }) {
                 onClick={() => nav(`/search?code=${s.code}`)}
               >
                 <div className="text-[0.8125rem] font-medium text-[var(--fg)] truncate flex-1">{s.name}</div>
-                <div className="text-[0.8125rem] font-bold text-red-400 tabular ml-3">+{s.change_rate.toFixed(2)}%</div>
+                <div className="text-[0.8125rem] font-bold text-red-400 tabular ml-3">+{Number(s.change_rate).toFixed(2)}%</div>
               </div>
             ))}
           </CardBody>
@@ -609,7 +609,7 @@ function MoversRow({ movers }: { movers: MarketMovers | undefined }) {
                 onClick={() => nav(`/search?code=${s.code}`)}
               >
                 <div className="text-[0.8125rem] font-medium text-[var(--fg)] truncate flex-1">{s.name}</div>
-                <div className="text-[0.8125rem] font-bold text-blue-400 tabular ml-3">{s.change_rate.toFixed(2)}%</div>
+                <div className="text-[0.8125rem] font-bold text-blue-400 tabular ml-3">{Number(s.change_rate).toFixed(2)}%</div>
               </div>
             ))}
           </CardBody>
@@ -1038,8 +1038,8 @@ export function Dashboard() {
                   <span className="text-xs font-semibold text-[var(--fg)] truncate w-full">{s.name}</span>
                   <span className="text-[10px] text-[var(--muted)] font-mono">{s.code}</span>
                   {s.change_rate != null && (
-                    <span className={clsx('text-xs font-bold tabular mt-0.5', s.change_rate >= 0 ? 'text-red-400' : 'text-blue-400')}>
-                      {s.change_rate >= 0 ? '+' : ''}{s.change_rate.toFixed(2)}%
+                    <span className={clsx('text-xs font-bold tabular mt-0.5', Number(s.change_rate) >= 0 ? 'text-red-400' : 'text-blue-400')}>
+                      {Number(s.change_rate) >= 0 ? '+' : ''}{Number(s.change_rate).toFixed(2)}%
                     </span>
                   )}
                   {s.price != null && (

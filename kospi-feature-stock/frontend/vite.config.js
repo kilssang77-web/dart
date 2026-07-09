@@ -9,6 +9,16 @@ export default defineConfig({
     build: {
         outDir: '../services/api/static',
         emptyOutDir: true,
+        rollupOptions: {
+            output: {
+                manualChunks: {
+                    'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+                    'vendor-query': ['@tanstack/react-query'],
+                    'vendor-charts': ['recharts', 'lightweight-charts'],
+                    'vendor-ui': ['lucide-react'],
+                },
+            },
+        },
     },
     server: {
         port: 8002,
