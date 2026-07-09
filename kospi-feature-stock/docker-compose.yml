@@ -450,8 +450,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512m
-          cpus: '1.0'
+          memory: 2048m
+          cpus: '2.0'
 
   recommender:
     build:
@@ -585,9 +585,7 @@ services:
           memory: 512m
           cpus: '0.5'
 
-  # ── ML: 자동 월별 재학습 (수동 실행: docker compose --profile tools up ml-autoretrain) ─────────────
-  # 매월 28일 수동 실행 권장 (항상 켜두면 256MB 상시 소비)
-  # 실행: docker compose --profile tools up ml-autoretrain
+  # ── ML: 자동 격주 재학습 (14일·28일 00:00 KST 자동 실행) ───────────────────────────────────────────
   ml-autoretrain:
     build:
       context: ./services/ml
@@ -606,7 +604,7 @@ services:
       LGBM_MODEL_DIR: /models/lgbm
       ML_MIN_AUC_THRESHOLD: "0.57"
       ML_RETRAIN_TRAIN_YEARS: "8"
-      ML_RETRAIN_DAY: "28"
+      ML_RETRAIN_DAYS: "14,28"
       ML_RETRAIN_HOUR: "0"
     volumes:
       - ./services/ml:/app

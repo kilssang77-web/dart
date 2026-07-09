@@ -38,8 +38,12 @@ _MODEL_DIR   = os.environ.get("LGBM_MODEL_DIR", "/models/lgbm")
 _TMP_DIR     = _MODEL_DIR + "_new"
 _HISTORY_FILE = "/models/retrain_history.json"
 
-# 재학습 트리거: 매월 28일 00:00 KST
-_RETRAIN_DAY  = int(os.environ.get("ML_RETRAIN_DAY", "28"))
+# 재학습 트리거: 매월 지정일(들) 00:00 KST (쉼표로 복수 지정 가능, 기본 14,28)
+_RETRAIN_DAYS = [
+    int(d.strip())
+    for d in os.environ.get("ML_RETRAIN_DAYS", "14,28").split(",")
+    if d.strip().isdigit()
+] or [28]
 _RETRAIN_HOUR = int(os.environ.get("ML_RETRAIN_HOUR", "0"))
 
 
@@ -191,30 +195,27 @@ async def run_retrain() -> bool:
 
 
 def _seconds_until_next_retrain() -> float:
-    """다음 재학습 시각(매월 _RETRAIN_DAY일 _RETRAIN_HOUR:00 KST)까지 대기 초."""
+    """다음 재학습 시각(_RETRAIN_DAYS 중 가장 가까운 미래 시각)까지 대기 초."""
+    import calendar
     now = datetime.now(_KST)
-    # 이번 달 트리거 시각
-    try:
-        trigger = now.replace(
-            day=_RETRAIN_DAY, hour=_RETRAIN_HOUR, minute=0, second=0, microsecond=0
-        )
-    except ValueError:
-        # 해당 월에 28일이 없는 경우 (2월) → 말일로
-        import calendar
-        last_day = calendar.monthrange(now.year, now.month)[1]
-        trigger  = now.replace(
-            day=min(_RETRAIN_DAY, last_day),
-            hour=_RETRAIN_HOUR, minute=0, second=0, microsecond=0
-        )
 
-    if now >= trigger:
-        # 이미 지났으면 다음 달
-        if now.month == 12:
-            trigger = trigger.replace(year=now.year + 1, month=1)
-        else:
-            trigger = trigger.replace(month=now.month + 1)
+    candidates: list[datetime] = []
+    for dy in _RETRAIN_DAYS:
+        for year_offset, month in [(0, now.month), (0, now.month + 1 if now.month < 12 else 1)]:
+            yr = now.year + (1 if now.month == 12 and month == 1 else 0)
+            last_day = calendar.monthrange(yr, month)[1]
+            day = min(dy, last_day)
+            try:
+                t = now.replace(year=yr, month=month, day=day,
+                                hour=_RETRAIN_HOUR, minute=0, second=0, microsecond=0)
+                if t > now:
+                    candidates.append(t)
+            except ValueError:
+                pass
 
-    return (trigger - now).total_seconds()
+    if not candidates:
+        return 86400.0
+    return (min(candidates) - now).total_seconds()
 
 
 async def main():
