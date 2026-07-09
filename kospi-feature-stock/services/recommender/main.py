@@ -572,46 +572,42 @@ class RecommenderService:
             detected_at = datetime.fromisoformat(event.get("detected_at", datetime.now().isoformat()))
             event_type  = event.get("event_type", "UNKNOWN")
             async with self._db.acquire() as conn:
-                event_id = await conn.fetchval(
+                # 중복 체크 후 INSERT (text vs varchar 타입 추론 충돌 방지를 위해 분리)
+                exists = await conn.fetchval(
                     """
-                    INSERT INTO feature_events (
-                        code, detected_at, event_type, price, change_rate,
-                        volume, volume_ratio, amount, signal_score, risk_score,
-                        signal_data
-                    )
-                    SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11
-                    WHERE NOT EXISTS (
-                        SELECT 1 FROM feature_events
-                        WHERE code::text       = $1
-                          AND event_type::text = $3
-                          AND detected_at >= DATE_TRUNC('day', $2::timestamptz)
-                          AND detected_at <  DATE_TRUNC('day', $2::timestamptz) + INTERVAL '1 day'
-                    )
-                    RETURNING id
+                    SELECT id FROM feature_events
+                    WHERE code       = $1
+                      AND event_type = $2
+                      AND detected_at >= DATE_TRUNC('day', $3::timestamptz)
+                      AND detected_at <  DATE_TRUNC('day', $3::timestamptz) + INTERVAL '1 day'
+                    ORDER BY id DESC LIMIT 1
                     """,
-                    code,
-                    detected_at,
-                    event_type,
-                    int(event.get("price", 0)),
-                    float(event.get("change_rate", 0)),
-                    int(event.get("volume", 0)) if event.get("volume") else None,
-                    float(event.get("volume_ratio", 0)) if event.get("volume_ratio") else None,
-                    int(event.get("amount", 0)) if event.get("amount") else None,
-                    float(event.get("signal_score", 0.5)),
-                    float(event.get("risk_score", 0.3)),
-                    orjson.dumps(signal_data).decode() if signal_data else None,
+                    code, event_type, detected_at,
                 )
-                if event_id is None:
+                if exists is not None:
+                    event_id = exists
+                else:
                     event_id = await conn.fetchval(
                         """
-                        SELECT id FROM feature_events
-                        WHERE code       = $1
-                          AND event_type = $2
-                          AND detected_at >= DATE_TRUNC('day', $3::timestamptz)
-                          AND detected_at <  DATE_TRUNC('day', $3::timestamptz) + INTERVAL '1 day'
-                        ORDER BY id DESC LIMIT 1
+                        INSERT INTO feature_events (
+                            code, detected_at, event_type, price, change_rate,
+                            volume, volume_ratio, amount, signal_score, risk_score,
+                            signal_data
+                        )
+                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                        RETURNING id
                         """,
-                        code, event_type, detected_at,
+                        code,
+                        detected_at,
+                        event_type,
+                        int(event.get("price", 0)),
+                        float(event.get("change_rate", 0)),
+                        int(event.get("volume", 0)) if event.get("volume") else None,
+                        float(event.get("volume_ratio", 0)) if event.get("volume_ratio") else None,
+                        int(event.get("amount", 0)) if event.get("amount") else None,
+                        float(event.get("signal_score", 0.5)),
+                        float(event.get("risk_score", 0.3)),
+                        orjson.dumps(signal_data).decode() if signal_data else None,
                     )
             logger.info(f"Feature event saved: {code} {event.get('event_type')} (id={event_id})")
 
