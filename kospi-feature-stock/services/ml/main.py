@@ -357,6 +357,7 @@ async def _run_retrain(pool: asyncpg.Pool, predictor: LGBMPredictor):
     # val 기간이 well-backfilled 구간(2025-04-27~)을 사용하여 build_features 최소 62행 보장
     _train_years = int(os.environ.get("ML_RETRAIN_TRAIN_YEARS", "6"))
     _val_months  = int(os.environ.get("ML_RETRAIN_VAL_MONTHS",  "12"))
+    _max_codes   = int(os.environ.get("ML_RETRAIN_MAX_CODES",   "500"))
     test_start  = (end_dt - timedelta(days=90)).isoformat()
     test_end    = end_dt.isoformat()
     val_end     = (end_dt - timedelta(days=91)).isoformat()
@@ -369,7 +370,7 @@ async def _run_retrain(pool: asyncpg.Pool, predictor: LGBMPredictor):
         "--train-start", train_start, "--train-end", train_end,
         "--val-start",   val_start,   "--val-end",   val_end,
         "--test-start",  test_start,  "--test-end",  test_end,
-        "--smote", "--model-dir", _MODEL_DIR, "--max-codes", "800",
+        "--smote", "--model-dir", _MODEL_DIR, "--max-codes", str(_max_codes),
     ]
     logger.info(f"[Retrain] walk_forward_train.py 시작: {train_start} ~ {test_end}")
 

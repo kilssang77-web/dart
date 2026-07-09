@@ -429,6 +429,7 @@ services:
     environment:
       SERVICE_NAME: ml
       ML_API_PORT: "${ML_API_PORT:-8001}"
+      ML_RETRAIN_MAX_CODES: "500"
     ports:
       - "${ML_API_PORT:-8001}:8001"
     volumes:
