@@ -1,5 +1,8 @@
-from fastapi import APIRouter, Request, Query
+from fastapi import APIRouter, Request, Query, Depends
 from typing import Optional
+import json
+import redis.asyncio as redis_lib
+from deps import get_redis
 
 router = APIRouter()
 
@@ -48,7 +51,19 @@ async def list_performance(
 
 
 @router.get("/summary")
-async def performance_summary(request: Request, days: int = Query(30, ge=1, le=365)):
+async def performance_summary(
+    request: Request,
+    days: int = Query(30, ge=1, le=365),
+    redis: redis_lib.Redis = Depends(get_redis),
+):
+    cache_key = f"cache:perf_summary:{days}"
+    try:
+        cached = await redis.get(cache_key)
+        if cached:
+            return json.loads(cached)
+    except Exception:
+        pass
+
     sql = """
         SELECT
             COUNT(*)                                              AS total,
@@ -82,10 +97,15 @@ async def performance_summary(request: Request, days: int = Query(30, ge=1, le=3
     async with request.app.state.db.acquire() as conn:
         row      = await conn.fetchrow(sql, days)
         ev_rows  = await conn.fetch(by_event_sql, days)
-    return {
+    result = {
         **dict(row),
         "by_event": [dict(r) for r in ev_rows],
     }
+    try:
+        await redis.set(cache_key, json.dumps(result, default=str), ex=300)
+    except Exception:
+        pass
+    return result
 
 
 @router.get("/daily-pnl")

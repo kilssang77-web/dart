@@ -908,34 +908,20 @@ export function Dashboard() {
     refetchInterval: 300_000,
   })
 
-  const { data: mkSummary } = useQuery({
-    queryKey:        ['market-summary'],
-    queryFn:         marketApi.getSummary,
-    refetchInterval: 60_000,
-  })
-
-  const { data: indexLive } = useQuery({
-    queryKey:        ['index-live'],
-    queryFn:         marketApi.getIndexLive,
+  const { data: marketOverview } = useQuery({
+    queryKey:        ['market-overview'],
+    queryFn:         marketApi.getOverview,
     refetchInterval: 30_000,
   })
-
-  const { data: movers } = useQuery({
-    queryKey:        ['market-movers'],
-    queryFn:         marketApi.getMovers,
-    refetchInterval: 60_000,
-  })
+  const mkSummary = marketOverview?.summary ?? undefined
+  const indexLive = marketOverview?.index   ?? undefined
+  const movers    = marketOverview?.movers  ?? undefined
+  const regime    = marketOverview?.regime  ?? undefined
 
   const { data: discStats } = useQuery({
     queryKey:  ['disclosure-stats-24h'],
     queryFn:   () => disclosuresApi.getStats(24),
     staleTime: 300_000,
-  })
-
-  const { data: regime } = useQuery({
-    queryKey:        ['market-regime'],
-    queryFn:         marketApi.getMarketRegime,
-    refetchInterval: 300_000,
   })
 
   const { data: pipeline } = useQuery({
@@ -950,12 +936,7 @@ export function Dashboard() {
     refetchInterval: 300_000,
   })
 
-  const { data: newHighs } = useQuery({
-    queryKey:  ['market-new-highs'],
-    queryFn:   marketApi.getNewHighs,
-    staleTime: 300_000,
-    refetchInterval: 300_000,
-  })
+  const newHighs = marketOverview?.new_highs?.stocks
 
   const isRt = (indexLive as any)?.source === 'realtime'
   const buyCount = topRecs?.length

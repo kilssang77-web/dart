@@ -243,6 +243,15 @@ export const marketApi = {
   getNewHighs: () =>
     http.get('/market/new-highs').then((r) => r.data),
 
+  getOverview: () =>
+    http.get<{
+      summary:   MarketSummary | null
+      index:     IndexLive    | null
+      movers:    MarketMovers | null
+      regime:    MarketRegime | null
+      new_highs: { since: string; stocks: unknown[]; total: number } | null
+    }>('/market/overview').then((r) => r.data),
+
   getForeignFlow: () =>
     http.get<ForeignFlowResponse>('/market/foreign-flow').then((r) => r.data),
 

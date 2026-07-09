@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react'
+﻿import React, { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { clsx } from 'clsx'
@@ -765,6 +765,24 @@ export function Recommendations() {
   const _probs   = recs?.map((r) => r.success_prob) ?? []
   const _probMin = _probs.length > 0 ? Math.min(..._probs) : 0
   const _probMax = _probs.length > 0 ? Math.max(..._probs) : 1
+
+  // 오늘/이전 분류 + 점수 정렬 (useMemo로 재렌더링 최소화)
+  const { sortedAllRecs, sortedTodayCount } = useMemo(() => {
+    if (!recs || recs.length === 0) return { sortedAllRecs: [], sortedTodayCount: 0 }
+    const todayKST = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10)
+    const isTodayFn = (rec: Recommendation) => {
+      const d = rec.fe_detected_at ?? rec.created_at
+      return !!d && d.slice(0, 10) === todayKST
+    }
+    const scored = [...recs].sort((a, b) => {
+      const sa = a.rationale?.rec_score ?? probToScore(a.success_prob)
+      const sb = b.rationale?.rec_score ?? probToScore(b.success_prob)
+      return sb - sa
+    })
+    const todayRecs = scored.filter(isTodayFn)
+    const olderRecs = scored.filter((r) => !isTodayFn(r))
+    return { sortedAllRecs: [...todayRecs, ...olderRecs], sortedTodayCount: todayRecs.length }
+  }, [recs])
   const toNorm = (p: number): number =>
     _probMax > _probMin
       ? Math.round(((p - _probMin) / (_probMax - _probMin)) * 99 + 1)
@@ -952,15 +970,8 @@ export function Recommendations() {
           const d = rec.fe_detected_at ?? rec.created_at
           return !!d && d.slice(0, 10) === todayKST
         }
-        const scored = [...recs].sort((a, b) => {
-          const sa = a.rationale?.rec_score ?? probToScore(a.success_prob)
-          const sb = b.rationale?.rec_score ?? probToScore(b.success_prob)
-          return sb - sa
-        })
-        const todayRecs = scored.filter(isToday)
-        const olderRecs = scored.filter((r) => !isToday(r))
-        const todayCount = todayRecs.length
-        const allRecs = [...todayRecs, ...olderRecs]
+        const allRecs    = sortedAllRecs
+        const todayCount = sortedTodayCount
 
         // 카드 뷰 (미니 스파크라인 포함)
         if (viewMode === 'card') {

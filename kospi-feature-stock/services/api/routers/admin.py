@@ -18,12 +18,23 @@ logger = logging.getLogger(__name__)
 _MODEL_DIR = Path(os.environ.get("LGBM_MODEL_DIR", "/models/lgbm"))
 
 
+_SYSTEM_STATUS_CACHE_KEY = "admin:system_status"
+_SYSTEM_STATUS_CACHE_TTL = 60  # 60초 캐시
+
+
 @router.get("/system-status")
 async def system_status(
     db: asyncpg.Pool = Depends(get_db),
     redis: redis_lib.Redis = Depends(get_redis),
 ):
-    """전체 시스템 상태 (ML 모델 + 데이터 신선도 + 서비스 헬스)."""
+    """전체 시스템 상태 (ML 모델 + 데이터 신선도 + 서비스 헬스). 60초 캐시."""
+    try:
+        cached = await redis.get(_SYSTEM_STATUS_CACHE_KEY)
+        if cached:
+            return json.loads(cached)
+    except Exception:
+        pass
+
     model_loaded = (_MODEL_DIR / "entry_model.lgb").exists()
     model_metrics: dict = {}
     if (_MODEL_DIR / "model_metrics.json").exists():
@@ -128,7 +139,7 @@ async def system_status(
         except Exception:
             redis_channels[ch] = -1
 
-    return {
+    result = {
         "ml": {
             "model_loaded":      model_loaded,
             "model_mode":        model_mode,
@@ -164,6 +175,13 @@ async def system_status(
         },
         "redis_channels": redis_channels,
     }
+
+    try:
+        await redis.set(_SYSTEM_STATUS_CACHE_KEY, json.dumps(result), ex=_SYSTEM_STATUS_CACHE_TTL)
+    except Exception:
+        pass
+
+    return result
 
 
 @router.get("/bootstrap-status")
@@ -491,15 +509,18 @@ async def _run_refresh_stats(db: asyncpg.Pool, redis: redis_lib.Redis) -> None:
     try:
         codes_raw = await db.fetch("SELECT code FROM stocks WHERE is_active ORDER BY code")
         codes = [r["code"] for r in codes_raw]
-        await _log(redis, f"{len(codes):,}개 종목 통계 계산 시작")
-        total = 0
-        for code in codes:
-            try:
-                ok = await _refresh_one(code)
-                if ok:
-                    total += 1
-            except Exception:
-                pass
+        await _log(redis, f"{len(codes):,}개 종목 통계 계산 시작 (병렬 50)")
+        sem = asyncio.Semaphore(50)
+
+        async def _refresh_bounded(code: str) -> bool:
+            async with sem:
+                try:
+                    return await _refresh_one(code)
+                except Exception:
+                    return False
+
+        results = await asyncio.gather(*[_refresh_bounded(c) for c in codes])
+        total = sum(1 for r in results if r)
         await redis.set("stats:last_refresh", _dt.utcnow().isoformat(), ex=_TTL)
         await redis.set("stats:refresh_count", total, ex=_TTL)
 

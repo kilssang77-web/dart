@@ -1,4 +1,5 @@
 from __future__ import annotations
+from collections import defaultdict
 from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 import asyncpg
@@ -62,29 +63,45 @@ async def get_similar_with_bars(
 
     cases = await svc.get_similar(event_id, top_k)
 
-    async def _bars(code: str, detected_at) -> list[dict]:
-        if hasattr(detected_at, 'date'):
-            ev_date = detected_at.date()
-        else:
-            from datetime import datetime
-            ev_date = datetime.fromisoformat(str(detected_at)[:19]).date()
-        start = ev_date - timedelta(days=window_before)
-        end   = ev_date + timedelta(days=window_after)
-        rows  = await db.fetch(
-            """SELECT date::text, open, high, low, close, volume, change_rate
-               FROM daily_bars WHERE code = $1 AND date BETWEEN $2 AND $3
-               ORDER BY date""",
-            code, start, end,
-        )
-        return [dict(r) for r in rows]
-
     event_dict = dict(event)
-    event_bars = await _bars(event_dict['code'], event_dict['detected_at'])
+
+    # 이벤트 + 유사사례 bars를 단일 배치 쿼리로 조회 (N+1 → 1회)
+    def _date_of(detected_at) -> object:
+        if hasattr(detected_at, 'date'):
+            return detected_at.date()
+        from datetime import datetime
+        return datetime.fromisoformat(str(detected_at)[:19]).date()
+
+    all_items = [event_dict] + [dict(c) for c in cases]
+    codes   = [it['code'] for it in all_items]
+    ev_dates = [_date_of(it['detected_at']) for it in all_items]
+    min_date = min(ev_dates) - timedelta(days=window_before)
+    max_date = max(ev_dates) + timedelta(days=window_after)
+
+    batch_rows = await db.fetch(
+        """SELECT code, date::text, open, high, low, close, volume, change_rate
+           FROM daily_bars
+           WHERE code = ANY($1::text[]) AND date BETWEEN $2 AND $3
+           ORDER BY code, date""",
+        codes, min_date, max_date,
+    )
+
+    bars_by_code: dict[str, list[dict]] = defaultdict(list)
+    for r in batch_rows:
+        bars_by_code[r['code']].append(dict(r))
+
+    def _filter_bars(code: str, ev_date) -> list[dict]:
+        d = _date_of(ev_date)
+        s = str(d - timedelta(days=window_before))
+        e = str(d + timedelta(days=window_after))
+        return [b for b in bars_by_code[code] if s <= b['date'] <= e]
+
+    event_bars = _filter_bars(event_dict['code'], event_dict['detected_at'])
 
     enriched = []
     for c in cases:
         cd = dict(c)
-        cd['bars'] = await _bars(cd['code'], cd['detected_at'])
+        cd['bars'] = _filter_bars(cd['code'], cd['detected_at'])
         enriched.append(cd)
 
     return {

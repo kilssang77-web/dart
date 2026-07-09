@@ -1,4 +1,5 @@
-﻿import { useState, useMemo } from 'react'
+﻿import { useState, useMemo, useCallback } from 'react'
+import { FixedSizeList } from 'react-window'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { clsx } from 'clsx'
@@ -105,6 +106,68 @@ export function Features() {
       : <ChevronDown size={11} className="inline ml-0.5" />
   }
 
+  const RowRenderer = useCallback(({ index, style }: { index: number; style: React.CSSProperties }) => {
+    const f = rows[index]
+    const recent = isRecent(f.detected_at)
+    return (
+      <div
+        className={clsx(
+          'grid items-center border-b border-[var(--border)]/50 hover:bg-[var(--border)]/25 cursor-pointer transition-colors text-sm',
+          recent && 'bg-green-500/5 border-l-2 border-l-green-500/60',
+        )}
+        style={{ ...style, gridTemplateColumns: '220px 1fr 90px 90px 70px 70px 80px 110px' }}
+        onClick={() => nav(`/search?code=${f.code}`)}
+      >
+        {/* 종목 */}
+        <div className="pl-5 pr-3 flex items-center gap-1.5 min-w-0">
+          {EVENT_ICONS[f.event_type] ?? <Zap size={14} className="text-[var(--muted)]" />}
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-[var(--fg)] truncate">{f.name}</div>
+            <div className="flex items-center gap-1 mt-0.5">
+              <span className="text-[var(--muted)]">{f.code}</span>
+              <MarketBadge market={f.market} />
+            </div>
+          </div>
+        </div>
+        {/* 이벤트 */}
+        <div className="pr-3" onClick={(e) => { e.stopPropagation(); setSelectedEvent(f) }}>
+          <div className="flex flex-wrap items-center gap-1 group">
+            <span className="group-hover:ring-1 group-hover:ring-cyan-500/50 rounded transition-all">
+              <Badge eventType={f.event_type} size="sm" />
+            </span>
+            {f.all_event_types?.filter((t) => t !== f.event_type).slice(0, 2).map((t) => (
+              <Badge key={t} eventType={t} size="sm" />
+            ))}
+            {(f.all_event_types?.length ?? 0) > 3 && (
+              <span className="text-xs px-1 py-0.5 rounded bg-[var(--border)] text-[var(--muted)] font-semibold">
+                +{f.all_event_types!.length - 3}
+              </span>
+            )}
+          </div>
+        </div>
+        {/* 시각 */}
+        <div className={clsx('pr-3 text-right tabular', recent ? 'text-green-400 font-semibold' : 'text-[var(--muted)]')}>
+          {recent ? '방금' : fmt.smartTime(f.detected_at)}
+        </div>
+        {/* 탐지가 */}
+        <div className="pr-3 text-right tabular text-[var(--fg)] font-medium">{fmt.price(f.price)}</div>
+        {/* 등락률 */}
+        <div className={clsx('pr-3 text-right tabular font-semibold', pctColor(f.change_rate))}>{fmt.pct(f.change_rate)}</div>
+        {/* 거래량비 */}
+        <div className={clsx('pr-3 text-right tabular font-semibold',
+          (f.volume_ratio ?? 0) >= 5 ? 'text-yellow-400' :
+          (f.volume_ratio ?? 0) >= 2 ? 'text-cyan-400' : 'text-[var(--muted)]'
+        )}>
+          {f.volume_ratio != null ? `${f.volume_ratio.toFixed(1)}x` : '—'}
+        </div>
+        {/* 거래대금 */}
+        <div className="pr-3 text-right tabular text-[var(--muted)]">{fmt.amount(f.amount)}</div>
+        {/* 스코어 */}
+        <div className="pr-5 text-right tabular"><ScoreBar score={f.signal_score} /></div>
+      </div>
+    )
+  }, [rows, nav, setSelectedEvent])
+
   return (
     <div className="p-5 space-y-4 max-w-[1600px]">
 
@@ -188,136 +251,52 @@ export function Features() {
 
       {/* 테이블 */}
       <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--border)] text-[var(--muted)] bg-[var(--bg)]/40">
-                <th className="text-left py-2.5 pl-5 pr-3 text-xs font-semibold uppercase tracking-wider">종목</th>
-                <th className="text-left py-2.5 pr-3 text-xs font-semibold uppercase tracking-wider">
-                  이벤트 <span className="normal-case font-normal text-[var(--muted)]/70">(클릭 시 상세)</span>
-                </th>
-                <th className="text-right py-2.5 pr-3 text-xs font-semibold uppercase tracking-wider cursor-pointer hover:text-[var(--fg)]" onClick={() => handleSort('detected_at')}>
-                  시각 <SortIcon k="detected_at" />
-                </th>
-                <th className="text-right py-2.5 pr-3 text-xs font-semibold uppercase tracking-wider">
-                  탐지가 <span className="normal-case font-normal text-[var(--muted)]/70 text-[10px]">탐지 당시</span>
-                </th>
-                <th className="text-right py-2.5 pr-3 text-xs font-semibold uppercase tracking-wider cursor-pointer hover:text-[var(--fg)]" onClick={() => handleSort('change_rate')}>
-                  등락률 <SortIcon k="change_rate" />
-                </th>
-                <th className="text-right py-2.5 pr-3 text-xs font-semibold uppercase tracking-wider cursor-pointer hover:text-[var(--fg)]" onClick={() => handleSort('volume_ratio')}>
-                  거래량비 <SortIcon k="volume_ratio" />
-                </th>
-                <th className="text-right py-2.5 pr-3 text-xs font-semibold uppercase tracking-wider">거래대금</th>
-                <th className="text-right py-2.5 pr-5 text-xs font-semibold uppercase tracking-wider cursor-pointer hover:text-[var(--fg)]" onClick={() => handleSort('signal_score')}>
-                  스코어 <SortIcon k="signal_score" />
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading && Array.from({ length: 8 }).map((_, i) => (
-                <tr key={i} className="border-b border-[var(--border)]/50">
-                  <td className="py-3 pl-5 pr-3">
-                    <div className="h-4 skeleton rounded w-24 mb-1.5" />
-                    <div className="h-3 skeleton rounded w-14" />
-                  </td>
-                  <td className="py-3 pr-3"><div className="h-5 skeleton rounded w-28" /></td>
-                  <td className="py-3 pr-3 text-right"><div className="h-4 skeleton rounded w-14 ml-auto" /></td>
-                  <td className="py-3 pr-3 text-right"><div className="h-4 skeleton rounded w-16 ml-auto" /></td>
-                  <td className="py-3 pr-3 text-right"><div className="h-4 skeleton rounded w-12 ml-auto" /></td>
-                  <td className="py-3 pr-3 text-right"><div className="h-4 skeleton rounded w-10 ml-auto" /></td>
-                  <td className="py-3 pr-3 text-right"><div className="h-4 skeleton rounded w-14 ml-auto" /></td>
-                  <td className="py-3 pr-5 text-right"><div className="h-5 skeleton rounded w-20 ml-auto" /></td>
-                </tr>
-              ))}
-              {rows.map((f) => {
-                const recent = isRecent(f.detected_at)
-                return (
-                <tr
-                  key={f.id}
-                  className={clsx(
-                    'border-b border-[var(--border)]/50 hover:bg-[var(--border)]/25 cursor-pointer transition-colors',
-                    recent && 'bg-green-500/5 border-l-2 border-l-green-500/60',
-                  )}
-                  onClick={() => nav(`/search?code=${f.code}`)}
-                >
-                  <td className="py-3 pl-5 pr-3">
-                    <div className="flex items-center gap-1.5">
-                      {EVENT_ICONS[f.event_type] ?? <Zap size={14} className="text-[var(--muted)]" />}
-                      <div>
-                        <div className="text-sm font-semibold text-[var(--fg)]">{f.name}</div>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <span className="text-[var(--muted)]">{f.code}</span>
-                          <MarketBadge market={f.market} />
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                  {/* 이벤트 셀: 클릭 시 팝업 (행 이동 막음) */}
-                  <td
-                    className="py-3 pr-3"
-                    onClick={(e) => { e.stopPropagation(); setSelectedEvent(f) }}
-                  >
-                    <div className="flex flex-wrap items-center gap-1 group">
-                      <span className="group-hover:ring-1 group-hover:ring-cyan-500/50 rounded transition-all">
-                        <Badge eventType={f.event_type} size="sm" />
-                      </span>
-                      {f.all_event_types
-                        ?.filter((t) => t !== f.event_type)
-                        .slice(0, 2)
-                        .map((t) => <Badge key={t} eventType={t} size="sm" />)}
-                      {(f.all_event_types?.length ?? 0) > 3 && (
-                        <span className="text-xs px-1 py-0.5 rounded bg-[var(--border)] text-[var(--muted)] font-semibold">
-                          +{f.all_event_types!.length - 3}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className={clsx('py-2.5 pr-3 text-right tabular', recent ? 'text-green-400 font-semibold' : 'text-[var(--muted)]')}>
-                    {recent ? '방금' : fmt.smartTime(f.detected_at)}
-                  </td>
-                  <td className="py-2.5 pr-3 text-right tabular text-[var(--fg)] font-medium">
-                    {fmt.price(f.price)}
-                  </td>
-                  <td className={clsx('py-3 pr-3 text-right tabular font-semibold', pctColor(f.change_rate))}>
-                    {fmt.pct(f.change_rate)}
-                  </td>
-                  <td className={clsx('py-3 pr-3 text-right tabular font-semibold',
-                    (f.volume_ratio ?? 0) >= 5 ? 'text-yellow-400' :
-                    (f.volume_ratio ?? 0) >= 2 ? 'text-cyan-400' : 'text-[var(--muted)]'
-                  )}>
-                    {f.volume_ratio != null ? `${f.volume_ratio.toFixed(1)}x` : '—'}
-                  </td>
-                  <td className="py-2.5 pr-3 text-right tabular text-[var(--muted)]">
-                    {fmt.amount(f.amount)}
-                  </td>
-                  <td className="py-3 pr-5 text-right tabular">
-                    <ScoreBar score={f.signal_score} />
-                  </td>
-                </tr>
-                )
-              })}
-              {isError && (
-                <tr>
-                  <td colSpan={8} className="py-8">
-                    <ErrorState error={error as Error} retry={refetch} />
-                  </td>
-                </tr>
-              )}
-              {!isLoading && !isError && rows.length === 0 && (
-                <tr>
-                  <td colSpan={8}>
-                    <EmptyState
-                      icon={Zap}
-                      title="탐지된 특징주 없음"
-                      description="선택한 조건에 맞는 특징주가 없습니다. 기간이나 필터를 조정해보세요."
-                    />
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        {/* 헤더 */}
+        <div
+          className="grid border-b border-[var(--border)] text-[var(--muted)] bg-[var(--bg)]/40 text-xs font-semibold uppercase tracking-wider"
+          style={{ gridTemplateColumns: '220px 1fr 90px 90px 70px 70px 80px 110px' }}
+        >
+          <div className="py-2.5 pl-5 pr-3">종목</div>
+          <div className="py-2.5 pr-3">이벤트 <span className="normal-case font-normal text-[var(--muted)]/70">(클릭 시 상세)</span></div>
+          <div className="py-2.5 pr-3 text-right cursor-pointer hover:text-[var(--fg)]" onClick={() => handleSort('detected_at')}>시각 <SortIcon k="detected_at" /></div>
+          <div className="py-2.5 pr-3 text-right">탐지가 <span className="normal-case font-normal text-[var(--muted)]/70 text-[10px]">탐지 당시</span></div>
+          <div className="py-2.5 pr-3 text-right cursor-pointer hover:text-[var(--fg)]" onClick={() => handleSort('change_rate')}>등락률 <SortIcon k="change_rate" /></div>
+          <div className="py-2.5 pr-3 text-right cursor-pointer hover:text-[var(--fg)]" onClick={() => handleSort('volume_ratio')}>거래량비 <SortIcon k="volume_ratio" /></div>
+          <div className="py-2.5 pr-3 text-right">거래대금</div>
+          <div className="py-2.5 pr-5 text-right cursor-pointer hover:text-[var(--fg)]" onClick={() => handleSort('signal_score')}>스코어 <SortIcon k="signal_score" /></div>
         </div>
+
+        {/* 스켈레톤 */}
+        {isLoading && Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} className="grid items-center border-b border-[var(--border)]/50 py-3"
+            style={{ gridTemplateColumns: '220px 1fr 90px 90px 70px 70px 80px 110px' }}>
+            <div className="pl-5 pr-3"><div className="h-4 skeleton rounded w-24 mb-1.5" /><div className="h-3 skeleton rounded w-14" /></div>
+            <div className="pr-3"><div className="h-5 skeleton rounded w-28" /></div>
+            <div className="pr-3"><div className="h-4 skeleton rounded w-14 ml-auto" /></div>
+            <div className="pr-3"><div className="h-4 skeleton rounded w-16 ml-auto" /></div>
+            <div className="pr-3"><div className="h-4 skeleton rounded w-12 ml-auto" /></div>
+            <div className="pr-3"><div className="h-4 skeleton rounded w-10 ml-auto" /></div>
+            <div className="pr-3"><div className="h-4 skeleton rounded w-14 ml-auto" /></div>
+            <div className="pr-5"><div className="h-5 skeleton rounded w-20 ml-auto" /></div>
+          </div>
+        ))}
+        {isError && <div className="py-8"><ErrorState error={error as Error} retry={refetch} /></div>}
+        {!isLoading && !isError && rows.length === 0 && (
+          <EmptyState icon={Zap} title="탐지된 특징주 없음" description="선택한 조건에 맞는 특징주가 없습니다. 기간이나 필터를 조정해보세요." />
+        )}
+
+        {/* 가상화 리스트 */}
+        {!isLoading && !isError && rows.length > 0 && (
+          <FixedSizeList
+            height={Math.min(rows.length * 60, 600)}
+            itemCount={rows.length}
+            itemSize={60}
+            width="100%"
+            overscanCount={5}
+          >
+            {RowRenderer}
+          </FixedSizeList>
+        )}
       </div>
 
       {/* 이벤트 상세 팝업 */}

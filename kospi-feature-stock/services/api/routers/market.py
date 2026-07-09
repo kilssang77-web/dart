@@ -450,3 +450,69 @@ async def sector_heatmap(
         pass
 
     return result
+
+
+@router.get("/overview")
+async def market_overview(
+    db:    asyncpg.Pool        = Depends(get_db),
+    redis: redis_lib.Redis     = Depends(get_redis),
+):
+    """Dashboard용 시장 전체 개요 — summary + index_live + movers + regime을 1회 요청으로 반환 (Redis 30s 캐시)."""
+    cache_key = "cache:market_overview"
+    try:
+        cached = await redis.get(cache_key)
+        if cached:
+            return orjson.loads(cached)
+    except Exception:
+        pass
+
+    async def _regime():
+        try:
+            raw = await redis.get("market:regime")
+            if raw:
+                return orjson.loads(raw)
+        except Exception:
+            pass
+        try:
+            rows = await db.fetch(
+                "SELECT close FROM daily_bars WHERE code='0001' ORDER BY date DESC LIMIT 25"
+            )
+            if not rows or len(rows) < 5:
+                return {"phase": "unknown"}
+            closes = [float(r["close"]) for r in rows]
+            ma20   = sum(closes[:20]) / min(20, len(closes))
+            pct    = (closes[0] - ma20) / ma20 * 100
+            import os as _os
+            bear_thr = float(_os.environ.get("REGIME_BEAR_THRESHOLD", "-3.0"))
+            bull_thr = float(_os.environ.get("REGIME_BULL_THRESHOLD", "-0.5"))
+            phase = "bear" if pct < bear_thr else ("neutral" if pct < bull_thr else "bull")
+            result = {"phase": phase, "kospi_price": round(closes[0], 2), "ma20": round(ma20, 2), "pct_from_ma20": round(pct, 2)}
+            try:
+                await redis.set("market:regime", orjson.dumps(result), ex=1800)
+            except Exception:
+                pass
+            return result
+        except Exception:
+            return {"phase": "unknown"}
+
+    summary_res, index_res, movers_res, regime_res, new_highs_res = await asyncio.gather(
+        market_summary(db),
+        market_index_live(db, redis),
+        market_movers(db, redis),
+        _regime(),
+        new_highs(24, db),
+        return_exceptions=True,
+    )
+
+    result = {
+        "summary":   summary_res  if not isinstance(summary_res,  Exception) else None,
+        "index":     index_res    if not isinstance(index_res,    Exception) else None,
+        "movers":    movers_res   if not isinstance(movers_res,   Exception) else None,
+        "regime":    regime_res   if not isinstance(regime_res,   Exception) else None,
+        "new_highs": new_highs_res if not isinstance(new_highs_res, Exception) else None,
+    }
+    try:
+        await redis.set(cache_key, orjson.dumps(result), ex=30)
+    except Exception:
+        pass
+    return result

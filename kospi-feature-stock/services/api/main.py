@@ -159,12 +159,26 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass
 
+    # Materialized View 자동 새로고침 (1시간 주기)
+    async def _refresh_mv_loop():
+        import asyncio as _asyncio
+        while True:
+            try:
+                await app.state.db.execute(
+                    "REFRESH MATERIALIZED VIEW CONCURRENTLY mv_daily_rec_stats"
+                )
+            except Exception as _e:
+                logger.warning(f"MV refresh failed: {_e}")
+            await _asyncio.sleep(3600)
+
     # 성과 추적 워커 시작
     import asyncio
-    _tracker_task = asyncio.create_task(tracker_loop(app.state.db, app.state.redis))
+    _tracker_task  = asyncio.create_task(tracker_loop(app.state.db, app.state.redis))
+    _mv_task       = asyncio.create_task(_refresh_mv_loop())
     logger.info("API server started")
     yield
     _tracker_task.cancel()
+    _mv_task.cancel()
     await app.state.db.close()
     await app.state.redis.close()
     logger.info("API server stopped")

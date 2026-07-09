@@ -1,4 +1,4 @@
-﻿import { defineConfig } from 'vite'
+import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
@@ -10,6 +10,16 @@ export default defineConfig({
   build: {
     outDir: '../services/api/static',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react':  ['react', 'react-dom', 'react-router-dom'],
+          'vendor-query':  ['@tanstack/react-query'],
+          'vendor-charts': ['recharts', 'lightweight-charts'],
+          'vendor-ui':     ['lucide-react'],
+        },
+      },
+    },
   },
   server: {
     port: 8002,
@@ -21,6 +31,3 @@ export default defineConfig({
     },
   },
 })
-
-
-

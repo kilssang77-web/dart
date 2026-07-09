@@ -81,11 +81,13 @@ async def run_screener(
         pass
 
     # 1. 기본 종목 목록 + 최신 bar
-    market_filter = ""
-    if req.market and req.market != "ALL":
-        market_filter = f"AND s.market = '{req.market.upper()}'"
+    # market 값을 허용 목록으로 검증 (SQL Injection 방지)
+    allowed_markets = {"KOSPI", "KOSDAQ", "ALL"}
+    market_val = (req.market or "ALL").upper()
+    if market_val not in allowed_markets:
+        market_val = "ALL"
 
-    rows = await db.fetch(f"""
+    rows = await db.fetch("""
         WITH
         latest_dt AS (
             SELECT date AS d FROM (
@@ -121,10 +123,10 @@ async def run_screener(
           AND db.close > 0
           AND s.is_active = TRUE
           AND s.market IN ('KOSPI', 'KOSDAQ')
-          {market_filter}
+          AND ($1 = 'ALL' OR s.market = $1)
         ORDER BY s.code
         LIMIT 3000
-    """)
+    """, market_val)
 
     if not rows:
         return []
@@ -134,16 +136,16 @@ async def run_screener(
     rsi_map: dict[str, float | None] = {}
     if need_rsi:
         codes = [r["code"] for r in rows]
-        codes_str = "', '".join(codes)
-        rsi_rows = await db.fetch(f"""
-            WITH latest_dt AS (SELECT MAX(date) AS d FROM daily_bars)
+        rsi_rows = await db.fetch("""
+            WITH latest_dt AS (
+                SELECT date AS d FROM daily_bars ORDER BY date DESC LIMIT 1
+            )
             SELECT code, close::FLOAT, date
-            FROM daily_bars
-            CROSS JOIN latest_dt
+            FROM daily_bars, latest_dt
             WHERE date >= latest_dt.d - INTERVAL '40 days'
-              AND code IN ('{codes_str}')
+              AND code = ANY($1::text[])
             ORDER BY code, date ASC
-        """)
+        """, codes)
         code_closes: dict[str, list[float]] = {}
         for rr in rsi_rows:
             code_closes.setdefault(rr["code"], []).append(float(rr["close"]))

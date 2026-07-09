@@ -90,6 +90,7 @@ class RecommendationService:
         limit_ph      = f"${len(params)}"
         where_clause  = " AND ".join(where)
 
+        # current_price: LATERAL(N+1) 제거 → entry_price 기본값, enrich_live_prices(Redis)가 덮어씀
         if dedupe:
             query = f"""
             WITH base AS (
@@ -102,8 +103,8 @@ class RecommendationService:
                     r.risk_score, r.risk_reward_ratio,
                     r.rationale, r.similar_cases,
                     r.feature_event_id,
-                    COALESCE(db.close, r.entry_price)  AS current_price,
-                    COALESCE(db.change_rate, 0)        AS current_change_rate,
+                    r.entry_price::FLOAT       AS current_price,
+                    0.0::FLOAT                 AS current_change_rate,
                     (r.created_at AT TIME ZONE 'Asia/Seoul')::TEXT AS fe_detected_at,
                     (SELECT COUNT(*) FROM recommendations r2
                      WHERE r2.code = r.code
@@ -114,10 +115,6 @@ class RecommendationService:
                     ) AS rn
                 FROM recommendations r
                 LEFT JOIN stocks s ON s.code = r.code
-                LEFT JOIN LATERAL (
-                    SELECT close, change_rate FROM daily_bars
-                    WHERE code = r.code ORDER BY date DESC LIMIT 1
-                ) db ON true
                 WHERE {where_clause}
             )
             SELECT id, created_at, code, name, market, action,
@@ -141,15 +138,11 @@ class RecommendationService:
                 r.rationale, r.similar_cases,
                 r.feature_event_id,
                 1 AS rec_count,
-                COALESCE(db.close, r.entry_price)  AS current_price,
-                COALESCE(db.change_rate, 0)        AS current_change_rate,
+                r.entry_price::FLOAT AS current_price,
+                0.0::FLOAT           AS current_change_rate,
                 (r.created_at AT TIME ZONE 'Asia/Seoul')::TEXT AS fe_detected_at
             FROM recommendations r
             LEFT JOIN stocks s ON s.code = r.code
-            LEFT JOIN LATERAL (
-                SELECT close, change_rate FROM daily_bars
-                WHERE code = r.code ORDER BY date DESC LIMIT 1
-            ) db ON true
             WHERE {where_clause}
             ORDER BY r.success_prob DESC, r.created_at DESC
             LIMIT {limit_ph}
@@ -195,8 +188,8 @@ class RecommendationService:
                 r.risk_score, r.risk_reward_ratio,
                 r.rationale, r.similar_cases,
                 1 AS rec_count,
-                COALESCE(db.close, r.entry_price)  AS current_price,
-                COALESCE(db.change_rate, 0)        AS current_change_rate,
+                r.entry_price::FLOAT               AS current_price,
+                0.0::FLOAT                         AS current_change_rate,
                 fe.event_type                      AS fe_event_type,
                 fe.signal_score                    AS fe_signal_score,
                 (fe.detected_at AT TIME ZONE 'Asia/Seoul')::TEXT AS fe_detected_at
@@ -205,10 +198,6 @@ class RecommendationService:
             LEFT JOIN feature_events fe
                 ON fe.id = r.feature_event_id
                AND fe.detected_at >= NOW() - (($2 + 48) * INTERVAL '1 hour')
-            LEFT JOIN LATERAL (
-                SELECT close, change_rate FROM daily_bars
-                WHERE code = r.code ORDER BY date DESC LIMIT 1
-            ) db ON true
             WHERE r.code = $1
               AND r.created_at >= NOW() - ($2 * INTERVAL '1 hour')
             ORDER BY r.created_at DESC
