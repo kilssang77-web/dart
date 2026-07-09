@@ -253,24 +253,60 @@ class BidService:
         return results
 
     def get_keyword_matches(self, db: Session) -> list:
-        """활성 키워드별 매칭 공고 수 + 최근 공고 5건 반환."""
+        """활성 키워드별 매칭 공고 수 + 최근 공고 5건 반환 — Redis 180초 캐시."""
         from ..models import WatchKeyword as KW
+        from ..common.cache import get_redis, cache_get, cache_set
+
+        rc = get_redis()
+        cache_key = "bids:keyword_matches"
+        cached = cache_get(rc, cache_key)
+        if cached is not None:
+            return cached
+
         keywords = db.query(KW).filter(KW.is_active == True).order_by(KW.created_at.desc()).all()
+        if not keywords:
+            return []
+
         result = []
         cutoff_7d = datetime.now() - timedelta(days=7)
         active_ids = get_active_industry_ids(db)
+        ind_filter = ""
+        if active_ids:
+            ids_str = ",".join(str(i) for i in active_ids)
+            ind_filter = f"AND b.industry_id IN ({ids_str})"
+
         for kw in keywords:
+            kw_safe = kw.keyword.replace("'", "''")
             if kw.kw_type == "agency":
-                q = (db.query(Bid)
-                     .join(Agency, Agency.id == Bid.agency_id)
-                     .filter(Agency.name.ilike(f"%{kw.keyword}%")))
+                where = f"a.name ILIKE '%{kw_safe}%'"
+                join_clause = "JOIN agencies a ON a.id = b.agency_id"
             else:
-                q = db.query(Bid).filter(Bid.title.ilike(f"%{kw.keyword}%"))
-            if active_ids is not None and active_ids:
-                q = q.filter(Bid.industry_id.in_(active_ids))
-            total = q.count()
-            new_7d = q.filter(Bid.created_at >= cutoff_7d).count()
-            recent = q.options(joinedload(Bid.agency)).order_by(desc(Bid.notice_date)).limit(5).all()
+                where = f"b.title ILIKE '%{kw_safe}%'"
+                join_clause = "LEFT JOIN agencies a ON a.id = b.agency_id"
+
+            # DB-side COUNT + 최근 5건 (unbounded fetch 제거)
+            agg = db.execute(text(f"""
+                SELECT
+                    COUNT(*) AS total,
+                    COUNT(*) FILTER (WHERE b.created_at >= :cutoff) AS new_7d
+                FROM bids b
+                {join_clause}
+                WHERE {where} {ind_filter}
+            """), {"cutoff": cutoff_7d}).fetchone()
+
+            recent_rows = db.execute(text(f"""
+                SELECT b.id, b.title, a.name AS agency_name, b.base_amount,
+                       b.notice_date, b.status
+                FROM bids b
+                {join_clause}
+                WHERE {where} {ind_filter}
+                ORDER BY b.notice_date DESC NULLS LAST
+                LIMIT 5
+            """)).fetchall()
+
+            total  = int(agg[0]) if agg else 0
+            new_7d = int(agg[1]) if agg else 0
+
             result.append({
                 "keyword_id":  kw.id,
                 "keyword":     kw.keyword,
@@ -280,14 +316,16 @@ class BidService:
                 "new_7d":      new_7d,
                 "recent_bids": [
                     {
-                        "id":          b.id,
-                        "title":       b.title,
-                        "agency_name": b.agency.name if b.agency else "",
-                        "base_amount": b.base_amount,
-                        "notice_date": b.notice_date.isoformat() if b.notice_date else None,
-                        "status":      b.status,
+                        "id":          r[0],
+                        "title":       r[1],
+                        "agency_name": r[2] or "",
+                        "base_amount": r[3],
+                        "notice_date": r[4].isoformat() if r[4] else None,
+                        "status":      r[5],
                     }
-                    for b in recent
+                    for r in recent_rows
                 ],
             })
+
+        cache_set(rc, cache_key, result, ttl=180)
         return result

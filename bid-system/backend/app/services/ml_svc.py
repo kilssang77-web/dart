@@ -108,8 +108,7 @@ class OpportunityScoreService:
     def get_top_recommended(self, user_id: int, limit: int = 5) -> list:
         """7일 이내 개찰 예정 open 공고 중 점수 상위 limit개 반환.
 
-        NO-GO 사전 체크: 추천 점수가 높아도 시장 낙찰율·경쟁 강도 기준
-        NO-GO로 판정될 공고는 목록에서 제외해 투찰결정과 일관성을 유지한다.
+        N+1 방지: 배치 쿼리로 경쟁강도·추세·사용자이력을 사전 로드 후 루프에서 재사용.
         """
         now = datetime.now(timezone.utc)
         cutoff = now + timedelta(days=7)
@@ -127,41 +126,182 @@ class OpportunityScoreService:
             q = q.filter(Bid.industry_id.in_(active_ids))
 
         bids = q.all()
+        if not bids:
+            return []
+
+        # ── 배치 사전 로드 ──────────────────────────────────────────
+        agency_ids     = list({b.agency_id  for b in bids if b.agency_id})
+        industry_ids   = list({b.industry_id for b in bids if b.industry_id})
+        bid_ids        = [b.id for b in bids]
+
+        # 1) 사용자 이력 한 번만 로드 (agency_track + amount_fit 공용)
+        user_records = self.db.execute(text("""
+            SELECT agency_name, result, base_amount
+            FROM my_bid_records
+            WHERE user_id = :uid AND base_amount > 0
+        """), {"uid": user_id}).fetchall()
+        user_amounts = [float(r.base_amount) for r in user_records if r.base_amount]
+
+        # 2) 배치: 발주처×공종 경쟁 강도 (6개월)
+        comp_cutoff = now - timedelta(days=180)
+        comp_rows = self.db.execute(text("""
+            SELECT b.agency_id, b.industry_id,
+                   AVG(cnt.c)::float AS avg_comp,
+                   COUNT(DISTINCT b.id) AS bid_cnt
+            FROM bids b
+            JOIN (
+                SELECT bid_id, COUNT(*) AS c
+                FROM bid_results
+                GROUP BY bid_id
+            ) cnt ON cnt.bid_id = b.id
+            WHERE b.agency_id   = ANY(:aids)
+              AND b.industry_id = ANY(:iids)
+              AND b.bid_open_date >= :cutoff
+              AND b.status = 'closed'
+            GROUP BY b.agency_id, b.industry_id
+        """), {"aids": agency_ids, "iids": industry_ids, "cutoff": comp_cutoff}).fetchall()
+        comp_map = {(r.agency_id, r.industry_id): float(r.avg_comp or 8) for r in comp_rows}
+
+        # 3) 배치: 발주처×공종 추세 (120일)
+        trend_cutoff = now - timedelta(days=120)
+        trend_cutoff2 = now - timedelta(days=60)
+        trend_rows = self.db.execute(text("""
+            SELECT b.agency_id, b.industry_id,
+                   AVG(CASE WHEN b.bid_open_date >= :c2 THEN r.bid_rate ELSE NULL END)::float AS recent_avg,
+                   AVG(CASE WHEN b.bid_open_date <  :c2 THEN r.bid_rate ELSE NULL END)::float AS older_avg
+            FROM bids b
+            JOIN bid_results r ON r.bid_id = b.id AND r.is_winner = true
+            WHERE b.agency_id   = ANY(:aids)
+              AND b.industry_id = ANY(:iids)
+              AND b.bid_open_date >= :c1
+              AND b.status = 'closed'
+            GROUP BY b.agency_id, b.industry_id
+        """), {"aids": agency_ids, "iids": industry_ids, "c1": trend_cutoff, "c2": trend_cutoff2}).fetchall()
+        trend_map = {(r.agency_id, r.industry_id): (r.recent_avg, r.older_avg) for r in trend_rows}
+
+        # 4) 배치: agencies 이름 매핑 (이미 joinedload 미적용 대비)
+        agency_map = {a.id: a.name for a in self.db.query(Agency).filter(Agency.id.in_(agency_ids)).all()}
+
+        # ── 점수 계산 (DB 쿼리 없이) ────────────────────────────────
+        p10 = float(np.percentile(user_amounts, 10)) if len(user_amounts) >= 10 else 0
+        p90 = float(np.percentile(user_amounts, 90)) if len(user_amounts) >= 10 else float("inf")
 
         results = []
         for bid in bids:
-            scored = self.score(bid.id, user_id)
-            if scored.get("error"):
-                continue
+            key = (bid.agency_id, bid.industry_id)
+
+            # 경쟁 강도
+            avg_comp = comp_map.get(key, 8.0)
+            comp_pts = round(min(40.0, max(5.0, 40.0 - (avg_comp - 1) * 2.5)), 1)
+            comp_note = f"최근 6개월 평균 경쟁사 {avg_comp:.1f}명" if key in comp_map else "경쟁 데이터 없음"
+
+            # 추세
+            recent_avg, older_avg = trend_map.get(key, (None, None))
+            if recent_avg and older_avg:
+                diff = recent_avg - older_avg
+                if diff > 0.002:
+                    trend_pts, trend_note = 15.0, f"낙찰률 상승 (+{diff*100:.2f}%p)"
+                elif diff < -0.002:
+                    trend_pts, trend_note = 5.0, f"낙찰률 하락 ({diff*100:.2f}%p)"
+                else:
+                    trend_pts, trend_note = 10.0, "낙찰률 안정적"
+            else:
+                trend_pts, trend_note = 8.0, "추세 데이터 부족"
+
+            # 사용자 이력 (agency_name prefix 매칭)
+            agency_name = agency_map.get(bid.agency_id, "")
+            prefix = agency_name[:10]
+            matching = [r for r in user_records if r.agency_name and prefix in r.agency_name]
+            total_m = len(matching)
+            won_m   = sum(1 for r in matching if r.result == "won")
+            if total_m == 0:
+                track_pts, track_note = 15.0, "이 발주처 참여 이력 없음 (중간값)"
+            elif won_m == 0:
+                track_pts = max(5.0, 15.0 - total_m * 0.5)
+                track_note = f"참여 {total_m}건 / 낙찰 0건"
+            else:
+                wr = won_m / total_m
+                track_pts = min(30.0, 15.0 + wr * 15.0)
+                track_note = f"참여 {total_m}건 / 낙찰 {won_m}건 ({wr:.0%})"
+
+            # 금액 적합도
+            amt = bid.base_amount or 0
+            if p10 <= amt <= p90:
+                amount_pts, amount_note = 15.0, f"자주 참여하는 금액 구간 ({amt/1e6:.0f}백만원)"
+            elif amt < p10 and p10 > 0:
+                amount_pts = max(5.0, 15.0 * amt / p10)
+                amount_note = f"평소보다 소액 ({amt/1e6:.0f}백만원)"
+            else:
+                amount_pts = max(5.0, 15.0 * p90 / max(amt, 1)) if p90 < float("inf") else 8.0
+                amount_note = f"평소보다 고액 ({amt/1e6:.0f}백만원)"
+
+            total_pts = round(min(100, comp_pts + track_pts + trend_pts + amount_pts), 1)
+            grade = "A" if total_pts >= 75 else "B" if total_pts >= 55 else "C" if total_pts >= 35 else "D"
+
             results.append({
-                "bid_id":        bid.id,
-                "title":         bid.title,
-                "agency_name":   bid.agency.name if bid.agency else "",
-                "score":         scored["score"],
-                "grade":         scored["grade"],
-                "open_date":     bid.bid_open_date.isoformat() if bid.bid_open_date else None,
-                "base_amount":   bid.base_amount,
-                "score_breakdown": scored["breakdown"],
-                "_agency_id":    bid.agency_id,
-                "_industry_id":  bid.industry_id,
+                "bid_id":      bid.id,
+                "title":       bid.title,
+                "agency_name": agency_name,
+                "score":       total_pts,
+                "grade":       grade,
+                "open_date":   bid.bid_open_date.isoformat() if bid.bid_open_date else None,
+                "base_amount": bid.base_amount,
+                "score_breakdown": {
+                    "competition":    {"pts": comp_pts,   "max": 40, "note": comp_note},
+                    "personal_track": {"pts": track_pts,  "max": 30, "note": track_note},
+                    "market_trend":   {"pts": trend_pts,  "max": 15, "note": trend_note},
+                    "amount_fit":     {"pts": amount_pts, "max": 15, "note": amount_note},
+                },
+                "_agency_id":   bid.agency_id,
+                "_industry_id": bid.industry_id,
             })
 
         results.sort(key=lambda x: (x["score"] or 0), reverse=True)
 
-        # NO-GO 사전 체크 — 상위 후보(limit×3)에서 일관성 검증 후 limit개 반환
+        # NO-GO 사전 체크 — Redis 캐시 hit 시 즉시, miss 시 neutral 반환 후 백그라운드 계산
+        from ..common.cache import get_redis, cache_get
+        rc = get_redis()
         pool = results[: limit * 3]
         filtered = []
+        bg_targets = []  # 캐시 미스 항목 → 백그라운드 계산
+
         for item in pool:
-            quick = self._quick_go_check(
-                item["_agency_id"], item["_industry_id"], item["bid_id"], item["base_amount"]
-            )
+            aid, iid, amt = item["_agency_id"], item["_industry_id"], (item["base_amount"] or 0)
+            ck = f"go_check:{aid}:{iid}:{amt // 50_000_000}"
+            cached_go = cache_get(rc, ck)
+            if cached_go is not None:
+                quick = cached_go
+            else:
+                quick = "neutral"  # 캐시 미스 → 즉시 neutral 반환
+                bg_targets.append((aid, iid, item["bid_id"], amt))
+
             if quick != "pass":
-                item["quick_go"] = quick  # "go" | "neutral"
+                item["quick_go"] = quick
                 filtered.append(item)
             if len(filtered) >= limit:
                 break
 
-        # 전부 NO-GO인 극단 케이스: 원본 순서 그대로 반환하되 quick_go 표시
+        # 캐시 미스 항목은 백그라운드 스레드에서 계산 → 다음 호출에 캐시 히트
+        if bg_targets:
+            import threading
+            db_url = str(self.db.bind.url) if hasattr(self.db, "bind") and self.db.bind else None
+
+            def _bg_compute(targets, url):
+                try:
+                    from ..database import SessionLocal
+                    _db = SessionLocal()
+                    svc2 = OpportunityScoreService(_db)
+                    for a, i, bid, ba in targets[:10]:  # 최대 10개
+                        try:
+                            svc2._quick_go_check(a, i, bid, ba)
+                        except Exception:
+                            pass
+                    _db.close()
+                except Exception:
+                    pass
+
+            threading.Thread(target=_bg_compute, args=(bg_targets, db_url), daemon=True).start()
+
         final = filtered if filtered else results[:limit]
         for item in final:
             item.setdefault("quick_go", "neutral")
@@ -175,14 +315,15 @@ class OpportunityScoreService:
     ) -> str:
         """
         win_prob_model 기반 GO/PASS 사전 판정.
-
-        투찰결정(decision_service)과 동일한 ML 모델을 사용하여
-        추천 목록의 GO/PASS 판정이 일관되도록 한다.
-
-        판정 우선순위:
-          1. win_prob_model 실제 예측 → win_prob < 0.15 → 즉시 pass
-          2. inpo21c 기관 낙찰율 + 경쟁자 수 보조 신호
+        결과를 Redis 1시간 캐시 — pool 15건 루프 호출 시 중복 계산 방지.
         """
+        from ..common.cache import get_redis, cache_get, cache_set
+        rc = get_redis()
+        cache_key = f"go_check:{agency_id}:{industry_id}:{base_amount // 50_000_000}"
+        cached = cache_get(rc, cache_key)
+        if cached is not None:
+            return cached
+
         go_score = 0.50
 
         # ① win_prob_model 실제 호출 (가장 신뢰도 높은 신호)
@@ -212,7 +353,8 @@ class OpportunityScoreService:
                 wp = max(0.0, float(wp))
 
                 if wp < 0.15:
-                    return "pass"   # win_prob < 15% → 무조건 제외
+                    cache_set(rc, cache_key, "pass", ttl=3600)
+                    return "pass"
                 elif wp >= 0.30:
                     go_score += 0.20
                 elif wp >= 0.20:
@@ -222,13 +364,13 @@ class OpportunityScoreService:
         except Exception:
             pass
 
-        # ② inpo21c 기관 낙찰율 (보조 신호)
+        # ② inpo21c 기관 낙찰율 — agency_name 정규화 컬럼 사용 (TRIM 제거)
         try:
             win_rate = self.db.execute(text("""
                 SELECT ROUND(AVG(CASE WHEN ip.is_winner THEN 1.0 ELSE 0.0 END), 4)
                 FROM inpo21c_participants ip
                 JOIN inpo21c_bids ib USING (inpo21c_bid_id)
-                JOIN agencies a ON TRIM(a.name) = TRIM(ib.agency_name)
+                JOIN agencies a ON a.name = ib.agency_name
                 WHERE a.id = :aid
                   AND ib.open_datetime >= NOW() - INTERVAL '24 months'
                 HAVING COUNT(*) >= 5
@@ -243,14 +385,14 @@ class OpportunityScoreService:
         except Exception:
             pass
 
-        # ③ inpo21c 기반 평균 경쟁자 수 (bid_results 대신 — 더 신뢰도 높음)
+        # ③ inpo21c 기반 평균 경쟁자 수 — agency_name 정규화 (TRIM 제거)
         try:
             avg_n_row = self.db.execute(text("""
                 SELECT AVG(sub.n) FROM (
                     SELECT COUNT(*) AS n
                     FROM inpo21c_bids ib
                     JOIN inpo21c_participants ip USING (inpo21c_bid_id)
-                    JOIN agencies a ON TRIM(a.name) = TRIM(ib.agency_name)
+                    JOIN agencies a ON a.name = ib.agency_name
                     WHERE a.id = :aid
                       AND ib.open_datetime >= NOW() - INTERVAL '12 months'
                     GROUP BY ib.inpo21c_bid_id
@@ -271,10 +413,14 @@ class OpportunityScoreService:
         go_score = round(max(0.0, min(1.0, go_score)), 3)
 
         if go_score <= 0.40:
-            return "pass"
-        if go_score >= 0.65:
-            return "go"
-        return "neutral"
+            verdict = "pass"
+        elif go_score >= 0.65:
+            verdict = "go"
+        else:
+            verdict = "neutral"
+
+        cache_set(rc, cache_key, verdict, ttl=3600)
+        return verdict
 
     def _competition_score(self, bid: "Bid") -> dict:
         # 최근 해당 발주처 + 업종 낙찰 데이터로 경쟁강도 추정

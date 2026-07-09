@@ -41,15 +41,25 @@ logger = logging.getLogger(__name__)
 class StatisticsService:
 
     def overview(self, db: Session, months: int = 12) -> dict:
-        cutoff = datetime.now() - timedelta(days=months * 30)
+        from ..common.cache import get_redis, cache_get, cache_set
+
         active_ids = get_active_industry_ids(db)
+        if active_ids is not None and not active_ids:
+            return {"total_bids": 0, "total_competitors": 0, "avg_win_rate": 0, "avg_bid_rate": 0, "avg_competitor_count": 0, "monthly_trend": [],
+                    "win_rate_change_pct": None, "bid_count_change_pct": None, "avg_competitors_change": None}
+
+        ids_key = "all" if active_ids is None else "_".join(str(i) for i in sorted(active_ids))
+        rc = get_redis()
+        cache_key = f"stats:overview:{months}:{ids_key}"
+        cached = cache_get(rc, cache_key)
+        if cached is not None:
+            return cached
+
+        cutoff = datetime.now() - timedelta(days=months * 30)
         ind_sql = _build_ind_sql(active_ids)
 
         bids_q = db.query(func.count(Bid.id)).filter(Bid.bid_open_date >= cutoff)
         if active_ids is not None:
-            if not active_ids:
-                return {"total_bids": 0, "total_competitors": 0, "avg_win_rate": 0, "avg_bid_rate": 0, "avg_competitor_count": 0, "monthly_trend": [],
-                        "win_rate_change_pct": None, "bid_count_change_pct": None, "avg_competitors_change": None}
             bids_q = bids_q.filter(Bid.industry_id.in_(active_ids))
         total_bids = bids_q.scalar() or 0
         total_comps = db.query(func.count(Competitor.id)).scalar() or 0
@@ -130,7 +140,7 @@ class StatisticsService:
             else None
         )
 
-        return {
+        result = {
             "total_bids": total_bids,
             "total_competitors": total_comps,
             "avg_win_rate": round(avg_win_rate, 4),
@@ -141,6 +151,8 @@ class StatisticsService:
             "bid_count_change_pct": bid_count_change_pct,
             "avg_competitors_change": avg_competitors_change,
         }
+        cache_set(rc, cache_key, result, ttl=300)
+        return result
 
     def _monthly_trend(self, db: Session, cutoff, ind_sql: str = "") -> List[dict]:
         rows = db.execute(text(f"""

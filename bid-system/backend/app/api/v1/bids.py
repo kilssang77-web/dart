@@ -45,23 +45,39 @@ def list_bids(
 @router.get("/meta")
 def get_meta(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     """프론트엔드 필터용 기준 데이터 — Redis 600초 캐시."""
+    from ...common import agency_cache as _ac
+    from sqlalchemy import text as _t
+
     rc = get_redis()
     cached = cache_get(rc, "bids:meta")
     if cached is not None:
         return cached
 
+    # agencies: startup 로드된 인메모리 캐시 사용 (ORM 17883행 제거)
+    ac = _ac.get_all()
+    if ac:
+        agencies = [{"id": k, "name": v} for k, v in sorted(ac.items(), key=lambda x: x[1])]
+    else:
+        agencies = [{"id": r[0], "name": r[1]}
+                    for r in db.execute(_t("SELECT id, name FROM agencies ORDER BY name")).fetchall()]
+
     active_ids = get_active_industry_ids(db)
     if active_ids is None:
-        industries_q = db.query(Industry).all()
+        industries_q = db.execute(_t("SELECT id, name FROM industries ORDER BY name")).fetchall()
+        industries = [{"id": r[0], "name": r[1]} for r in industries_q]
     elif not active_ids:
-        industries_q = []
+        industries = []
     else:
-        industries_q = db.query(Industry).filter(Industry.id.in_(active_ids)).all()
-    result = {
-        "agencies":   [{"id": a.id, "name": a.name} for a in db.query(Agency).all()],
-        "industries": [{"id": i.id, "name": i.name} for i in industries_q],
-        "regions":    [{"id": r.id, "name": r.name} for r in db.query(Region).all()],
-    }
+        industries_q = db.execute(
+            _t("SELECT id, name FROM industries WHERE id = ANY(:ids) ORDER BY name"),
+            {"ids": list(active_ids)}
+        ).fetchall()
+        industries = [{"id": r[0], "name": r[1]} for r in industries_q]
+
+    regions = [{"id": r[0], "name": r[1]}
+               for r in db.execute(_t("SELECT id, name FROM regions ORDER BY name")).fetchall()]
+
+    result = {"agencies": agencies, "industries": industries, "regions": regions}
     cache_set(rc, "bids:meta", result, ttl=600)
     return result
 
