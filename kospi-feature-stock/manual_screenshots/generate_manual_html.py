@@ -53,7 +53,7 @@ body {
 /* ── 사이드바 ── */
 #sidebar {
   width: var(--sidebar-w);
-  min-height: 100vh;
+  height: 100vh;
   position: fixed; top: 0; left: 0;
   background: var(--bg2);
   border-right: 1px solid var(--border);
