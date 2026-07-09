@@ -499,6 +499,20 @@ async def _run_refresh_stats(db: asyncpg.Pool, redis: redis_lib.Redis) -> None:
                 pass
         await redis.set("stats:last_refresh", _dt.utcnow().isoformat(), ex=_TTL)
         await redis.set("stats:refresh_count", total, ex=_TTL)
+
+        # result_count / vector_count 갱신 (ML result_coverage_pct 지표용)
+        try:
+            result_cnt = await db.fetchval(
+                "SELECT COUNT(*) FROM feature_events WHERE result_5d IS NOT NULL"
+            )
+            await redis.set("stats:result_count", int(result_cnt or 0), ex=_TTL)
+            vector_cnt = await db.fetchval(
+                "SELECT COUNT(*) FROM feature_events WHERE pattern_vector IS NOT NULL"
+            )
+            await redis.set("stats:vector_count", int(vector_cnt or 0), ex=_TTL)
+        except Exception as e:
+            await _log(redis, f"result/vector count 갱신 실패: {e}")
+
         await _log(redis, f"완료: Redis 통계 {total}/{len(codes):,}개 종목 × 7개 키 적재")
     except Exception as e:
         await _log(redis, f"오류: Redis 통계 초기화 — {str(e)[:300]}")
