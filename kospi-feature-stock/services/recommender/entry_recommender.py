@@ -26,6 +26,22 @@ def _load_trained_threshold(default: float = 0.236) -> float:
 _MIN_RR        = float(os.environ.get("REC_MIN_RISK_REWARD", "2.0"))
 _MAX_RISK      = float(os.environ.get("REC_MAX_RISK", "0.60"))
 _MIN_PROB      = float(os.environ.get("REC_MIN_PROB") or _load_trained_threshold())
+
+# 런타임 임계값 오버라이드 (Redis ml:optimal_threshold → update_threshold() 로 갱신)
+_runtime_min_prob: float | None = None
+
+
+def get_min_prob() -> float:
+    """현재 유효한 최소 확률 임계값 반환 (런타임 > 파일 > 기본값 순)."""
+    return _runtime_min_prob if _runtime_min_prob is not None else _MIN_PROB
+
+
+def update_threshold(new_thr: float) -> None:
+    """Redis에서 읽어온 새 임계값으로 런타임 갱신."""
+    global _runtime_min_prob
+    if 0.1 <= new_thr <= 0.9:
+        _runtime_min_prob = new_thr
+        logger.info(f"[threshold] 런타임 임계값 갱신: {new_thr:.4f}")
 _ENTRY_BAND    = float(os.environ.get("REC_ENTRY_BAND", "0.015"))
 _VOL_HEAT_H    = float(os.environ.get("REC_VOL_HEAT_HIGH", "20.0"))
 _VOL_HEAT_M    = float(os.environ.get("REC_VOL_HEAT_MED", "10.0"))
@@ -234,7 +250,7 @@ class EntryRecommender:
     def _decide(self, prob: float, risk: float, rr: float) -> str:
         if risk > _MAX_RISK:
             return "SKIP"
-        if prob < _MIN_PROB or rr < _MIN_RR:
+        if prob < get_min_prob() or rr < _MIN_RR:
             return "WAIT"
         return "BUY"
 

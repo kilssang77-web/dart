@@ -751,9 +751,10 @@ function DataQualityTab() {
             ) : ml ? (
               <div>
                 <DataRow label="모델 상태"     value={ml.model_loaded ? '로드됨' : '미로드'} stale={!ml.model_loaded} />
-                <DataRow label="AUC"           value={ml.auc != null ? ml.auc.toFixed(4) : null} />
-                <DataRow label="F1"            value={ml.f1 != null ? ml.f1.toFixed(4) : null} />
-                <DataRow label="임계값"        value={ml.threshold != null ? ml.threshold.toFixed(3) : null} />
+                <DataRow label="AUC"              value={ml.auc != null ? ml.auc.toFixed(4) : null} />
+                <DataRow label="최적임계 F1"     value={ml.opt_f1 != null ? ml.opt_f1.toFixed(4) : null} />
+                <DataRow label="최적임계 Recall" value={ml.opt_recall != null ? (ml.opt_recall * 100).toFixed(1) + '%' : null} />
+                <DataRow label="임계값"          value={ml.threshold != null ? ml.threshold.toFixed(3) : null} />
                 <DataRow label="피처 수"       value={ml.feature_count?.toLocaleString() ?? null} />
                 <DataRow label="학습 샘플"     value={ml.train_samples?.toLocaleString() ?? null} />
                 <DataRow label="모델 나이"     value={ml.model_age_days != null ? `${ml.model_age_days}일` : null}

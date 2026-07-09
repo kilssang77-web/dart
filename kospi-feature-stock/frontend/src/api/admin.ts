@@ -100,6 +100,9 @@ export interface DataQuality {
     model_loaded:         boolean
     auc:                  number | null
     f1:                   number | null
+    opt_f1:               number | null
+    opt_recall:           number | null
+    opt_precision:        number | null
     trained_at:           string | null
     model_age_days:       number | null
     feature_count:        number | null

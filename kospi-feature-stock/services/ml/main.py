@@ -409,6 +409,15 @@ async def _run_retrain(pool: asyncpg.Pool, predictor: LGBMPredictor):
     if _redis:
         await _redis.set("ml:retrain_status", "done", ex=86400)
         await _redis.set("ml:retrain_finished_at", _now(), ex=86400)
+        # 재학습 후 최적 임계값을 Redis에 게시 → recommender 핫업데이트
+        if metrics_path.exists():
+            try:
+                m = _json.loads(metrics_path.read_text())
+                thr = float(m.get("optimal_threshold", 0.236))
+                await _redis.set("ml:optimal_threshold", thr, ex=86400 * 30)
+                logger.info(f"[Retrain] ml:optimal_threshold → {thr}")
+            except Exception:
+                pass
     logger.info("[Retrain] 완료")
 
 

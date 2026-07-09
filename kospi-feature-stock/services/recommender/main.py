@@ -20,6 +20,14 @@ _RECOVERY_HOURS   = int(os.environ.get("REC_RECOVERY_HOURS",   "24"))
 # 동일 종목 재추천 억제 쿨다운 (분, 0=비활성) — 이벤트 타입과 무관하게 종목 단위로 적용
 _COOLDOWN_MINUTES = int(os.environ.get("REC_COOLDOWN_MINUTES", "60"))
 
+# ── 시장 국면(Market Regime) 필터 파라미터 ─────────────────────────────────────
+# Bear 국면: BUY→WAIT 완전 억제(true) vs 확률만 하향 조정(false)
+_REGIME_BEAR_SUPPRESS   = os.environ.get("REGIME_BEAR_SUPPRESS", "true").lower() == "true"
+# Bear 국면에서 SUPPRESS=false일 때 확률 승수 (기본 0.75)
+_REGIME_BEAR_PROB_MULT  = float(os.environ.get("REGIME_BEAR_PROB_MULT",    "0.75"))
+# Neutral 국면 확률 승수 (기본 0.88)
+_REGIME_NEUTRAL_PROB_MULT = float(os.environ.get("REGIME_NEUTRAL_PROB_MULT", "0.88"))
+
 _KST = timezone(timedelta(hours=9))
 
 # KRX 공식 비거래일 (주말 제외 공휴일·임시공휴일)
@@ -131,8 +139,11 @@ class RecommenderService:
         # 기동 시 Redis에서 공휴일 캐시 갱신
         await _refresh_holiday_cache(self._redis)
 
-        from entry_recommender import EntryRecommender
+        from entry_recommender import EntryRecommender, update_threshold
         recommender = EntryRecommender()
+
+        # 기동 시 Redis에서 optimal_threshold 로드
+        await self._sync_threshold(update_threshold)
 
         # 기동 시 미처리 이벤트 복구
         await self._recover_missed_events(recommender)
@@ -141,6 +152,10 @@ class RecommenderService:
         _recovery_interval = int(os.environ.get("REC_PERIODIC_RECOVERY_MINUTES", "30")) * 60
         recovery_task = asyncio.create_task(
             self._periodic_recovery_loop(recommender, _recovery_interval)
+        )
+        # 주기적 threshold 동기화 (ML 재학습 후 자동 갱신, 10분 간격)
+        threshold_task = asyncio.create_task(
+            self._threshold_sync_loop(update_threshold)
         )
 
         pubsub = self._redis.pubsub()
@@ -169,6 +184,7 @@ class RecommenderService:
                     logger.error(f"Recommend error {event.get('code')}: {e}")
         finally:
             recovery_task.cancel()
+            threshold_task.cancel()
             try:
                 await pubsub.unsubscribe()
                 await pubsub.aclose()
@@ -184,6 +200,21 @@ class RecommenderService:
                 await self._recover_missed_events(recommender)
             except Exception as e:
                 logger.error(f"[periodic-recovery] error: {e}")
+
+    async def _sync_threshold(self, update_fn) -> None:
+        """Redis ml:optimal_threshold 값으로 entry_recommender 임계값 갱신."""
+        try:
+            val = await self._redis.get("ml:optimal_threshold")
+            if val:
+                update_fn(float(val))
+        except Exception as e:
+            logger.warning(f"[threshold-sync] Redis 조회 실패: {e}")
+
+    async def _threshold_sync_loop(self, update_fn, interval: int = 600) -> None:
+        """10분마다 Redis ml:optimal_threshold를 폴링해 임계값 핫업데이트."""
+        while True:
+            await asyncio.sleep(interval)
+            await self._sync_threshold(update_fn)
 
     async def _recover_missed_events(self, recommender):
         """기동 시 추천이 없는 feature_events를 재처리한다."""
@@ -503,12 +534,17 @@ class RecommenderService:
             pct   = regime.get("pct_from_ma20", 0.0)
             phase = regime.get("phase", "neutral")
             if phase == "bear" and action == "BUY":
-                action      = "WAIT"
-                regime_note = f"하락장 진입 억제 (KOSPI MA20 대비 {pct:.1f}%)"
-                logger.info(f"[REGIME] Bear filter: {rec.code} BUY→WAIT (KOSPI {pct:.1f}% vs MA20)")
+                if _REGIME_BEAR_SUPPRESS:
+                    action      = "WAIT"
+                    regime_note = f"하락장 진입 억제 (KOSPI MA20 대비 {pct:.1f}%)"
+                    logger.info(f"[REGIME] Bear filter: {rec.code} BUY→WAIT (KOSPI {pct:.1f}% vs MA20)")
+                else:
+                    success_prob = round(success_prob * _REGIME_BEAR_PROB_MULT, 4)
+                    regime_note  = f"하락장 확률 하향 (KOSPI MA20 대비 {pct:.1f}%, ×{_REGIME_BEAR_PROB_MULT})"
+                    logger.info(f"[REGIME] Bear adjust: {rec.code} prob×{_REGIME_BEAR_PROB_MULT} (KOSPI {pct:.1f}% vs MA20)")
             elif phase == "neutral" and action == "BUY":
-                success_prob = round(success_prob * 0.88, 4)
-                regime_note  = f"중립장 확률 조정 (KOSPI MA20 대비 {pct:.1f}%)"
+                success_prob = round(success_prob * _REGIME_NEUTRAL_PROB_MULT, 4)
+                regime_note  = f"중립장 확률 조정 (KOSPI MA20 대비 {pct:.1f}%, ×{_REGIME_NEUTRAL_PROB_MULT})"
 
         # 종목명/시장/섹터 조회
         stock_name, stock_market, stock_sector = rec.code, "", None

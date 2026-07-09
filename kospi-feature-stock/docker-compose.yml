@@ -472,6 +472,11 @@ services:
       REC_COOLDOWN_MINUTES: "60"
       REC_PERF_MIN_PROB: "0.236"
       REC_RECOVERY_HOURS: "24"
+      REGIME_BEAR_THRESHOLD: "-3.0"
+      REGIME_BULL_THRESHOLD: "-0.5"
+      REGIME_BEAR_SUPPRESS: "true"
+      REGIME_BEAR_PROB_MULT: "0.75"
+      REGIME_NEUTRAL_PROB_MULT: "0.88"
     volumes:
       - ./services/recommender:/app
       - model_cache:/models
