@@ -451,7 +451,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2048m
+          memory: 3072m
           cpus: '2.0'
 
   recommender:
