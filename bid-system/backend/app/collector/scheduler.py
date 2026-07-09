@@ -319,6 +319,156 @@ def run_srate_spike_check_job() -> None:
         db.close()
 
 
+def run_competitor_anomaly_job() -> None:
+    """경쟁사 담합 의심 패턴 스캔 + 알림 생성 (매일 09:00 KST).
+
+    최근 14일 inpo21c_participants에서 CV 기반 이상 패턴을 탐지하고
+    상위 5건에 대해 관리자 전원에게 알림을 생성한다.
+    """
+    from app.database import SessionLocal
+    from app.models import User
+    from app.services import NotificationService
+    from app.ml.anomaly_detector import scan_recent_collusion
+
+    db = SessionLocal()
+    try:
+        anomalies = scan_recent_collusion(db, days=14, limit=300)
+        if not anomalies:
+            logger.info("담합 의심 패턴 없음 (최근 14일)")
+            return
+
+        # 관리자 + 일반 사용자 전체 user_id
+        user_ids = [u.id for u in db.query(User).filter(User.is_active.is_(True)).all()]
+        if not user_ids:
+            return
+
+        svc = NotificationService(db)
+        created = svc.bulk_create_anomaly_alerts(user_ids, anomalies, top_n=5)
+        logger.info("담합 의심 알림 생성: %d건 (이상패턴 %d개 탐지)", created, len(anomalies))
+    except Exception as exc:
+        logger.error("담합 의심 스캔 실패: %s", exc)
+    finally:
+        db.close()
+
+
+def run_auto_qualify_bids_job() -> None:
+    """신규 공고 자동 적격 판정 (매일 06:30 KST).
+
+    지난 24시간 내 수집된 공고 중 적격심사 대상(1억 이상)에 대해
+    회사 프로파일 기준으로 GO/WATCH/NO-GO 판정 후 qualification_checks 저장.
+    admin user(id=1) 소유로 저장하여 bids 목록에서 공통 참조 가능.
+    """
+    from datetime import datetime, timedelta
+    from app.database import SessionLocal
+    from sqlalchemy import text as _t
+
+    db = SessionLocal()
+    try:
+        cutoff = datetime.now() - timedelta(hours=24)
+        # 회사 프로파일
+        prof_row = db.execute(_t("""
+            SELECT annual_revenue, bond_limit_total, target_industries, target_regions,
+                   construction_capabilities, workforce_count
+            FROM company_profile LIMIT 1
+        """)).fetchone()
+        if not prof_row:
+            logger.info("auto_qualify: company_profile 없음 — 건너뜀")
+            return
+
+        annual_revenue = int(prof_row[0] or 0)
+        bond_limit = int(prof_row[1] or 0)
+        target_industries = list(prof_row[2] or [])
+        target_regions = list(prof_row[3] or [])
+        caps = prof_row[4] or []
+        workforce = int(prof_row[5] or 0)
+        our_experience = 0
+        for cap in caps:
+            if isinstance(cap, dict):
+                our_experience = max(our_experience, int(cap.get("performance", 0) or 0))
+
+        # 회사 프로파일 데이터가 부실하면 full qualification 체크 의미 없음
+        profile_has_data = (annual_revenue > 0 or our_experience > 0 or bond_limit > 0
+                            or target_industries or target_regions)
+
+        # 적격심사 대상 신규 공고 (기존 체크 없는 것)
+        new_bids = db.execute(_t("""
+            SELECT b.id, b.base_amount, b.industry_id, b.region_id, b.agency_id
+            FROM bids b
+            WHERE b.created_at >= :cutoff
+              AND b.base_amount >= 100000000
+              AND NOT EXISTS (
+                SELECT 1 FROM qualification_checks qc
+                WHERE qc.bid_id = b.id AND qc.user_id = 1
+              )
+            ORDER BY b.created_at DESC
+            LIMIT 500
+        """), {"cutoff": cutoff}).fetchall()
+
+        if not new_bids:
+            logger.info("auto_qualify: 신규 대상 공고 없음")
+            return
+
+        from app.ml.qualification import check_qualification
+        checked = failed = 0
+        for bid_row in new_bids:
+            bid_id, base_amount, industry_id, region_id, agency_id = bid_row
+            base = int(base_amount or 0)
+            if base < 100_000_000:
+                continue
+
+            # 산업/지역 매칭 체크
+            industry_ok = (not target_industries) or (industry_id and int(industry_id) in target_industries)
+            region_ok = (not target_regions) or (region_id and int(region_id) in target_regions)
+            bond_ok = (bond_limit == 0) or (base <= bond_limit)
+
+            if not industry_ok:
+                verdict, pass_prob, fail_reason = "FAIL", 0.05, "업종 불일치"
+            elif not bond_ok:
+                verdict, pass_prob, fail_reason = "FAIL", 0.10, "보증한도 초과"
+            elif not region_ok:
+                verdict, pass_prob, fail_reason = "WATCH", 0.50, "지역 범위 외"
+            elif not profile_has_data:
+                # 프로파일 미입력 시 UNCERTAIN — 잘못된 FAIL 방지
+                verdict, pass_prob, fail_reason = "UNCERTAIN", 0.5, "회사 프로파일 미입력"
+            else:
+                try:
+                    result = check_qualification(
+                        base_amount=base,
+                        estimated_price_center=0.9,
+                        estimated_price_std=0.012,
+                        our_experience=our_experience,
+                        annual_revenue=annual_revenue,
+                        workforce_count=workforce,
+                    )
+                    verdict = result.verdict
+                    pass_prob = float(result.pass_prob)
+                    fail_reason = result.fail_reason
+                except Exception:
+                    verdict, pass_prob, fail_reason = "UNCERTAIN", 0.5, None
+
+            try:
+                db.execute(_t("""
+                    INSERT INTO qualification_checks
+                        (bid_id, user_id, our_share_rate, our_experience, pass_prob,
+                         verdict, fail_reason, score_breakdown)
+                    VALUES (:bid_id, 1, 1.0, :exp, :prob, :verdict, :reason, '{}')
+                    ON CONFLICT DO NOTHING
+                """), {
+                    "bid_id": bid_id, "exp": our_experience,
+                    "prob": pass_prob, "verdict": verdict, "reason": fail_reason,
+                })
+                checked += 1
+            except Exception:
+                failed += 1
+
+        db.commit()
+        logger.info("auto_qualify 완료: 판정=%d건 (실패=%d)", checked, failed)
+    except Exception as exc:
+        logger.error("auto_qualify 실패: %s", exc)
+    finally:
+        db.close()
+
+
 def run_freq_rebuild_job() -> None:
     """발주기관 빈도표 + 전략 DB 주간 재계산 (매주 일요일 03:00 KST)."""
     from app.database import SessionLocal
@@ -747,7 +897,7 @@ def run_g2b_yega_job() -> None:
 
     db = SessionLocal()
     try:
-        result = collect_g2b_yega_detail(db, days_back=3)
+        result = collect_g2b_yega_detail(db, days_back=30)
         logger.info("G2B 예가상세 수집 완료: %s", result)
     except Exception as exc:
         logger.error("G2B 예가상세 수집 실패: %s", exc)
@@ -917,6 +1067,14 @@ def create_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 
     scheduler.add_job(
+        run_auto_qualify_bids_job,
+        trigger=CronTrigger(hour=7, minute=0, timezone="Asia/Seoul"),
+        id="auto_qualify_bids_daily",
+        name="신규 공고 자동 적격 판정 (매일 07:00 KST)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
         run_collection_job,
         trigger=CronTrigger(hour=6, minute=30, timezone="Asia/Seoul"),
         args=["notices"],
@@ -978,6 +1136,14 @@ def create_scheduler() -> BackgroundScheduler:
         trigger=CronTrigger(hour=8, minute=30, timezone="Asia/Seoul"),
         id="execution_deadline_notify_daily",
         name="투찰 마감 임박 알림 D-0/D-1 (매일 08:30 KST)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        run_competitor_anomaly_job,
+        trigger=CronTrigger(hour=9, minute=0, timezone="Asia/Seoul"),
+        id="competitor_anomaly_daily",
+        name="경쟁사 담합 의심 패턴 스캔 (매일 09:00 KST)",
         replace_existing=True,
         max_instances=1,
     )

@@ -138,22 +138,38 @@ class MyBidFeedbackService:
             train_srate_model(db)
 
             # Engine B — 낙찰률 회귀 모델
-            # 최근 36개월 + 최대 5,000건으로 제한 (메모리 보호)
+            # 최근 36개월 시간 균등 샘플 (~월 140건 × 36개월 ≈ 5,000건) — temporal CV가 제대로 동작하도록
             from datetime import timedelta
             train_cutoff = datetime.now() - timedelta(days=36 * 30)
+            # 동률 낙찰 중복 제거 + 월별 균등 샘플링 (ROW_NUMBER per month ≤ 140)
             rows = db.execute(sa_text("""
-                SELECT b.id, b.agency_id, b.industry_id,
-                       COALESCE(b.region_id, 0) AS region_id,
-                       b.base_amount, b.bid_open_date,
-                       COALESCE(b.region_restriction, false),
-                       b.construction_period, r.bid_rate
-                FROM bids b
-                JOIN bid_results r ON r.bid_id = b.id AND r.is_winner = true
-                WHERE b.base_amount > 0
-                  AND r.bid_rate BETWEEN 0.80 AND 1.00
-                  AND b.bid_open_date >= :cutoff
-                ORDER BY b.bid_open_date
-                LIMIT 5000
+                SELECT id, agency_id, industry_id, region_id,
+                       base_amount, bid_open_date, region_restriction,
+                       construction_period, bid_rate
+                FROM (
+                    SELECT b.id, b.agency_id, b.industry_id,
+                           COALESCE(b.region_id, 0) AS region_id,
+                           b.base_amount, b.bid_open_date,
+                           COALESCE(b.region_restriction, false) AS region_restriction,
+                           b.construction_period, r.bid_rate,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY DATE_TRUNC('month', b.bid_open_date)
+                               ORDER BY b.bid_open_date
+                           ) AS rn
+                    FROM bids b
+                    JOIN (
+                        SELECT DISTINCT ON (bid_id) bid_id, bid_rate
+                        FROM bid_results
+                        WHERE is_winner = true
+                        ORDER BY bid_id, id
+                    ) r ON r.bid_id = b.id
+                    WHERE b.base_amount > 0
+                      AND r.bid_rate BETWEEN 0.80 AND 1.00
+                      AND b.bid_open_date >= :cutoff
+                ) sub
+                WHERE rn <= 140
+                ORDER BY bid_open_date
+                LIMIT 6000
             """), {"cutoff": train_cutoff}).fetchall()
 
             cutoff = datetime.now() - timedelta(days=24 * 30)
@@ -163,7 +179,12 @@ class MyBidFeedbackService:
                        r.bid_rate,
                        (SELECT COUNT(*) FROM bid_results r2 WHERE r2.bid_id = b.id)
                 FROM bids b
-                LEFT JOIN bid_results r ON r.bid_id = b.id AND r.is_winner = true
+                LEFT JOIN (
+                    SELECT DISTINCT ON (bid_id) bid_id, bid_rate
+                    FROM bid_results
+                    WHERE is_winner = true
+                    ORDER BY bid_id, id
+                ) r ON r.bid_id = b.id
                 WHERE b.bid_open_date >= :cutoff AND b.base_amount > 0
                 LIMIT 10000
             """), {"cutoff": cutoff}).fetchall()
@@ -298,17 +319,39 @@ class MyBidFeedbackService:
                         sample_count  = tv.get("train_size") or result.get("train_size", 0),
                         mae           = tv.get("mae"),
                         rmse          = tv.get("rmse"),
+                        calibration_ece          = tv.get("calibration_ece"),
                     ))
                     db.commit()
-                    logger.info("자동 재학습 완료: %s", result)
+                    logger.info("자동 재학습 완료: mae=%.5f rmse=%.5f pr_auc=%s ece=%s",
+                                tv.get("mae") or 0,
+                                tv.get("rmse") or 0,
+                                tv.get("pr_auc"),
+                                tv.get("calibration_ece"))
             else:
                 logger.warning("자동 재학습 스킵 — 피처 빌드 성공 %d건 (최소 20건 필요)", len(records))
 
-            # win_prob_model 재학습 (Task #5)
+            # win_prob_model 재학습 — PR-AUC / Lift / ECE 포함 저장
             try:
                 from ..ml.win_prob_model import train as _wp_train
                 wp_result = _wp_train(db)
-                logger.info("win_prob_model 재학습 완료: %s", wp_result)
+                if wp_result.get("success"):
+                    db.add(ModelPerformanceLog(
+                        model_name    = "win_prob_model",
+                        model_version = result.get("version", "") if result else "",
+                        eval_date     = datetime.utcnow().date(),
+                        sample_count  = wp_result.get("n_train"),
+                        calibration_ece = wp_result.get("ece_after"),
+                        win_rate_with_model    = wp_result.get("pr_auc"),
+                        win_rate_without_model = None,
+                        lift          = wp_result.get("lift_at_10"),
+                    ))
+                    db.commit()
+                    logger.info("win_prob_model 재학습 완료: pr_auc=%.4f lift=%.2fx ece=%.4f",
+                                wp_result.get("pr_auc", 0),
+                                wp_result.get("lift_at_10", 0),
+                                wp_result.get("ece_after", 0))
+                else:
+                    logger.warning("win_prob_model 재학습 실패: %s", wp_result.get("error"))
             except Exception as _wp_e:
                 logger.warning("win_prob_model 재학습 실패: %s", _wp_e)
 

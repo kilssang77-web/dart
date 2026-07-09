@@ -313,8 +313,16 @@ def train_models_temporal(
     df_val   = df[val_mask].copy()
 
     if len(df_train) < 20 or len(df_val) < 5:
-        logger.warning(f"temporal CV: train={len(df_train)} val={len(df_val)} 부족 — 일반 학습")
-        return train_models(df, clf_df)
+        # 날짜 분포가 좁아 시간 기반 분할 실패 → 행 순서 기반 80/20 폴백
+        n = len(df)
+        split_idx = int(n * 0.80)
+        df_train = df.iloc[:split_idx].copy()
+        df_val   = df.iloc[split_idx:].copy()
+        cutoff   = df_train[date_col].max()
+        logger.info(
+            f"temporal CV: 날짜분포 좁음({df[date_col].min().date()}~{df[date_col].max().date()}) "
+            f"→ 80/20 폴백: train={len(df_train)}, val={len(df_val)}, cutoff={cutoff.date()}"
+        )
 
     # clf_df도 동일 날짜 기준으로 분할
     clf_train = None
@@ -361,9 +369,44 @@ def train_models_temporal(
             "coverage_50pct": round(coverage_50, 4),
             "cutoff_date":   str(cutoff.date()),
         }
+
+        # PR-AUC: win_model 분류 성능 측정
+        pr_auc = None
+        ece = None
+        try:
+            win_path = MODEL_DIR / "win_model.pkl"
+            if win_path.exists() and clf_df is not None and date_col in clf_df.columns:
+                from sklearn.metrics import average_precision_score
+                clf_df_c = clf_df.copy()
+                clf_df_c[date_col] = pd.to_datetime(clf_df_c[date_col], errors="coerce")
+                clf_val = clf_df_c[clf_df_c[date_col] >= cutoff].copy()
+                if len(clf_val) >= 10:
+                    win_m = joblib.load(win_path)
+                    X_clf_val = imputer.transform(clf_val[FEATURE_COLS].copy())
+                    y_clf_val = clf_val["is_winner"].astype(int).values
+                    if y_clf_val.sum() >= 2:
+                        y_win_pred = win_m.predict_proba(X_clf_val)[:, 1]
+                        pr_auc = round(float(average_precision_score(y_clf_val, y_win_pred)), 6)
+                        # ECE: 10-bin 캘리브레이션 오차
+                        bins = np.linspace(0, 1, 11)
+                        ece_val = 0.0
+                        for i in range(10):
+                            mask = (y_win_pred >= bins[i]) & (y_win_pred < bins[i + 1])
+                            if mask.sum() > 0:
+                                ece_val += mask.sum() / len(y_win_pred) * abs(
+                                    float(y_clf_val[mask].mean()) - float(y_win_pred[mask].mean())
+                                )
+                        ece = round(ece_val, 6)
+                        temporal_metrics["pr_auc"] = pr_auc
+                        temporal_metrics["calibration_ece"] = ece
+        except Exception as _prc_e:
+            logger.warning("PR-AUC 계산 실패: %s", _prc_e)
+
         result["temporal_val_metrics"] = temporal_metrics
         logger.info(f"Temporal 검증: MAE={mae:.5f} RMSE={rmse:.5f} Bias={bias:.5f} "
-                    f"Coverage(50%)={coverage_50:.3f}")
+                    f"Coverage(50%)={coverage_50:.3f}"
+                    + (f" PR-AUC={pr_auc:.4f}" if pr_auc is not None else "")
+                    + (f" ECE={ece:.4f}" if ece is not None else ""))
 
         # 메타 파일에 temporal 지표 추가
         import json

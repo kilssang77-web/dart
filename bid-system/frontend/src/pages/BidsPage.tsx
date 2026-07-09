@@ -30,6 +30,19 @@ function VerdictBadge({ verdict }: { verdict: string }) {
     return <Badge className="bg-emerald-500 text-white text-xs px-1.5 py-0 shrink-0">GO</Badge>
   if (verdict === 'WATCH')
     return <Badge className="bg-amber-400 text-white text-xs px-1.5 py-0 shrink-0">WATCH</Badge>
+  if (verdict === 'FAIL')
+    return <Badge className="bg-red-400 text-white text-xs px-1.5 py-0 shrink-0">NO-GO</Badge>
+  return null
+}
+
+function AutoVerdictBadge({ verdict, failReason }: { verdict: string | null | undefined; failReason?: string | null }) {
+  if (!verdict || verdict === 'NOT_APPLICABLE') return null
+  if (verdict === 'PASS' || verdict === 'GO')
+    return <Badge className="bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs px-1.5 py-0 shrink-0" title="자동 적격 판정: 통과 예상">적격</Badge>
+  if (verdict === 'FAIL')
+    return <Badge className="bg-red-100 text-red-600 border border-red-200 text-xs px-1.5 py-0 shrink-0" title={failReason ?? '적격 탈락 예상'}>탈락</Badge>
+  if (verdict === 'WATCH' || verdict === 'UNCERTAIN')
+    return <Badge className="bg-slate-100 text-slate-500 border border-slate-200 text-xs px-1.5 py-0 shrink-0" title={failReason ?? '확인 필요'}>확인</Badge>
   return null
 }
 
@@ -703,6 +716,7 @@ export default function BidsPage() {
                           <TableCell className="max-w-xs py-3">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               {verdict && <VerdictBadge verdict={verdict} />}
+                              <AutoVerdictBadge verdict={bid.auto_verdict} failReason={bid.auto_fail_reason} />
                               <span className="truncate font-medium text-slate-900 text-sm">{bid.title}</span>
                               {bid.source === 'g2b' && (
                                 <Badge variant="info" className="shrink-0 text-xs px-1.5 py-0">G2B</Badge>

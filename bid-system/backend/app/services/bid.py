@@ -63,9 +63,26 @@ class BidService:
 
         bids = q.offset((page-1)*size).limit(size).all()
 
+        bid_ids = [b.id for b in bids]
+        # 자동 적격 판정 결과 배치 조회 (admin user_id=1)
+        auto_verdicts: dict = {}
+        if bid_ids:
+            from sqlalchemy import text as _t
+            qc_rows = db.execute(_t("""
+                SELECT bid_id, verdict, pass_prob, fail_reason
+                FROM qualification_checks
+                WHERE bid_id = ANY(:ids) AND user_id = 1
+            """), {"ids": bid_ids}).fetchall()
+            for row in qc_rows:
+                auto_verdicts[int(row[0])] = {
+                    "verdict": row[1], "pass_prob": float(row[2]) if row[2] else None,
+                    "fail_reason": row[3],
+                }
+
         items = []
         for b in bids:
             winner = next((r for r in b.results if r.is_winner), None)
+            qv = auto_verdicts.get(b.id)
             items.append({
                 "id": b.id, "announcement_no": b.announcement_no,
                 "title": b.title,
@@ -84,6 +101,10 @@ class BidService:
                 "yega_method":      b.yega_method,
                 "contract_method":  b.contract_method,
                 "competitor_count": len(b.results),
+                # 자동 적격 판정
+                "auto_verdict":     qv["verdict"] if qv else None,
+                "auto_pass_prob":   qv["pass_prob"] if qv else None,
+                "auto_fail_reason": qv["fail_reason"] if qv else None,
             })
         return {"items": items, "total": total, "page": page, "size": size}
 

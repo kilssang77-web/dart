@@ -114,7 +114,7 @@ def retrain_ml(
         from datetime import datetime, timedelta
         from ...database import SessionLocal
         from ...ml.assessment import compute_and_store_stats, train_srate_model
-        from ...ml.engine import train_models, build_features, FEATURE_COLS, get_engine
+        from ...ml.engine import train_models, train_models_temporal, build_features, FEATURE_COLS, get_engine
         db = SessionLocal()
         results = {}
         try:
@@ -131,18 +131,33 @@ def retrain_ml(
             try:
                 train_cutoff = datetime.now() - timedelta(days=36*30)
                 rows = db.execute(text("""
-                    SELECT b.id, b.agency_id, b.industry_id,
-                           COALESCE(b.region_id, 0) AS region_id,
-                           b.base_amount, b.bid_open_date,
-                           COALESCE(b.region_restriction, false),
-                           b.construction_period, r.bid_rate
-                    FROM bids b
-                    JOIN bid_results r ON r.bid_id = b.id AND r.is_winner = true
-                    WHERE b.base_amount > 0
-                      AND r.bid_rate BETWEEN 0.80 AND 1.00
-                      AND b.bid_open_date >= :cutoff
-                    ORDER BY b.bid_open_date
-                    LIMIT 5000
+                    SELECT id, agency_id, industry_id, region_id,
+                           base_amount, bid_open_date, region_restriction,
+                           construction_period, bid_rate
+                    FROM (
+                        SELECT b.id, b.agency_id, b.industry_id,
+                               COALESCE(b.region_id, 0)            AS region_id,
+                               b.base_amount, b.bid_open_date,
+                               COALESCE(b.region_restriction, false) AS region_restriction,
+                               b.construction_period, r.bid_rate,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY DATE_TRUNC('month', b.bid_open_date)
+                                   ORDER BY b.bid_open_date
+                               ) AS rn
+                        FROM bids b
+                        JOIN (
+                            SELECT DISTINCT ON (bid_id) bid_id, bid_rate
+                            FROM bid_results
+                            WHERE is_winner = true
+                            ORDER BY bid_id, id
+                        ) r ON r.bid_id = b.id
+                        WHERE b.base_amount > 0
+                          AND r.bid_rate BETWEEN 0.80 AND 1.00
+                          AND b.bid_open_date >= :cutoff
+                    ) sub
+                    WHERE rn <= 140
+                    ORDER BY bid_open_date
+                    LIMIT 6000
                 """), {"cutoff": train_cutoff}).fetchall()
 
                 cutoff = datetime.now() - timedelta(days=24*30)
@@ -190,8 +205,9 @@ def retrain_ml(
                             bid_open_date=bid_open_date,
                             historical_df=hist_before,
                         )
-                        feats["target_rate"] = float(winner_rate)
-                        feats["is_winner"]   = True
+                        feats["target_rate"]   = float(winner_rate)
+                        feats["is_winner"]     = True
+                        feats["bid_open_date"] = bid_open_date
                         records.append(feats)
                     except Exception:
                         pass
@@ -237,9 +253,10 @@ def retrain_ml(
                                 bid_open_date=c_dt,
                                 historical_df=hist_b,
                             )
-                            cf["target_rate"] = float(c_rate)
-                            cf["our_bid_rate"] = float(c_rate)
-                            cf["is_winner"]    = bool(c_win)
+                            cf["target_rate"]   = float(c_rate)
+                            cf["our_bid_rate"]  = float(c_rate)
+                            cf["is_winner"]     = bool(c_win)
+                            cf["bid_open_date"] = c_dt
                             clf_records.append(cf)
                         except Exception:
                             pass
@@ -263,10 +280,26 @@ def retrain_ml(
                             if col not in clf_df.columns:
                                 clf_df[col] = None
                         results["clf_df_size"] = len(clf_df)
-                    res = train_models(train_df, clf_df=clf_df)
+                    res = train_models_temporal(train_df, clf_df=clf_df, val_weeks=4, date_col="bid_open_date")
                     if res:
                         get_engine().reload()
-                        results["engine_b"] = res
+                        tv = res.get("temporal_val_metrics") or {}
+                        try:
+                            from ...models import ModelPerformanceLog
+                            db.add(ModelPerformanceLog(
+                                model_name    = "admin_retrain",
+                                model_version = res.get("version", ""),
+                                eval_date     = datetime.now().date(),
+                                sample_count  = tv.get("train_size") or res.get("train_size", 0),
+                                mae           = tv.get("mae"),
+                                rmse          = tv.get("rmse"),
+                                calibration_ece = tv.get("calibration_ece"),
+                            ))
+                            db.commit()
+                        except Exception as _log_e:
+                            logger.warning("model_performance_log 저장 실패: %s", _log_e)
+                            db.rollback()
+                        results["engine_b"] = {**res, "temporal_val_metrics": tv}
                     else:
                         results["engine_b"] = "failed"
                 else:
@@ -977,7 +1010,7 @@ def trigger_competitor_stats_rebuild(
 @router.post("/collect/yega")
 def trigger_yega_collect(
     background_tasks: BackgroundTasks,
-    days_back: int = 3,
+    days_back: int = 30,
     _: User = Depends(require_role("admin")),
 ):
     """복수예가 즉시 수집 — 개찰 완료 공고의 예가상세 수집 (백그라운드)."""
@@ -993,6 +1026,29 @@ def trigger_yega_collect(
 
     background_tasks.add_task(_run)
     return {"message": f"복수예가 수집 시작됨 (최근 {days_back}일)"}
+
+
+@router.post("/collect/yega-bulk")
+def trigger_yega_bulk_backfill(
+    background_tasks: BackgroundTasks,
+    months_back: int = 24,
+    chunk_days: int = 30,
+    _: User = Depends(require_role("admin")),
+):
+    """복수예가 이력 소급 수집 — months_back 개월치를 chunk_days 단위로 배치 수집 (백그라운드).
+    inpo21c_yega 및 이미 수집된 공고는 자동 스킵."""
+    def _run():
+        from ...database import SessionLocal
+        from ...collector.service import bulk_backfill_g2b_yega
+        _db = SessionLocal()
+        try:
+            result = bulk_backfill_g2b_yega(_db, months_back=months_back, chunk_days=chunk_days)
+            logger.info("yega 소급 수집 완료: %s", result)
+        finally:
+            _db.close()
+
+    background_tasks.add_task(_run)
+    return {"message": f"복수예가 소급 수집 시작됨 ({months_back}개월 / {chunk_days}일 단위)"}
 
 
 @router.post("/collect/missing-results")

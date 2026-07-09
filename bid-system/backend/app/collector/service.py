@@ -1162,6 +1162,136 @@ def collect_g2b_yega_detail(db: Session, days_back: int = 7) -> dict:
     }
 
 
+def bulk_backfill_g2b_yega(db: Session, months_back: int = 24, chunk_days: int = 30) -> dict:
+    """
+    g2b_yega_details 이력 소급 수집.
+    months_back 개월치를 chunk_days 단위로 분할해 순차 수집.
+    이미 수집된 기간은 DB count 확인 후 스킵.
+    """
+    from app.config import get_settings
+    from sqlalchemy import text as _t
+
+    settings = get_settings()
+    client = NarajangterClient(api_key=settings.g2b_api_key)
+
+    total_inserted = total_fail = total_pages = total_skipped = 0
+    t0 = time.monotonic()
+    now = datetime.now()
+
+    chunks = []
+    for i in range(0, months_back * 30, chunk_days):
+        end_d = now - timedelta(days=i)
+        start_d = now - timedelta(days=i + chunk_days)
+        chunks.append((start_d, end_d))
+
+    for start_d, end_d in chunks:
+        bgn_dt = start_d.strftime("%Y%m%d0000")
+        end_dt2 = end_d.strftime("%Y%m%d2359")
+
+        # 해당 기간에 우리 DB에 있는 공고 목록
+        known_rows = db.execute(
+            _t("SELECT announcement_no FROM bids "
+               "WHERE bid_open_date BETWEEN :s AND :e "
+               "  AND status IN ('closed', 'awarded') AND source = 'api'"),
+            {"s": start_d, "e": end_d},
+        ).fetchall()
+        if not known_rows:
+            continue
+        known_nos: set[str] = {r[0] for r in known_rows}
+
+        # 이미 수집된 건 스킵
+        already_rows = db.execute(
+            _t("SELECT DISTINCT announcement_no FROM g2b_yega_details "
+               "WHERE announcement_no = ANY(:nos)"),
+            {"nos": list(known_nos)},
+        ).fetchall()
+        already_nos: set[str] = {r[0] for r in already_rows}
+        target_nos = known_nos - already_nos
+        if not target_nos:
+            continue
+
+        # inpo21c_yega 커버 스킵
+        inpo_rows = db.execute(_t("""
+            SELECT DISTINCT ib.announcement_no
+            FROM inpo21c_yega iy
+            JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = iy.inpo21c_bid_id
+            WHERE ib.announcement_no = ANY(:anos)
+        """), {"anos": list(target_nos)}).fetchall()
+        inpo_nos: set[str] = {r[0] for r in inpo_rows}
+        target_nos -= inpo_nos
+
+        if not target_nos:
+            continue
+
+        # G2B API 호출
+        page_no = 1
+        num_of_rows = 999
+        while True:
+            try:
+                raw = client._get_results(
+                    "getOpengResultListInfoCnstwkPreparPcDetail",
+                    {"inqryDiv": 1, "inqryBgnDt": bgn_dt, "inqryEndDt": end_dt2,
+                     "pageNo": page_no, "numOfRows": num_of_rows},
+                )
+            except Exception as exc:
+                total_fail += 1
+                logger.warning("bulk_yega 페이지 {} 호출 실패: {}", page_no, exc)
+                break
+
+            items_raw = client._extract_items(raw)
+            if not items_raw:
+                break
+            total_pages += 1
+
+            batch = 0
+            for item in items_raw:
+                ano = item.get("bidNtceNo", "")
+                if ano not in target_nos:
+                    continue
+                sno_raw = item.get("compnoRsrvtnPrceSno")
+                if not sno_raw:
+                    continue
+                try:
+                    yega_no = int(str(sno_raw).strip())
+                    def _si(v):
+                        try: return int(str(v).replace(",", ""))
+                        except: return None
+                    db.execute(_t("""
+                        INSERT INTO g2b_yega_details
+                            (announcement_no, yega_no, base_amount, estimated_price,
+                             yega_total, yega_price, is_selected, draw_count, bid_open_dt)
+                        VALUES
+                            (:ano, :no, :base, :est, :total, :price, :sel, :dcnt, :odt)
+                        ON CONFLICT (announcement_no, yega_no) DO NOTHING
+                    """), {
+                        "ano": ano, "no": yega_no,
+                        "base": _si(item.get("bssamt")), "est": _si(item.get("plnprc")),
+                        "total": _si(item.get("totRsrvtnPrceNum")), "price": _si(item.get("bsisPlnprc")),
+                        "sel": str(item.get("drwtYn", "N")).upper() == "Y",
+                        "dcnt": _si(item.get("drwtNum")),
+                        "odt": _parse_datetime(item.get("rlOpengDt")),
+                    })
+                    batch += 1
+                except Exception as exc:
+                    total_fail += 1
+                    logger.debug("bulk_yega upsert 실패 {} no={}: {}", ano, yega_no, exc)
+
+            try:
+                db.commit()
+                total_inserted += batch
+            except Exception:
+                db.rollback()
+
+            total_count = client._extract_total_count(raw)
+            if page_no * num_of_rows >= total_count:
+                break
+            page_no += 1
+
+    elapsed = time.monotonic() - t0
+    logger.info("bulk_yega 소급 완료: inserted={} fail={} pages={} ({:.1f}s)", total_inserted, total_fail, total_pages, elapsed)
+    return {"inserted": total_inserted, "fail": total_fail, "pages": total_pages, "elapsed_s": round(elapsed, 1)}
+
+
 def _upsert_agency_by_code(db: Session, code: str | None, name: str) -> Agency:
     """기관 upsert — code 우선, 없으면 name 기준."""
     if code:

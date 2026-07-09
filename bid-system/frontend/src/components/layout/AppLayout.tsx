@@ -3,70 +3,64 @@ import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Search, Users,
-  TrendingUp, KeyRound,
+  TrendingUp,
   ShieldAlert, LogOut, Bell, PanelLeftClose, PanelLeftOpen,
-  Activity, Target, Briefcase, LayoutDashboard, PieChart,
-  ChevronRight, ChevronDown, ListChecks, FlaskConical,
+  Activity, Briefcase,
+  ChevronRight, ChevronDown,
   ClipboardCheck, BarChart3, Sparkles, BookOpen,
-  Zap, Building2, LineChart, Layers, FileSearch, FileText,
-  History,
+  Zap, Building2,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { authApi, notificationsApi } from '@/api'
 import { silentRefresh, tokenMsRemaining } from '@/api/client'
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import QuickJournalModal from '@/components/QuickJournalModal'
 
 /* ───────────────────────────────────────────────────────────
-   NAV 구조 — 낙찰률 극대화 중심 5그룹
+   NAV 구조 — 낙찰률 극대화 중심 10 핵심 항목
+   (숨겨진 라우트: bid-selection, executions, portfolio,
+    our-competitors, market-intel, backtest, forecasts,
+    contracts, keywords — 페이지 내부에서 접근 가능)
 ─────────────────────────────────────────────────────────── */
 const NAV_GROUPS = [
   {
     label: '핵심 업무',
     defaultOpen: true,
     items: [
-      { to: '/today',        label: '오늘의 업무',     icon: Sparkles },
-      { to: '/decision',     label: 'AI 투찰결정',     icon: Zap,    highlight: true },
-      { to: '/kpi-dashboard', label: 'KPI 대시보드',  icon: Activity },
+      { to: '/today',        label: '오늘의 업무',   icon: Sparkles },
+      { to: '/decision',     label: 'AI 투찰결정',   icon: Zap,    highlight: true },
     ],
   },
   {
-    label: '공고 관리',
-    defaultOpen: false,
+    label: '공고 / 이력',
+    defaultOpen: true,
     items: [
-      { to: '/bids',          label: '공고센터',       icon: Search },
-      { to: '/bid-selection', label: '공고 선별',      icon: Target },
-      { to: '/executions',    label: '투찰 실행 관리', icon: ListChecks },
-      { to: '/portfolio',     label: '포트폴리오',     icon: Layers },
+      { to: '/bids',     label: '공고센터',   icon: Search },
+      { to: '/history',  label: '투찰 이력',  icon: ClipboardCheck },
     ],
   },
   {
     label: 'AI 분석',
     defaultOpen: false,
     items: [
-      { to: '/agencies',        label: '발주기관 분석',  icon: Building2 },
-      { to: '/competitors',     label: '경쟁사 분석',    icon: Users },
-      { to: '/our-competitors', label: '우리 경쟁사',    icon: ShieldAlert },
-      { to: '/yega',            label: '예가 빈도 분석', icon: TrendingUp },
-      { to: '/market-intel',    label: '시장 지능',      icon: LineChart },
-      { to: '/backtest',        label: '백테스트 엔진',  icon: FlaskConical },
+      { to: '/agencies',     label: '발주기관 분석',  icon: Building2 },
+      { to: '/competitors',  label: '경쟁사 분석',    icon: Users },
+      { to: '/yega',         label: '예가 분석',      icon: TrendingUp },
     ],
   },
   {
-    label: '이력 / 성과',
+    label: '성과 / KPI',
     defaultOpen: false,
     items: [
-      { to: '/history',    label: '투찰 이력',    icon: ClipboardCheck },
-      { to: '/analytics',  label: '성과 분석',    icon: BarChart3 },
-      { to: '/forecasts',  label: '예보센터',     icon: FileSearch },
-      { to: '/contracts',  label: '계약 실적',    icon: FileText },
+      { to: '/analytics',    label: '성과 분석',    icon: BarChart3 },
+      { to: '/kpi-dashboard', label: 'KPI 대시보드', icon: Activity },
     ],
   },
 ]
 
 const ADMIN_ITEMS = [
-  { to: '/company-profile', label: '회사 프로파일', icon: Briefcase },
-  { to: '/keywords',        label: '키워드 관리',   icon: KeyRound },
+  { to: '/company-profile', label: '회사 설정', icon: Briefcase },
 ]
 
 const ALL_GROUP_KEYS = [...NAV_GROUPS.map(g => g.label), '관리']
@@ -134,10 +128,38 @@ function NavItem({
 /* ───────────────────────────────────────────────────────────
    AppLayout
 ─────────────────────────────────────────────────────────── */
+/* ───────────────────────────────────────────────────────────
+   모바일 하단 탭바 아이템
+─────────────────────────────────────────────────────────── */
+function MobileTabItem({ to, label, icon: Icon }: { to: string; label: string; icon: React.ComponentType<{ className?: string }> }) {
+  const location = useLocation()
+  const isActive = location.pathname === to || (to.length > 1 && location.pathname.startsWith(to))
+  return (
+    <NavLink to={to} className={cn(
+      'flex flex-col items-center justify-center gap-0.5 w-full h-full transition-colors',
+      isActive ? 'text-blue-400' : 'text-slate-500 hover:text-slate-300',
+    )}>
+      <Icon className="h-5 w-5" />
+      <span className="text-[10px] font-medium">{label}</span>
+    </NavLink>
+  )
+}
+
+/* 모바일 하단 탭바 항목 — 핵심 5개 */
+const MOBILE_TABS = [
+  { to: '/today',    label: '오늘',     icon: Sparkles },
+  { to: '/decision', label: 'AI결정',  icon: Zap },
+  { to: '/bids',     label: '공고',     icon: Search },
+  { to: '/history',  label: '이력',     icon: ClipboardCheck },
+  { to: '/analytics', label: '성과',   icon: BarChart3 },
+]
+
 export default function AppLayout() {
   const { setUser, logout } = useAuthStore()
   const navigate = useNavigate()
   const [collapsed, setCollapsed] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [quickJournalOpen, setQuickJournalOpen] = useState(false)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(
     () => Object.fromEntries(ALL_GROUP_KEYS.map(k => {
       const group = NAV_GROUPS.find(g => g.label === k)
@@ -184,14 +206,29 @@ export default function AppLayout() {
     <div className="flex h-screen overflow-hidden bg-background">
 
       {/* ══════════════════════════════════════
-          사이드바
+          모바일 오버레이 (사이드 드로어용)
+      ══════════════════════════════════════ */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* ══════════════════════════════════════
+          사이드바 (데스크탑: 고정 | 모바일: 드로어)
       ══════════════════════════════════════ */}
       <aside
         className={cn(
-          'relative flex flex-col shrink-0 overflow-hidden',
+          'flex flex-col shrink-0 overflow-hidden',
           'bg-[#0f172a] border-r border-white/[0.06]',
-          'transition-[width] duration-200 ease-in-out',
-          collapsed ? 'w-[56px]' : 'w-[232px]',
+          'transition-all duration-200 ease-in-out',
+          // 데스크탑: 항상 표시, 너비 애니메이션
+          'md:relative md:translate-x-0',
+          collapsed ? 'md:w-[56px]' : 'md:w-[232px]',
+          // 모바일: 고정 위치 드로어 (z-50, 너비 고정)
+          'fixed inset-y-0 left-0 z-50 w-[232px]',
+          mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
         )}
       >
 
@@ -400,9 +437,63 @@ export default function AppLayout() {
       {/* ══════════════════════════════════════
           메인 콘텐츠
       ══════════════════════════════════════ */}
-      <main className="flex-1 overflow-y-auto bg-slate-50">
-        <Outlet />
-      </main>
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* 모바일 상단 바 */}
+        <header className="md:hidden flex items-center h-12 px-3 bg-[#0f172a] border-b border-white/[0.06] shrink-0 z-30">
+          <button
+            onClick={() => setMobileMenuOpen(true)}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-300 hover:bg-white/[0.08]"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <div className="flex items-center gap-2 ml-2">
+            <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-blue-700">
+              <Activity className="h-3 w-3 text-white" />
+            </div>
+            <span className="text-sm font-bold text-white">BidAI <span className="text-blue-400">Pro</span></span>
+          </div>
+          <button
+            onClick={() => setQuickJournalOpen(true)}
+            className="ml-auto flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold"
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            투찰기록
+          </button>
+        </header>
+
+        <main className="flex-1 overflow-y-auto bg-slate-50 pb-16 md:pb-0">
+          <Outlet />
+        </main>
+
+        {/* 모바일 하단 탭바 */}
+        <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-[#0f172a] border-t border-white/[0.08] safe-area-pb">
+          <div className="flex items-center justify-around h-14">
+            {MOBILE_TABS.map(({ to, label, icon: Icon }) => (
+              <MobileTabItem key={to} to={to} label={label} icon={Icon} />
+            ))}
+          </div>
+        </nav>
+      </div>
+
+      {/* ══════════════════════════════════════
+          원클릭 투찰 기록 FAB
+      ══════════════════════════════════════ */}
+      {/* 데스크탑 전용 FAB */}
+      <button
+        onClick={() => setQuickJournalOpen(true)}
+        title="원클릭 투찰 기록"
+        className="hidden md:flex fixed bottom-6 right-6 z-40 items-center gap-2 px-4 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-full shadow-xl shadow-amber-900/30 transition-all hover:scale-105 active:scale-95 text-sm font-bold"
+      >
+        <BookOpen className="w-4 h-4" />
+        <span>투찰 기록</span>
+      </button>
+
+      <QuickJournalModal
+        open={quickJournalOpen}
+        onClose={() => setQuickJournalOpen(false)}
+      />
     </div>
   )
 }

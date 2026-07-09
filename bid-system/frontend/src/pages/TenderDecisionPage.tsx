@@ -850,6 +850,35 @@ export default function TenderDecisionPage() {
               {/* ── ① AI 종합 의사결정 패널 (GO/PASS) ── */}
               {bidId && <QuickDecisionPanel bidId={bidId} />}
 
+              {/* ── ② 실증 낙찰 분포 — 전면 배치 (가장 직관적 의사결정 도구) ── */}
+              {agencyHistogram && agencyHistogram.data_source !== 'none' && (
+                <div className="bg-white rounded-xl border shadow-sm p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Award className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="text-sm font-bold text-gray-800">
+                      {agencyHistogram.data_source === 'agency' ? '이 발주기관' : '전국 평균'} 실증 낙찰 분포
+                    </span>
+                    <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">
+                      {agencyHistogram.inpo21c_n.toLocaleString()}건 실적
+                    </span>
+                  </div>
+                  <AgencyWinHistogramChart data={agencyHistogram} />
+                  {agencyHistogram.top_zones.length > 0 && (
+                    <div className="mt-3 p-3 bg-emerald-50 border border-emerald-100 rounded-lg text-xs text-gray-700">
+                      <span className="font-bold text-emerald-700">핵심 구간:</span>{' '}
+                      {agencyHistogram.data_source === 'agency' ? '이 기관' : '전국 평균'}에서 낙찰 확률이 가장 높은 투찰율은{' '}
+                      <strong className="text-emerald-700 font-mono text-sm">
+                        {(agencyHistogram.top_zones[0].rate * 100).toFixed(4)}%
+                      </strong>
+                      {` 구간 — ${agencyHistogram.top_zones[0].total_count}건 중 ${agencyHistogram.top_zones[0].win_count}건 낙찰 `}
+                      <strong className="text-emerald-700">
+                        ({(agencyHistogram.top_zones[0].win_rate * 100).toFixed(1)}%)
+                      </strong>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* ── Monte Carlo 정밀 결과 (시뮬레이션 완료 후) ── */}
               {simulateMut.isPending && (
                 <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm">
@@ -861,18 +890,77 @@ export default function TenderDecisionPage() {
                 </div>
               )}
               {result?.optimal && !simulateMut.isPending && (
-                <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm flex-wrap">
-                  <Zap className="w-4 h-4 text-blue-600 shrink-0" />
-                  <span className="text-gray-500">Monte Carlo {result.mode === 'real' ? 'C(15,4) 실측' : '30,000회'} 정밀 계산 완료</span>
-                  <span className="font-mono font-bold text-blue-800">{(result.optimal.rate * 100).toFixed(4)}%</span>
-                  <span className="text-gray-400">·</span>
-                  <span className={cn('font-semibold', result.optimal.win_prob >= 0.35 ? 'text-emerald-700' : result.optimal.win_prob >= 0.20 ? 'text-amber-600' : 'text-red-600')}>
-                    낙찰확률 {(result.optimal.win_prob * 100).toFixed(1)}%
-                  </span>
-                  <span className="ml-auto font-semibold text-gray-700">{fmt(result.optimal.amount)}원</span>
-                  <span className={cn('text-xs px-2 py-0.5 rounded font-medium', result.optimal.floor_ok ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700')}>
-                    하한 {result.optimal.floor_ok ? '통과' : '미달'}
-                  </span>
+                <div className={cn(
+                  'rounded-2xl border-2 p-5 shadow-md',
+                  result.optimal.win_prob >= 0.35
+                    ? 'bg-emerald-50 border-emerald-400'
+                    : result.optimal.win_prob >= 0.20
+                      ? 'bg-amber-50 border-amber-400'
+                      : 'bg-red-50 border-red-300',
+                )}>
+                  {/* 권장 투찰율 — 1개 숫자를 크게 */}
+                  <div className="flex items-center justify-between gap-4 flex-wrap">
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1 flex items-center gap-1">
+                        <Zap className="w-3.5 h-3.5 text-blue-500" />
+                        AI 권장 투찰율
+                        <span className="text-[10px] text-gray-400 ml-1">
+                          ({result.mode === 'real' ? 'C(15,4) 실측' : 'Monte Carlo 30,000회'})
+                        </span>
+                      </p>
+                      <p className={cn(
+                        'text-4xl font-black font-mono tracking-tight',
+                        result.optimal.win_prob >= 0.35 ? 'text-emerald-700'
+                          : result.optimal.win_prob >= 0.20 ? 'text-amber-700'
+                          : 'text-red-700',
+                      )}>
+                        {(result.optimal.rate * 100).toFixed(4)}%
+                      </p>
+                      <p className="text-sm text-gray-600 mt-1 font-mono">
+                        {fmt(result.optimal.amount)}원
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-center gap-2">
+                      <div className={cn(
+                        'text-3xl font-black',
+                        result.optimal.win_prob >= 0.35 ? 'text-emerald-600'
+                          : result.optimal.win_prob >= 0.20 ? 'text-amber-600'
+                          : 'text-red-500',
+                      )}>
+                        {(result.optimal.win_prob * 100).toFixed(1)}%
+                      </div>
+                      <div className="text-xs text-gray-500">낙찰확률</div>
+                      <span className={cn(
+                        'text-xs px-2.5 py-1 rounded-full font-semibold',
+                        result.optimal.floor_ok
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-red-100 text-red-700',
+                      )}>
+                        하한 {result.optimal.floor_ok ? '✓ 통과' : '✗ 미달'}
+                      </span>
+                    </div>
+                  </div>
+                  {/* 빠른 투찰 기록 버튼 */}
+                  {!journalRecord && (
+                    <button
+                      onClick={() => {
+                        setSubmittedRateInput((result.optimal!.rate * 100).toFixed(4))
+                        setStrategyChosen('balanced')
+                        journalMut.mutate()
+                      }}
+                      disabled={journalMut.isPending}
+                      className="mt-4 w-full py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      <BookOpen className="w-4 h-4" />
+                      {journalMut.isPending ? '기록 중...' : '이 투찰율로 바로 기록'}
+                    </button>
+                  )}
+                  {journalRecord && (
+                    <div className="mt-3 flex items-center gap-2 text-xs text-emerald-700 bg-emerald-100 rounded-lg px-3 py-2">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      투찰 기록 완료 — 개찰 결과는 자동 수집됩니다
+                    </div>
+                  )}
                 </div>
               )}
 

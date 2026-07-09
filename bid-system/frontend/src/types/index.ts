@@ -28,6 +28,10 @@ export interface Bid {
   min_bid_rate: number | null
   yega_method: string | null
   contract_method: string | null
+  // 자동 적격 판정
+  auto_verdict: 'PASS' | 'FAIL' | 'UNCERTAIN' | 'NOT_APPLICABLE' | 'WATCH' | null
+  auto_pass_prob: number | null
+  auto_fail_reason: string | null
 }
 
 export interface BidDetail extends Bid {

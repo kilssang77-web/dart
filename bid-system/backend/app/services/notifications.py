@@ -177,6 +177,49 @@ class NotificationService:
             self.db.refresh(n)
         return n
 
+    def create_competitor_anomaly_alert(
+        self,
+        user_id: int,
+        announcement_no: str,
+        n_competitors: int,
+        score: float,
+        flag: str,
+    ) -> tuple:
+        """경쟁사 담합 의심 패턴 알림 — 일 1회 dedup."""
+        from datetime import datetime
+        date_str = datetime.now().strftime("%Y%m%d")
+        severity = "담합의심" if flag == "collusion" else "이상패턴"
+        title = f"[{severity}] 공고 {announcement_no} 경쟁사 이상 감지"
+        body = (
+            f"{n_competitors}개 업체가 유사 투찰률 밀집 (이상지수 {score:.2f}). "
+            "경쟁사 분석 → 담합 의심 현황에서 확인하세요."
+        )
+        dedup_key = f"anomaly:{announcement_no}:{date_str}"
+        return self._create_deduped(
+            user_id, "competitor_anomaly", title, body,
+            link="/competitors?tab=anomaly", dedup_key=dedup_key,
+        )
+
+    def bulk_create_anomaly_alerts(
+        self, user_ids: list, anomalies: list, top_n: int = 5,
+    ) -> int:
+        """상위 top_n개 이상 패턴에 대해 user_ids 전원에게 알림 생성. 생성 건수 반환."""
+        created = 0
+        for alert in anomalies[:top_n]:
+            ano = alert.get("announcement_no", "")
+            score = float(alert.get("score", 0))
+            flag = alert.get("flag", "suspicious")
+            n_comp = int(alert.get("n", 0))
+            for uid in user_ids:
+                _, is_new = self.create_competitor_anomaly_alert(uid, ano, n_comp, score, flag)
+                if is_new:
+                    created += 1
+        try:
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+        return created
+
     def create_pre_open_alert(
         self, user_id: int, exec_title: str,
         execution_id: Optional[int] = None,

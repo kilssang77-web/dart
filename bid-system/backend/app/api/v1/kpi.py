@@ -188,6 +188,78 @@ def ml_health(
     }
 
 
+@router.get("/ml-performance")
+def ml_performance_history(
+    limit: int = Query(30, ge=1, le=100),
+    model_name: str = Query(None),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    ML 모델 성능 이력 조회.
+
+    각 재학습 시도의 MAE / RMSE / PR-AUC / ECE / Lift 추이를 반환.
+    model_name 파라미터로 'auto_retrain' 또는 'win_prob_model' 필터링 가능.
+    """
+    where = "WHERE 1=1"
+    params: dict = {"limit": limit}
+    if model_name:
+        where += " AND model_name = :model_name"
+        params["model_name"] = model_name
+
+    rows = db.execute(text(f"""
+        SELECT
+            id, model_name, model_version, eval_date,
+            sample_count, mae, rmse,
+            calibration_ece, win_rate_with_model, lift,
+            created_at
+        FROM model_performance_log
+        {where}
+        ORDER BY created_at DESC
+        LIMIT :limit
+    """), params).fetchall()
+
+    history = []
+    for r in rows:
+        history.append({
+            "id":             int(r[0]),
+            "model_name":     r[1],
+            "model_version":  r[2],
+            "eval_date":      r[3].isoformat() if r[3] else None,
+            "sample_count":   int(r[4]) if r[4] is not None else None,
+            "mae":            float(r[5]) if r[5] is not None else None,
+            "rmse":           float(r[6]) if r[6] is not None else None,
+            "calibration_ece": float(r[7]) if r[7] is not None else None,
+            "pr_auc":         float(r[8]) if r[8] is not None else None,
+            "lift_at_10":     float(r[9]) if r[9] is not None else None,
+            "created_at":     r[10].isoformat() if r[10] else None,
+        })
+
+    # 최근 학습 품질 요약
+    latest = history[0] if history else None
+    trend = None
+    if len(history) >= 2:
+        prev = next((h for h in history[1:] if h["model_name"] == (latest or {}).get("model_name")), None)
+        if prev and latest and latest["mae"] and prev["mae"]:
+            trend = {
+                "mae_delta":  round(latest["mae"] - prev["mae"], 6),
+                "mae_trend":  "개선" if latest["mae"] < prev["mae"] else "악화",
+            }
+
+    return {
+        "history": history,
+        "total":   len(history),
+        "latest":  latest,
+        "trend":   trend,
+        "interpretation": {
+            "mae":    "< 0.005 우수 / < 0.015 양호 / 그 이상 개선필요",
+            "pr_auc": "> 0.3 양호 (불균형 데이터 기준)",
+            "ece":    "< 0.05 양호 (캘리브레이션)",
+            "lift":   "> 2.0 우수 (상위10% 정밀도)",
+        },
+    }
+
+
 @router.post("/snapshot")
 def force_snapshot(
     period_type: str = Query("MONTHLY"),
