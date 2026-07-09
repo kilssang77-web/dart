@@ -1,8 +1,8 @@
-﻿import { Sun, Moon, Bell, RefreshCw, Menu, Database } from 'lucide-react'
+﻿import { Sun, Moon, Bell, RefreshCw, Menu, Database, BookOpen, X } from 'lucide-react'
 import { useThemeStore } from '@/store/theme'
 import { useRealtimeStore } from '@/store/realtime'
 import { useQueryClient, useQuery } from '@tanstack/react-query'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { clsx } from 'clsx'
 import { useSidebarStore } from '@/store/sidebar'
 import { useIsMobile } from '@/hooks/useMediaQuery'
@@ -21,6 +21,16 @@ export function TopBar({ title, subtitle }: TopBarProps) {
   const isMobile = useIsMobile()
   const [refreshing, setRefreshing] = useState(false)
   const [colorblind, setColorblind] = useState(() => localStorage.getItem('colorblind') === '1')
+  const [showManual, setShowManual] = useState(false)
+
+  const closeManual = useCallback(() => setShowManual(false), [])
+
+  useEffect(() => {
+    if (!showManual) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeManual() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showManual, closeManual])
 
   const { data: sysStatus } = useQuery<SystemStatus>({
     queryKey:        ['system-status'],
@@ -132,7 +142,61 @@ export function TopBar({ title, subtitle }: TopBarProps) {
             : <><Moon size={13} /></>
           }
         </button>
+
+        {/* 매뉴얼 */}
+        <button
+          onClick={() => setShowManual(true)}
+          className={clsx(
+            'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm font-medium',
+            'border border-[var(--border)] text-[var(--muted)]',
+            'hover:text-[var(--fg)] hover:bg-[var(--border)] transition-colors'
+          )}
+          title="사용자 매뉴얼"
+        >
+          <BookOpen size={13} />
+        </button>
       </div>
+
+      {/* 매뉴얼 모달 */}
+      {showManual && (
+        <div
+          className="fixed inset-0 z-[9999] flex flex-col bg-black/60 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) closeManual() }}
+        >
+          <div className="relative flex flex-col w-full h-full max-w-[1400px] mx-auto my-4 rounded-xl overflow-hidden border border-[var(--border)] bg-[var(--bg)] shadow-2xl">
+            {/* 모달 헤더 */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border)] bg-[var(--bg2)] shrink-0">
+              <div className="flex items-center gap-2">
+                <BookOpen size={16} className="text-blue-400" />
+                <span className="font-semibold text-[var(--fg)] text-sm">Quant Eye 사용자 매뉴얼 v1.0</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href="/manual.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-[var(--muted)] hover:text-[var(--fg)] transition-colors px-2 py-1 rounded border border-[var(--border)] hover:bg-[var(--border)]"
+                >
+                  새 탭에서 열기
+                </a>
+                <button
+                  onClick={closeManual}
+                  className="p-1.5 rounded-md text-[var(--muted)] hover:text-[var(--fg)] hover:bg-[var(--border)] transition-colors"
+                  title="닫기 (Esc)"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            {/* iframe */}
+            <iframe
+              src="/manual.html"
+              className="flex-1 w-full border-0"
+              title="사용자 매뉴얼"
+            />
+          </div>
+        </div>
+      )}
     </header>
   )
 }

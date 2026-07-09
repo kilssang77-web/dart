@@ -405,6 +405,15 @@ async def ws_realtime(websocket: WebSocket):
         await pubsub.unsubscribe()
 
 
+@app.get("/manual.html", include_in_schema=False)
+async def serve_manual():
+    import os
+    p = "static/manual.html"
+    if os.path.exists(p):
+        return FileResponse(p, headers={"Cache-Control": "no-cache, must-revalidate"})
+    return FileResponse("static/index.html")
+
+
 @app.get("/{full_path:path}", include_in_schema=False)
 async def spa_fallback(full_path: str):
     return FileResponse("static/index.html", headers={"Cache-Control": "no-cache, no-store, must-revalidate"})

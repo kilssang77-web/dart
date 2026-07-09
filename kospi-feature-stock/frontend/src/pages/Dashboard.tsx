@@ -85,10 +85,10 @@ function SystemAlertBanner({ pipeline }: { pipeline: PipelineStatus | undefined 
 // ── Paper 모드 30일 성과 배너 ──────────────────────────────────────────────────
 function PaperPerformanceBar({ tracking }: { tracking: TrackingSummary | undefined }) {
   if (!tracking || tracking.completed === 0) return null
-  const wr = tracking.success_rate ?? 0
-  const r5d = tracking.avg_r_5d ?? 0
-  const r1d = tracking.avg_r_1d ?? 0
-  const maxR = tracking.avg_max_return ?? 0
+  const wr = Number(tracking.success_rate ?? 0)
+  const r5d = Number(tracking.avg_r_5d ?? 0)
+  const r1d = Number(tracking.avg_r_1d ?? 0)
+  const maxR = Number(tracking.avg_max_return ?? 0)
 
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 py-3 rounded-xl border border-cyan-500/20 bg-cyan-500/5 text-sm">
@@ -144,7 +144,7 @@ function RegimePill({ regime }: { regime: MarketRegime | undefined }) {
     bear:    'border-blue-500/30 text-blue-400 bg-blue-500/10',
   }
   const labels = { bull: '상승장', neutral: '중립장', bear: '하락장' }
-  const pct = regime.pct_from_ma20
+  const pct = regime.pct_from_ma20 != null ? Number(regime.pct_from_ma20) : null
   return (
     <span
       className={clsx('text-xs px-2 py-0.5 rounded border font-medium flex items-center gap-1', colors[regime.phase])}
@@ -176,7 +176,7 @@ function ActionBar({
   const kosdaq = indexLive?.kosdaq
 
   function IndexPill({ label, data }: { label: string; data: IndexLive['kospi'] | undefined }) {
-    const chg = data?.change_rate ?? 0
+    const chg = Number(data?.change_rate ?? 0)
     const up = chg > 0; const dn = chg < 0
     const color = up ? 'text-red-400' : dn ? 'text-blue-400' : 'text-[var(--muted)]'
     return (
