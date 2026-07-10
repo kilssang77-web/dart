@@ -1,0 +1,57 @@
+name: 공고 수집 (매일 06:30 KST)
+
+on:
+  schedule:
+    - cron: '30 21 * * 1-5'   # 21:30 UTC = 06:30 KST (평일만)
+  workflow_dispatch:            # 수동 실행 버튼
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 코드 가져오기
+        uses: actions/checkout@v4
+
+      - name: Python 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 패키지 설치
+        run: |
+          pip install -r bid-system/backend/requirements.txt
+
+      - name: Playwright 브라우저 설치
+        run: |
+          playwright install chromium --with-deps
+
+      - name: 공고 수집 실행
+        working-directory: bid-system/backend
+        env:
+          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.UPSTASH_REDIS_URL }}
+          G2B_API_KEY: ${{ secrets.G2B_API_KEY }}
+          INPO21C_ID: ${{ secrets.INPO21C_ID }}
+          INPO21C_PW: ${{ secrets.INPO21C_PW }}
+          INPO21C_COOKIE: ${{ secrets.INPO21C_COOKIE }}
+          COLLECT_ENABLED: "true"
+        run: |
+          python -c "
+          import asyncio, sys, os
+          sys.path.insert(0, '.')
+          from app.database import SessionLocal
+          from app.collector.service import CollectorService
+          db = SessionLocal()
+          try:
+              svc = CollectorService(db)
+              asyncio.run(svc.collect_new_notices())
+              print('공고 수집 완료')
+          except Exception as e:
+              print(f'오류: {e}')
+              sys.exit(1)
+          finally:
+              db.close()
+          "

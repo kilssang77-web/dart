@@ -82,13 +82,17 @@ async def lifespan(app: FastAPI):
     finally:
         _sync_db.close()
 
-    # ML 엔진 미리 초기화 (첫 번째 추천 호출 지연 방지)
-    try:
-        from .ml.engine import get_engine
-        get_engine()
-        logger.info("ML 엔진 워밍업 완료")
-    except Exception as _e:
-        logger.warning(f"ML 엔진 워밍업 실패 (무시): {_e}")
+    # ML 엔진 워밍업 — 환경변수로 제어 (Render 무료 512MB에서는 SKIP_ML_WARMUP=true)
+    import os as _os
+    if not _os.getenv("SKIP_ML_WARMUP", "false").lower() == "true":
+        try:
+            from .ml.engine import get_engine
+            get_engine()
+            logger.info("ML 엔진 워밍업 완료")
+        except Exception as _e:
+            logger.warning(f"ML 엔진 워밍업 실패 (무시): {_e}")
+    else:
+        logger.info("ML 엔진 워밍업 SKIP (지연 로딩 모드)")
 
     # 발주기관 인메모리 캐시 로드 (id → name 딕셔너리)
     _cache_db = SessionLocal()

@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: bid-system-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        sync: false          # Render 대시보드에서 직접 입력
+      - key: REDIS_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: G2B_API_KEY
+        sync: false
+      - key: INPO21C_ID
+        sync: false
+      - key: INPO21C_PW
+        sync: false
+      - key: INPO21C_COOKIE
+        sync: false
+      - key: FIRST_ADMIN_EMAIL
+        sync: false
+      - key: FIRST_ADMIN_PASSWORD
+        sync: false
+      - key: SKIP_ML_WARMUP
+        value: "true"        # 메모리 절약: 시작 시 ML 모델 로딩 건너뜀
+      - key: COLLECT_ENABLED
+        value: "true"
+      - key: SEED_DEMO_DATA
+        value: "false"
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: WORKERS
+        value: "1"           # 무료 512MB에서는 1워커

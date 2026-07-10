@@ -15,4 +15,5 @@ RUN mkdir -p /app/ml_models
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# WORKERS=1: Render 무료 512MB 환경, WORKERS=2: 로컬/유료 환경
+CMD uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${WORKERS:-2}
