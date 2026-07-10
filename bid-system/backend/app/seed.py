@@ -200,8 +200,9 @@ def ensure_admin_password(db: Session):
     else:
         user.hashed_password = new_hash
         user.is_active = True
+        user.role = "admin"
         db.commit()
-        logger.info(f"관리자 비밀번호 동기화 완료: {s.first_admin_email}")
+        logger.info(f"관리자 비밀번호·권한 동기화 완료: {s.first_admin_email}")
 
 
 def _train_initial_model(db: Session):
