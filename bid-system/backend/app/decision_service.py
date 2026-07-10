@@ -411,23 +411,30 @@ class DecisionService:
         try:
             from .models import PredictionLogV2
             from .ml.engine import get_model_meta
+            from .database import SessionLocal as _SL
             meta = get_model_meta()
-            plog = PredictionLogV2(
-                bid_id=bid_id,
-                model_version=meta.get("version"),
-                srate_pred_center=round(srate_center, 6),
-                rate_aggressive=strategies["aggressive"]["rate"],
-                rate_balanced=strategies["balanced"]["rate"],
-                rate_conservative=strategies["conservative"]["rate"],
-                win_prob_center=strategies["balanced"].get("win_prob"),
-            )
-            db.add(plog)
-            db.commit()
-            db.refresh(plog)
-            pred_log_id = plog.id
+            _log_db = _SL()
+            try:
+                plog = PredictionLogV2(
+                    bid_id=bid_id,
+                    model_version=meta.get("version"),
+                    srate_pred_center=round(srate_center, 6),
+                    rate_aggressive=strategies["aggressive"]["rate"],
+                    rate_balanced=strategies["balanced"]["rate"],
+                    rate_conservative=strategies["conservative"]["rate"],
+                    win_prob_center=strategies["balanced"].get("win_prob"),
+                )
+                _log_db.add(plog)
+                _log_db.commit()
+                _log_db.refresh(plog)
+                pred_log_id = plog.id
+            except Exception as _e:
+                _log_db.rollback()
+                logger.warning(f"prediction_logs_v2 저장 실패: {_e}")
+            finally:
+                _log_db.close()
         except Exception as _e:
-            db.rollback()
-            logger.warning(f"prediction_logs_v2 저장 실패: {_e}")
+            logger.warning(f"prediction_logs_v2 세션 생성 실패: {_e}")
 
         # P1: 확보예가 BidScore — 최적 투찰율 기준으로 계산
         bid_score_data = None
