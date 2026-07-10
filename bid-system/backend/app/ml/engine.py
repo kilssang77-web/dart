@@ -471,13 +471,18 @@ class RecommendEngine:
                     meta = json.load(f)
                 self._version = meta.get("version", "unknown")
                 logger.info(f"ML 모델 로드 완료 — {self._version} (win_model={'O' if self._win_model else 'X'})")
-                try:
-                    import shap
-                    self._explainer = shap.TreeExplainer(self._rate_models[0.50])
-                    logger.info("SHAP explainer 초기화 완료")
-                except Exception as _se:
-                    logger.debug(f"SHAP 사전초기화 실패: {_se}")
+                import os as _os
+                if _os.getenv("SKIP_SHAP", "false").lower() == "true":
                     self._explainer = None
+                    logger.info("SHAP explainer SKIP (메모리 절약 모드)")
+                else:
+                    try:
+                        import shap
+                        self._explainer = shap.TreeExplainer(self._rate_models[0.50])
+                        logger.info("SHAP explainer 초기화 완료")
+                    except Exception as _se:
+                        logger.debug(f"SHAP 사전초기화 실패: {_se}")
+                        self._explainer = None
         except Exception as e:
             logger.warning(f"모델 로드 실패, 규칙 기반 사용: {e}")
 
