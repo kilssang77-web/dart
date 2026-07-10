@@ -426,6 +426,7 @@ class DecisionService:
             db.refresh(plog)
             pred_log_id = plog.id
         except Exception as _e:
+            db.rollback()
             logger.warning(f"prediction_logs_v2 저장 실패: {_e}")
 
         # P1: 확보예가 BidScore — 최적 투찰율 기준으로 계산

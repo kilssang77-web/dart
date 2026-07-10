@@ -420,7 +420,7 @@ class StatisticsService:
 
         # ── 2. bids.estimated_price 기반 히스토그램 (상세 분포)
         query = db.execute(text("""
-            SELECT b.estimated_price::float / b.base_amount AS srate
+            SELECT b.estimated_price::float8 / b.base_amount::float8 AS srate
             FROM bids b
             WHERE b.estimated_price IS NOT NULL
               AND b.base_amount > 0

@@ -185,7 +185,7 @@ def get_assessment_rate_dist(
 
     if agency_id:
         rows = db.execute(text(f"""
-            SELECT ib.estimated_amount::float / NULLIF(ib.base_amount, 0) AS arate
+            SELECT ib.estimated_amount::float8 / NULLIF(ib.base_amount::float8, 0) AS arate
             FROM inpo21c_bids ib
             JOIN agencies a ON (
                 TRIM(a.name) = TRIM(ib.agency_name)
@@ -195,9 +195,9 @@ def get_assessment_rate_dist(
             WHERE a.id = :aid
               AND ib.estimated_amount IS NOT NULL
               AND ib.base_amount > 0
-              AND ib.estimated_amount::float / ib.base_amount
+              AND ib.estimated_amount::float8 / ib.base_amount::float8
                   BETWEEN :rmin AND :rmax
-              AND ABS(ib.estimated_amount::float / ib.base_amount - (10.0/11.0)) > 0.002
+              AND ABS(ib.estimated_amount::float8 / ib.base_amount::float8 - (10.0/11.0)) > 0.002
               AND ib.open_datetime >= {cutoff}
         """), {"aid": agency_id,
                "rmin": ASSESSMENT_RATE_MIN, "rmax": ASSESSMENT_RATE_MAX}).fetchall()
@@ -209,13 +209,13 @@ def get_assessment_rate_dist(
 
     if not rows:
         rows = db.execute(text(f"""
-            SELECT ib.estimated_amount::float / NULLIF(ib.base_amount, 0) AS arate
+            SELECT ib.estimated_amount::float8 / NULLIF(ib.base_amount::float8, 0) AS arate
             FROM inpo21c_bids ib
             WHERE ib.estimated_amount IS NOT NULL
               AND ib.base_amount > 0
-              AND ib.estimated_amount::float / ib.base_amount
+              AND ib.estimated_amount::float8 / ib.base_amount::float8
                   BETWEEN :rmin AND :rmax
-              AND ABS(ib.estimated_amount::float / ib.base_amount - (10.0/11.0)) > 0.002
+              AND ABS(ib.estimated_amount::float8 / ib.base_amount::float8 - (10.0/11.0)) > 0.002
               AND ib.open_datetime >= {cutoff}
         """), {"rmin": ASSESSMENT_RATE_MIN, "rmax": ASSESSMENT_RATE_MAX}).fetchall()
         source = "national"
@@ -260,7 +260,7 @@ def get_relative_rate_dist(
     if agency_id:
         rows = db.execute(text(f"""
             SELECT ip.bid_rate::float
-                   / NULLIF(ib.estimated_amount::float / ib.base_amount, 0)
+                   / NULLIF(ib.estimated_amount::float8 / ib.base_amount::float8, 0)
                    AS rel_rate
             FROM inpo21c_participants ip
             JOIN inpo21c_bids ib USING (inpo21c_bid_id)
@@ -274,7 +274,7 @@ def get_relative_rate_dist(
               AND ib.estimated_amount IS NOT NULL
               AND ib.base_amount > 0
               AND ip.bid_rate BETWEEN :bmin AND :bmax
-              AND ib.estimated_amount::float / ib.base_amount
+              AND ib.estimated_amount::float8 / ib.base_amount::float8
                   BETWEEN :amin AND :amax
               AND ib.open_datetime >= {cutoff}
         """), {"aid": agency_id,
@@ -289,7 +289,7 @@ def get_relative_rate_dist(
     if not rows:
         rows = db.execute(text(f"""
             SELECT ip.bid_rate::float
-                   / NULLIF(ib.estimated_amount::float / ib.base_amount, 0)
+                   / NULLIF(ib.estimated_amount::float8 / ib.base_amount::float8, 0)
                    AS rel_rate
             FROM inpo21c_participants ip
             JOIN inpo21c_bids ib USING (inpo21c_bid_id)
@@ -297,7 +297,7 @@ def get_relative_rate_dist(
               AND ib.estimated_amount IS NOT NULL
               AND ib.base_amount > 0
               AND ip.bid_rate BETWEEN :bmin AND :bmax
-              AND ib.estimated_amount::float / ib.base_amount
+              AND ib.estimated_amount::float8 / ib.base_amount::float8
                   BETWEEN :amin AND :amax
               AND ib.open_datetime >= {cutoff}
         """), {"bmin": BID_RATE_MIN, "bmax": BID_RATE_MAX,

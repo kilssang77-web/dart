@@ -61,6 +61,29 @@ async def lifespan(app: FastAPI):
     finally:
         _mig_db.close()
 
+    # CockroachDB 시퀀스 동기화 — 데이터 import 후 sequence가 1로 리셋되는 문제 방지
+    _seq_db = SessionLocal()
+    try:
+        from sqlalchemy import text as _st
+        for _tbl, _col in [
+            ("prediction_logs_v2", "id"),
+            ("bid_journal", "id"),
+            ("model_performance_log", "id"),
+        ]:
+            try:
+                _seq_db.execute(_st(
+                    f"SELECT setval('{_tbl}_{_col}_seq', "
+                    f"COALESCE((SELECT MAX({_col}) FROM {_tbl}), 0) + 1, false)"
+                ))
+                _seq_db.commit()
+            except Exception:
+                _seq_db.rollback()
+        logger.info("CockroachDB 시퀀스 동기화 완료")
+    except Exception as _seq_err:
+        logger.warning("시퀀스 동기화 실패 (무시): %s", _seq_err)
+    finally:
+        _seq_db.close()
+
     if settings.seed_demo_data:
         db = SessionLocal()
         try:

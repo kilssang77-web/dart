@@ -873,8 +873,8 @@ def predict_a_ratio(
     if agency_id and industry_id:
         row = db.execute(text("""
             SELECT
-                AVG(ib.estimated_amount::float / ib.base_amount) AS avg_r,
-                STDDEV(ib.estimated_amount::float / ib.base_amount) AS std_r,
+                AVG(ib.estimated_amount::float8 / ib.base_amount::float8) AS avg_r,
+                STDDEV(ib.estimated_amount::float8 / ib.base_amount::float8) AS std_r,
                 COUNT(*) AS cnt
             FROM inpo21c_bids ib
             JOIN bids b ON b.announcement_no = ib.announcement_no
@@ -884,7 +884,7 @@ def predict_a_ratio(
             )
             WHERE a.id = :ag AND b.industry_id = :ind
               AND ib.estimated_amount IS NOT NULL AND ib.base_amount > 0
-              AND ib.estimated_amount::float / ib.base_amount BETWEEN 0.70 AND 1.10
+              AND ib.estimated_amount::float8 / ib.base_amount::float8 BETWEEN 0.70 AND 1.10
         """), {"ag": agency_id, "ind": industry_id}).fetchone()
         if row and row[2] and int(row[2]) >= MIN_SAMPLES and 0.70 < float(row[0]) < 1.10:
             return {
@@ -898,8 +898,8 @@ def predict_a_ratio(
     if agency_id:
         row = db.execute(text("""
             SELECT
-                AVG(ib.estimated_amount::float / ib.base_amount),
-                STDDEV(ib.estimated_amount::float / ib.base_amount),
+                AVG(ib.estimated_amount::float8 / ib.base_amount::float8),
+                STDDEV(ib.estimated_amount::float8 / ib.base_amount::float8),
                 COUNT(*)
             FROM inpo21c_bids ib
             JOIN agencies a ON (
@@ -909,7 +909,7 @@ def predict_a_ratio(
             )
             WHERE a.id = :ag
               AND ib.estimated_amount IS NOT NULL AND ib.base_amount > 0
-              AND ib.estimated_amount::float / ib.base_amount BETWEEN 0.70 AND 1.10
+              AND ib.estimated_amount::float8 / ib.base_amount::float8 BETWEEN 0.70 AND 1.10
         """), {"ag": agency_id}).fetchone()
         if row and row[2] and int(row[2]) >= MIN_SAMPLES and 0.70 < float(row[0]) < 1.10:
             return {
