@@ -73,7 +73,7 @@ def load_agency_a_ratio(db, agency_id: int, period_months: int = 24) -> dict:
     try:
         row = db.execute(_text("""
             SELECT
-                ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ip.base_ratio)::numeric, 5) AS median_ratio,
+                ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ip.base_ratio::float8), 5) AS median_ratio,
                 ROUND(STDDEV(ip.base_ratio)::numeric, 5) AS std_ratio,
                 COUNT(*) AS n
             FROM inpo21c_participants ip
@@ -102,6 +102,11 @@ def load_agency_a_ratio(db, agency_id: int, period_months: int = 24) -> dict:
             "std": float(row[1]) if row[1] else None,
         }
     except Exception:
+        if db:
+            try:
+                db.rollback()
+            except Exception:
+                pass
         return {"agency_a_ratio": None, "sample_count": 0, "confidence": 0.0}
 
 

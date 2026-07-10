@@ -464,9 +464,9 @@ def participant_stats(
             SELECT
                 COUNT(DISTINCT ib.inpo21c_bid_id) AS n_bids,
                 ROUND(AVG(pc.n)::numeric, 1)       AS avg_n,
-                PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY pc.n) AS p25,
-                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY pc.n) AS p50,
-                PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY pc.n) AS p75,
+                PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY pc.n::float8) AS p25,
+                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY pc.n::float8) AS p50,
+                PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY pc.n::float8) AS p75,
                 MIN(pc.n) AS min_n,
                 MAX(pc.n) AS max_n
             FROM inpo21c_bids ib
@@ -499,7 +499,7 @@ def participant_stats(
     # 전국 평균 (fallback)
     global_row = db.execute(text("""
         SELECT ROUND(AVG(pc.n)::numeric, 1),
-               PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY pc.n)
+               PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY pc.n::float8)
         FROM (
             SELECT inpo21c_bid_id, COUNT(*) AS n
             FROM inpo21c_participants

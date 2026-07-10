@@ -1404,7 +1404,7 @@ def ml_calibration(
         SELECT
             AVG(ABS(srate_error))  AS mae,
             STDDEV(srate_error)    AS std,
-            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY srate_error) AS median_bias
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY srate_error::float8) AS median_bias
         FROM bid_journal
         WHERE srate_error IS NOT NULL
     """)).fetchone()

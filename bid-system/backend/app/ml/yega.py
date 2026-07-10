@@ -284,8 +284,8 @@ def load_inpo21c_yega_stats(db, agency_id: int, announcement_no: Optional[str] =
     spread_row = db.execute(_text("""
         SELECT
             STDDEV(iy.base_ratio / 100.0) AS spread_std,
-            PERCENTILE_CONT(0.02) WITHIN GROUP(ORDER BY iy.base_ratio / 100.0) AS p02,
-            PERCENTILE_CONT(0.98) WITHIN GROUP(ORDER BY iy.base_ratio / 100.0) AS p98,
+            PERCENTILE_CONT(0.02) WITHIN GROUP(ORDER BY (iy.base_ratio / 100.0)::float8) AS p02,
+            PERCENTILE_CONT(0.98) WITHIN GROUP(ORDER BY (iy.base_ratio / 100.0)::float8) AS p98,
             COUNT(*) AS n
         FROM inpo21c_yega iy
         JOIN inpo21c_bids ib USING (inpo21c_bid_id)

@@ -683,11 +683,11 @@ class DecisionService:
                 COUNT(CASE WHEN ip.is_winner THEN 1 END)                   AS wins,
                 ROUND(AVG(ip.bid_rate)::numeric * 100, 3)                  AS avg_rate_pct,
                 ROUND(STDDEV(ip.bid_rate)::numeric * 100, 4)               AS std_pct,
-                ROUND(PERCENTILE_CONT(0.10) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p10,
-                ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p25,
-                ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p50,
-                ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p75,
-                ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p90,
+                ROUND(PERCENTILE_CONT(0.10) WITHIN GROUP (ORDER BY ip.bid_rate::float8) * 100, 3) AS p10,
+                ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ip.bid_rate::float8) * 100, 3) AS p25,
+                ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ip.bid_rate::float8) * 100, 3) AS p50,
+                ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ip.bid_rate::float8) * 100, 3) AS p75,
+                ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY ip.bid_rate::float8) * 100, 3) AS p90,
                 MAX(ib.open_datetime)::date                                 AS last_seen
             FROM inpo21c_participants ip
             JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = ip.inpo21c_bid_id
@@ -718,11 +718,11 @@ class DecisionService:
                     COUNT(CASE WHEN ip.is_winner THEN 1 END)                   AS wins,
                     ROUND(AVG(ip.bid_rate)::numeric * 100, 3)                  AS avg_rate_pct,
                     ROUND(STDDEV(ip.bid_rate)::numeric * 100, 4)               AS std_pct,
-                    ROUND(PERCENTILE_CONT(0.10) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p10,
-                    ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p25,
-                    ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p50,
-                    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p75,
-                    ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p90,
+                    ROUND(PERCENTILE_CONT(0.10) WITHIN GROUP (ORDER BY ip.bid_rate::float8) * 100, 3) AS p10,
+                    ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ip.bid_rate::float8) * 100, 3) AS p25,
+                    ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ip.bid_rate::float8) * 100, 3) AS p50,
+                    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ip.bid_rate::float8) * 100, 3) AS p75,
+                    ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY ip.bid_rate::float8) * 100, 3) AS p90,
                     MAX(ib.open_datetime)::date                                 AS last_seen
                 FROM inpo21c_participants ip
                 JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = ip.inpo21c_bid_id
@@ -751,11 +751,11 @@ class DecisionService:
                     COUNT(CASE WHEN ip.is_winner THEN 1 END)                   AS wins,
                     ROUND(AVG(ip.bid_rate)::numeric * 100, 3)                  AS avg_rate_pct,
                     ROUND(STDDEV(ip.bid_rate)::numeric * 100, 4)               AS std_pct,
-                    ROUND(PERCENTILE_CONT(0.10) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p10,
-                    ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p25,
-                    ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p50,
-                    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p75,
-                    ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY ip.bid_rate)::numeric * 100, 3) AS p90,
+                    ROUND(PERCENTILE_CONT(0.10) WITHIN GROUP (ORDER BY ip.bid_rate::float8) * 100, 3) AS p10,
+                    ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ip.bid_rate::float8) * 100, 3) AS p25,
+                    ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ip.bid_rate::float8) * 100, 3) AS p50,
+                    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ip.bid_rate::float8) * 100, 3) AS p75,
+                    ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY ip.bid_rate::float8) * 100, 3) AS p90,
                     MAX(ib.open_datetime)::date                                 AS last_seen
                 FROM inpo21c_participants ip
                 JOIN inpo21c_bids ib ON ib.inpo21c_bid_id = ip.inpo21c_bid_id

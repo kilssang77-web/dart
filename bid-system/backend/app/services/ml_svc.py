@@ -1273,8 +1273,8 @@ class MarketIntelService:
             SELECT ib.agency_name,
                    COUNT(DISTINCT ib.inpo21c_bid_id)          AS bid_count,
                    AVG(ip.bid_rate::numeric)                  AS avg_winner_rate,
-                   PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ip.bid_rate::numeric) AS p25,
-                   PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ip.bid_rate::numeric) AS p75,
+                   PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ip.bid_rate::float8) AS p25,
+                   PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ip.bid_rate::float8) AS p75,
                    MIN(ip.bid_rate::numeric)                  AS min_rate,
                    MAX(ip.bid_rate::numeric)                  AS max_rate
             FROM inpo21c_participants ip
