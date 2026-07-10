@@ -310,7 +310,7 @@ export default function AdminPage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-users'] }); setDeleteConfirm(null) },
   })
   const retrainMutation = useMutation({
-    mutationFn: async () => { const { recommendApi } = await import('@/api'); return recommendApi.retrain() },
+    mutationFn: async () => { const { adminApi } = await import('@/api'); return adminApi.retrainAll() },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['model-info'] }) },
   })
   const saveIndMutation = useMutation({
