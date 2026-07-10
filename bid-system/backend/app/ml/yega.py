@@ -388,7 +388,7 @@ def get_position_bid_recommendation(
 
     # ── 1. 포지션 빈도 조회 (기관별 → 전국 fallback) ─────────
     def _query_positions(aid):
-        return db.execute(_text("""
+        return db.execute(_text(f"""
             SELECT iy.yega_no, COUNT(*) AS cnt
             FROM inpo21c_yega iy
             JOIN inpo21c_bids ib USING (inpo21c_bid_id)
@@ -398,10 +398,10 @@ def get_position_bid_recommendation(
                 OR TRIM(a.name) LIKE '%%' || TRIM(ib.agency_name) || '%%'
             )
             WHERE a.id = :aid AND iy.is_selected = TRUE
-              AND ib.open_datetime >= NOW() - INTERVAL :period
+              AND ib.open_datetime >= NOW() - INTERVAL '{period_months} months'
             GROUP BY iy.yega_no
             ORDER BY iy.yega_no
-        """), {"aid": aid, "period": f"'{period_months} months'"}).fetchall() if aid else []
+        """), {"aid": aid}).fetchall() if aid else []
 
     data_source = "fallback"
     pos_rows = _query_positions(agency_id) if agency_id else []

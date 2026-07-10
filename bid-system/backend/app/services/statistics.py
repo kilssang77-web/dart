@@ -939,7 +939,7 @@ class BacktestService:
 
     def run(self, user_id: int, months: int = 60) -> dict:
         # 1) 결과가 확정된 내 투찰 기록
-        my_records = self.db.execute(text("""
+        my_records = self.db.execute(text(f"""
             SELECT
                 e.id,
                 e.title,
@@ -958,10 +958,10 @@ class BacktestService:
               AND e.status IN ('낙찰', '패찰')
               AND e.submitted_rate IS NOT NULL
               AND e.winner_rate IS NOT NULL
-              AND (e.opened_at IS NULL OR e.opened_at >= NOW() - INTERVAL :months_str)
+              AND (e.opened_at IS NULL OR e.opened_at >= NOW() - INTERVAL '{months} months')
             ORDER BY e.created_at DESC
             LIMIT 500
-        """), {"uid": user_id, "months_str": f"{months} months"}).fetchall()
+        """), {"uid": user_id}).fetchall()
 
         if not my_records:
             # my_bid_records 폴백
