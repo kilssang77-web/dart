@@ -26,7 +26,12 @@ def get_redis() -> "_redis.Redis | None":
     _redis_init_done = True
     try:
         settings = get_settings()
-        rc = _redis.from_url(settings.redis_url, socket_connect_timeout=1, socket_timeout=1)
+        rc = _redis.from_url(
+            settings.redis_url,
+            socket_connect_timeout=5,
+            socket_timeout=5,
+            ssl_cert_reqs=None,
+        )
         rc.ping()
         _redis_client = rc
         logger.info("Redis 연결 완료")
