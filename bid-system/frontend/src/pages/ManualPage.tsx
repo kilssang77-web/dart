@@ -179,7 +179,7 @@ export default function ManualPage() {
           </div>
           <div>
             <p className="text-[15px] font-bold text-slate-800 leading-none">BidAI Pro</p>
-            <p className="text-[11px] text-blue-600 leading-none mt-0.5">사용자 매뉴얼 v2.0</p>
+            <p className="text-[11px] text-blue-600 leading-none mt-0.5">사용자 매뉴얼 v3.0</p>
           </div>
         </div>
 
@@ -204,7 +204,7 @@ export default function ManualPage() {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-slate-400">2026-06-18</span>
+          <span className="text-xs text-slate-400">2026-07-09</span>
           {isPopup && (
             <button
               onClick={() => window.close()}
@@ -258,16 +258,16 @@ export default function ManualPage() {
               <h1 className="text-3xl font-bold">BidAI Pro</h1>
               <p className="text-blue-200 text-lg mt-1">나라장터 입찰 AI 추천 시스템</p>
               <div className="mt-4 inline-block px-5 py-2 bg-white/20 rounded-full text-sm font-medium">
-                사용자 매뉴얼 v2.0 · 2026-06-18
+                사용자 매뉴얼 v3.0 · 2026-07-09
               </div>
-              <p className="text-blue-200 text-sm mt-3">28장 구성 · 부록 3개 · 전체 메뉴 현행화</p>
+              <p className="text-blue-200 text-sm mt-3">27장 구성 · 부록 3개 · 전체 메뉴 현행화</p>
             </div>
 
             {/* 본문 콘텐츠 */}
             <ManualContent query={query} />
 
             <div className="mt-16 pt-8 border-t border-slate-200 text-center text-xs text-slate-400">
-              BidAI Pro 사용자 매뉴얼 v2.0 · 2026-06-18 · © A2M
+              BidAI Pro 사용자 매뉴얼 v3.0 · 2026-07-09 · © A2M
             </div>
           </div>
         </div>
