@@ -19,11 +19,21 @@ _redis_client: "_redis.Redis | None" = None
 _redis_init_done = False
 
 
+_redis_last_attempt: "float" = 0.0
+_REDIS_RETRY_SEC = 120  # 실패 후 2분마다 재시도
+
 def get_redis() -> "_redis.Redis | None":
-    global _redis_client, _redis_init_done
-    if _redis_init_done:
+    global _redis_client, _redis_init_done, _redis_last_attempt
+    import time as _t
+    # 연결 성공 상태면 즉시 반환
+    if _redis_init_done and _redis_client is not None:
         return _redis_client
+    # 연결 실패 상태: 2분마다 재시도
+    now = _t.monotonic()
+    if _redis_init_done and (now - _redis_last_attempt) < _REDIS_RETRY_SEC:
+        return None
     _redis_init_done = True
+    _redis_last_attempt = now
     try:
         settings = get_settings()
         rc = _redis.from_url(

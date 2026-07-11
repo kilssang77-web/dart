@@ -71,29 +71,9 @@ def load_srate_stats(
     bid_date: Optional[datetime] = None,
     contract_method: Optional[str] = None,
 ) -> dict:
+    from ..common.cache import local_cache_get, local_cache_set
     dt = bid_date or datetime.now()
-
-    def _q(group_type, group_id):
-        row = db.execute(text("""
-            SELECT srate_mean, srate_std, srate_trend, sample_count,
-                   srate_p25, srate_p75
-            FROM assessment_rate_stats
-            WHERE group_type = :gt
-              AND (group_id = :gid OR (:gid IS NULL AND group_id IS NULL))
-              AND ABS(srate_mean - (10.0/11.0)) > 0.002
-              AND sample_count >= 3
-            ORDER BY updated_at DESC LIMIT 1
-        """), {"gt": group_type, "gid": group_id}).fetchone()
-        return row
-
-    ag  = _q("agency",   agency_id)
-    ind = _q("industry", industry_id)
-    reg = _q("region",   region_id)
-    glb = _q("global",   None)
-
-    # 발주유형(bid_type) 통계 — 5단계 Fallback의 3번째 계층
     bid_type_id = _normalize_bid_type(contract_method)
-    bdt = _q("bid_type", bid_type_id) if bid_type_id else None
 
     def _amount_bucket(amt):
         if amt < 1e8:    return 1
@@ -102,22 +82,83 @@ def load_srate_stats(
         elif amt < 5e9:  return 4
         else:            return 5
 
-    # inpo21c 실측 사정율: 기관별 (agency_name 퍼지 매칭) + 전국 평균
-    inpo_ag = db.execute(text("""
-        SELECT AVG(ib.yega_ratio / 100.0), STDDEV(ib.yega_ratio / 100.0), COUNT(*)
-        FROM inpo21c_bids ib
-        JOIN agencies a ON TRIM(a.name) = TRIM(ib.agency_name)
-                        OR TRIM(ib.agency_name) LIKE '%' || TRIM(a.name) || '%'
-                        OR TRIM(a.name) LIKE '%' || TRIM(ib.agency_name) || '%'
-        WHERE a.id = :aid
-          AND ib.yega_ratio BETWEEN 87 AND 105
-    """), {"aid": agency_id}).fetchone() if agency_id else None
+    _bucket = _amount_bucket(base_amount)
+    _cache_key = f"srate:{agency_id}:{industry_id}:{region_id}:{bid_type_id}:{_bucket}:{dt.month}"
+    _cached = local_cache_get(_cache_key)
+    if _cached is not None:
+        return _cached
 
-    inpo_glb = db.execute(text("""
-        SELECT AVG(yega_ratio / 100.0), STDDEV(yega_ratio / 100.0)
-        FROM inpo21c_bids
-        WHERE yega_ratio BETWEEN 87 AND 105
-    """)).fetchone()
+    # ── assessment_rate_stats 배치 조회 (5 → 1 쿼리) ─────────────────────
+    _cond_parts = ["(group_type = 'global' AND group_id IS NULL)"]
+    _sparams: dict = {}
+    if agency_id:
+        _cond_parts.append("(group_type = 'agency' AND group_id = :aid)")
+        _sparams["aid"] = agency_id
+    if industry_id:
+        _cond_parts.append("(group_type = 'industry' AND group_id = :iid)")
+        _sparams["iid"] = industry_id
+    if region_id:
+        _cond_parts.append("(group_type = 'region' AND group_id = :rid)")
+        _sparams["rid"] = region_id
+    if bid_type_id:
+        _cond_parts.append("(group_type = 'bid_type' AND group_id = :btid)")
+        _sparams["btid"] = bid_type_id
+
+    _stat_rows = db.execute(text(
+        "SELECT DISTINCT ON (group_type, group_id) "
+        "    group_type, group_id, srate_mean, srate_std, srate_trend, "
+        "    sample_count, srate_p25, srate_p75 "
+        "FROM assessment_rate_stats "
+        "WHERE ABS(srate_mean - (10.0/11.0)) > 0.002 "
+        "  AND sample_count >= 3 "
+        f"  AND ({' OR '.join(_cond_parts)}) "
+        "ORDER BY group_type, group_id, updated_at DESC"
+    ), _sparams).fetchall()
+
+    def _sfind(gt):
+        return next((r for r in _stat_rows if r[0] == gt), None)
+
+    ag  = _sfind("agency")
+    ind = _sfind("industry")
+    reg = _sfind("region")
+    glb = _sfind("global")
+    bdt = _sfind("bid_type")
+    # 배치 쿼리 결과 인덱스: [0]=group_type [1]=group_id [2]=srate_mean [3]=srate_std
+    #                        [4]=srate_trend [5]=sample_count [6]=srate_p25 [7]=srate_p75
+
+    # inpo21c 실측 사정율: 기관별 (UNION ALL로 2→1 쿼리) + 전국 평균
+    inpo_ag = None
+    if agency_id:
+        _inpo_rows = db.execute(text("""
+            SELECT 'agency'::text AS scope,
+                   AVG(ib.yega_ratio / 100.0)::float8,
+                   STDDEV(ib.yega_ratio / 100.0)::float8,
+                   COUNT(*)::bigint
+            FROM inpo21c_bids ib
+            JOIN agencies a ON (
+                TRIM(a.name) = TRIM(ib.agency_name)
+                OR TRIM(ib.agency_name) LIKE '%%' || TRIM(a.name) || '%%'
+                OR TRIM(a.name) LIKE '%%' || TRIM(ib.agency_name) || '%%'
+            )
+            WHERE a.id = :aid AND ib.yega_ratio BETWEEN 87 AND 105
+            UNION ALL
+            SELECT 'global'::text,
+                   AVG(yega_ratio / 100.0)::float8,
+                   STDDEV(yega_ratio / 100.0)::float8,
+                   NULL::bigint
+            FROM inpo21c_bids WHERE yega_ratio BETWEEN 87 AND 105
+        """), {"aid": agency_id}).fetchall()
+        inpo_glb = None
+        for _ir in _inpo_rows:
+            if _ir[0] == 'agency':
+                inpo_ag = (_ir[1], _ir[2], _ir[3])
+            else:
+                inpo_glb = (_ir[1], _ir[2])
+    else:
+        inpo_glb = db.execute(text("""
+            SELECT AVG(yega_ratio / 100.0)::float8, STDDEV(yega_ratio / 100.0)::float8
+            FROM inpo21c_bids WHERE yega_ratio BETWEEN 87 AND 105
+        """)).fetchone()
 
     # ── 경쟁업체 수 (우선순위: ①inpo21c 기관별 → ②bid_results 기관별 → ③전국평균cap) ──
     # ① inpo21c 기관별 (전참여자 저장된 경우만 유효 — HAVING >= 2)
@@ -153,62 +194,89 @@ def load_srate_stats(
             ) t
         """), {"aid": agency_id}).fetchone()
 
-    # ③ 전국 평균 — inpo21c 전체 참여자 (HAVING >= 2인 공고만: 대형공고 편향 주의)
-    #    cap 30: 소규모 지역 공고 대상 시스템이므로 99 그대로 사용하지 않음
-    _comp_glb = db.execute(text("""
-        SELECT LEAST(ROUND(AVG(c)::numeric, 1)::float, 30.0)
-        FROM (
-            SELECT COUNT(*) AS c
-            FROM inpo21c_participants
-            WHERE company_name != '유찰'
-            GROUP BY inpo21c_bid_id
-            HAVING COUNT(*) >= 2
-        ) t
-    """)).fetchone()
+    # ③ 전국 경쟁업체 평균 — 잘 변하지 않으므로 1시간 캐시
+    _comp_glb_val = local_cache_get("comp_glb")
+    if _comp_glb_val is None:
+        _cg = db.execute(text("""
+            SELECT LEAST(ROUND(AVG(c)::numeric, 1)::float8, 30.0)
+            FROM (
+                SELECT COUNT(*) AS c
+                FROM inpo21c_participants
+                WHERE company_name != '유찰'
+                GROUP BY inpo21c_bid_id
+                HAVING COUNT(*) >= 2
+            ) t
+        """)).fetchone()
+        _comp_glb_val = float(_cg[0]) if _cg and _cg[0] else 8.0
+        local_cache_set("comp_glb", _comp_glb_val, ttl=3600)
 
-    return {
-        "agency_srate_mean":    float(ag[0])   if ag  else None,
-        "agency_srate_std":     float(ag[1])   if ag  else 0.012,
-        "agency_srate_trend":   float(ag[2])   if ag  else 0.0,
-        "agency_srate_n":       int(ag[3])      if ag  else 0,
-        "agency_srate_p25":     float(ag[4])   if ag  else None,
-        "agency_srate_p75":     float(ag[5])   if ag  else None,
-        "region_srate_mean":    float(reg[0])  if reg else None,
-        "region_srate_std":     float(reg[1])  if reg else 0.012,
-        "bid_type_srate_mean":  float(bdt[0])  if bdt else None,
-        "bid_type_srate_std":   float(bdt[1])  if bdt else 0.012,
-        "industry_srate_mean":  float(ind[0])  if ind else None,
-        "industry_srate_std":   float(ind[1])  if ind else 0.012,
-        "global_srate_mean":    float(glb[0])  if glb else GLOBAL_SRATE_DEFAULT,
-        "global_srate_std":     float(glb[1])  if glb else 0.012,
+    # ── Journal bias (2 → 1 쿼리, UNION ALL) ─────────────────────────
+    _jag_bias, _jag_n, _jglb_bias, _jglb_n = None, 0, None, 0
+    try:
+        _jrows = db.execute(text("""
+            SELECT 'agency'::text, AVG(j.srate_error)::float8, COUNT(*)::bigint
+            FROM bid_journal j JOIN bids b ON b.id = j.bid_id
+            WHERE b.agency_id = :aid AND j.srate_error IS NOT NULL
+              AND j.created_at >= NOW() - INTERVAL '24 months'
+            UNION ALL
+            SELECT 'global'::text, AVG(srate_error)::float8, COUNT(*)::bigint
+            FROM bid_journal
+            WHERE srate_error IS NOT NULL
+              AND created_at >= NOW() - INTERVAL '24 months'
+        """), {"aid": agency_id or 0}).fetchall()
+        for _jr in _jrows:
+            if _jr[0] == 'agency' and _jr[1] is not None:
+                _jag_bias, _jag_n = float(_jr[1]), int(_jr[2] or 0)
+            elif _jr[0] == 'global' and _jr[1] is not None:
+                _jglb_bias, _jglb_n = float(_jr[1]), int(_jr[2] or 0)
+    except Exception:
+        pass
+
+    # 배치 쿼리 인덱스: [2]=srate_mean [3]=srate_std [4]=srate_trend [5]=sample_count [6]=p25 [7]=p75
+    result = {
+        "agency_srate_mean":    float(ag[2])   if ag  else None,
+        "agency_srate_std":     float(ag[3])   if ag  else 0.012,
+        "agency_srate_trend":   float(ag[4])   if ag  else 0.0,
+        "agency_srate_n":       int(ag[5])      if ag  else 0,
+        "agency_srate_p25":     float(ag[6])   if ag  else None,
+        "agency_srate_p75":     float(ag[7])   if ag  else None,
+        "region_srate_mean":    float(reg[2])  if reg else None,
+        "region_srate_std":     float(reg[3])  if reg else 0.012,
+        "bid_type_srate_mean":  float(bdt[2])  if bdt else None,
+        "bid_type_srate_std":   float(bdt[3])  if bdt else 0.012,
+        "industry_srate_mean":  float(ind[2])  if ind else None,
+        "industry_srate_std":   float(ind[3])  if ind else 0.012,
+        "global_srate_mean":    float(glb[2])  if glb else GLOBAL_SRATE_DEFAULT,
+        "global_srate_std":     float(glb[3])  if glb else 0.012,
         "amount_log10":         round(math.log10(max(base_amount, 1)), 4),
-        "amount_bucket":        _amount_bucket(base_amount),
+        "amount_bucket":        _bucket,
         "month_of_year":        dt.month,
         "quarter":              (dt.month - 1) // 3 + 1,
         "is_q4":                int(dt.month >= 10),
-        # inpo21c 실측값 (복수예가 건설공사 기준)
         "inpo21c_srate_mean":   float(inpo_ag[0])  if inpo_ag and inpo_ag[0]  else None,
         "inpo21c_srate_std":    float(inpo_ag[1])  if inpo_ag and inpo_ag[1]  else 0.007,
         "inpo21c_srate_n":      int(inpo_ag[2])    if inpo_ag and inpo_ag[2]  else 0,
         "inpo21c_global_mean":  float(inpo_glb[0]) if inpo_glb and inpo_glb[0] else None,
-        # 경쟁업체 수 (①inpo21c 기관 → ②bid_results 기관 → ③전국평균cap30)
         "expected_competitor_count": (
             float(_comp_ag[0]) if _comp_ag and _comp_ag[0] and int(_comp_ag[1] or 0) >= 3
             else float(_comp_br[0]) if _comp_br and _comp_br[0] and int(_comp_br[1] or 0) >= 5
             else None
         ),
-        "global_comp_count":  float(_comp_glb[0]) if _comp_glb and _comp_glb[0] else 8.0,
-        # 데이터 품질 레벨 — 5단계 계층 (기관→지역→발주유형→공종→전국)
+        "global_comp_count":  _comp_glb_val,
         "data_quality_level": (
-            "agency"   if ag  and int(ag[3])  >= 5 else
-            "region"   if reg and reg[0]             else
-            "bid_type" if bdt and bdt[0]             else
-            "industry" if ind and ind[0]             else
+            "agency"   if ag  and int(ag[5])  >= 5 else
+            "region"   if reg and reg[2]             else
+            "bid_type" if bdt and bdt[2]             else
+            "industry" if ind and ind[2]             else
             "global"
         ),
-        # Journal 피드백 편향 (실전 개찰 결과 기반)
-        **_load_journal_bias(db, agency_id),
+        "journal_agency_bias":   _jag_bias,
+        "journal_agency_bias_n": _jag_n,
+        "journal_global_bias":   _jglb_bias,
+        "journal_global_bias_n": _jglb_n,
     }
+    local_cache_set(_cache_key, result, ttl=300)
+    return result
 
 
 # ──────────────────────────────────────────────
