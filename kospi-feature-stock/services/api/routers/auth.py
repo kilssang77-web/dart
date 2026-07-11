@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, field_validator
 from deps import get_db
-from auth_utils import verify_password, create_access_token, decode_token
+from auth_utils import verify_password, hash_password, create_access_token, decode_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -78,3 +78,37 @@ async def me(request: Request):
 async def logout():
     # 클라이언트가 토큰을 삭제하므로 서버 측 처리 불필요 (stateless JWT)
     return {"message": "로그아웃 되었습니다"}
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_length(cls, v: str) -> str:
+        if len(v.strip()) < 8:
+            raise ValueError("비밀번호는 8자 이상이어야 합니다")
+        return v
+
+
+@router.post("/auth/change-password", summary="비밀번호 변경")
+async def change_password(body: ChangePasswordRequest, request: Request, db=Depends(get_db)):
+    token = _extract_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="인증 토큰이 없습니다")
+    payload = decode_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
+
+    username = payload["sub"]
+    row = await db.fetchrow("SELECT * FROM users WHERE username=$1 AND is_active=TRUE", username)
+    if not row:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다")
+    if not verify_password(body.current_password, row["password_hash"]):
+        raise HTTPException(status_code=400, detail="현재 비밀번호가 올바르지 않습니다")
+
+    new_hash = hash_password(body.new_password)
+    await db.execute("UPDATE users SET password_hash=$1 WHERE username=$2", new_hash, username)
+    logger.info(f"비밀번호 변경: {username}")
+    return {"message": "비밀번호가 변경되었습니다"}

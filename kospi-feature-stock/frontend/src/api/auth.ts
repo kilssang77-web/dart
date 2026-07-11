@@ -30,3 +30,15 @@ export async function apiLogout(token: string): Promise<void> {
     headers: { Authorization: `Bearer ${token}` },
   })
 }
+
+export async function apiChangePassword(
+  token: string,
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  await axios.post(
+    `${BASE}/api/v1/auth/change-password`,
+    { current_password: currentPassword, new_password: newPassword },
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+}
