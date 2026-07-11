@@ -303,7 +303,7 @@ export default function BidsPage() {
             <TabsTrigger
               value="all"
               className="gap-1.5 text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-blue-600"
-              onClick={() => navigate('/bids')}
+              onClick={() => navigate('/bids?tab=all')}
             >
               <Search className="h-3.5 w-3.5" />전체공고
             </TabsTrigger>
