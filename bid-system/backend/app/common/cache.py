@@ -69,3 +69,24 @@ def cache_delete_pattern(rc: "_redis.Redis | None", pattern: str) -> None:
             rc.delete(*keys)
     except Exception:
         pass
+
+
+import time as _time
+
+_local_store: "dict[str, tuple[Any, float]]" = {}
+
+def local_cache_get(key: str) -> "Any | None":
+    entry = _local_store.get(key)
+    if not entry:
+        return None
+    value, expires_at = entry
+    if _time.monotonic() > expires_at:
+        _local_store.pop(key, None)
+        return None
+    return value
+
+def local_cache_set(key: str, value: Any, ttl: int = 300) -> None:
+    _local_store[key] = (value, _time.monotonic() + ttl)
+
+def local_cache_delete(key: str) -> None:
+    _local_store.pop(key, None)

@@ -48,8 +48,9 @@ def get_meta(db: Session = Depends(get_db), _: User = Depends(get_current_user))
     from ...common import agency_cache as _ac
     from sqlalchemy import text as _t
 
+    from ...common.cache import local_cache_get, local_cache_set
     rc = get_redis()
-    cached = cache_get(rc, "bids:meta")
+    cached = cache_get(rc, "bids:meta") or local_cache_get("bids:meta")
     if cached is not None:
         return cached
 
@@ -79,6 +80,7 @@ def get_meta(db: Session = Depends(get_db), _: User = Depends(get_current_user))
 
     result = {"agencies": agencies, "industries": industries, "regions": regions}
     cache_set(rc, "bids:meta", result, ttl=600)
+    local_cache_set("bids:meta", result, ttl=600)
     return result
 
 

@@ -12,9 +12,10 @@ if "cockroachlabs.cloud" in _db_url:
 
 engine = create_engine(
     _db_url,
-    pool_size=5,
-    max_overflow=10,
+    pool_size=3,
+    max_overflow=5,
     pool_pre_ping=True,
+    pool_recycle=1800,
     pool_reset_on_return="rollback",  # aborted 트랜잭션이 풀에 남지 않도록
 )
 
