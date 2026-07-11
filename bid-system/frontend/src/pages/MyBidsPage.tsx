@@ -587,7 +587,7 @@ export default function MyBidsPage() {
                               const isSekihai = diff < 1.0
                               return isSekihai ? (
                                 <Badge className="text-[9px] px-1 py-0 bg-amber-50 text-amber-600 border border-amber-200 gap-0.5">
-                                  <AlertCircle className="h-2.5 w-2.5" />惜敗 {diff.toFixed(2)}%p
+                                  <AlertCircle className="h-2.5 w-2.5" />아깝게 패찰 {diff.toFixed(2)}%p
                                 </Badge>
                               ) : null
                             })()}
