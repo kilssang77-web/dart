@@ -1,12 +1,15 @@
-﻿import { Sun, Moon, Bell, RefreshCw, Menu, Database, BookOpen, X } from 'lucide-react'
+﻿import { Sun, Moon, Bell, RefreshCw, Menu, Database, BookOpen, X, LogOut, UserCircle2 } from 'lucide-react'
 import { useThemeStore } from '@/store/theme'
 import { useRealtimeStore } from '@/store/realtime'
 import { useQueryClient, useQuery } from '@tanstack/react-query'
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { clsx } from 'clsx'
 import { useSidebarStore } from '@/store/sidebar'
 import { useIsMobile } from '@/hooks/useMediaQuery'
 import { adminApi, type SystemStatus } from '@/api/admin'
+import { useAuthStore } from '@/store/auth'
+import { apiLogout } from '@/api/auth'
 
 interface TopBarProps {
   title:     string
@@ -19,9 +22,12 @@ export function TopBar({ title, subtitle }: TopBarProps) {
   const qc                   = useQueryClient()
   const { toggle: toggleSidebar, openMobile } = useSidebarStore()
   const isMobile = useIsMobile()
+  const navigate = useNavigate()
+  const { token, user, clearAuth } = useAuthStore()
   const [refreshing, setRefreshing] = useState(false)
   const [colorblind, setColorblind] = useState(() => localStorage.getItem('colorblind') === '1')
   const [showManual, setShowManual] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
 
   const closeManual = useCallback(() => setShowManual(false), [])
 
@@ -49,6 +55,19 @@ export function TopBar({ title, subtitle }: TopBarProps) {
     setRefreshing(true)
     await qc.invalidateQueries()
     setTimeout(() => setRefreshing(false), 600)
+  }
+
+  async function handleLogout() {
+    if (loggingOut) return
+    setLoggingOut(true)
+    try {
+      if (token) await apiLogout(token)
+    } catch {
+      // 서버 오류 무시 — 로컬 클리어 우선
+    } finally {
+      clearAuth()
+      navigate('/login', { replace: true })
+    }
   }
 
   return (
@@ -156,6 +175,31 @@ export function TopBar({ title, subtitle }: TopBarProps) {
         >
           <BookOpen size={13} />
         </button>
+
+        {/* 사용자 정보 + 로그아웃 */}
+        {user && (
+          <div className="flex items-center gap-1.5 pl-1 border-l border-[var(--border)] ml-0.5">
+            <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-md">
+              <UserCircle2 size={14} className="text-[var(--muted)] shrink-0" />
+              <span className="text-xs text-[var(--muted)] max-w-[80px] truncate" title={user.display_name}>
+                {user.display_name}
+              </span>
+            </div>
+            <button
+              onClick={handleLogout}
+              disabled={loggingOut}
+              className={clsx(
+                'flex items-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium',
+                'text-[var(--muted)] hover:text-red-400 hover:bg-red-500/10 transition-colors',
+                'disabled:opacity-50 disabled:cursor-not-allowed'
+              )}
+              title="로그아웃"
+            >
+              <LogOut size={13} />
+              <span className="hidden sm:inline">로그아웃</span>
+            </button>
+          </div>
+        )}
       </div>
 
     </header>

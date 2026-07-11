@@ -28,7 +28,7 @@ def _is_market_open() -> bool:
     t = now.time()
     return _time(9, 0) <= t <= _time(15, 35)
 
-from routers import stocks, features, recommendations, disclosures, backtest, themes, market, disclosure_filters, ml, news, watchlist, settings, notifications, tracking, admin, ranking, screener, trader
+from routers import stocks, features, recommendations, disclosures, backtest, themes, market, disclosure_filters, ml, news, watchlist, settings, notifications, tracking, admin, ranking, screener, trader, auth as auth_router
 from middleware.auth import APIKeyMiddleware
 from perf_tracker import tracker_loop
 
@@ -134,6 +134,37 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"is_success backfill error: {e}")
 
+    # users 테이블 + 기본 관리자 계정 (완전 idempotent)
+    try:
+        await app.state.db.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                username      VARCHAR(50)  UNIQUE NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                display_name  VARCHAR(100),
+                is_active     BOOLEAN      NOT NULL DEFAULT TRUE,
+                created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+                last_login    TIMESTAMPTZ
+            )
+        """)
+    except Exception as _e:
+        logger.warning(f"users 테이블 생성 실패(무시): {_e}")
+    try:
+        count = await app.state.db.fetchval("SELECT COUNT(*) FROM users")
+        if count == 0:
+            from auth_utils import hash_password
+            _u = os.environ.get("DEFAULT_ADMIN_USERNAME", "admin")
+            _p = os.environ.get("DEFAULT_ADMIN_PASSWORD", "ChangeMe123!")
+            _d = os.environ.get("DEFAULT_ADMIN_DISPLAY_NAME", "관리자")
+            _h = hash_password(_p)
+            await app.state.db.execute(
+                "INSERT INTO users (username, password_hash, display_name) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+                _u, _h, _d,
+            )
+            logger.info(f"기본 관리자 계정 생성: {_u}")
+    except Exception as _e:
+        logger.warning(f"기본 관리자 생성 실패: {_e}")
+
     # backfill_history 테이블 자동 생성 (idempotent)
     for _bfsql in [
         """CREATE TABLE IF NOT EXISTS backfill_history (
@@ -206,6 +237,7 @@ app.add_middleware(
 )
 app.add_middleware(APIKeyMiddleware)
 
+app.include_router(auth_router.router,     prefix="/api/v1",                 tags=["auth"])
 app.include_router(stocks.router,          prefix="/api/v1/stocks",          tags=["stocks"])
 app.include_router(features.router,        prefix="/api/v1/features",        tags=["features"])
 app.include_router(recommendations.router, prefix="/api/v1/recommendations", tags=["recommendations"])

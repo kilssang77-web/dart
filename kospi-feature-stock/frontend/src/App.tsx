@@ -1,13 +1,15 @@
-﻿import { Suspense, lazy } from 'react'
+import { Suspense, lazy } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { Sidebar } from './components/Layout/Sidebar'
-import { TopBar } from './components/Layout/TopBar'
-import { SystemBanner } from './components/Layout/SystemBanner'
-import { TopLoadingBar } from './components/ui/TopLoadingBar'
-import { useIsMobile } from './hooks/useMediaQuery'
+import { Sidebar }        from './components/Layout/Sidebar'
+import { TopBar }         from './components/Layout/TopBar'
+import { SystemBanner }   from './components/Layout/SystemBanner'
+import { TopLoadingBar }  from './components/ui/TopLoadingBar'
+import { ProtectedRoute } from './components/ProtectedRoute'
+import { useIsMobile }    from './hooks/useMediaQuery'
 import { useSidebarStore } from './store/sidebar'
 import { useRealtimeStream } from './hooks/useRealtimeStream'
 
+const Login          = lazy(() => import('./pages/Login').then((m) => ({ default: m.Login })))
 const Dashboard      = lazy(() => import('./pages/Dashboard').then((m) => ({ default: m.Dashboard })))
 const Features       = lazy(() => import('./pages/Features').then((m) => ({ default: m.Features })))
 const Recommendations= lazy(() => import('./pages/Recommendations').then((m) => ({ default: m.Recommendations })))
@@ -48,27 +50,22 @@ const META: Record<string, { title: string; subtitle?: string }> = {
   '/trader':         { title: '자동 매매',   subtitle: 'KIS 주문 API · 포지션 관리 · 일일 손익' },
 }
 
-/** Suspense fallback — lazy 청크 로딩 중 표시되는 페이지 스켈레톤 */
 function PageSkeleton() {
   return (
     <div className="p-5 space-y-4 animate-pulse">
-      {/* 헤더 영역 */}
       <div className="flex items-center gap-4">
         <div className="h-8 w-48 skeleton rounded-lg" />
         <div className="h-5 w-32 skeleton rounded" />
       </div>
-      {/* 상단 통계 카드 행 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="h-20 skeleton rounded-xl" />
         ))}
       </div>
-      {/* 메인 콘텐츠 영역 */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <div className="h-72 skeleton rounded-xl" />
         <div className="h-72 skeleton rounded-xl" />
       </div>
-      {/* 리스트/카드 영역 */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {Array.from({ length: 3 }).map((_, i) => (
           <div key={i} className="h-52 skeleton rounded-xl" />
@@ -83,8 +80,8 @@ function GlobalRealtimeStream() {
   return null
 }
 
-
-export default function App() {
+/** 인증된 사용자에게만 보여주는 앱 레이아웃 */
+function AuthenticatedApp() {
   const { pathname }  = useLocation()
   const { collapsed } = useSidebarStore()
   const isMobile      = useIsMobile()
@@ -119,15 +116,14 @@ export default function App() {
               <Route path="/analysis"        element={<StockAnalysis />} />
               <Route path="/system-health"   element={<SystemHealth />} />
               <Route path="/notifications"   element={<NotificationHistory />} />
-              <Route path="/rec-journey"    element={<RecJourney />} />
+              <Route path="/rec-journey"     element={<RecJourney />} />
               <Route path="/similar-cases"          element={<SimilarCases />} />
               <Route path="/similar-cases/:eventId" element={<SimilarCases />} />
               <Route path="/positions"              element={<Navigate to="/trader" replace />} />
-              <Route path="/ranking"               element={<RankingPage />} />
-              <Route path="/screener"              element={<ScreenerPage />} />
-              <Route path="/trader"               element={<TraderPage />} />
+              <Route path="/ranking"         element={<RankingPage />} />
+              <Route path="/screener"        element={<ScreenerPage />} />
+              <Route path="/trader"          element={<TraderPage />} />
               {/* 통합·제거된 라우트 → 리다이렉트 */}
-              <Route path="/analysis"        element={<Navigate to="/search" replace />} />
               <Route path="/disclosures"     element={<Navigate to="/intel" replace />} />
               <Route path="/news"            element={<Navigate to="/intel" replace />} />
               <Route path="/themes"          element={<Navigate to="/intel" replace />} />
@@ -140,5 +136,26 @@ export default function App() {
         </main>
       </div>
     </div>
+  )
+}
+
+export default function App() {
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <Routes>
+        {/* 공개 경로 */}
+        <Route path="/login" element={<Login />} />
+
+        {/* 보호된 경로 — 로그인 필요 */}
+        <Route
+          path="/*"
+          element={
+            <ProtectedRoute>
+              <AuthenticatedApp />
+            </ProtectedRoute>
+          }
+        />
+      </Routes>
+    </Suspense>
   )
 }
