@@ -5,13 +5,11 @@ import { clsx } from 'clsx'
 import {
   CheckCircle, XCircle, AlertCircle, Server, Activity, Send,
   Plus, Trash2, ToggleLeft, ToggleRight, Brain,
-  ExternalLink, RotateCcw, Bell, KeyRound, Eye, EyeOff,
+  ExternalLink, RotateCcw, Bell,
 } from 'lucide-react'
 import { systemApi } from '@/api/market'
 import { settingsApi } from '@/api/settings'
 import type { TelegramConfig, ModelStatus } from '@/api/settings'
-import { apiChangePassword } from '@/api/auth'
-import { useAuthStore } from '@/store/auth'
 
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card'
 import { probToScore, scoreToProb, scoreBarColor } from '@/lib/utils'
@@ -520,133 +518,6 @@ function QuickLinksCard() {
   )
 }
 
-// ── 비밀번호 변경 카드 ────────────────────────────────────────────────────────
-function ChangePasswordCard() {
-  const token = useAuthStore((s) => s.token)
-  const [cur,     setCur]     = useState('')
-  const [next,    setNext]    = useState('')
-  const [confirm, setConfirm] = useState('')
-  const [showCur,  setShowCur]  = useState(false)
-  const [showNext, setShowNext] = useState(false)
-  const [status,  setStatus]  = useState<'idle' | 'ok' | 'err'>('idle')
-  const [errMsg,  setErrMsg]  = useState('')
-  const [loading, setLoading] = useState(false)
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setStatus('idle')
-    if (next.length < 8) { setStatus('err'); setErrMsg('새 비밀번호는 8자 이상이어야 합니다'); return }
-    if (next !== confirm) { setStatus('err'); setErrMsg('새 비밀번호와 확인이 일치하지 않습니다'); return }
-    if (!token) return
-    setLoading(true)
-    try {
-      await apiChangePassword(token, cur, next)
-      setStatus('ok')
-      setCur(''); setNext(''); setConfirm('')
-    } catch (err: unknown) {
-      setStatus('err')
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-      setErrMsg(msg ?? '비밀번호 변경에 실패했습니다')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <KeyRound size={15} className="text-cyan-400" />
-          <CardTitle>비밀번호 변경</CardTitle>
-        </div>
-        <div className="text-xs text-[var(--muted)] mt-0.5">현재 비밀번호 확인 후 새 비밀번호로 변경합니다</div>
-      </CardHeader>
-      <CardBody className="pt-3">
-        <form onSubmit={handleSubmit} className="space-y-3 max-w-sm">
-          {/* 현재 비밀번호 */}
-          <div>
-            <label className="text-xs text-[var(--muted)] mb-1 block">현재 비밀번호</label>
-            <div className="relative">
-              <input
-                type={showCur ? 'text' : 'password'}
-                value={cur}
-                onChange={(e) => setCur(e.target.value)}
-                required
-                placeholder="현재 비밀번호 입력"
-                className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2.5 pr-9 text-sm text-[var(--fg)] placeholder:text-[var(--muted)] focus:outline-none focus:border-cyan-500"
-              />
-              <button type="button" onClick={() => setShowCur(!showCur)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--fg)]">
-                {showCur ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            </div>
-          </div>
-
-          {/* 새 비밀번호 */}
-          <div>
-            <label className="text-xs text-[var(--muted)] mb-1 block">새 비밀번호 <span className="opacity-60">(8자 이상)</span></label>
-            <div className="relative">
-              <input
-                type={showNext ? 'text' : 'password'}
-                value={next}
-                onChange={(e) => setNext(e.target.value)}
-                required
-                placeholder="새 비밀번호 입력"
-                className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl px-3 py-2.5 pr-9 text-sm text-[var(--fg)] placeholder:text-[var(--muted)] focus:outline-none focus:border-cyan-500"
-              />
-              <button type="button" onClick={() => setShowNext(!showNext)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--fg)]">
-                {showNext ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            </div>
-          </div>
-
-          {/* 새 비밀번호 확인 */}
-          <div>
-            <label className="text-xs text-[var(--muted)] mb-1 block">새 비밀번호 확인</label>
-            <input
-              type="password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              required
-              placeholder="새 비밀번호 재입력"
-              className={clsx(
-                'w-full bg-[var(--bg)] border rounded-xl px-3 py-2.5 text-sm text-[var(--fg)] placeholder:text-[var(--muted)] focus:outline-none',
-                confirm && next !== confirm
-                  ? 'border-red-500/60 focus:border-red-500'
-                  : 'border-[var(--border)] focus:border-cyan-500',
-              )}
-            />
-            {confirm && next !== confirm && (
-              <p className="text-xs text-red-400 mt-1">비밀번호가 일치하지 않습니다</p>
-            )}
-          </div>
-
-          {/* 피드백 */}
-          {status === 'ok' && (
-            <div className="flex items-center gap-2 p-3 rounded-xl bg-green-500/10 border border-green-500/25 text-green-400 text-sm">
-              <CheckCircle size={14} /> 비밀번호가 변경되었습니다
-            </div>
-          )}
-          {status === 'err' && (
-            <div className="flex items-center gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/25 text-red-400 text-sm">
-              <XCircle size={14} /> {errMsg}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading || !cur || !next || !confirm}
-            className="w-full py-2.5 rounded-xl text-sm font-semibold transition-colors bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {loading ? '변경 중…' : '비밀번호 변경'}
-          </button>
-        </form>
-      </CardBody>
-    </Card>
-  )
-}
-
 // ── 마이크로서비스 포트 카드 ─────────────────────────────────────────────────
 function ServicePortsCard() {
   return (
@@ -698,10 +569,7 @@ export function Settings() {
         <CardBody className="pt-3"><KeywordsSection /></CardBody>
       </Card>
 
-      {/* 섹션 3: 비밀번호 변경 */}
-      <ChangePasswordCard />
-
-      {/* 섹션 4: 탐지 임계값 (읽기 전용 안내) */}
+      {/* 섹션 3: 탐지 임계값 (읽기 전용 안내) */}
       <ThresholdGuideCard />
 
       {/* 섹션 4: 빠른 이동 */}

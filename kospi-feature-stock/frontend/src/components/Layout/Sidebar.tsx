@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Search, Activity, Settings2,
   FlaskConical, BarChart2, ServerCog, History,
   ChevronLeft, ChevronRight, X, TrendingUp, Newspaper, Bell,
-  Radio, Star, BookOpen, Trophy, Filter, Zap,
+  Radio, Star, BookOpen, Trophy, Filter, Zap, Users,
 } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { featuresApi } from '@/api/features'
@@ -56,6 +56,7 @@ function buildNavGroups(badge?: string): NavGroup[] {
         { to: '/backtest',      icon: <FlaskConical size={15} />,   label: '백테스트' },
         { to: '/performance',   icon: <BarChart2 size={15} />,      label: '모델 성능' },
         { to: '/system-health', icon: <ServerCog size={15} />,      label: '시스템 헬스' },
+        { to: '/account',       icon: <Users size={15} />,           label: '계정 관리' },
         { to: '/settings',      icon: <Settings2 size={15} />,      label: '설정' },
       ],
     },

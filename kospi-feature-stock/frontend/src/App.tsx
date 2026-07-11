@@ -28,6 +28,7 @@ const PositionManagement   = lazy(() => import('./pages/PositionManagement').the
 const RankingPage          = lazy(() => import('./pages/RankingPage').then((m) => ({ default: m.RankingPage })))
 const ScreenerPage         = lazy(() => import('./pages/ScreenerPage').then((m) => ({ default: m.ScreenerPage })))
 const TraderPage           = lazy(() => import('./pages/TraderPage').then((m) => ({ default: m.TraderPage })))
+const AccountPage          = lazy(() => import('./pages/AccountPage').then((m) => ({ default: m.AccountPage })))
 
 const META: Record<string, { title: string; subtitle?: string }> = {
   '/':               { title: '대시보드',    subtitle: '실시간 특징주 현황 요약' },
@@ -48,6 +49,7 @@ const META: Record<string, { title: string; subtitle?: string }> = {
   '/ranking':        { title: '종합 랭킹',   subtitle: 'ML·수급·기술·모멘텀 통합 종합점수 랭킹' },
   '/screener':       { title: '스크리너',    subtitle: 'RSI·수급·ML 조건 기반 종목 필터링' },
   '/trader':         { title: '자동 매매',   subtitle: 'KIS 주문 API · 포지션 관리 · 일일 손익' },
+  '/account':        { title: '계정 관리',   subtitle: '내 비밀번호 변경 · 사용자 추가/수정/삭제' },
 }
 
 function PageSkeleton() {
@@ -123,6 +125,7 @@ function AuthenticatedApp() {
               <Route path="/ranking"         element={<RankingPage />} />
               <Route path="/screener"        element={<ScreenerPage />} />
               <Route path="/trader"          element={<TraderPage />} />
+              <Route path="/account"         element={<AccountPage />} />
               {/* 통합·제거된 라우트 → 리다이렉트 */}
               <Route path="/disclosures"     element={<Navigate to="/intel" replace />} />
               <Route path="/news"            element={<Navigate to="/intel" replace />} />
