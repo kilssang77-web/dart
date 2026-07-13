@@ -4,7 +4,6 @@ import json
 from datetime import date, timedelta
 from fastapi import APIRouter, Depends, Body, Query, HTTPException
 import asyncpg
-import pandas as pd
 from deps import get_db
 from backtest.engine import BacktestEngine
 
@@ -92,6 +91,8 @@ async def run_backtest(
     walkforward:      bool           = Body(default=False),
     db: asyncpg.Pool = Depends(get_db),
 ):
+    import pandas as pd  # noqa: PLC0415 — lazy: pandas 256MB VM에서 임포트 지연
+
     start_d = date.fromisoformat(start)
     end_d   = date.fromisoformat(end)
 

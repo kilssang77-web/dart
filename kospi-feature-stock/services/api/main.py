@@ -28,7 +28,7 @@ def _is_market_open() -> bool:
     t = now.time()
     return _time(9, 0) <= t <= _time(15, 35)
 
-from routers import stocks, features, recommendations, disclosures, backtest, themes, market, disclosure_filters, ml, news, watchlist, settings, notifications, tracking, admin, ranking, screener, trader, auth as auth_router
+from routers import stocks, features, recommendations, disclosures, backtest, themes, market, disclosure_filters, ml, news, watchlist, settings, notifications, tracking, admin, ranking, screener, trader, auth as auth_router, history
 from middleware.auth import APIKeyMiddleware
 from perf_tracker import tracker_loop
 
@@ -256,6 +256,7 @@ app.include_router(admin.router,          prefix="/api/v1",                   ta
 app.include_router(ranking.router,        prefix="/api/v1/ranking",           tags=["ranking"])
 app.include_router(screener.router,       prefix="/api/v1/screener",          tags=["screener"])
 app.include_router(trader.router,         prefix="/api/v1/trader",            tags=["trader"])
+app.include_router(history.router,        prefix="/api/v1/chart",             tags=["history"])
 
 class NoCacheStaticFiles(StaticFiles):
     """Vite 빌드 자산 — 브라우저 heuristic 캐시 방지. 항상 서버에서 재검증."""

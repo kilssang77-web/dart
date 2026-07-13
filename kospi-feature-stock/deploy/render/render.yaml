@@ -1,0 +1,59 @@
+services:
+  - type: web
+    name: quant-eye-api
+    runtime: docker
+    dockerfilePath: ./services/api/Dockerfile
+    dockerContext: ./kospi-feature-stock
+    region: singapore   # 한국 최근접 Render 리전
+    plan: free
+
+    healthCheckPath: /health
+
+    envVars:
+      # ── Supabase ────────────────────────────────────────────
+      - key: POSTGRES_DSN
+        sync: false   # Render Dashboard에서 직접 입력
+
+      # ── Upstash Redis ───────────────────────────────────────
+      - key: REDIS_URL
+        sync: false
+
+      # ── ML 서비스 (HF Spaces) ────────────────────────────────
+      - key: ML_SERVICE_URL
+        sync: false   # https://xxx.hf.space
+
+      # ── Cloudflare R2 ────────────────────────────────────────
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY
+        sync: false
+      - key: R2_SECRET_KEY
+        sync: false
+      - key: R2_BUCKET
+        value: quant-eye-history
+
+      # ── JWT 인증 ─────────────────────────────────────────────
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: DEFAULT_ADMIN_USERNAME
+        sync: false
+      - key: DEFAULT_ADMIN_PASSWORD
+        sync: false
+      - key: DEFAULT_ADMIN_DISPLAY_NAME
+        value: "관리자"
+
+      # ── KIS API (ML 스코어링 엔드포인트용) ──────────────────
+      - key: KIS_APP_KEY
+        sync: false
+      - key: KIS_APP_SECRET
+        sync: false
+
+      # ── CORS ─────────────────────────────────────────────────
+      - key: CORS_ORIGINS
+        value: "https://quant-eye.pages.dev"
+
+      # ── 기타 ─────────────────────────────────────────────────
+      - key: API_PORT
+        value: "8000"
+      - key: PYTHONUNBUFFERED
+        value: "1"
