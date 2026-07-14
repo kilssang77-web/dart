@@ -1,0 +1,133 @@
+﻿from fastapi import APIRouter, Depends, Query, HTTPException
+from sqlalchemy.orm import Session
+from typing import Optional
+
+from ...database import get_db
+from ...models import User
+from ...services import AgencyAnalysisService
+from ...common.security import get_current_user
+
+router = APIRouter(prefix="/agencies", tags=["발주기관"])
+
+
+@router.get("")
+def list_agencies(
+    q:    Optional[str] = Query(None),
+    page: int           = Query(1, ge=1),
+    size: int           = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _: User     = Depends(get_current_user),
+):
+    return AgencyAnalysisService(db).list_agencies(q=q, page=page, size=size)
+
+
+@router.get("/{agency_id}/analysis")
+def agency_analysis(
+    agency_id: int,
+    db: Session = Depends(get_db),
+    _: User     = Depends(get_current_user),
+):
+    return AgencyAnalysisService(db).analyze(agency_id)
+
+
+@router.get("/{agency_id}/srate-histogram")
+def agency_srate_histogram(
+    agency_id: int,
+    months: int = Query(12, ge=1, le=60),
+    db: Session = Depends(get_db),
+    _: User     = Depends(get_current_user),
+):
+    return AgencyAnalysisService(db).srate_histogram(agency_id, months)
+
+
+@router.get("/{agency_id}/recent-results")
+def agency_recent_results(
+    agency_id: int,
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _: User    = Depends(get_current_user),
+):
+    return AgencyAnalysisService(db).recent_results(agency_id, limit)
+
+
+@router.get("/{agency_id}/yega-pattern")
+def agency_yega_pattern(
+    agency_id: int,
+    db: Session = Depends(get_db),
+    _: User     = Depends(get_current_user),
+):
+    """inpo21c 실측 예가 위치 패턴 (위치별 추첨 가중치 + spread)."""
+    from ...ml.yega import load_inpo21c_yega_stats
+    from sqlalchemy import text as _text
+
+    stats = load_inpo21c_yega_stats(db, agency_id)
+    row   = db.execute(_text("SELECT name FROM agencies WHERE id = :id"), {"id": agency_id}).fetchone()
+    name  = row[0] if row else ""
+
+    return {
+        "agency_id":   agency_id,
+        "agency_name": name,
+        "sample_n":    stats.get("sample_n", 0),
+        "spread_half": stats.get("spread_half", 0.028),
+        "pos_weights": stats.get("pos_weights"),
+        "has_data":    stats.get("pos_weights") is not None,
+    }
+
+
+@router.get("/{agency_id}/strategy")
+def agency_strategy(
+    agency_id: int,
+    industry_code: str = "ALL",
+    period_months: int = Query(48, ge=6, le=60),
+    db: Session = Depends(get_db),
+    _: User     = Depends(get_current_user),
+):
+    """발주기관 전략 DB (48개월 낙찰률 통계 + 빈도표 + 히스토그램)"""
+    from ...services import AgencyStrategyService
+    svc = AgencyStrategyService(db)
+    result = svc.get_or_build(agency_id, industry_code=industry_code, period_months=period_months)
+    return result
+
+
+@router.post("/rebuild-strategies")
+def rebuild_agency_strategies(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """발주기관 전략 DB 전체 재계산 (admin/analyst 전용)"""
+    if current_user.role not in ("admin", "analyst"):
+        raise HTTPException(403, "권한 없음")
+    from ...services import AgencyStrategyService, FrequencyService
+    freq_result  = FrequencyService(db).rebuild_all()
+    strat_result = AgencyStrategyService(db).rebuild_all()
+    return {"freq": freq_result, "strategy": strat_result}
+
+
+@router.get("/budget-surge")
+def agency_budget_surge(
+    months_ahead:    int   = Query(3, ge=1, le=6),
+    min_surge_index: float = Query(1.3, ge=1.0, le=3.0),
+    size:            int   = Query(30, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _: User     = Depends(get_current_user),
+):
+    """향후 N개월 발주 급증 예상 기관 목록 (surge_index 기반)."""
+    from ...services.agency import get_upcoming_surge_agencies
+    return get_upcoming_surge_agencies(
+        db,
+        months_ahead=months_ahead,
+        min_surge_index=min_surge_index,
+        size=size,
+    )
+
+
+@router.post("/rebuild-budget-patterns")
+def rebuild_budget_patterns(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """발주기관 예산 집행 패턴 재계산 (admin/analyst 전용)."""
+    if current_user.role not in ("admin", "analyst"):
+        raise HTTPException(403, "권한 없음")
+    from ...services.agency import rebuild_agency_budget_patterns
+    return rebuild_agency_budget_patterns(db)

@@ -1,0 +1,9 @@
+node_modules\
+__pycache__\
+.git\
+*.pyc
+*.pyo
+dist\
+build\
+.env
+bid-system-dist\

@@ -1,0 +1,10 @@
+﻿{
+  "step": 3,
+  "status": "completed",
+  "completed_at": "2026-06-06T23:00:00+09:00",
+  "files_changed": [
+    "bid-system/backend/app/collector/scheduler.py",
+    "bid-system/backend/tests/unit/collector/test_scheduler.py"
+  ],
+  "summary": "run_srate_spike_check_job() 추가: SrateTrendService.get_top_trends()로 +-2%p 이상 급변 탐지 후 NotificationService.create_srate_spike() 호출. 매일 07:00 KST 실행 (srate_spike_check_daily). 스케줄러 6개 job으로 업데이트. 140 unit tests passing."
+}

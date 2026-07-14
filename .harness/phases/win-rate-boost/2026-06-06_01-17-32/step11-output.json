@@ -1,0 +1,14 @@
+{
+  "step": 11,
+  "name": "MANUAL.md v2.1 갱신 + win-rate-boost 릴리즈 노트 작성",
+  "exitCode": 0,
+  "files_changed": [
+    "bid-system/MANUAL.md",
+    ".harness/phases/win-rate-boost/2026-06-06_01-17-32/step11.md",
+    ".harness/phases/win-rate-boost/2026-06-06_01-17-32/step11-output.json",
+    ".harness/phases/win-rate-boost/2026-06-06_01-17-32/index.json",
+    ".harness/release-notes/2026-06-06_01-17-32_win-rate-boost.md",
+    ".harness/release-notes/INDEX.md"
+  ],
+  "summary": "MANUAL.md v2.0→v2.1 갱신 완료. 주요 변경: 핵심기능 7개 추가(ML신뢰도뱃지/예가위치패턴/위치가중시뮬/경쟁사행동예측/승률패턴진단/공동도급시뮬v2), 수집일정 inpo21c 09:00 추가, 6절 사정율신뢰도뱃지, 7절 승률패턴진단탭(7.4), 8절 행동예측탭+소절번호수정(7.1→8.1), 9절 예가위치패턴탭, 10절 시뮬레이터v2. 릴리즈노트 작성 및 INDEX.md 등록 완료."
+}

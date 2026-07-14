@@ -1,0 +1,35 @@
+﻿{
+  "task": "excel-export",
+  "run_id": "2026-06-06_22-29-39",
+  "stage": "mvp",
+  "branch": "feat/excel-export-2026-06-06_22-29-39",
+  "created_at": "2026-06-06T22:29:39+09:00",
+  "author": "kil0410@a2m.co.kr",
+  "description": "투찰 이력 Excel 다운로드 + 최종 추천 레포트 PDF + 통계 CSV 내보내기",
+  "steps": [
+    {
+      "step": 1,
+      "name": "투찰 이력 Excel 내보내기 (My Bids)",
+      "status": "completed",
+      "summary": "openpyxl StreamingResponse /my-bids/export/excel + ExcelDownloadButton in MyBidsPage"
+    },
+    {
+      "step": 2,
+      "name": "최종 추천 레포트 PDF 출력 (TenderRecommendPage)",
+      "status": "completed",
+      "summary": "jsPDF + html2canvas multi-page A4, PDF 출력 button, printRef wrapper"
+    },
+    {
+      "step": 3,
+      "name": "통계 CSV 내보내기 (StatisticsPage)",
+      "status": "completed",
+      "summary": "downloadCsv utility + handleCsvDownload (overview->발주처통계, level1->공종별통계) + CSV button in header"
+    },
+    {
+      "step": 4,
+      "name": "MANUAL.md v2.3 + 릴리즈 노트",
+      "status": "completed",
+      "summary": "v2.2->v2.3, section 7.5 Excel export, section 12.6 CSV export, release notes written"
+    }
+  ]
+}

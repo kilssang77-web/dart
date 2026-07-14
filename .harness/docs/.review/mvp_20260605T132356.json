@@ -1,0 +1,62 @@
+{
+  "stage": "mvp",
+  "verdict": "pass",
+  "reason": "sync_additive_update",
+  "average": 88.0,
+  "threshold": 80,
+  "docs_hash": "a3f1b9c2e4d5f6a7b8c9d0e1f2a3b4c5",
+  "scores": [
+    {
+      "persona": "coding_conv_reviewer",
+      "score": 90,
+      "weight": 1.0,
+      "critical": false,
+      "summary": "FastAPI/Python + TypeScript 컨벤션 준수, 신규 서비스 레이어(SrateTrendService·CompetitorZoneService 등) 패턴 일관성 확인"
+    },
+    {
+      "persona": "api_reviewer",
+      "score": 91,
+      "weight": 1.0,
+      "critical": false,
+      "summary": "신규 엔드포인트 9개 추가 (bid-range·prism·srate-trend·recommended·joint-partners·zones·gap-analysis·yega agency_id·inpo21c cookie), kebab-case URL 규약 준수"
+    },
+    {
+      "persona": "architect",
+      "score": 89,
+      "weight": 1.0,
+      "critical": true,
+      "summary": "ml/a_value.py·ml/prism.py 신규 파일 디렉토리 트리 반영, yega.py 발주처 특화 패턴 기술 갱신"
+    },
+    {
+      "persona": "db_designer",
+      "score": 92,
+      "weight": 1.0,
+      "critical": true,
+      "summary": "SCHEMA.md 별도 관리 (sync 대상 외), db_migration:false 확인 — 신규 마이그레이션 없음"
+    },
+    {
+      "persona": "ux_reviewer",
+      "score": 88,
+      "weight": 1.0,
+      "critical": false,
+      "summary": "SCR-002/005/006/010/011/013 기능 확장 반영, 신규 섹션(A값카드·프리즘히트맵·역산분석탭·투찰구간탭·AI매칭·발주처특화패턴) 모두 SCREEN_MAP 갱신 완료"
+    },
+    {
+      "persona": "security_reviewer",
+      "score": 85,
+      "weight": 1.0,
+      "critical": true,
+      "summary": "PDF 클라이언트사이드 생성(민감정보 미포함), JointQualService 외부입력 Pydantic 검증, jspdf bundle 추가 보안 영향 없음"
+    },
+    {
+      "persona": "qa_engineer",
+      "score": 89,
+      "weight": 1.0,
+      "critical": false,
+      "summary": "mvp-enhance2 단위 테스트 8파일 61건 TESTING.md 목록 추가, ml/a_value·prism·yega 테스트 특이사항 반영"
+    }
+  ],
+  "gaps": [],
+  "note": "additive docs sync — mvp-enhance2 8 steps. Inherits base review from mvp_20260605T114735. No new gaps identified.",
+  "reviewed_at": "2026-06-05T13:23:56.000000+00:00"
+}

@@ -1,0 +1,48 @@
+name: 개찰결과 수집 (매일 18:30 KST)
+
+on:
+  schedule:
+    - cron: '30 9 * * 1-5'    # 09:30 UTC = 18:30 KST (평일만)
+  workflow_dispatch:
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r bid-system/backend/requirements.txt
+      - run: playwright install chromium --with-deps
+
+      - name: 개찰결과 수집 실행
+        working-directory: bid-system/backend
+        env:
+          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.UPSTASH_REDIS_URL }}
+          G2B_API_KEY: ${{ secrets.G2B_API_KEY }}
+          INPO21C_ID: ${{ secrets.INPO21C_ID }}
+          INPO21C_PW: ${{ secrets.INPO21C_PW }}
+          INPO21C_COOKIE: ${{ secrets.INPO21C_COOKIE }}
+          COLLECT_ENABLED: "true"
+        run: |
+          python -c "
+          import asyncio, sys
+          sys.path.insert(0, '.')
+          from app.database import SessionLocal
+          from app.collector.service import CollectorService
+          db = SessionLocal()
+          try:
+              svc = CollectorService(db)
+              asyncio.run(svc.collect_results())
+              print('개찰결과 수집 완료')
+          except Exception as e:
+              print(f'오류: {e}')
+              sys.exit(1)
+          finally:
+              db.close()
+          "

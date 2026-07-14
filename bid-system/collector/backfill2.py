@@ -1,0 +1,44 @@
+﻿import asyncio
+import sys
+from datetime import datetime, timedelta
+sys.path.insert(0, "/app")
+
+# 수정된 main.py에서 임포트
+import importlib
+import main as m
+importlib.reload(m)
+from main import fetch_results_scsbid, save_scsbid_to_db, MkSession, logger, COLLECT_ENABLED, G2B_API_KEY
+
+def next_month(dt):
+    return datetime(dt.year + (dt.month // 12), dt.month % 12 + 1, 1)
+
+async def backfill():
+    if not COLLECT_ENABLED or not G2B_API_KEY:
+        print("COLLECT_ENABLED or G2B_API_KEY not set"); return
+    cursor = datetime(2024, 4, 1)
+    end = datetime.now()
+    total = 0
+    while cursor < end:
+        chunk_end = min(next_month(cursor) - timedelta(seconds=1), end)
+        df = cursor.strftime("%Y%m%d") + "0000"
+        dt = chunk_end.strftime("%Y%m%d") + "2359"
+        logger.info(f"[backfill] {df[:8]}~{dt[:8]}")
+        try:
+            items = await fetch_results_scsbid(df, dt)
+        except Exception as e:
+            logger.warning(f"  skip: {e}"); cursor = next_month(cursor); continue
+        if items:
+            db = MkSession()
+            try:
+                n = save_scsbid_to_db(db, items)
+                total += n
+                logger.info(f"  saved {n} / fetched {len(items)} (total {total})")
+            finally:
+                db.close()
+        else:
+            logger.info("  no items")
+        cursor = next_month(cursor)
+        await asyncio.sleep(1.5)
+    logger.info(f"[DONE] total {total} saved")
+
+asyncio.run(backfill())
