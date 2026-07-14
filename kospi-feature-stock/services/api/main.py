@@ -202,8 +202,19 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"MV refresh failed: {_e}")
             await _asyncio.sleep(3600)
 
-    # 성과 추적 워커 시작
+    # ML 모델 R2 다운로드 → 로컬 추론기 초기화 (백그라운드)
     import asyncio
+    async def _init_ml():
+        try:
+            from ml_predictor import download_models, get_predictor
+            ok = await asyncio.get_event_loop().run_in_executor(None, download_models)
+            if ok:
+                get_predictor().load()
+        except Exception as _e:
+            logger.warning(f"ML model init skipped: {_e}")
+    asyncio.create_task(_init_ml())
+
+    # 성과 추적 워커 시작
     _tracker_task  = asyncio.create_task(tracker_loop(app.state.db, app.state.redis))
     _mv_task       = asyncio.create_task(_refresh_mv_loop())
     logger.info("API server started")

@@ -29,28 +29,22 @@ class ScoreRequest(BaseModel):
 @router.post("/score")
 async def score_event(req: ScoreRequest):
     """
-    Fly.io 수집 데몬이 호출하는 ML 스코어링 엔드포인트.
-    HF Spaces ML 서비스에 프록시하고 성공확률을 반환합니다.
+    ML 스코어링 엔드포인트 — 로컬 LightGBM 추론 (HF Spaces 불필요).
+    모델 미로드 시 success_prob=None 반환 (수집 데몬이 기본값 사용).
     """
-    if not _ML_SERVICE_URL:
-        return {"success_prob": None, "error": "ml_service_not_configured"}
     try:
-        async with httpx.AsyncClient(timeout=6.0) as client:
-            resp = await client.post(
-                f"{_ML_SERVICE_URL}/predict",
-                json={
-                    "code":         req.code,
-                    "event_type":   req.event_type,
-                    "price":        req.price,
-                    "change_rate":  req.change_rate,
-                    "volume_ratio": req.volume_ratio,
-                },
-            )
-            if resp.status_code == 200:
-                return resp.json()
+        from ml_predictor import get_predictor
+        predictor = get_predictor()
+        if not predictor.is_ready():
+            return {"success_prob": None, "model_loaded": False}
+        return predictor.predict({
+            "code":         req.code,
+            "event_type":   req.event_type,
+            "change_rate":  req.change_rate,
+            "volume_ratio": req.volume_ratio,
+        })
     except Exception as e:
         return {"success_prob": None, "error": str(e)}
-    return {"success_prob": None, "error": "ml_service_error"}
 
 
 @router.get("/metrics")
