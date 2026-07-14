@@ -1,0 +1,45 @@
+name: 공시·뉴스 수집 (30분 주기)
+
+on:
+  schedule:
+    # 09:00~16:00 KST = 00:00~07:00 UTC, 평일, 30분 간격
+    - cron: '0,30 0-7 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  collect-news:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: kospi-feature-stock/services/collector/requirements.txt
+
+      - name: 의존성 설치
+        run: |
+          pip install asyncpg httpx pandas numpy orjson python-dotenv tenacity aiohttp
+
+      - name: 공시·뉴스 수집 실행
+        env:
+          POSTGRES_DSN:     ${{ secrets.POSTGRES_DSN }}
+          REDIS_URL:        ${{ secrets.REDIS_URL }}
+          DART_API_KEY:     ${{ secrets.DART_API_KEY }}
+          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          HF_ML_URL:        ${{ secrets.HF_ML_URL }}   # 임베딩 생성용
+          NEWS_INTERVAL_SEC: "0"    # Actions에서는 1회만 실행
+        run: |
+          cd kospi-feature-stock
+          python services/collector/entrypoints/news_worker.py --once
+
+      - name: 실패 시 Discord 알림
+        if: failure()
+        run: |
+          curl -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d '{"content": "⚠️ **공시 수집 실패** (${{ github.run_id }})"}'

@@ -1,0 +1,48 @@
+name: 일봉 수집 (장 마감 후)
+
+on:
+  schedule:
+    # 16:00 KST = 07:00 UTC, 평일
+    - cron: '0 7 * * 1-5'
+  workflow_dispatch:  # 수동 실행 허용
+
+jobs:
+  collect-daily:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: kospi-feature-stock/services/collector/requirements.txt
+
+      - name: 의존성 설치
+        run: |
+          pip install asyncpg httpx pandas numpy orjson python-dotenv tenacity
+
+      - name: 일봉 수집 실행
+        env:
+          POSTGRES_DSN:     ${{ secrets.POSTGRES_DSN }}
+          REDIS_URL:        ${{ secrets.REDIS_URL }}
+          KIS_APP_KEY:      ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET:   ${{ secrets.KIS_APP_SECRET }}
+          KIS_ACCOUNT_NO:   ${{ secrets.KIS_ACCOUNT_NO }}
+          KIS_BASE_URL:     ${{ secrets.KIS_BASE_URL }}
+          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DISCORD_WEBHOOK:  ${{ secrets.DISCORD_WEBHOOK }}
+          DAILY_BACKFILL_DAYS: "5"
+        run: |
+          cd kospi-feature-stock
+          python services/collector/entrypoints/daily_bar_worker.py
+
+      - name: 실패 시 Discord 알림
+        if: failure()
+        run: |
+          curl -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d '{"content": "⚠️ **일봉 수집 실패** — GitHub Actions 로그를 확인하세요.\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}'
