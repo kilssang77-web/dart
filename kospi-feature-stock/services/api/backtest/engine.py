@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Literal, NamedTuple
 
 import numpy as np
-import pandas as pd
+from datetime import date as _date
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +128,7 @@ class BacktestEngine:
             return capital * self.invest_pct / 100.0
         return min(self.invest_per_trade, capital)
 
-    def run(self, signals: pd.DataFrame, bars: pd.DataFrame) -> BacktestResult:
+    def run(self, signals, bars) -> BacktestResult:
         # ── bars를 code별 정렬된 _Bar 리스트로 인덱싱 (pandas 핫루프 제거) ──
         bars_by_code: dict[str, list[_Bar]] = {}
         bars_dates:   dict[str, list[str]]  = {}   # bisect용 date 키 리스트
@@ -309,7 +309,7 @@ class BacktestEngine:
         )
 
         if sorted_dates and len(sorted_dates) >= 2:
-            n_years = (pd.Timestamp(sorted_dates[-1]) - pd.Timestamp(sorted_dates[0])).days / 365.25
+            n_years = (_date.fromisoformat(sorted_dates[-1]) - _date.fromisoformat(sorted_dates[0])).days / 365.25
             cagr = ((1 + total_pnl_pct / 100) ** (1 / max(n_years, 0.01)) - 1) * 100
         else:
             cagr = total_pnl_pct
