@@ -47,10 +47,20 @@ logger = logging.getLogger("api")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     dsn = os.environ["POSTGRES_DSN"].replace("+asyncpg", "")
-    app.state.db = await asyncpg.create_pool(
-        dsn=dsn, min_size=10, max_size=50,
-        command_timeout=20,
-    )
+    app.state.db = None
+    for _retry in range(3):
+        try:
+            app.state.db = await asyncpg.create_pool(
+                dsn=dsn, min_size=2, max_size=20,
+                command_timeout=20, ssl="require",
+            )
+            break
+        except Exception as _e:
+            logger.warning(f"DB 연결 실패 (시도 {_retry+1}/3): {_e}")
+            if _retry == 2:
+                logger.error("DB 연결 불가 — DB 기능 비활성으로 앱 시작")
+                break
+            import asyncio as _aio; await _aio.sleep(3)
     app.state.redis = redis_lib.from_url(
         os.environ["REDIS_URL"], decode_responses=False
     )
