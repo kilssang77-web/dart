@@ -4,6 +4,7 @@ import orjson
 import os
 import redis.asyncio as redis_lib
 from deps import get_db, get_redis
+from kis_quote import fetch_current_price as _kis_fetch
 
 router = APIRouter()
 
@@ -414,6 +415,15 @@ async def get_stock_analysis(
                 "current_price": None, "technical": {}, "predictions": {}, "targets": {}}
 
     latest = bars[-1]
+    if not current_price:
+        # Redis 미스 → KIS 실시간 조회 시도
+        try:
+            kis = await _kis_fetch(code, redis)
+            if kis:
+                current_price = float(kis["price"])
+                await redis.set(f"quote:{code}", orjson.dumps({**kis, "code": code}), ex=60)
+        except Exception:
+            pass
     if not current_price:
         current_price = float(latest["close"])
 
@@ -857,6 +867,14 @@ async def get_stock_quote(
             "source":      src,
         }
 
+    # Redis 미스 → KIS REST API 직접 조회 (실시간, 60초 캐시)
+    kis = await _kis_fetch(code, redis)
+    if kis:
+        snap = {**kis, "code": code}
+        await redis.set(f"quote:{code}", orjson.dumps(snap), ex=60)
+        return {"code": code, **kis}
+
+    # KIS 실패 → 전일 종가 폴백
     rows = await db.fetch(
         """
         SELECT close AS price, change_rate, volume, amount, open, high, low
