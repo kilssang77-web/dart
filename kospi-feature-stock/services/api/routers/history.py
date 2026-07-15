@@ -16,8 +16,6 @@ import os
 from datetime import date, datetime, timedelta
 from functools import lru_cache
 
-import boto3
-from botocore.config import Config
 from fastapi import APIRouter, Depends, HTTPException, Query
 import asyncpg
 
@@ -35,9 +33,11 @@ _HOT_DAYS = 365  # 최근 1년은 Supabase
 
 @lru_cache(maxsize=1)
 def _r2_client():
-    """R2 클라이언트 싱글턴 — 환경변수 없으면 None 반환."""
+    """R2 클라이언트 싱글턴 — 환경변수 없으면 None 반환. boto3 lazy import."""
     if not _R2_ACCOUNT_ID:
         return None
+    import boto3                          # lazy — startup 메모리 절약
+    from botocore.config import Config    # lazy
     return boto3.client(
         "s3",
         endpoint_url=f"https://{_R2_ACCOUNT_ID}.r2.cloudflarestorage.com",

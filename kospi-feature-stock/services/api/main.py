@@ -15,6 +15,7 @@ except ImportError:
         def __call__(self, *a, **k): return self
         def __getattr__(self, _): return self
     Counter = Gauge = _Noop
+import asyncio
 import asyncpg
 import redis.asyncio as redis_lib
 import orjson
@@ -226,17 +227,7 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"MV refresh failed: {_e}")
             await _asyncio.sleep(3600)
 
-    # ML 모델 R2 다운로드 → 로컬 추론기 초기화 (백그라운드)
-    import asyncio
-    async def _init_ml():
-        try:
-            from ml_predictor import download_models, get_predictor
-            ok = await asyncio.get_event_loop().run_in_executor(None, download_models)
-            if ok:
-                get_predictor().load()
-        except Exception as _e:
-            logger.warning(f"ML model init skipped: {_e}")
-    asyncio.create_task(_init_ml())
+    # ML 모델은 /score 첫 요청 시 lazy load (startup 메모리 절약 → 256MB 운영)
 
     # 성과 추적 워커 시작
     _tracker_task  = asyncio.create_task(tracker_loop(app.state.db, app.state.redis))

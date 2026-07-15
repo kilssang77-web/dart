@@ -10,15 +10,13 @@ R2에서 모델 파일 다운로드 후 로컬 추론.
   models/lgbm/feature_columns.json
   models/lgbm/model_metrics.json
 """
-import gzip
-import io
+import asyncio
 import json
 import logging
 import os
 from pathlib import Path
 
 import boto3
-import numpy as np
 from botocore.config import Config
 
 logger = logging.getLogger(__name__)
@@ -38,6 +36,10 @@ _MODEL_FILES = [
     "model_metrics.json",
 ]
 
+# Lazy init 상태
+_lock        = asyncio.Lock()
+_initialized = False
+
 
 def _r2():
     if not _R2_ACCOUNT_ID:
@@ -53,7 +55,7 @@ def _r2():
 
 
 def download_models() -> bool:
-    """R2 → /tmp/models/lgbm/ 다운로드. 실패 시 False 반환."""
+    """R2 -> /tmp/models/lgbm/ 다운로드. 실패 시 False 반환."""
     s3 = _r2()
     if s3 is None:
         logger.warning("R2 credentials not set — ML model not loaded")
@@ -78,6 +80,30 @@ def download_models() -> bool:
 
     logger.info(f"ML model files: {downloaded}/{len(_MODEL_FILES)}")
     return (downloaded >= 2)  # entry + risk 최소 필요
+
+
+async def ensure_ready() -> bool:
+    """첫 ML 요청 시에만 모델 다운로드 + 로드 (lazy init).
+
+    asyncio.Lock으로 동시 초기화 방지.
+    이미 초기화된 경우 즉시 반환(fast path).
+    """
+    global _initialized
+    if _initialized:
+        return get_predictor().is_ready()
+
+    async with _lock:
+        if _initialized:  # double-checked locking
+            return get_predictor().is_ready()
+
+        logger.info("ML 모델 lazy init 시작...")
+        loop = asyncio.get_event_loop()
+        ok = await loop.run_in_executor(None, download_models)
+        if ok:
+            get_predictor().load()
+        _initialized = True
+        logger.info(f"ML 모델 lazy init 완료 (ready={get_predictor().is_ready()})")
+        return get_predictor().is_ready()
 
 
 class LightPredictor:
@@ -105,7 +131,7 @@ class LightPredictor:
             self._features = json.loads(fc_path.read_text())
             logger.info(f"Features loaded: {len(self._features)}")
 
-        # metrics → optimal_threshold
+        # metrics -> optimal_threshold
         mp = _MODEL_DIR / "model_metrics.json"
         if mp.exists():
             m = json.loads(mp.read_text())
@@ -152,14 +178,16 @@ class LightPredictor:
             "threshold":       self.optimal_threshold,
         }
 
-    def _to_array(self, features: dict) -> np.ndarray:
+    def _to_array(self, features: dict):
+        import numpy as np  # lazy — startup 메모리 절약
         row = np.array([[
             float(features.get(c, 0.0) or 0.0) for c in self._features
         ]], dtype=np.float32)
         row = np.where(np.isfinite(row), row, 0.0)
         return row
 
-    def _infer(self, model, calibrator, X: np.ndarray, default: float) -> float:
+    def _infer(self, model, calibrator, X, default: float) -> float:
+        import numpy as np  # lazy
         if model is None:
             return default
         try:

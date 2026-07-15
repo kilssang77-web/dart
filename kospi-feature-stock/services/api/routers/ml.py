@@ -30,14 +30,14 @@ class ScoreRequest(BaseModel):
 async def score_event(req: ScoreRequest):
     """
     ML 스코어링 엔드포인트 — 로컬 LightGBM 추론 (HF Spaces 불필요).
-    모델 미로드 시 success_prob=None 반환 (수집 데몬이 기본값 사용).
+    첫 호출 시 R2 모델 lazy load. 모델 미로드 시 success_prob=None 반환.
     """
     try:
-        from ml_predictor import get_predictor
-        predictor = get_predictor()
-        if not predictor.is_ready():
+        from ml_predictor import get_predictor, ensure_ready
+        ready = await ensure_ready()
+        if not ready:
             return {"success_prob": None, "model_loaded": False}
-        return predictor.predict({
+        return get_predictor().predict({
             "code":         req.code,
             "event_type":   req.event_type,
             "change_rate":  req.change_rate,
