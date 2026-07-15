@@ -24,7 +24,7 @@ jobs:
         run: |
           pip install asyncpg "redis[asyncio]" httpx pandas orjson \
                       python-dotenv tenacity aiohttp \
-                      beautifulsoup4 lxml
+                      beautifulsoup4 lxml websockets pykrx
 
       - name: 공시·뉴스 수집 실행 (최대 8분)
         env:

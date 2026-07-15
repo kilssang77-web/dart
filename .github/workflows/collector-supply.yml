@@ -23,7 +23,7 @@ jobs:
       - name: 의존성 설치
         run: |
           pip install asyncpg "redis[asyncio]" httpx pandas orjson \
-                      python-dotenv tenacity
+                      python-dotenv tenacity websockets pykrx
 
       - name: 수급 수집 실행 (최대 5분)
         env:
