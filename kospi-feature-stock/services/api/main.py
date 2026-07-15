@@ -1,11 +1,20 @@
-﻿from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
-from prometheus_fastapi_instrumentator import Instrumentator
-from prometheus_client import Counter, Gauge
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+    from prometheus_client import Counter, Gauge
+    _PROMETHEUS = True
+except ImportError:
+    _PROMETHEUS = False
+    class _Noop:
+        def __init__(self, *a, **k): pass
+        def __call__(self, *a, **k): return self
+        def __getattr__(self, _): return self
+    Counter = Gauge = _Noop
 import asyncpg
 import redis.asyncio as redis_lib
 import orjson
@@ -233,7 +242,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+if _PROMETHEUS: Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 _CORS_ORIGINS = [o.strip() for o in os.environ.get(
     "CORS_ORIGINS", "http://localhost:5173,http://localhost:3000"
