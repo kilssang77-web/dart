@@ -1,0 +1,34 @@
+﻿name: DB 보존 정책 (매일 자정)
+
+on:
+  schedule:
+    # 매일 15:00 UTC = 00:00 KST (장 마감 3시간 후)
+    - cron: '0 15 * * *'
+  workflow_dispatch:
+
+jobs:
+  retention:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 의존성 설치
+        run: pip install asyncpg
+
+      - name: 보존 정책 실행
+        env:
+          POSTGRES_DSN: ${{ secrets.POSTGRES_DSN }}
+        run: python kospi-feature-stock/scripts/db_retention.py
+
+      - name: 실패 시 Discord 알림
+        if: failure()
+        run: |
+          curl -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"⚠️ **DB 보존 정책 실패** — ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}"

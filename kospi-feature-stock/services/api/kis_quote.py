@@ -1,4 +1,4 @@
-"""
+﻿"""
 KIS REST API 경량 현재가 조회 — API 서버 전용.
 collector의 Redis 캐시 토큰(kis:access_token)을 재사용하며,
 토큰 없을 때는 KIS_APP_KEY/SECRET 환경변수로 신규 발급.
@@ -54,48 +54,50 @@ async def _get_token(redis: redis_lib.Redis) -> str | None:
 async def fetch_current_price(code: str, redis: redis_lib.Redis) -> dict | None:
     """
     KIS FHKST01010100으로 현재가 조회.
-    장중에만 유효한 실시간가. 실패 시 None 반환.
+    J(코스피) -> Q(코스닥) -> N(코넥스) 순서로 시도. 실패 시 None 반환.
     """
     token = await _get_token(redis)
     if not token:
         return None
 
-    try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            resp = await client.get(
-                f"{_KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price",
-                headers={
-                    "authorization": f"Bearer {token}",
-                    "appkey":        _APP_KEY,
-                    "appsecret":     _APP_SEC,
-                    "tr_id":         "FHKST01010100",
-                    "custtype":      "P",
-                },
-                params={
-                    "FID_COND_MRKT_DIV_CODE": "J",
-                    "FID_INPUT_ISCD": code,
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            if data.get("rt_cd") != "0":
-                return None
-            o = data.get("output", {})
-            price = int(o.get("stck_prpr", 0) or 0)
-            if price == 0:
-                return None
-            return {
-                "price":       price,
-                "prev_close":  int(o.get("stck_sdpr", 0) or 0),
-                "change":      int(o.get("prdy_vrss", 0) or 0),
-                "change_rate": float(o.get("prdy_ctrt", 0) or 0),
-                "open":        int(o.get("stck_oprc", 0) or 0),
-                "high":        int(o.get("stck_hgpr", 0) or 0),
-                "low":         int(o.get("stck_lwpr", 0) or 0),
-                "volume":      int(o.get("acml_vol", 0) or 0),
-                "amount":      int(o.get("acml_tr_pbmn", 0) or 0),
-                "source":      "realtime",
-            }
-    except Exception as e:
-        logger.debug(f"KIS quote [{code}] failed: {e}")
-        return None
+    async with httpx.AsyncClient(timeout=5) as client:
+        for mkt in ("J", "Q", "N"):
+            try:
+                resp = await client.get(
+                    f"{_KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price",
+                    headers={
+                        "authorization": f"Bearer {token}",
+                        "appkey":        _APP_KEY,
+                        "appsecret":     _APP_SEC,
+                        "tr_id":         "FHKST01010100",
+                        "custtype":      "P",
+                    },
+                    params={
+                        "FID_COND_MRKT_DIV_CODE": mkt,
+                        "FID_INPUT_ISCD": code,
+                    },
+                )
+                if resp.status_code != 200:
+                    continue
+                data = resp.json()
+                if data.get("rt_cd") != "0":
+                    continue
+                o = data.get("output", {})
+                price = int(o.get("stck_prpr", 0) or 0)
+                if price == 0:
+                    continue
+                return {
+                    "price":       price,
+                    "prev_close":  int(o.get("stck_sdpr", 0) or 0),
+                    "change":      int(o.get("prdy_vrss", 0) or 0),
+                    "change_rate": float(o.get("prdy_ctrt", 0) or 0),
+                    "open":        int(o.get("stck_oprc", 0) or 0),
+                    "high":        int(o.get("stck_hgpr", 0) or 0),
+                    "low":         int(o.get("stck_lwpr", 0) or 0),
+                    "volume":      int(o.get("acml_vol", 0) or 0),
+                    "amount":      int(o.get("acml_tr_pbmn", 0) or 0),
+                    "source":      "realtime",
+                }
+            except Exception as e:
+                logger.debug(f"KIS quote [{code}/{mkt}] failed: {e}")
+    return None
