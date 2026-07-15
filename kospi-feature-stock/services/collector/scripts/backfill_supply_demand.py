@@ -53,9 +53,10 @@ async def main():
     parser.add_argument("--concurrency", type=int, default=CONCURRENCY)
     args = parser.parse_args()
 
+    _dsn = os.environ["POSTGRES_DSN"].replace("+asyncpg", "")
     pool = await asyncpg.create_pool(
-        dsn=os.environ["POSTGRES_DSN"].replace("+asyncpg", ""),
-        min_size=2, max_size=6,
+        dsn=_dsn, min_size=2, max_size=6,
+        ssl="require" if "supabase" in _dsn else False,
     )
     redis_url = os.environ.get("REDIS_URL", "redis://redis:6379/0")
     redis_client = redis_lib.from_url(redis_url, decode_responses=False)

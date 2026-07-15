@@ -193,7 +193,8 @@ class StockCollector:
 
     async def setup(self):
         dsn = os.environ["POSTGRES_DSN"].replace("+asyncpg", "")
-        self.db = await asyncpg.create_pool(dsn=dsn, min_size=3, max_size=10)
+        ssl_val = "require" if "supabase" in dsn else False
+        self.db = await asyncpg.create_pool(dsn=dsn, min_size=3, max_size=10, ssl=ssl_val)
         self.dart.db = self.db   # DB 풀 주입 — 공시 직접 저장 + 필터 매칭 활성화
         logger.info("DB pool created")
 

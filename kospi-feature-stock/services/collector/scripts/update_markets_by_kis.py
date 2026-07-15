@@ -89,7 +89,7 @@ async def main() -> None:
     redis_url  = os.environ["REDIS_URL"]
 
     red = redis_lib.from_url(redis_url)
-    db  = await asyncpg.create_pool(dsn=dsn, min_size=2, max_size=5)
+    db  = await asyncpg.create_pool(dsn=dsn, min_size=2, max_size=5, ssl="require" if "supabase" in dsn else False)
 
     if update_all:
         rows = await db.fetch("SELECT code FROM stocks ORDER BY code")

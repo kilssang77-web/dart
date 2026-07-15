@@ -69,7 +69,7 @@ async def fetch_stock_list(market: str, tr_id: str, fid: str, token: str, app_ke
 
 async def main():
     dsn = os.environ["POSTGRES_DSN"].replace("+asyncpg", "")
-    db  = await asyncpg.create_pool(dsn=dsn)
+    db  = await asyncpg.create_pool(dsn=dsn, ssl="require" if "supabase" in dsn else False)
     red = redis_lib.from_url(os.environ["REDIS_URL"])
 
     app_key    = os.environ["KIS_APP_KEY"]
