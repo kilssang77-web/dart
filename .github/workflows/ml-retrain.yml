@@ -1,9 +1,9 @@
-name: ML 자동 재학습 (격주)
+name: ML 자동 재학습 (매월 1일·15일)
 
 on:
   schedule:
-    # 매월 1일, 15일 00:00 KST = 15:00 UTC (전날)
-    - cron: '0 15 L,14 * *'
+    # 매월 1일, 15일 09:00 KST = 00:00 UTC
+    - cron: '0 0 1,15 * *'
   workflow_dispatch:
     inputs:
       force_retrain:
@@ -14,7 +14,7 @@ on:
 jobs:
   ml-retrain:
     runs-on: ubuntu-latest
-    timeout-minutes: 120   # 최대 2시간
+    timeout-minutes: 120
 
     steps:
       - uses: actions/checkout@v4
@@ -27,18 +27,17 @@ jobs:
 
       - name: ML 의존성 설치
         run: |
-          pip install --index-url https://download.pytorch.org/whl/cpu torch==2.3.0
           pip install lightgbm scikit-learn pandas numpy asyncpg \
                       imbalanced-learn optuna shap joblib orjson \
-                      python-dotenv sentence-transformers
+                      python-dotenv boto3
 
       - name: ML 재학습 실행
         env:
-          POSTGRES_DSN:          ${{ secrets.POSTGRES_DSN }}
-          LGBM_MODEL_DIR:        /tmp/models/lgbm
-          ML_MIN_AUC_THRESHOLD:  "0.57"
+          POSTGRES_DSN:           ${{ secrets.POSTGRES_DSN }}
+          LGBM_MODEL_DIR:         /tmp/models/lgbm
+          ML_MIN_AUC_THRESHOLD:   "0.57"
           ML_RETRAIN_TRAIN_YEARS: "8"
-          DISCORD_WEBHOOK:       ${{ secrets.DISCORD_WEBHOOK }}
+          DISCORD_WEBHOOK:        ${{ secrets.DISCORD_WEBHOOK }}
         run: |
           mkdir -p /tmp/models/lgbm
           cd kospi-feature-stock
@@ -52,24 +51,33 @@ jobs:
             --model-dir /tmp/models/lgbm \
             --optuna-trials 20
 
-      - name: 모델 HF Spaces에 업로드
+      - name: 모델 R2에 업로드
         env:
-          HF_TOKEN:    ${{ secrets.HF_TOKEN }}
-          HF_REPO_ID:  ${{ secrets.HF_REPO_ID }}   # username/quant-eye-ml
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY:  ${{ secrets.R2_ACCESS_KEY }}
+          R2_SECRET_KEY:  ${{ secrets.R2_SECRET_KEY }}
+          R2_BUCKET:      ${{ secrets.R2_BUCKET }}
         run: |
-          pip install huggingface_hub
           python - <<'EOF'
-          from huggingface_hub import HfApi
-          import os
-          api = HfApi()
-          api.upload_folder(
-              folder_path="/tmp/models/lgbm",
-              repo_id=os.environ["HF_REPO_ID"],
-              repo_type="model",
-              path_in_repo="lgbm",
-              token=os.environ["HF_TOKEN"],
+          import boto3, os, pathlib
+          from botocore.config import Config
+
+          s3 = boto3.client(
+              "s3",
+              endpoint_url=f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com",
+              aws_access_key_id=os.environ["R2_ACCESS_KEY"],
+              aws_secret_access_key=os.environ["R2_SECRET_KEY"],
+              config=Config(signature_version="s3v4"),
+              region_name="auto",
           )
-          print("모델 업로드 완료")
+          bucket = os.environ["R2_BUCKET"]
+          model_dir = pathlib.Path("/tmp/models/lgbm")
+          for f in model_dir.iterdir():
+              if f.is_file():
+                  key = f"models/lgbm/{f.name}"
+                  s3.upload_file(str(f), bucket, key)
+                  print(f"업로드: {key}")
+          print("모델 R2 업로드 완료")
           EOF
 
       - name: 재학습 완료 Discord 알림
@@ -77,10 +85,10 @@ jobs:
         run: |
           STATUS="${{ job.status }}"
           if [ "$STATUS" = "success" ]; then
-            MSG="✅ **ML 재학습 완료** — 새 모델이 HF Spaces에 배포되었습니다."
+            MSG="✅ **ML 재학습 완료** — 새 모델이 R2에 배포되었습니다."
           else
-            MSG="❌ **ML 재학습 실패** — 로그를 확인하세요: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            MSG="❌ **ML 재학습 실패** — 로그 확인: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           fi
-          curl -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
             -H "Content-Type: application/json" \
-            -d "{\"content\": \"$MSG\"}"
+            -d "{\"content\": \"$MSG\"}" || true

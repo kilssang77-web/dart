@@ -22,17 +22,18 @@ jobs:
 
       - name: 의존성 설치
         run: |
-          pip install asyncpg httpx pandas numpy orjson python-dotenv tenacity
+          pip install asyncpg "redis[asyncio]" httpx pandas orjson \
+                      python-dotenv tenacity
 
-      - name: 수급 수집 실행
+      - name: 수급 수집 실행 (최대 5분)
         env:
-          POSTGRES_DSN:    ${{ secrets.POSTGRES_DSN }}
-          REDIS_URL:       ${{ secrets.REDIS_URL }}
-          KIS_APP_KEY:     ${{ secrets.KIS_APP_KEY }}
-          KIS_APP_SECRET:  ${{ secrets.KIS_APP_SECRET }}
-          KIS_ACCOUNT_NO:  ${{ secrets.KIS_ACCOUNT_NO }}
-          KIS_BASE_URL:    ${{ secrets.KIS_BASE_URL }}
-          SUPPLY_INTERVAL_SEC: "0"   # Actions에서는 1회만 실행
+          POSTGRES_DSN:        ${{ secrets.POSTGRES_DSN }}
+          REDIS_URL:           ${{ secrets.REDIS_URL }}
+          KIS_APP_KEY:         ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET:      ${{ secrets.KIS_APP_SECRET }}
+          KIS_ACCOUNT_NO:      ${{ secrets.KIS_ACCOUNT_NO }}
+          DART_API_KEY:        ${{ secrets.DART_API_KEY }}
+          SUPPLY_INTERVAL_SEC: "0"
         run: |
           cd kospi-feature-stock
-          python services/collector/entrypoints/supply_worker.py --once
+          timeout 300 python services/collector/entrypoints/supply_worker.py || true
