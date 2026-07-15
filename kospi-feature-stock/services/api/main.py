@@ -159,6 +159,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"is_success backfill error: {e}")
 
+    # BIGSERIAL 시퀀스 동기화 — 마이그레이션으로 id가 명시적으로 삽입된 경우 시퀀스가 뒤처질 수 있음
+    for _seq_table in ["disclosures", "feature_events", "recommendations"]:
+        try:
+            await app.state.db.execute(
+                f"SELECT setval(pg_get_serial_sequence('{_seq_table}', 'id'), "
+                f"COALESCE((SELECT MAX(id) FROM {_seq_table}), 0))"
+            )
+        except Exception:
+            pass
+
     # users 테이블 + 기본 관리자 계정 (완전 idempotent)
     try:
         await app.state.db.execute("""
