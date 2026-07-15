@@ -69,24 +69,21 @@ async def lifespan(app: FastAPI):
         yield
         await app.state.redis.aclose()
         return
-    if app.state.db:
-      # 성능 인덱스 — 누락 인덱스 보강 (idempotent)
+    # 성능 인덱스 — 누락 인덱스 보강 (idempotent)
     for _idx in [
-          "CREATE INDEX IF NOT EXISTS idx_rec_perf_rec_id      ON recommendation_performance(rec_id)",
-          "CREATE INDEX IF NOT EXISTS idx_rec_perf_signal_time ON recommendation_performance(signal_time DESC)",
-          "CREATE INDEX IF NOT EXISTS idx_rec_perf_tracking    ON recommendation_performance(tracking_complete, signal_time DESC)",
-          "CREATE INDEX IF NOT EXISTS idx_nsl_code             ON news_stock_links(code, news_id DESC)",
-          "CREATE INDEX IF NOT EXISTS idx_rec_feat_event_id    ON recommendations(feature_event_id)",
-          "CREATE INDEX IF NOT EXISTS idx_rec_created_at       ON recommendations(created_at DESC)",
-      ]:
-          try:
-              await app.state.db.execute(_idx)
-          except Exception:
-              pass
+        "CREATE INDEX IF NOT EXISTS idx_rec_perf_rec_id      ON recommendation_performance(rec_id)",
+        "CREATE INDEX IF NOT EXISTS idx_rec_perf_signal_time ON recommendation_performance(signal_time DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_rec_perf_tracking    ON recommendation_performance(tracking_complete, signal_time DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_nsl_code             ON news_stock_links(code, news_id DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_rec_feat_event_id    ON recommendations(feature_event_id)",
+        "CREATE INDEX IF NOT EXISTS idx_rec_created_at       ON recommendations(created_at DESC)",
+    ]:
+        try:
+            await app.state.db.execute(_idx)
+        except Exception:
+            pass
 
-
-    if app.state.db:
-      # 스키마 확장 마이그레이션 (idempotent)
+    # 스키마 확장 마이그레이션 (idempotent)
     for _alter in [
         "ALTER TABLE disclosures ADD COLUMN IF NOT EXISTS contract_amount BIGINT",
         """CREATE TABLE IF NOT EXISTS theme_snapshots (
