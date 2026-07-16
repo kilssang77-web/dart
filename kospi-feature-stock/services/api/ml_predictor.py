@@ -1,14 +1,6 @@
 """
-경량 LightGBM 추론 모듈 — pandas 미사용, numpy 전용
-R2에서 모델 파일 다운로드 후 로컬 추론.
-
-모델 파일 경로 (R2 기준):
-  models/lgbm/entry_model.lgb
-  models/lgbm/risk_model.lgb
-  models/lgbm/entry_calibrator.pkl
-  models/lgbm/risk_calibrator.pkl
-  models/lgbm/feature_columns.json
-  models/lgbm/model_metrics.json
+경량 LightGBM 추론 모듈 — pandas 미사용, numpy 전용.
+모델 파일은 Docker 이미지에 내장 (/app/lgbm_export/).
 """
 import asyncio
 import json
@@ -16,16 +8,10 @@ import logging
 import os
 from pathlib import Path
 
-import boto3
-from botocore.config import Config
-
 logger = logging.getLogger(__name__)
 
-_MODEL_DIR     = Path(os.environ.get("LGBM_MODEL_DIR", "/tmp/models/lgbm"))
-_R2_ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID", "")
-_R2_ACCESS_KEY = os.environ.get("R2_ACCESS_KEY", "")
-_R2_SECRET_KEY = os.environ.get("R2_SECRET_KEY", "")
-_R2_BUCKET     = os.environ.get("R2_BUCKET", "quant-eye-history")
+# Docker 이미지 내장 경로 기본값 (/app/lgbm_export)
+_MODEL_DIR = Path(os.environ.get("LGBM_MODEL_DIR", "/app/lgbm_export"))
 
 _MODEL_FILES = [
     "entry_model.lgb",
@@ -41,45 +27,11 @@ _lock        = asyncio.Lock()
 _initialized = False
 
 
-def _r2():
-    if not _R2_ACCOUNT_ID:
-        return None
-    return boto3.client(
-        "s3",
-        endpoint_url=f"https://{_R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
-        aws_access_key_id=_R2_ACCESS_KEY,
-        aws_secret_access_key=_R2_SECRET_KEY,
-        config=Config(signature_version="s3v4"),
-        region_name="auto",
-    )
-
-
-def download_models() -> bool:
-    """R2 -> /tmp/models/lgbm/ 다운로드. 실패 시 False 반환."""
-    s3 = _r2()
-    if s3 is None:
-        logger.warning("R2 credentials not set — ML model not loaded")
-        return False
-
-    _MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    downloaded = 0
-    for fname in _MODEL_FILES:
-        key  = f"models/lgbm/{fname}"
-        dest = _MODEL_DIR / fname
-        if dest.exists():
-            downloaded += 1
-            continue
-        try:
-            obj  = s3.get_object(Bucket=_R2_BUCKET, Key=key)
-            data = obj["Body"].read()
-            dest.write_bytes(data)
-            downloaded += 1
-            logger.info(f"Model downloaded: {fname}")
-        except Exception as e:
-            logger.warning(f"Model file not found in R2: {key} ({e})")
-
-    logger.info(f"ML model files: {downloaded}/{len(_MODEL_FILES)}")
-    return (downloaded >= 2)  # entry + risk 최소 필요
+def check_models() -> bool:
+    """모델 파일 존재 여부 확인. 최소 entry + risk 있으면 True."""
+    found = sum(1 for f in _MODEL_FILES if (_MODEL_DIR / f).exists())
+    logger.info(f"ML model files found: {found}/{len(_MODEL_FILES)} in {_MODEL_DIR}")
+    return found >= 2
 
 
 async def ensure_ready() -> bool:
@@ -97,8 +49,7 @@ async def ensure_ready() -> bool:
             return get_predictor().is_ready()
 
         logger.info("ML 모델 lazy init 시작...")
-        loop = asyncio.get_event_loop()
-        ok = await loop.run_in_executor(None, download_models)
+        ok = check_models()
         if ok:
             get_predictor().load()
         _initialized = True

@@ -56,6 +56,9 @@ services/ml/backtest/__pycache__/
 *.h5
 *.onnx
 mlruns/
+# API 내장 모델은 예외 (R2 의존성 제거)
+!kospi-feature-stock/services/api/lgbm_export/*.pkl
+!kospi-feature-stock/services/api/lgbm_export/*.lgb
 
 # =============================================================================
 # JAVA / SPRING BOOT
