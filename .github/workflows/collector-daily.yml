@@ -22,7 +22,7 @@ jobs:
 
       - name: 의존성 설치
         run: |
-          pip install asyncpg httpx pandas numpy orjson python-dotenv tenacity
+          pip install -r kospi-feature-stock/services/collector/requirements.txt
 
       - name: 일봉 수집 실행
         env:
