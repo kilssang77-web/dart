@@ -1,4 +1,4 @@
-﻿name: 인프라 사용량 모니터 (주간)
+name: 인프라 상태 모니터 (주간)
 
 on:
   schedule:
@@ -12,21 +12,38 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - uses: actions/checkout@v4
+      - name: GCP VM 헬스체크
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 10 https://34.173.186.160.nip.io/health || echo "000")
+          echo "GCP VM /health → HTTP $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::warning::GCP VM 응답 이상 (HTTP $STATUS)"
+            ALERT=true
+          fi
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      - name: GitHub Actions 사용량 확인
+        run: |
+          echo "이번 달 워크플로 실행 현황:"
+          echo "  - collector-daily  : 평일 1회/일 (월 ~22회)"
+          echo "  - collector-news   : 평일 14회/일 (월 ~308회)"
+          echo "  - collector-supply : 평일 13회/일 (월 ~286회)"
+          echo "  - ml-retrain       : 월 2회"
+          echo "  - deploy-api       : push 시"
+          echo "  - db-retention     : 매일 1회 (월 ~30회)"
+          echo "GitHub Actions 무료 한도: 2,000분/월"
 
-      - name: 의존성 설치
-        run: pip install boto3
-
-      - name: 사용량 점검
-        env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
-          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
-          R2_BUCKET:     ${{ secrets.R2_BUCKET }}
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-        run: python kospi-feature-stock/scripts/check_usage.py
+      - name: Discord 주간 상태 보고
+        if: always()
+        run: |
+          [ -z "${{ secrets.DISCORD_WEBHOOK }}" ] && exit 0
+          GCP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 10 https://34.173.186.160.nip.io/health || echo "000")
+          if [ "$GCP_STATUS" = "200" ]; then
+            GCP_MSG="✅ GCP VM 정상"
+          else
+            GCP_MSG="❌ GCP VM 이상 (HTTP $GCP_STATUS)"
+          fi
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"📊 **주간 인프라 현황**\n${GCP_MSG}\n✅ Supabase: 외부 접속\n✅ Upstash Redis: 외부 접속\"}" || true

@@ -15,9 +15,13 @@ jobs:
   ml-retrain:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-python@v5
         with:
@@ -29,17 +33,17 @@ jobs:
         run: |
           pip install lightgbm scikit-learn pandas numpy asyncpg \
                       imbalanced-learn optuna shap joblib orjson \
-                      python-dotenv boto3
+                      python-dotenv
 
       - name: ML 재학습 실행
         env:
           POSTGRES_DSN:           ${{ secrets.POSTGRES_DSN }}
-          LGBM_MODEL_DIR:         /tmp/models/lgbm
+          LGBM_MODEL_DIR:         kospi-feature-stock/services/api/lgbm_export
           ML_MIN_AUC_THRESHOLD:   "0.57"
           ML_RETRAIN_TRAIN_YEARS: "8"
           DISCORD_WEBHOOK:        ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          mkdir -p /tmp/models/lgbm
+          mkdir -p kospi-feature-stock/services/api/lgbm_export
           cd kospi-feature-stock
           python services/ml/walk_forward_train.py \
             --train-start 2018-01-01 --train-end 2023-12-31 \
@@ -48,46 +52,31 @@ jobs:
             --label-mode relative \
             --smote \
             --max-codes 600 \
-            --model-dir /tmp/models/lgbm \
+            --model-dir services/api/lgbm_export \
             --optuna-trials 20
 
-      - name: 모델 R2에 업로드
-        env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY:  ${{ secrets.R2_ACCESS_KEY }}
-          R2_SECRET_KEY:  ${{ secrets.R2_SECRET_KEY }}
-          R2_BUCKET:      ${{ secrets.R2_BUCKET }}
+      - name: 새 모델 git commit → Docker 이미지 자동 갱신 트리거
         run: |
-          python - <<'EOF'
-          import boto3, os, pathlib
-          from botocore.config import Config
-
-          s3 = boto3.client(
-              "s3",
-              endpoint_url=f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com",
-              aws_access_key_id=os.environ["R2_ACCESS_KEY"],
-              aws_secret_access_key=os.environ["R2_SECRET_KEY"],
-              config=Config(signature_version="s3v4"),
-              region_name="auto",
-          )
-          bucket = os.environ["R2_BUCKET"]
-          model_dir = pathlib.Path("/tmp/models/lgbm")
-          for f in model_dir.iterdir():
-              if f.is_file():
-                  key = f"models/lgbm/{f.name}"
-                  s3.upload_file(str(f), bucket, key)
-                  print(f"업로드: {key}")
-          print("모델 R2 업로드 완료")
-          EOF
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add kospi-feature-stock/services/api/lgbm_export/
+          if git diff --cached --quiet; then
+            echo "모델 파일 변경 없음 — commit 생략"
+          else
+            git commit -m "chore(ml): 자동 재학습 모델 갱신 $(date +'%Y-%m-%d')"
+            git push origin master
+            echo "모델 commit 완료 → deploy-api.yml 자동 트리거"
+          fi
 
       - name: 재학습 완료 Discord 알림
         if: always()
         run: |
+          [ -z "${{ secrets.DISCORD_WEBHOOK }}" ] && exit 0
           STATUS="${{ job.status }}"
           if [ "$STATUS" = "success" ]; then
-            MSG="✅ **ML 재학습 완료** — 새 모델이 R2에 배포되었습니다."
+            MSG="✅ **ML 재학습 완료** — 새 모델이 Docker 이미지에 반영됩니다."
           else
-            MSG="❌ **ML 재학습 실패** — 로그 확인: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            MSG="❌ **ML 재학습 실패** — 로그: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           fi
           curl -s -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
             -H "Content-Type: application/json" \
