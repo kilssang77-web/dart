@@ -54,6 +54,7 @@ async def lifespan(app: FastAPI):
             app.state.db = await asyncpg.create_pool(
                 dsn=dsn, min_size=2, max_size=20,
                 command_timeout=20, ssl="require",
+                statement_cache_size=0,
             )
             break
         except Exception as _e:

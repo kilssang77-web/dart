@@ -68,7 +68,7 @@ async def main():
         logger.error("DART_API_KEY 환경변수 미설정")
         return
 
-    db = await asyncpg.create_pool(dsn=dsn, min_size=2, max_size=5, ssl="require" if "supabase" in dsn else False)
+    db = await asyncpg.create_pool(dsn=dsn, min_size=2, max_size=5, ssl="require" if "supabase" in dsn else False, statement_cache_size=0)
     if update_all:
         rows = await db.fetch("SELECT code FROM stocks ORDER BY code")
     else:

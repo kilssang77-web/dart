@@ -57,6 +57,7 @@ async def main():
     pool = await asyncpg.create_pool(
         dsn=_dsn, min_size=2, max_size=6,
         ssl="require" if "supabase" in _dsn else False,
+        statement_cache_size=0,
     )
     redis_url = os.environ.get("REDIS_URL", "redis://redis:6379/0")
     redis_client = redis_lib.from_url(redis_url, decode_responses=False)
