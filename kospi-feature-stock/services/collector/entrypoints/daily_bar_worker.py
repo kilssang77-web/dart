@@ -12,6 +12,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from main import StockCollector, load_all_stocks, load_active_stocks
 from redis_stats import refresh_all_stats, refresh_market_returns
+from batch_scanner import BatchScanner
+from kafka.producer import RedisEventBus
 
 logging.basicConfig(
     level=logging.INFO,
@@ -54,6 +56,16 @@ async def run():
         await refresh_market_returns(svc.db, svc.redis)
     except Exception as e:
         logger.error(f"[daily] KOSPI 수익률 갱신 실패: {e}")
+
+    # 배치 탐지 (일봉 + Redis 통계 갱신 완료 후)
+    logger.info("[daily] 배치 탐지 시작")
+    try:
+        kafka = RedisEventBus(svc.redis)
+        scanner = BatchScanner(svc.db, svc.redis, kafka)
+        events = await scanner.run(all_codes)
+        logger.info(f"[daily] 배치 탐지 완료: {len(events)}개 신호")
+    except Exception as e:
+        logger.error(f"[daily] 배치 탐지 실패: {e}")
 
     # admin 엔드포인트용 카운터 캐시 갱신 (TTL 72h, SCAN 대체)
     try:

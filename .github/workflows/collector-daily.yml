@@ -1,4 +1,4 @@
-name: 일봉 수집 (장 마감 후)
+name: 일봉 수집 + 배치 탐지 + 추천 생성 (장 마감 후)
 
 on:
   schedule:
@@ -9,7 +9,7 @@ on:
 jobs:
   collect-daily:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v4
@@ -20,11 +20,11 @@ jobs:
           cache: 'pip'
           cache-dependency-path: kospi-feature-stock/services/collector/requirements.txt
 
-      - name: 의존성 설치
+      - name: 의존성 설치 (collector)
         run: |
           pip install -r kospi-feature-stock/services/collector/requirements.txt
 
-      - name: 일봉 수집 실행
+      - name: 일봉 수집 + 배치 탐지 실행
         env:
           POSTGRES_DSN:        ${{ secrets.POSTGRES_DSN }}
           REDIS_URL:           ${{ secrets.REDIS_URL }}
@@ -41,10 +41,24 @@ jobs:
           cd kospi-feature-stock
           python services/collector/entrypoints/daily_bar_worker.py
 
+      - name: 의존성 설치 (recommender)
+        run: |
+          pip install -r kospi-feature-stock/services/recommender/requirements.txt
+
+      - name: 추천 생성 실행
+        env:
+          POSTGRES_DSN:     ${{ secrets.POSTGRES_DSN }}
+          REDIS_URL:        ${{ secrets.REDIS_URL }}
+          REC_RECOVERY_HOURS: "48"
+          REC_COOLDOWN_MINUTES: "0"
+        run: |
+          cd kospi-feature-stock
+          python services/recommender/entrypoints/daily_rec_worker.py
+
       - name: 실패 시 Discord 알림
         if: failure()
         run: |
           [ -z "${{ secrets.DISCORD_WEBHOOK }}" ] && exit 0
           curl -s -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
             -H "Content-Type: application/json" \
-            -d '{"content": "⚠️ **일봉 수집 실패** — ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' || true
+            -d '{"content": "⚠️ **일봉 수집/탐지/추천 실패** — ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' || true

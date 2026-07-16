@@ -126,10 +126,11 @@ class RecommenderService:
         self._redis: redis_lib.Redis | None = None
 
     async def setup(self):
+        dsn = os.environ["POSTGRES_DSN"].replace("+asyncpg", "")
         self._db = await asyncpg.create_pool(
-            dsn=os.environ["POSTGRES_DSN"].replace("+asyncpg", ""),
-            min_size=3,
-            max_size=10,
+            dsn=dsn, min_size=3, max_size=10,
+            ssl="require" if "supabase" in dsn else False,
+            statement_cache_size=0,
         )
         self._redis = redis_lib.from_url(os.environ["REDIS_URL"])
 
