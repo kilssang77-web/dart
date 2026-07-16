@@ -26,15 +26,16 @@ jobs:
 
       - name: 일봉 수집 실행
         env:
-          POSTGRES_DSN:     ${{ secrets.POSTGRES_DSN }}
-          REDIS_URL:        ${{ secrets.REDIS_URL }}
-          KIS_APP_KEY:      ${{ secrets.KIS_APP_KEY }}
-          KIS_APP_SECRET:   ${{ secrets.KIS_APP_SECRET }}
-          KIS_ACCOUNT_NO:   ${{ secrets.KIS_ACCOUNT_NO }}
-          KIS_BASE_URL:     ${{ secrets.KIS_BASE_URL }}
-          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          DISCORD_WEBHOOK:  ${{ secrets.DISCORD_WEBHOOK }}
+          POSTGRES_DSN:        ${{ secrets.POSTGRES_DSN }}
+          REDIS_URL:           ${{ secrets.REDIS_URL }}
+          KIS_APP_KEY:         ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET:      ${{ secrets.KIS_APP_SECRET }}
+          KIS_ACCOUNT_NO:      ${{ secrets.KIS_ACCOUNT_NO }}
+          KIS_BASE_URL:        ${{ secrets.KIS_BASE_URL }}
+          DART_API_KEY:        ${{ secrets.DART_API_KEY }}
+          TELEGRAM_TOKEN:      ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID:    ${{ secrets.TELEGRAM_CHAT_ID }}
+          DISCORD_WEBHOOK:     ${{ secrets.DISCORD_WEBHOOK }}
           DAILY_BACKFILL_DAYS: "5"
         run: |
           cd kospi-feature-stock
@@ -43,6 +44,7 @@ jobs:
       - name: 실패 시 Discord 알림
         if: failure()
         run: |
-          curl -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+          [ -z "${{ secrets.DISCORD_WEBHOOK }}" ] && exit 0
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
             -H "Content-Type: application/json" \
-            -d '{"content": "⚠️ **일봉 수집 실패** — GitHub Actions 로그를 확인하세요.\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}'
+            -d '{"content": "⚠️ **일봉 수집 실패** — ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' || true
