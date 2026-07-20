@@ -41,6 +41,21 @@ jobs:
           cd kospi-feature-stock
           python services/collector/entrypoints/daily_bar_worker.py
 
+      - name: govdata 수집 (시가총액·상장주식수 갱신)
+        continue-on-error: true
+        env:
+          POSTGRES_DSN:      ${{ secrets.POSTGRES_DSN }}
+          REDIS_URL:         ${{ secrets.REDIS_URL }}
+          KIS_APP_KEY:       ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET:    ${{ secrets.KIS_APP_SECRET }}
+          KIS_ACCOUNT_NO:    ${{ secrets.KIS_ACCOUNT_NO }}
+          KIS_BASE_URL:      ${{ secrets.KIS_BASE_URL }}
+          DART_API_KEY:      ${{ secrets.DART_API_KEY }}
+          GOV_DATA_API_KEY:  ${{ secrets.GOV_DATA_API_KEY }}
+        run: |
+          cd kospi-feature-stock
+          python services/collector/entrypoints/govdata_batch.py
+
       - name: 의존성 설치 (recommender)
         run: |
           pip install -r kospi-feature-stock/services/recommender/requirements.txt
@@ -54,6 +69,17 @@ jobs:
         run: |
           cd kospi-feature-stock
           python services/recommender/entrypoints/daily_rec_worker.py
+
+      - name: 텔레그램 추천 알림
+        if: success()
+        continue-on-error: true
+        env:
+          POSTGRES_DSN:     ${{ secrets.POSTGRES_DSN }}
+          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          cd kospi-feature-stock
+          python services/collector/entrypoints/notify_telegram.py
 
       - name: 실패 시 Discord 알림
         if: failure()

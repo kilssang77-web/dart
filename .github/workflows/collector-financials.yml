@@ -1,0 +1,61 @@
+name: 재무 데이터 수집 (주간·토요일)
+
+on:
+  schedule:
+    # 토요일 02:00 KST = 금요일 17:00 UTC
+    - cron: '0 17 * * 5'
+  workflow_dispatch:
+
+jobs:
+  collect-financials:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: kospi-feature-stock/services/collector/requirements.txt
+
+      - name: 의존성 설치
+        run: |
+          pip install -r kospi-feature-stock/services/collector/requirements.txt
+
+      - name: govdata 수집 (시가총액·상장주식수 갱신)
+        env:
+          POSTGRES_DSN:      ${{ secrets.POSTGRES_DSN }}
+          REDIS_URL:         ${{ secrets.REDIS_URL }}
+          KIS_APP_KEY:       ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET:    ${{ secrets.KIS_APP_SECRET }}
+          KIS_ACCOUNT_NO:    ${{ secrets.KIS_ACCOUNT_NO }}
+          KIS_BASE_URL:      ${{ secrets.KIS_BASE_URL }}
+          DART_API_KEY:      ${{ secrets.DART_API_KEY }}
+          GOV_DATA_API_KEY:  ${{ secrets.GOV_DATA_API_KEY }}
+        run: |
+          cd kospi-feature-stock
+          python services/collector/entrypoints/govdata_batch.py
+
+      - name: 재무비율 수집 (EPS/BPS/PER/PBR/ROE + 손익계산서)
+        env:
+          POSTGRES_DSN:      ${{ secrets.POSTGRES_DSN }}
+          REDIS_URL:         ${{ secrets.REDIS_URL }}
+          KIS_APP_KEY:       ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET:    ${{ secrets.KIS_APP_SECRET }}
+          KIS_ACCOUNT_NO:    ${{ secrets.KIS_ACCOUNT_NO }}
+          KIS_BASE_URL:      ${{ secrets.KIS_BASE_URL }}
+          DART_API_KEY:      ${{ secrets.DART_API_KEY }}
+          DISCORD_WEBHOOK:   ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          cd kospi-feature-stock
+          python services/collector/entrypoints/financials_batch.py
+
+      - name: 실패 시 Discord 알림
+        if: failure()
+        run: |
+          [ -z "${{ secrets.DISCORD_WEBHOOK }}" ] && exit 0
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d '{"content": "⚠️ **재무 데이터 수집 실패** — ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' || true
