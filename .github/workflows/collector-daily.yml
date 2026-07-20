@@ -70,6 +70,18 @@ jobs:
           cd kospi-feature-stock
           python services/recommender/entrypoints/daily_rec_worker.py
 
+      - name: POST_DISCLOSURE_SURGE 탐지 (공시 후 주가 급등)
+        continue-on-error: true
+        env:
+          POSTGRES_DSN:     ${{ secrets.POSTGRES_DSN }}
+          REDIS_URL:        ${{ secrets.REDIS_URL }}
+          DART_API_KEY:     ${{ secrets.DART_API_KEY }}
+          PDS_MIN_CHANGE_RATE: "3.0"
+          PDS_MIN_VOL_RATIO:   "2.0"
+        run: |
+          cd kospi-feature-stock
+          python services/collector/entrypoints/disclosure_surge_scanner.py
+
       - name: 텔레그램 추천 알림
         if: success()
         continue-on-error: true

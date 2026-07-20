@@ -539,10 +539,12 @@ async def main():
 
     start = time.time()
 
+    dsn = POSTGRES_DSN.replace("+asyncpg", "")
+    ssl_val = "require" if "supabase" in dsn else False
     pool = await asyncpg.create_pool(
-        dsn=POSTGRES_DSN.replace("+asyncpg", ""),
-        min_size=3, max_size=10,
+        dsn=dsn, min_size=2, max_size=10,
         command_timeout=60,
+        ssl=ssl_val, statement_cache_size=0,
     )
     redis = redis_lib.from_url(REDIS_URL, decode_responses=True)
 
