@@ -40,7 +40,7 @@ KIS_APP_SEC  = os.environ.get("KIS_APP_SECRET", "")
 KIS_ACCOUNT  = os.environ.get("KIS_ACCOUNT_NO", "")
 KIS_BASE_URL = os.environ.get("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
 DART_API_KEY = os.environ.get("DART_API_KEY", "")
-MODEL_DIR    = os.environ.get("LGBM_MODEL_DIR", "/models/lgbm")
+MODEL_DIR    = os.environ.get("LGBM_MODEL_DIR", "/app/lgbm_export")
 BACKFILL_DAYS = int(os.environ.get("BOOTSTRAP_BACKFILL_DAYS", "780"))  # ~3년
 
 
