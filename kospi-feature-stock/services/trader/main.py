@@ -49,8 +49,10 @@ def _make_kis_config() -> KISConfig:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     dsn = os.environ["POSTGRES_DSN"].replace("+asyncpg", "")
+    ssl_val = "require" if "supabase" in dsn else False
     app.state.db = await asyncpg.create_pool(
-        dsn=dsn, min_size=3, max_size=15, command_timeout=15,
+        dsn=dsn, min_size=1, max_size=5, command_timeout=15,
+        ssl=ssl_val, statement_cache_size=0,
     )
     app.state.redis = redis_lib.from_url(
         os.environ["REDIS_URL"], decode_responses=False
