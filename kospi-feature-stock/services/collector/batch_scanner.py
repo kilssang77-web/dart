@@ -178,7 +178,7 @@ class BatchScanner:
         rows = await self.db.fetch(
             """
             SELECT code, open, high, low, close, volume, amount,
-                   change_rate, foreign_net_buy, inst_net_buy
+                   change_rate, foreign_net_buy, inst_net_buy, short_balance
             FROM daily_bars
             WHERE code = ANY($1::varchar[])
               AND date  = $2
@@ -192,10 +192,12 @@ class BatchScanner:
     async def _fetch_recent_bars(
         self, codes: list[str], today: date
     ) -> dict[str, list[dict]]:
-        """모닝스타 탐지용 최근 3일 일봉 조회 (오늘 포함 역순 → 정방향으로 반환)."""
+        """최근 5일 일봉 조회 — 모닝스타(3일) + DUAL_BUY_STREAK(5일) 공용."""
         rows = await self.db.fetch(
             """
-            SELECT DISTINCT ON (code, date) code, date, open, high, low, close, volume
+            SELECT DISTINCT ON (code, date)
+                   code, date, open, high, low, close, volume,
+                   foreign_net_buy, inst_net_buy
             FROM daily_bars
             WHERE code = ANY($1::varchar[])
               AND date <= $2
@@ -203,14 +205,14 @@ class BatchScanner:
             ORDER BY code, date DESC
             LIMIT $3
             """,
-            codes, today, len(codes) * 3,
+            codes, today, len(codes) * 5,
         )
         result: dict[str, list[dict]] = {}
         for row in rows:
             code = row["code"]
             if code not in result:
                 result[code] = []
-            if len(result[code]) < 3:
+            if len(result[code]) < 5:
                 result[code].append(dict(row))
         # 오래된 것부터 정렬 (oldest → newest)
         for code in result:
@@ -245,7 +247,7 @@ class BatchScanner:
 
     async def _fetch_redis_avgs(self, codes: list[str]) -> dict[str, dict]:
         """거래량·거래대금·수급 20일 평균을 Redis 파이프라인으로 일괄 조회 (100개 청크)."""
-        fields = ["avg_vol_20d", "avg_amount_20d", "avg_foreign_20d", "avg_inst_20d"]
+        fields = ["avg_vol_20d", "avg_amount_20d", "avg_foreign_20d", "avg_inst_20d", "avg_short_20d"]
         result: dict[str, dict] = {}
 
         for chunk_start in range(0, len(codes), 100):
@@ -291,8 +293,9 @@ class BatchScanner:
         volume      = bar.get("volume") or 0
         amount      = bar.get("amount") or 0
         change_rate = float(bar.get("change_rate") or 0)
-        foreign     = bar.get("foreign_net_buy") or 0
-        inst        = bar.get("inst_net_buy")    or 0
+        foreign       = bar.get("foreign_net_buy") or 0
+        inst          = bar.get("inst_net_buy")    or 0
+        short_balance = bar.get("short_balance")   or 0
 
         base = dict(code=code, price=price, change_rate=change_rate)
 
@@ -390,7 +393,43 @@ class BatchScanner:
                 },
             })
 
-        # ── 7. 모닝스타 패턴 ────────────────────────────────────
+        # ── 7. 공매도 급증 (SHORT_SURGE) ────────────────────────
+        avg_short = avgs.get("avg_short_20d")
+        if short_balance > 0 and avg_short and avg_short > 0:
+            short_ratio = short_balance / avg_short
+            if short_ratio >= 4.0:
+                score = min(0.85, 0.40 + (short_ratio - 4.0) / 16.0)
+                results.append({**base,
+                    "event_type":   "SHORT_SURGE",
+                    "signal_score": round(score, 3),
+                    "signal_data":  {
+                        "short_balance": int(short_balance),
+                        "avg_short_20d": round(avg_short),
+                        "ratio":         round(short_ratio, 2),
+                    },
+                })
+
+        # ── 8. 외인+기관 연속 순매수 (DUAL_BUY_STREAK) ──────────
+        if recent_bars and len(recent_bars) >= 3:
+            streak_days = min(5, len(recent_bars))
+            streak_bars = recent_bars[-streak_days:]
+            dual_days = sum(
+                1 for b in streak_bars
+                if (b.get("foreign_net_buy") or 0) > 0
+                and (b.get("inst_net_buy")   or 0) > 0
+            )
+            if dual_days >= 3:
+                score = min(0.80, 0.45 + dual_days * 0.07)
+                results.append({**base,
+                    "event_type":   "DUAL_BUY_STREAK",
+                    "signal_score": round(score, 3),
+                    "signal_data":  {
+                        "streak_days": dual_days,
+                        "window_days": streak_days,
+                    },
+                })
+
+        # ── 9. 모닝스타 패턴 ────────────────────────────────────
         if recent_bars and len(recent_bars) >= 3:
             b1, b2, b3 = recent_bars[-3], recent_bars[-2], recent_bars[-1]
             b1_o = float(b1.get("open")  or 0)

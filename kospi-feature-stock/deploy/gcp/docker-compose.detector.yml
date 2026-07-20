@@ -1,44 +1,48 @@
 version: '3.9'
-# GCP e2-micro 장중 실시간 탐지 — 무료 구성
+# GCP e2-micro 무료 구성 — 실시간 탐지 + 알림 + 자동매매(paper)
 #
-# collector-tick(256MB) + detector(128MB) = 384MB 대신
-# intraday-poller(~120MB) 단일 서비스로 대체
+# 메모리 설계 (e2-micro 1GB):
+#   API                 : ~250MB (quant-eye-api, 별도 실행)
+#   realtime-ws-detector: ~150MB (WebSocket 틱 + VI_TRIGGERED)
+#   notifier            : ~100MB (ch:signal-generated 구독 → Telegram 즉시 발송)
+#   trader              : ~150MB (ch:recommendation 구독 → KIS paper 주문)
+#   OS + nginx          : ~150MB
+#   합계                : ~800MB → e2-micro 여유 있음
 #
-# 메모리 사용:
-#   API          : ~250MB (실측)
-#   intraday-poller: ~120MB
-#   OS + nginx   :  ~150MB
-#   합계         :  ~520MB  →  e2-micro(1GB) 여유 있음
+# 탐지 이벤트 (장중 실시간):
+#   AMOUNT_SURGE  — 누적 거래대금 × 시간보정 vs 20일 평균
+#   VOLUME_SURGE  — 누적 거래량   × 시간보정 vs 20일 평균
+#   VI_TRIGGERED  — KIS VI 피드 직접 수신 (H0STVI0/H0STCVI0)
 #
-# 탐지 방식: WebSocket 대신 5분마다 KIS REST API 폴링
-#   - 당일 누적 거래대금 × 시간보정 → AMOUNT_SURGE
-#   - 당일 누적 거래량   × 시간보정 → VOLUME_SURGE
-#   - dedup: Redis intraday_dedup:{code}:{event_type}:{date} (25h TTL)
-#   - 탐지 즉시 feature_events 저장 + ch:feature 발행 → 추천 생성
+# 탐지 이벤트 (GitHub Actions 배치, 장 마감 후):
+#   BREAKOUT_*  / LONG_WHITE_CANDLE / HAMMER_CANDLE / MORNING_STAR
+#   SUPPLY_ANOMALY / SHORT_SURGE / DUAL_BUY_STREAK
+#   POST_DISCLOSURE_SURGE
 #
 # 실행 방법 (GCP VM SSH):
-#   cd /opt/quant-eye/kospi-feature-stock/deploy/gcp
-#   ln -sf ../../.env .env          # 최초 1회
-#   docker compose up -d --build
+#   cd ~/app/kospi-feature-stock/deploy/gcp
+#   docker compose -f docker-compose.detector.yml up -d --build
 #
-# 로그:  docker compose logs -f intraday-poller
-# 중지:  docker compose down
+# 로그:
+#   docker compose -f docker-compose.detector.yml logs -f realtime-ws-detector
+#   docker compose -f docker-compose.detector.yml logs -f notifier
+#   docker compose -f docker-compose.detector.yml logs -f trader
 
 services:
-  intraday-poller:
+
+  # ── 장중 실시간 탐지 (WebSocket) ────────────────────────────────
+  realtime-ws-detector:
     build:
       context: ../../services/collector
       dockerfile: Dockerfile.tick
-    container_name: fstock-intraday-poller
-    command: ["python", "entrypoints/intraday_poller.py"]
+    container_name: fstock-realtime-ws-detector
+    command: ["python", "entrypoints/realtime_ws_detector.py"]
     env_file: .env
     environment:
-      SERVICE_NAME:        intraday-poller
-      POLL_INTERVAL_SEC:   "300"       # 5분
-      INTRADAY_CONCURRENT: "5"
+      SERVICE_NAME:        realtime-ws-detector
       AMOUNT_SURGE_RATIO:  "5.0"
       VOL_SURGE_RATIO:     "5.0"
-      MIN_AMOUNT:          "500000000" # 5억
+      MIN_AMOUNT:          "500000000"   # 5억
     restart: unless-stopped
     logging:
       driver: json-file
@@ -50,5 +54,54 @@ services:
         limits:
           memory: 150m
           cpus: '0.3'
+        reservations:
+          memory: 80m
+
+  # ── 실시간 Telegram 알림 ────────────────────────────────────────
+  notifier:
+    build:
+      context: ../../services/notifier
+    container_name: fstock-notifier
+    env_file: .env
+    environment:
+      SERVICE_NAME:      notifier
+      DEDUP_TTL_SIGNAL:  "3600"    # 동일 종목 1시간 중복 차단
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 100m
+          cpus: '0.2'
+        reservations:
+          memory: 60m
+
+  # ── 자동매매 (paper 모드 기본) ──────────────────────────────────
+  trader:
+    build:
+      context: ../../services/trader
+    container_name: fstock-trader
+    env_file: .env
+    environment:
+      SERVICE_NAME:              trader
+      KIS_MODE:                  "paper"        # 반드시 paper로 시작, 검증 후 live 전환
+      TRADER_MAX_POSITIONS:      "3"
+      TRADER_MAX_AMOUNT_PER:     "300000"       # 건당 30만원
+      TRADER_DAILY_LOSS_LIMIT:   "100000"       # 일 손실 10만원 한도
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 150m
+          cpus: '0.2'
         reservations:
           memory: 80m
