@@ -91,7 +91,10 @@ async def run_backtest(
     walkforward:      bool           = Body(default=False),
     db: asyncpg.Pool = Depends(get_db),
 ):
-    import pandas as pd  # noqa: PLC0415 — lazy: pandas 256MB VM에서 임포트 지연
+    try:
+        import pandas as pd  # noqa: PLC0415 — lazy: pandas 256MB VM에서 임포트 지연
+    except ImportError:
+        raise HTTPException(status_code=503, detail="백테스트 기능은 현재 환경에서 사용 불가 (pandas 미설치)")
 
     start_d = date.fromisoformat(start)
     end_d   = date.fromisoformat(end)
