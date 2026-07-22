@@ -502,8 +502,8 @@ class BatchScanner:
                         SELECT 1 FROM feature_events
                         WHERE code       = $2
                           AND event_type = $3
-                          AND detected_at >= DATE_TRUNC('day', $1)
-                          AND detected_at <  DATE_TRUNC('day', $1) + INTERVAL '1 day'
+                          AND detected_at >= DATE_TRUNC('day', $1::TIMESTAMPTZ)
+                          AND detected_at <  DATE_TRUNC('day', $1::TIMESTAMPTZ) + INTERVAL '1 day'
                     )
                     """,
                     rows,
