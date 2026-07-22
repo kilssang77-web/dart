@@ -28,7 +28,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("collector-news")
 
-NEWS_INTERVAL = int(os.environ.get("NEWS_INTERVAL_SEC", "1800"))
+NEWS_INTERVAL   = int(os.environ.get("NEWS_INTERVAL_SEC", "1800"))
+NEWS_CONCURRENT = int(os.environ.get("NEWS_CONCURRENT", "5"))
 
 # 경량 키워드 감성 분석 (BERT 없이, analyzer/news/sentiment.py의 subset)
 _POS = {
@@ -101,8 +102,32 @@ async def _save_news_to_db(db: asyncpg.Pool, item: dict, seen: set) -> bool:
         return False
 
 
+async def _crawl_one(
+    svc: StockCollector,
+    code: str,
+    name: str,
+    sem: asyncio.Semaphore,
+    seen: set,
+    counters: dict,
+) -> None:
+    async with sem:
+        try:
+            items = await svc.news.crawl_stock_news(code, name)
+            if not items:
+                items = await svc.news_rss.crawl_stock_news(code, name)
+            for it in items:
+                it["code"] = code
+                if await _save_news_to_db(svc.db, it, seen):
+                    counters["saved"] += 1
+        except Exception as e:
+            logger.debug(f"[NewsDB] {code} 뉴스 수집 오류: {e}")
+
+
 async def _news_db_loop(svc: StockCollector, codes: list[str]) -> None:
-    """활성 종목 뉴스를 수집해 DB에 직접 저장 (analyzer 불필요)."""
+    """활성 종목 뉴스를 병렬 수집해 DB에 직접 저장 (NEWS_CONCURRENT=5 기본).
+
+    100종목 × 8s/req → 순차 800s → 동시 5개 160s (480s 타임아웃 이내).
+    """
     stock_names: dict[str, str] = {}
     try:
         async with svc.db.acquire() as conn:
@@ -114,28 +139,20 @@ async def _news_db_loop(svc: StockCollector, codes: list[str]) -> None:
         logger.warning(f"[NewsDB] 종목명 로드 실패: {e}")
 
     seen: set = set()
-    total = 0
 
     while True:
         await asyncio.sleep(NEWS_INTERVAL)  # NEWS_INTERVAL_SEC=0 → 즉시 실행
-        saved = 0
-        for code in codes:
-            name = stock_names.get(code, code)
-            try:
-                items = await svc.news.crawl_stock_news(code, name)
-                if not items:
-                    items = await svc.news_rss.crawl_stock_news(code, name)
-                for it in items:
-                    it["code"] = code  # 종목 코드 보강
-                    if await _save_news_to_db(svc.db, it, seen):
-                        saved += 1
-            except Exception as e:
-                logger.debug(f"[NewsDB] {code} 뉴스 수집 오류: {e}")
-            await asyncio.sleep(0.5)
+        sem = asyncio.Semaphore(NEWS_CONCURRENT)
+        counters = {"saved": 0}
 
+        await asyncio.gather(*[
+            _crawl_one(svc, code, stock_names.get(code, code), sem, seen, counters)
+            for code in codes
+        ])
+
+        saved = counters["saved"]
         if saved:
-            total += saved
-            logger.info(f"[NewsDB] {saved}건 저장 (누적 {total}건)")
+            logger.info(f"[NewsDB] {saved}건 저장")
 
         if NEWS_INTERVAL == 0:
             logger.info("[NewsDB] 1회 실행 완료 (NEWS_INTERVAL_SEC=0)")
