@@ -497,11 +497,11 @@ class BatchScanner:
                         (detected_at, code, event_type, price, change_rate,
                          volume, volume_ratio, amount, signal_data,
                          signal_score, risk_score)
-                    SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11
+                    SELECT $1,$2::VARCHAR,$3::VARCHAR,$4,$5,$6,$7,$8,$9::jsonb,$10,$11
                     WHERE NOT EXISTS (
                         SELECT 1 FROM feature_events
-                        WHERE code       = $2
-                          AND event_type = $3
+                        WHERE code       = $2::VARCHAR
+                          AND event_type = $3::VARCHAR
                           AND detected_at >= DATE_TRUNC('day', $1::TIMESTAMPTZ)
                           AND detected_at <  DATE_TRUNC('day', $1::TIMESTAMPTZ) + INTERVAL '1 day'
                     )
