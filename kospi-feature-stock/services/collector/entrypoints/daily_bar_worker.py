@@ -1,13 +1,11 @@
 """
 GitHub Actions 배치 전용: 일봉 수집 + Redis 통계 갱신 + 배치 탐지 (1회 실행 후 종료).
 
-기존 while-True 루프 방식은 GitHub Actions에서 절대 종료되지 않아 90분 타임아웃 초과.
-이 버전은 1회 실행 후 exit → 정상 종료 가능.
-
 최적화:
-  - 오늘 이미 수집된 종목 스킵 (중복 방지 + 재실행 시 속도 향상)
-  - sleep 0.15s (0.3s → 절반, KIS 레이트 리밋 준수)
-  - 배치 탐지를 동일 프로세스에서 순차 실행
+  - 오늘 이미 수집된 종목 스킵 (재실행 시 속도 향상)
+  - DAILY_CONCURRENT(기본 10) 종목 동시 수집 → 순차 대비 10× 속도
+    (2721종목 × 2.8s/call → 순차 127분 → 동시 ~13분)
+  - KIS 레이트 리밋: 10종목 동시 × (1/2.8s) ≈ 3.6 TPS << 20 TPS 한도
 """
 import asyncio
 import logging
@@ -29,10 +27,39 @@ logging.basicConfig(
 )
 logger = logging.getLogger("collector-daily")
 
-_KST          = timezone(timedelta(hours=9))
-BACKFILL_DAYS = int(os.environ.get("DAILY_BACKFILL_DAYS", "5"))
-SLEEP_BETWEEN = float(os.environ.get("DAILY_SLEEP", "0.15"))
-LOG_EVERY     = 300
+_KST             = timezone(timedelta(hours=9))
+BACKFILL_DAYS    = int(os.environ.get("DAILY_BACKFILL_DAYS", "5"))
+DAILY_CONCURRENT = int(os.environ.get("DAILY_CONCURRENT", "10"))
+LOG_EVERY        = 200
+
+
+async def _collect_one(
+    svc: StockCollector,
+    code: str,
+    start: str,
+    today: str,
+    sem: asyncio.Semaphore,
+    counters: dict,
+) -> None:
+    async with sem:
+        try:
+            bars = await svc.rest.get_daily_bars(code, start, today)
+            if not bars and hasattr(svc, "_pykrx"):
+                bars = await svc._pykrx.get_daily_bars(code, BACKFILL_DAYS + 3)
+                if bars:
+                    counters["pykrx"] += 1
+            if bars:
+                n = await write_daily_bars(svc.db, bars)
+                counters["total"] += n
+        except Exception as e:
+            logger.error(f"[daily] {code}: {e}")
+        finally:
+            counters["done"] += 1
+            if counters["done"] % LOG_EVERY == 0:
+                logger.info(
+                    f"[daily] 진행: {counters['done']}/{counters['target']} 완료,"
+                    f" {counters['total']:,}행 저장"
+                )
 
 
 async def run():
@@ -50,7 +77,7 @@ async def run():
     today   = now_kst.strftime("%Y%m%d")
     start   = (now_kst - timedelta(days=BACKFILL_DAYS + 3)).strftime("%Y%m%d")
 
-    # 오늘 이미 일봉이 있는 종목 제외 (재실행 시 중복/시간 절약)
+    # 오늘 이미 일봉이 있는 종목 제외
     try:
         rows = await svc.db.fetch(
             "SELECT DISTINCT code FROM daily_bars WHERE date = $1::date AND code = ANY($2::varchar[])",
@@ -63,27 +90,19 @@ async def run():
         existing = set()
 
     to_collect = [c for c in all_codes if c not in existing]
-    logger.info(f"[daily] 수집 대상: {len(to_collect)}개 (sleep={SLEEP_BETWEEN}s/종목)")
+    logger.info(f"[daily] 수집 대상: {len(to_collect)}개 (동시={DAILY_CONCURRENT})")
 
-    # ── 일봉 수집 (순차, 1회) ─────────────────────────────
-    total = 0
-    pykrx_fallback = 0
-    for i, code in enumerate(to_collect):
-        try:
-            bars = await svc.rest.get_daily_bars(code, start, today)
-            if not bars and hasattr(svc, "_pykrx"):
-                bars = await svc._pykrx.get_daily_bars(code, BACKFILL_DAYS + 3)
-                if bars:
-                    pykrx_fallback += 1
-            if bars:
-                n = await write_daily_bars(svc.db, bars)
-                total += n
-        except Exception as e:
-            logger.error(f"[daily] DailyBar {code}: {e}")
-        await asyncio.sleep(SLEEP_BETWEEN)
+    # ── 일봉 동시 수집 ────────────────────────────────────────
+    sem      = asyncio.Semaphore(DAILY_CONCURRENT)
+    counters = {"total": 0, "pykrx": 0, "done": 0, "target": len(to_collect)}
 
-        if (i + 1) % LOG_EVERY == 0:
-            logger.info(f"[daily] 진행: {i+1}/{len(to_collect)} 완료, {total:,}행 저장")
+    await asyncio.gather(*[
+        _collect_one(svc, code, start, today, sem, counters)
+        for code in to_collect
+    ])
+
+    total        = counters["total"]
+    pykrx_fallback = counters["pykrx"]
 
     # 지수 일봉 (KOSPI=0001, KOSDAQ=1001)
     for mkt_code in ["0001", "1001"]:
@@ -100,7 +119,7 @@ async def run():
         + (f", pykrx fallback {pykrx_fallback}개" if pykrx_fallback else "") + ")"
     )
 
-    # ── Redis 탐지 통계 갱신 ──────────────────────────────
+    # ── Redis 탐지 통계 갱신 ──────────────────────────────────
     logger.info("[daily] Redis 통계 갱신 시작")
     try:
         refreshed = await refresh_all_stats(svc.db, svc.redis, all_codes)
@@ -113,17 +132,17 @@ async def run():
     except Exception as e:
         logger.error(f"[daily] KOSPI 수익률 갱신 실패: {e}")
 
-    # ── 배치 탐지 ─────────────────────────────────────────
+    # ── 배치 탐지 ─────────────────────────────────────────────
     logger.info("[daily] 배치 탐지 시작")
     try:
-        kafka = RedisEventBus(svc.redis)
+        kafka  = RedisEventBus(svc.redis)
         scanner = BatchScanner(svc.db, svc.redis, kafka)
         events = await scanner.run(all_codes)
         logger.info(f"[daily] 배치 탐지 완료: {len(events)}개 신호")
     except Exception as e:
         logger.error(f"[daily] 배치 탐지 실패: {e}")
 
-    # ── admin 카운터 캐시 갱신 (72h TTL) ──────────────────
+    # ── admin 카운터 캐시 갱신 (72h TTL) ──────────────────────
     try:
         _TTL = 60 * 60 * 72
         vc = await svc.db.fetchval(
@@ -138,7 +157,7 @@ async def run():
     except Exception as e:
         logger.error(f"[daily] 카운터 캐시 갱신 실패: {e}")
 
-    # ── 완료 신호 (daily_bars:ready:{today}) ──────────────
+    # ── 완료 신호 ──────────────────────────────────────────────
     await svc.redis.set(f"daily_bars:ready:{today}", "1", ex=86400)
     logger.info(f"[daily] 완료 → daily_bars:ready:{today} 설정")
 
