@@ -143,6 +143,14 @@ async def lifespan(app: FastAPI):
             await app.state.db.execute(_sql)
         except asyncpg.exceptions.UniqueViolationError:
             pass
+
+    # 인라인 생성 테이블 RLS 활성화 (Supabase anon key 직접 접근 차단)
+    for _tbl in ("backtest_results", "theme_snapshots", "recommendation_performance", "telegram_logs"):
+        try:
+            await app.state.db.execute(f"ALTER TABLE {_tbl} ENABLE ROW LEVEL SECURITY")
+        except Exception:
+            pass
+
     # is_success 즉시 백필: r_5d 확보된 미판정 레코드
     try:
         await app.state.db.execute("""
