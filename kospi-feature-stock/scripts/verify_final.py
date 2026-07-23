@@ -1,10 +1,23 @@
-﻿import asyncio, sys, httpx
+import asyncio, sys, os, httpx
 from datetime import datetime, timedelta
 
-KIS_KEY    = "PSWLNfXPZnXEGLpnvKJTz8oqn1j1i3sVzN8p"
-KIS_SEC    = ("3Q+q0kiDtGLY41OI1IVdVB7tSww74+UX0WRNuuANigM+ASS9KTxTCuR9+1Gk/32Tgd+QpwEagqaFQc0rF3Y84u4w0F+NX2+SajHsnqnw5wY3JNxSyIYXhfiBC4T0dKsRcEF2wI9S2DSvPaX95I80kelUla0D3Q/MrQJ4/8dE2p2pzwe4PAk=")
-DART_KEY   = "c684ef333fb2e14394ee910611f5d29efec917db"
-KIS_BASE   = "https://openapi.koreainvestment.com:9443"
+try:
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
+except ImportError:
+    pass
+
+KIS_KEY    = os.environ.get("KIS_APP_KEY", "")
+KIS_SEC    = os.environ.get("KIS_APP_SECRET", "")
+DART_KEY   = os.environ.get("DART_API_KEY", "")
+
+if not KIS_KEY or not KIS_SEC or not DART_KEY:
+    print("오류: 다음 환경변수가 필요합니다.")
+    print("  KIS_APP_KEY, KIS_APP_SECRET, DART_API_KEY")
+    print("  .env 파일 또는 export 명령으로 설정하세요.")
+    sys.exit(1)
+
+KIS_BASE   = os.environ.get("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
 DART_BASE  = "https://opendart.fss.or.kr/api"
 
 def safe_json(r):
@@ -183,7 +196,6 @@ async def main():
                 results.append(("OK","DART Company Info",
                     f"{d.get('corp_name')} | CEO:{d.get('ceo_nm')} | Est:{d.get('est_dt')}"))
             else:
-                # corp_code 방식 시도
                 r2 = await c.get(f"{DART_BASE}/company.json",
                     params={"crtfc_key":DART_KEY,"corp_code":"00126380"})
                 d2 = safe_json(r2)

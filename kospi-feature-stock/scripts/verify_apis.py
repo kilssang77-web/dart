@@ -1,21 +1,37 @@
 """
 API 키 검증 스크립트 — KIS / DART
-의존성: httpx (pip install httpx)
+의존성: httpx, python-dotenv (pip install httpx python-dotenv)
+
+실행 전 환경변수 설정 필요:
+  export KIS_APP_KEY=...
+  export KIS_APP_SECRET=...
+  export DART_API_KEY=...
+  또는 kospi-feature-stock/.env 파일 참조
 """
 import asyncio
 import json
+import os
 import sys
 import httpx
 from datetime import datetime, timedelta
 
-KIS_APP_KEY    = "PSWLNfXPZnXEGLpnvKJTz8oqn1j1i3sVzN8p"
-KIS_APP_SECRET = ("3Q+q0kiDtGLY41OI1IVdVB7tSww74+UX0WRNuuANigM+"
-                  "ASS9KTxTCuR9+1Gk/32Tgd+QpwEagqaFQc0rF3Y84u4w0F+"
-                  "NX2+SajHsnqnw5wY3JNxSyIYXhfiBC4T0dKsRcEF2wI9S2DS"
-                  "vPaX95I80kelUla0D3Q/MrQJ4/8dE2p2pzwe4PAk=")
-DART_API_KEY   = "c684ef333fb2e14394ee910611f5d29efec917db"
+try:
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
+except ImportError:
+    pass
 
-KIS_BASE  = "https://openapi.koreainvestment.com:9443"
+KIS_APP_KEY    = os.environ.get("KIS_APP_KEY", "")
+KIS_APP_SECRET = os.environ.get("KIS_APP_SECRET", "")
+DART_API_KEY   = os.environ.get("DART_API_KEY", "")
+
+if not KIS_APP_KEY or not KIS_APP_SECRET or not DART_API_KEY:
+    print("오류: 다음 환경변수가 필요합니다.")
+    print("  KIS_APP_KEY, KIS_APP_SECRET, DART_API_KEY")
+    print("  .env 파일 또는 export 명령으로 설정하세요.")
+    sys.exit(1)
+
+KIS_BASE  = os.environ.get("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
 DART_BASE = "https://opendart.fss.or.kr/api"
 
 PASS = "✓"
@@ -282,26 +298,21 @@ async def main():
 
     results = {}
     async with httpx.AsyncClient(timeout=20, verify=True) as client:
-        # KIS 토큰
         tok_res = await test_kis_token(client)
         results["kis_token"] = tok_res["ok"]
 
         token = tok_res.get("token", "")
 
-        # WS Approval Key
         ws_res = await test_kis_ws_approval(client)
         results["kis_ws_approval"] = ws_res["ok"]
 
         if token:
-            # 현재가
             q_res = await test_kis_quote(client, token)
             results["kis_quote"] = q_res["ok"]
 
-            # 일봉
             d_res = await test_kis_daily_bars(client, token)
             results["kis_daily"] = d_res["ok"]
 
-            # 수급
             s_res = await test_kis_supply(client, token)
             results["kis_supply"] = s_res["ok"]
         else:
@@ -310,14 +321,12 @@ async def main():
             results["kis_daily"]  = False
             results["kis_supply"] = False
 
-        # DART
         dart_res = await test_dart_list(client)
         results["dart_list"] = dart_res["ok"]
 
         corp_res = await test_dart_company(client)
         results["dart_company"] = corp_res["ok"]
 
-    # 최종 결과
     print("\n" + "=" * 60)
     print(" 검증 결과 요약")
     print("=" * 60)

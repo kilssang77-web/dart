@@ -1,16 +1,26 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """API 검증 v2"""
-import asyncio, sys
+import asyncio, sys, os
 import httpx
 from datetime import datetime, timedelta
 
-KIS_APP_KEY    = "PSWLNfXPZnXEGLpnvKJTz8oqn1j1i3sVzN8p"
-KIS_APP_SECRET = ("3Q+q0kiDtGLY41OI1IVdVB7tSww74+UX0WRNuuANigM+"
-                  "ASS9KTxTCuR9+1Gk/32Tgd+QpwEagqaFQc0rF3Y84u4w0F+"
-                  "NX2+SajHsnqnw5wY3JNxSyIYXhfiBC4T0dKsRcEF2wI9S2DS"
-                  "vPaX95I80kelUla0D3Q/MrQJ4/8dE2p2pzwe4PAk=")
-DART_API_KEY   = "c684ef333fb2e14394ee910611f5d29efec917db"
-KIS_BASE       = "https://openapi.koreainvestment.com:9443"
+try:
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
+except ImportError:
+    pass
+
+KIS_APP_KEY    = os.environ.get("KIS_APP_KEY", "")
+KIS_APP_SECRET = os.environ.get("KIS_APP_SECRET", "")
+DART_API_KEY   = os.environ.get("DART_API_KEY", "")
+
+if not KIS_APP_KEY or not KIS_APP_SECRET or not DART_API_KEY:
+    print("오류: 다음 환경변수가 필요합니다.")
+    print("  KIS_APP_KEY, KIS_APP_SECRET, DART_API_KEY")
+    print("  .env 파일 또는 export 명령으로 설정하세요.")
+    sys.exit(1)
+
+KIS_BASE       = os.environ.get("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443")
 DART_BASE      = "https://opendart.fss.or.kr/api"
 
 def H(token, tr_id):
