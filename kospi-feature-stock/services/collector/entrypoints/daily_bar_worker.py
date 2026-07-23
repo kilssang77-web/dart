@@ -142,6 +142,14 @@ async def run():
     except Exception as e:
         logger.error(f"[daily] 배치 탐지 실패: {e}")
 
+    # ── result_5d 백필 (7일+ 경과 이벤트 → 유사사례 검색에 필요) ──
+    logger.info("[daily] result_5d 백필 시작")
+    try:
+        n_filled = await svc._backfill_result_5d()
+        logger.info(f"[daily] result_5d 백필 완료: {n_filled}건")
+    except Exception as e:
+        logger.error(f"[daily] result_5d 백필 실패: {e}")
+
     # ── admin 카운터 캐시 갱신 (72h TTL) ──────────────────────
     try:
         _TTL = 60 * 60 * 72
