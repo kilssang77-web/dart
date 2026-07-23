@@ -9,7 +9,7 @@ on:
 jobs:
   collect-daily:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v4
@@ -25,6 +25,7 @@ jobs:
           pip install -r kospi-feature-stock/services/collector/requirements.txt
 
       - name: 일봉 수집 + 배치 탐지 실행
+        timeout-minutes: 30
         env:
           POSTGRES_DSN:        ${{ secrets.POSTGRES_DSN }}
           REDIS_URL:           ${{ secrets.REDIS_URL }}
@@ -37,6 +38,7 @@ jobs:
           TELEGRAM_CHAT_ID:    ${{ secrets.TELEGRAM_CHAT_ID }}
           DISCORD_WEBHOOK:     ${{ secrets.DISCORD_WEBHOOK }}
           DAILY_BACKFILL_DAYS: "5"
+          DAILY_CONCURRENT:    "10"
         run: |
           cd kospi-feature-stock
           python services/collector/entrypoints/daily_bar_worker.py
@@ -61,10 +63,11 @@ jobs:
           pip install -r kospi-feature-stock/services/recommender/requirements.txt
 
       - name: 추천 생성 실행
+        timeout-minutes: 45
         env:
           POSTGRES_DSN:     ${{ secrets.POSTGRES_DSN }}
           REDIS_URL:        ${{ secrets.REDIS_URL }}
-          REC_RECOVERY_HOURS: "48"
+          REC_RECOVERY_HOURS: "24"
           REC_COOLDOWN_MINUTES: "0"
         run: |
           cd kospi-feature-stock
