@@ -159,6 +159,7 @@ function RegimePill({ regime }: { regime: MarketRegime | undefined }) {
 
 function ActionBar({
   buyCount,
+  waitCount,
   indexLive,
   mkSummary,
   mlMode,
@@ -166,6 +167,7 @@ function ActionBar({
   regime,
 }: {
   buyCount:   number | undefined
+  waitCount:  number | undefined
   indexLive:  IndexLive | undefined
   mkSummary:  MarketSummary | undefined
   mlMode:     string | undefined
@@ -201,13 +203,16 @@ function ActionBar({
 
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 py-3 rounded-xl border border-[var(--border)] bg-[var(--card)]">
-      {/* BUY 신호 수 */}
+      {/* 추천 신호 수 (BUY + WAIT) */}
       <Link
         to="/recommendations"
         className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-green-500/15 border border-green-500/30 text-green-400 hover:bg-green-500/25 transition-colors"
       >
         <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
         <span className="text-sm font-bold tabular">BUY {buyCount ?? '—'}개</span>
+        {waitCount != null && waitCount > 0 && (
+          <span className="text-xs text-yellow-400 font-semibold">/ WAIT {waitCount}개</span>
+        )}
       </Link>
 
       {/* LIVE 배지 */}
@@ -434,11 +439,13 @@ function TodaySummaryPanel({
   summary,
   perf,
   buyCount,
+  waitCount,
   disclosureCount,
 }: {
   summary:         TodaySummary | undefined
   perf:            PerformanceStats | undefined
   buyCount:        number | undefined
+  waitCount:       number | undefined
   disclosureCount: number | undefined
 }) {
   const p = perf
@@ -460,9 +467,12 @@ function TodaySummaryPanel({
             <span className="text-sm font-bold text-yellow-400 tabular">{s?.total ?? '—'}건</span>
           </div>
           <div className="flex items-center justify-between py-2 border-b border-[var(--border)]/50">
-            <span className="text-xs text-[var(--muted)]">BUY 신호</span>
-            <Link to="/recommendations" className="text-sm font-bold text-green-400 tabular hover:text-green-300 transition-colors">
-              {buyCount ?? '—'}건
+            <span className="text-xs text-[var(--muted)]">추천 신호</span>
+            <Link to="/recommendations" className="flex items-center gap-1.5 hover:opacity-80 transition-opacity">
+              <span className="text-sm font-bold text-green-400 tabular">BUY {buyCount ?? '—'}</span>
+              {waitCount != null && waitCount > 0 && (
+                <span className="text-xs text-yellow-400 font-semibold">/ WAIT {waitCount}</span>
+              )}
             </Link>
           </div>
           <div className="flex items-center justify-between py-2 border-b border-[var(--border)]/50">
@@ -892,13 +902,13 @@ export function Dashboard() {
 
   const { data: recentFeatures, isError: featuresError, refetch: refetchFeatures } = useQuery({
     queryKey:        ['features-recent'],
-    queryFn:         () => featuresApi.list({ limit: 50, hours: 8, dedupe: true }),
+    queryFn:         () => featuresApi.list({ limit: 50, hours: 24, dedupe: true }),
     refetchInterval: 30_000,
   })
 
   const { data: topRecs } = useQuery({
     queryKey:        ['top-recs'],
-    queryFn:         () => recommendationsApi.list({ action: 'BUY', min_prob: 0.30, hours: 72, limit: 100, dedupe: true }),
+    queryFn:         () => recommendationsApi.list({ min_prob: 0.30, hours: 72, limit: 200, dedupe: true }),
     refetchInterval: 60_000,
   })
 
@@ -939,7 +949,8 @@ export function Dashboard() {
   const newHighs = marketOverview?.new_highs?.stocks
 
   const isRt = (indexLive as any)?.source === 'realtime'
-  const buyCount = topRecs?.length
+  const buyCount  = topRecs?.filter((r) => r.action === 'BUY').length
+  const waitCount = topRecs?.filter((r) => r.action === 'WAIT').length
 
   // ML 모드 추론 (최근 추천 중 첫 번째 신호 기준)
   const mlMode = topRecs?.find((r) => r.rationale?.model_mode)?.rationale?.model_mode
@@ -953,6 +964,7 @@ export function Dashboard() {
       {/* ── 액션 바 ─────────────────────────────────────────────────────── */}
       <ActionBar
         buyCount={buyCount}
+        waitCount={waitCount}
         indexLive={indexLive}
         mkSummary={mkSummary}
         mlMode={mlMode}
@@ -996,6 +1008,7 @@ export function Dashboard() {
             summary={summary}
             perf={perf}
             buyCount={buyCount}
+            waitCount={waitCount}
             disclosureCount={discStats?.total}
           />
         </div>
