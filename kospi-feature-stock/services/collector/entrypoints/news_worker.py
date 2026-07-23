@@ -165,11 +165,19 @@ async def run():
     active_codes = await load_active_stocks(svc.redis)
     logger.info(f"[news] {len(active_codes)}개 활성 종목 — DB 직접 저장 모드")
 
-    await asyncio.gather(
-        _news_db_loop(svc, active_codes),
-        svc.dart.run(),          # DART 공시 → disclosures 테이블 직접 저장
-        return_exceptions=True,
-    )
+    if NEWS_INTERVAL == 0:
+        # 배치 1회 실행 모드: 뉴스 + DART 각각 1회만 실행 후 종료
+        await asyncio.gather(
+            _news_db_loop(svc, active_codes),
+            svc.dart._poll(),    # DART 공시 1회 폴링 후 종료 (while True 루프 제외)
+            return_exceptions=True,
+        )
+    else:
+        await asyncio.gather(
+            _news_db_loop(svc, active_codes),
+            svc.dart.run(),      # DART 공시 → disclosures 테이블 직접 저장
+            return_exceptions=True,
+        )
 
 
 if __name__ == "__main__":
