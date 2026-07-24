@@ -9,7 +9,7 @@ import asyncpg
 import logging
 import os
 import sys
-sys.path.insert(0, '/app')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from pattern_vector import build_vector
 

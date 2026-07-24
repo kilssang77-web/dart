@@ -74,6 +74,28 @@ jobs:
           cd kospi-feature-stock
           python services/recommender/entrypoints/daily_rec_worker.py
 
+      - name: pattern_vector 백필 (유사사례 검색용)
+        continue-on-error: true
+        timeout-minutes: 25
+        env:
+          POSTGRES_DSN:     ${{ secrets.POSTGRES_DSN }}
+          REDIS_URL:        ${{ secrets.REDIS_URL }}
+          VEC_BATCH_CODES:  "8"
+        run: |
+          cd kospi-feature-stock
+          python services/recommender/backfill_vectors.py
+          python - <<'EOF'
+import asyncio, asyncpg, os
+async def refresh():
+    dsn = os.environ["POSTGRES_DSN"].replace("+asyncpg", "")
+    pool = await asyncpg.create_pool(dsn, min_size=1, max_size=2)
+    vc = await pool.fetchval("SELECT COUNT(*) FROM feature_events WHERE pattern_vector IS NOT NULL")
+    rc = await pool.fetchval("SELECT COUNT(*) FROM feature_events WHERE result_5d IS NOT NULL")
+    await pool.close()
+    print(f"[백필 후] vector={vc}  result_5d={rc}")
+asyncio.run(refresh())
+EOF
+
       - name: POST_DISCLOSURE_SURGE 탐지 (공시 후 주가 급등)
         continue-on-error: true
         env:
