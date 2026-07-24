@@ -41,8 +41,13 @@ jobs:
           if git diff --cached --quiet; then
             echo "static 파일 변경 없음 — skip"
           else
+            # 최신 main 기준 임시 브랜치 생성 → static 파일만 적용 → 충돌 방지
+            git fetch origin main
+            git checkout -b _sync_static FETCH_HEAD
+            git checkout master -- kospi-feature-stock/services/api/static/
+            git add kospi-feature-stock/services/api/static/
             git commit -m "chore(frontend): 빌드 산출물 동기화 $(date +'%Y-%m-%d')"
-            git push origin HEAD:main
+            git push origin _sync_static:main
           fi
 
       - name: GHCR 로그인
