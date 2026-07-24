@@ -291,7 +291,10 @@ async def _scan_code(
 ) -> int:
     """단일 종목 스캔. 저장된 이벤트 수 반환."""
     try:
-        bars = await rest.get_minute_bars(code)
+        bars = await asyncio.wait_for(rest.get_minute_bars(code), timeout=20.0)
+    except asyncio.TimeoutError:
+        logger.warning(f"[{code}] 분봉 조회 타임아웃 (20s)")
+        return 0
     except Exception:
         return 0
     if not bars:
@@ -386,7 +389,14 @@ async def run_scan(rest: KISRestClient, redis, db) -> int:
         async with sem:
             return await _scan_code(rest, redis, db, code, er)
 
-    results = await asyncio.gather(*[_one(c) for c in codes], return_exceptions=True)
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(*[_one(c) for c in codes], return_exceptions=True),
+            timeout=240.0,  # POLL_INTERVAL(300s) 이내 완료 보장
+        )
+    except asyncio.TimeoutError:
+        logger.warning("[intraday-poller] 전체 스캔 타임아웃 (240s) — 다음 주기 대기")
+        return 0
     total = sum(r for r in results if isinstance(r, int))
     logger.info(f"[intraday-poller] {len(codes)}종목 스캔 완료 → {total}건 탐지")
     return total
