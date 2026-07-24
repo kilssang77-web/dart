@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from kis.auth import KISConfig, KISAuthManager
 from kis.rest_client import KISRestClient
+import ml_scorer
 
 _KST = ZoneInfo("Asia/Seoul")
 
@@ -43,6 +44,7 @@ BREAKOUT_HOUR_AFTER = 10  # 장 시작 초반 갭 오류 방지
 _TG_TOKEN           = os.environ.get("TELEGRAM_TOKEN", "")
 _TG_CHAT_ID         = os.environ.get("TELEGRAM_CHAT_ID", "")
 DEDUP_TTL           = 90_000   # 25시간 TTL (당일 + 다음날 장 전까지)
+ML_MIN_PROB         = float(os.environ.get("ML_MIN_PROB", "0.35"))  # ML 필터 임계값
 
 logging.basicConfig(
     level=logging.INFO,
@@ -161,6 +163,50 @@ async def _save_and_publish(db, redis, event: dict) -> bool:
         return False
 
 
+async def _emit_event(
+    db, redis,
+    code: str, event_type: str, now_kst: datetime,
+    price: int, volume: int, amount: int,
+    rule_score: float, signal_data: dict,
+    detail: str = "", change_rate: float | None = None,
+) -> bool:
+    """dedup 확인 → ML 스코어링 → 저장/발행/알림 공통 처리."""
+    if await _check_dedup(redis, code, event_type):
+        return False
+
+    ml_prob, model_used = await ml_scorer.score_event(db, redis, code, price)
+    if ml_prob is not None:
+        if ml_prob < ML_MIN_PROB:
+            logger.info(
+                f"[{code}] {event_type} ML필터 제외 "
+                f"(prob={ml_prob:.3f} < {ML_MIN_PROB})"
+            )
+            return False
+        final_score = ml_prob
+    else:
+        final_score = rule_score  # 모델 미로딩 → 규칙 점수 유지
+
+    ok = await _save_and_publish(db, redis, {
+        "code":         code,
+        "detected_at":  now_kst,
+        "event_type":   event_type,
+        "price":        price,
+        "change_rate":  change_rate,
+        "volume":       volume,
+        "amount":       amount,
+        "signal_score": round(final_score, 3),
+        "signal_data":  signal_data,
+    })
+    if ok:
+        await _mark_dedup(redis, code, event_type)
+        notify_detail = (
+            f"{detail} | ML:{final_score:.2f}" if (detail and model_used)
+            else (f"ML:{final_score:.2f}" if model_used else detail)
+        )
+        await _notify_signal(event_type, code, price, final_score, notify_detail)
+    return ok
+
+
 async def _detect_breakout(
     redis, code: str, price: int, now_kst: datetime
 ) -> list[dict]:
@@ -274,98 +320,54 @@ async def _scan_code(
     # ── AMOUNT_SURGE ──────────────────────────────────────────────
     adj_avg_amt = avg_amt * er
     if acml_amount / adj_avg_amt >= AMOUNT_SURGE_RATIO:
-        if not await _check_dedup(redis, code, "AMOUNT_SURGE"):
-            ratio = round(acml_amount / adj_avg_amt, 2)
-            score = min(0.95, 0.50 + (ratio - AMOUNT_SURGE_RATIO) / (AMOUNT_SURGE_RATIO * 4))
-            ok = await _save_and_publish(db, redis, {
-                "code":         code,
-                "detected_at":  now_kst,
-                "event_type":   "AMOUNT_SURGE",
-                "price":        close_price,
-                "change_rate":  None,
-                "volume":       total_volume,
-                "amount":       acml_amount,
-                "signal_score": round(score, 3),
-                "signal_data":  {
-                    "avg_amt_20d":  round(avg_amt),
-                    "ratio":        ratio,
-                    "elapsed_ratio": round(er, 2),
-                },
-            })
-            if ok:
-                await _mark_dedup(redis, code, "AMOUNT_SURGE")
-                await _notify_signal("AMOUNT_SURGE", code, close_price, score,
-                                     f"거래대금 {ratio}배 (20일 평균 대비)")
-                saved += 1
+        ratio = round(acml_amount / adj_avg_amt, 2)
+        rule_score = min(0.95, 0.50 + (ratio - AMOUNT_SURGE_RATIO) / (AMOUNT_SURGE_RATIO * 4))
+        ok = await _emit_event(
+            db, redis, code, "AMOUNT_SURGE", now_kst,
+            close_price, total_volume, acml_amount,
+            rule_score,
+            {"avg_amt_20d": round(avg_amt), "ratio": ratio, "elapsed_ratio": round(er, 2)},
+            f"거래대금 {ratio}배 (20일 평균 대비)",
+        )
+        if ok:
+            saved += 1
 
     # ── VOLUME_SURGE ──────────────────────────────────────────────
     if avg_vol > 0:
         adj_avg_vol = avg_vol * er
         if adj_avg_vol > 0 and total_volume / adj_avg_vol >= VOL_SURGE_RATIO:
-            if not await _check_dedup(redis, code, "VOLUME_SURGE"):
-                ratio = round(total_volume / adj_avg_vol, 2)
-                score = min(0.95, 0.50 + (ratio - VOL_SURGE_RATIO) / (VOL_SURGE_RATIO * 4))
-                ok = await _save_and_publish(db, redis, {
-                    "code":         code,
-                    "detected_at":  now_kst,
-                    "event_type":   "VOLUME_SURGE",
-                    "price":        close_price,
-                    "change_rate":  None,
-                    "volume":       total_volume,
-                    "amount":       acml_amount,
-                    "signal_score": round(score, 3),
-                    "signal_data":  {
-                        "avg_vol_20d":   round(avg_vol),
-                        "ratio":         ratio,
-                        "elapsed_ratio": round(er, 2),
-                    },
-                })
-                if ok:
-                    await _mark_dedup(redis, code, "VOLUME_SURGE")
-                    await _notify_signal("VOLUME_SURGE", code, close_price, score,
-                                         f"거래량 {ratio}배 (20일 평균 대비)")
-                    saved += 1
+            ratio = round(total_volume / adj_avg_vol, 2)
+            rule_score = min(0.95, 0.50 + (ratio - VOL_SURGE_RATIO) / (VOL_SURGE_RATIO * 4))
+            ok = await _emit_event(
+                db, redis, code, "VOLUME_SURGE", now_kst,
+                close_price, total_volume, acml_amount,
+                rule_score,
+                {"avg_vol_20d": round(avg_vol), "ratio": ratio, "elapsed_ratio": round(er, 2)},
+                f"거래량 {ratio}배 (20일 평균 대비)",
+            )
+            if ok:
+                saved += 1
 
     # ── BREAKOUT_20D / BREAKOUT_52W (10:00 KST 이후) ──────────────
-    bo_events = await _detect_breakout(redis, code, close_price, now_kst)
-    for bo in bo_events:
-        etype = bo["event_type"]
-        if not await _check_dedup(redis, code, etype):
-            ok = await _save_and_publish(db, redis, {
-                "code":         code,
-                "detected_at":  now_kst,
-                "event_type":   etype,
-                "price":        close_price,
-                "change_rate":  None,
-                "volume":       total_volume,
-                "amount":       acml_amount,
-                "signal_score": bo["signal_score"],
-                "signal_data":  bo["signal_data"],
-            })
-            if ok:
-                await _mark_dedup(redis, code, etype)
-                await _notify_signal(etype, code, close_price,
-                                     bo["signal_score"], bo["detail"])
-                saved += 1
+    for bo in await _detect_breakout(redis, code, close_price, now_kst):
+        ok = await _emit_event(
+            db, redis, code, bo["event_type"], now_kst,
+            close_price, total_volume, acml_amount,
+            bo["signal_score"], bo["signal_data"], bo["detail"],
+        )
+        if ok:
+            saved += 1
 
     # ── SESSION_CANDLE_WHITE (13:00 KST 이후) ─────────────────────
     sc = _detect_session_candle(bars, now_kst)
-    if sc and not await _check_dedup(redis, code, "SESSION_CANDLE_WHITE"):
-        ok = await _save_and_publish(db, redis, {
-            "code":         code,
-            "detected_at":  now_kst,
-            "event_type":   "SESSION_CANDLE_WHITE",
-            "price":        close_price,
-            "change_rate":  sc["signal_data"]["change_rate"],
-            "volume":       total_volume,
-            "amount":       acml_amount,
-            "signal_score": sc["signal_score"],
-            "signal_data":  sc["signal_data"],
-        })
+    if sc:
+        ok = await _emit_event(
+            db, redis, code, "SESSION_CANDLE_WHITE", now_kst,
+            close_price, total_volume, acml_amount,
+            sc["signal_score"], sc["signal_data"], sc["detail"],
+            change_rate=sc["signal_data"]["change_rate"],
+        )
         if ok:
-            await _mark_dedup(redis, code, "SESSION_CANDLE_WHITE")
-            await _notify_signal("SESSION_CANDLE_WHITE", code, close_price,
-                                  sc["signal_score"], sc["detail"])
             saved += 1
 
     return saved
