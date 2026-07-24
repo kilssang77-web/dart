@@ -470,7 +470,7 @@ async def ws_ticks(websocket: WebSocket):
 async def ws_realtime(websocket: WebSocket):
     await websocket.accept()
     pubsub = websocket.app.state.redis.pubsub()
-    await pubsub.subscribe("channel:features", "channel:recommendations")
+    await pubsub.subscribe("ch:feature", "ch:recommendation")
     try:
         async for message in pubsub.listen():
             if message["type"] == "message":
