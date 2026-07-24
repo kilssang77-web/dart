@@ -71,15 +71,17 @@ class MLResult:
 
 # ── 모델 지연 로딩 ────────────────────────────────────────────────
 
-_entry_model = None
-_risk_model  = None
-_entry_cal   = None
-_risk_cal    = None
-_model_checked = False
+_entry_model     = None
+_risk_model      = None
+_entry_cal       = None
+_risk_cal        = None
+_xgb_entry_model = None
+_xgb_entry_cal   = None
+_model_checked   = False
 
 
 def _try_load_models():
-    global _entry_model, _risk_model, _entry_cal, _risk_cal, _model_checked, FEATURE_COLUMNS
+    global _entry_model, _risk_model, _entry_cal, _risk_cal, _xgb_entry_model, _xgb_entry_cal, _model_checked, FEATURE_COLUMNS
     if _model_checked:
         return
     _model_checked = True
@@ -134,6 +136,25 @@ def _try_load_models():
                 logger.info("[MLClient] risk_calibrator loaded")
     except Exception as e:
         logger.warning(f"[MLClient] calibrator load error: {e}")
+
+    # XGBoost 앙상블 모델 (선택적 — 없으면 LGBM 단독 사용)
+    try:
+        import joblib as _jl, warnings as _w
+        xmp = model_path / "xgb_entry_model.pkl"
+        xcp = model_path / "xgb_entry_calibrator.pkl"
+        if xmp.exists():
+            with _w.catch_warnings():
+                _w.filterwarnings("ignore", message=".*unpickle.*")
+                _xgb_entry_model = _jl.load(str(xmp))
+                if xcp.exists():
+                    _xgb_entry_cal = _jl.load(str(xcp))
+            logger.info("[MLClient] XGBoost 앙상블 모델 로드 완료")
+        else:
+            logger.info("[MLClient] XGBoost 모델 없음 — LGBM 단독 사용")
+    except ImportError:
+        logger.info("[MLClient] xgboost 미설치 — LGBM 단독 사용")
+    except Exception as e:
+        logger.warning(f"[MLClient] XGBoost 로드 오류: {e}")
 
 
 # ── 피처 계산 ─────────────────────────────────────────────────────
@@ -513,6 +534,20 @@ async def get_ml_result(event: dict, db: asyncpg.Pool, redis=None) -> MLResult:
                               is_kosdaq=_is_kosdaq)
     _atr_ratio = feats.get("atr_ratio", 0.0)
 
+    # 단면 랭크 피처: Redis에 저장된 당일 랭크 사용 (없으면 0.5 유지)
+    if redis:
+        try:
+            from datetime import date as _date
+            _today_str = _date.today().strftime("%Y%m%d")
+            _rk = await redis.hgetall(f"ranks:{_today_str}:{code}")
+            if _rk:
+                feats["rank_return_5d"]   = float(_rk.get("rank_return_5d",   0.5))
+                feats["rank_vol_ratio"]   = float(_rk.get("rank_vol_ratio",   0.5))
+                feats["rank_foreign_net"] = float(_rk.get("rank_foreign_net", 0.5))
+                feats["rank_rsi14"]       = float(_rk.get("rank_rsi14",       0.5))
+        except Exception:
+            pass
+
     # ── ML 서비스 HTTP 추론 (우선) ──
     if _ML_SERVICE_URL:
         try:
@@ -536,18 +571,21 @@ async def get_ml_result(event: dict, db: asyncpg.Pool, redis=None) -> MLResult:
         except Exception as e:
             logger.warning(f"[MLClient] HTTP inference failed {code}, falling back to local: {e}")
 
-    # ── LightGBM 직접 추론 (fallback) ──
+    # ── LightGBM + XGBoost 앙상블 직접 추론 (fallback) ──
     if _entry_model is not None:
         try:
             import pandas as pd
             X = pd.DataFrame([feats])[FEATURE_COLUMNS].fillna(0.0)
-            raw_prob = float(np.clip(_entry_model.predict(X)[0], 0.0, 1.0))
 
-            # Isotonic calibration 적용
-            if _entry_cal is not None:
-                prob = float(np.clip(_entry_cal.predict([raw_prob])[0], 0.0, 1.0))
+            raw_lgbm = float(np.clip(_entry_model.predict(X)[0], 0.0, 1.0))
+            lgbm_prob = float(np.clip(_entry_cal.predict([raw_lgbm])[0], 0.0, 1.0)) if _entry_cal else raw_lgbm
+
+            if _xgb_entry_model is not None:
+                raw_xgb  = float(np.clip(_xgb_entry_model.predict_proba(X)[:, 1][0], 0.0, 1.0))
+                xgb_prob = float(np.clip(_xgb_entry_cal.predict([raw_xgb])[0], 0.0, 1.0)) if _xgb_entry_cal else raw_xgb
+                prob = lgbm_prob * 0.6 + xgb_prob * 0.4
             else:
-                prob = raw_prob
+                prob = lgbm_prob
 
             raw_risk = float(np.clip(_risk_model.predict(X)[0], 0.0, 1.0)) if _risk_model else 0.4
             if _risk_cal is not None:
@@ -561,12 +599,12 @@ async def get_ml_result(event: dict, db: asyncpg.Pool, redis=None) -> MLResult:
                 risk_score=round(risk, 4),
                 expected_return=round((prob - 0.5) * 20.0, 2),
                 hold_days=hold,
-                confidence=0.85,
+                confidence=0.85 if _xgb_entry_model is not None else 0.80,
                 model_used=True,
                 atr_ratio=_atr_ratio,
             )
         except Exception as e:
-            logger.warning(f"[MLClient] LightGBM inference error {code}: {e}")
+            logger.warning(f"[MLClient] inference error {code}: {e}")
 
     # ── 규칙 기반 fallback ──
     rsi   = feats["rsi14"]

@@ -164,6 +164,23 @@ async def load_news_sentiment(pool: asyncpg.Pool, start, end) -> pd.DataFrame:
     return df
 
 
+async def load_feature_events(pool: asyncpg.Pool, start, end) -> set:
+    """feature_events 테이블에서 이벤트 탐지된 (code, date) 집합 반환."""
+    try:
+        rows = await pool.fetch(
+            """
+            SELECT DISTINCT code, detected_at::date AS date
+            FROM feature_events
+            WHERE detected_at BETWEEN $1::date AND $2::date
+            """,
+            start, end,
+        )
+        return {(r["code"], r["date"]) for r in rows}
+    except Exception as e:
+        logger.warning(f"[event-only] feature_events 조회 실패: {e}")
+        return set()
+
+
 # ── 피처 엔지니어링 ───────────────────────────────────────────────────────────
 
 def _safe(v, default=0.0):
@@ -525,6 +542,41 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
     return out
 
 
+def filter_event_only(feat_df: pd.DataFrame, event_pairs: set | None) -> pd.DataFrame:
+    """이벤트 탐지 분포로 훈련 행을 필터링해 학습-추론 분포를 정렬한다.
+
+    event_pairs가 충분하면(≥500) DB 실 이벤트 필터, 아니면 피처 조건 시뮬레이션 사용.
+    """
+    if feat_df.empty:
+        return feat_df
+
+    if event_pairs and len(event_pairs) >= 500:
+        dates = pd.to_datetime(feat_df["__date"]).dt.date
+        codes = feat_df["__code"].values
+        mask = pd.Series(
+            [(c, d) in event_pairs for c, d in zip(codes, dates)],
+            index=feat_df.index,
+        )
+        mode = "DB"
+    else:
+        # 피처 기반 이벤트 시뮬레이션 — 탐지기가 발화했을 법한 날만 학습
+        cond = (
+            (feat_df["vol_ratio_20d"]     >= 2.5) |
+            (feat_df["macd_golden_cross"] == 1)   |
+            (feat_df["is_new_high_52d"]   == 1)   |
+            (feat_df["return_1d"]         >= 3.0) |
+            (feat_df["rsi14"]             <  30)  |
+            (feat_df["ma5_ma20_cross"]    == 1)   |
+            (feat_df["bb_pct"]            >= 0.9)
+        )
+        mask = cond
+        mode = "시뮬레이션"
+
+    filtered = feat_df[mask].reset_index(drop=True)
+    logger.info(f"[event-only ({mode})] {len(feat_df):,} → {len(filtered):,} 행 ({len(filtered)/max(len(feat_df),1)*100:.1f}%)")
+    return filtered
+
+
 # ── 검증 리포트 ───────────────────────────────────────────────────────────────
 
 def report(name: str, model, X: pd.DataFrame, y: pd.Series, threshold: float = 0.5):
@@ -598,6 +650,12 @@ async def main(args):
     disc_all  = await load_disclosures(pool, all_start, all_end)
     news_all  = await load_news_sentiment(pool, all_start, all_end)
     fin_all   = await load_financials(pool)
+
+    # 이벤트-only 모드: feature_events에서 (code, date) 집합 로드 (pool 닫기 전)
+    event_pairs: set | None = None
+    if getattr(args, "event_only", False):
+        event_pairs = await load_feature_events(pool, all_start, all_end)
+        logger.info(f"[event-only] DB {len(event_pairs):,}개 (code,date) 쌍 로드됨")
     await pool.close()
 
     logger.info(f"Raw data: train={len(tr_raw)} val={len(va_raw)} test={len(te_raw)}")
@@ -609,6 +667,12 @@ async def main(args):
     tr_feat = build_features(tr_raw, kospi_tr, disc_all, news_all, fin_all)
     va_feat = build_features(va_raw, kospi_va, disc_all, news_all, fin_all)
     te_feat = build_features(te_raw, kospi_te, disc_all, news_all, fin_all)
+
+    # 이벤트-only 필터 (탐지기 발화 분포로 훈련 세트 정렬)
+    if getattr(args, "event_only", False):
+        tr_feat = filter_event_only(tr_feat, event_pairs)
+        va_feat = filter_event_only(va_feat, event_pairs)
+        te_feat = filter_event_only(te_feat, event_pairs)
 
     # 레이블 생성
     if args.label_mode == "relative":
@@ -823,4 +887,6 @@ if __name__ == "__main__":
                         help="레이블 생성 방식: absolute=절대 수익률 임계, relative=날짜별 상위 20%% 랭크, target_hit=실제 고가/저가 기반 목표도달 여부, market_alpha=KOSPI 초과수익 기반")
     parser.add_argument("--optuna-trials", type=int, default=0,
                         help="Optuna HPO 시도 횟수 (0=비활성화, 권장 30~50)")
+    parser.add_argument("--event-only", action="store_true",
+                        help="이벤트 탐지 분포로 훈련 세트 필터링 (추론 분포 정렬, AUC +0.05~0.08 기대)")
     asyncio.run(main(parser.parse_args()))

@@ -18,12 +18,14 @@ _MODEL_DIR = os.environ.get("LGBM_MODEL_DIR", "/lgbm_export")
 
 _entry_model   = None
 _entry_cal     = None
+_xgb_model     = None
+_xgb_cal       = None
 _FEATURE_COLS: list[str] = []
 _model_checked = False
 
 
 def _try_load() -> None:
-    global _entry_model, _entry_cal, _FEATURE_COLS, _model_checked
+    global _entry_model, _entry_cal, _xgb_model, _xgb_cal, _FEATURE_COLS, _model_checked
     if _model_checked:
         return
     _model_checked = True
@@ -68,6 +70,25 @@ def _try_load() -> None:
             logger.info("[ml-scorer] entry_calibrator 로드 완료")
     except Exception as e:
         logger.warning(f"[ml-scorer] calibrator 오류: {e}")
+
+    # XGBoost 앙상블 모델 (선택적 — 없으면 LGBM 단독 사용)
+    try:
+        import joblib as _jl, warnings as _w
+        xmp = p / "xgb_entry_model.pkl"
+        xcp = p / "xgb_entry_calibrator.pkl"
+        if xmp.exists():
+            with _w.catch_warnings():
+                _w.filterwarnings("ignore", message=".*unpickle.*")
+                _xgb_model = _jl.load(str(xmp))
+                if xcp.exists():
+                    _xgb_cal = _jl.load(str(xcp))
+            logger.info("[ml-scorer] XGBoost 앙상블 모델 로드 완료")
+        else:
+            logger.info("[ml-scorer] XGBoost 모델 없음 — LGBM 단독 사용")
+    except ImportError:
+        logger.info("[ml-scorer] xgboost 미설치 — LGBM 단독 사용")
+    except Exception as e:
+        logger.warning(f"[ml-scorer] XGBoost 로드 오류: {e}")
 
 
 # ── 피처 계산 (ml_client._compute_features와 동일 로직) ──────────────
@@ -317,13 +338,35 @@ async def score_event(db, redis, code: str, price: int) -> tuple[float | None, b
         logger.warning(f"[ml-scorer] 피처 계산 실패 {code}: {e}")
         return None, False
 
+    # 단면 랭크 피처: Redis에 compute_daily_ranks.py가 저장한 값 사용 (없으면 0.5 유지)
+    try:
+        from datetime import date as _date
+        _today_str = _date.today().strftime("%Y%m%d")
+        _rk = await redis.hgetall(f"ranks:{_today_str}:{code}")
+        if _rk:
+            feats["rank_return_5d"]   = float(_rk.get("rank_return_5d",   0.5))
+            feats["rank_vol_ratio"]   = float(_rk.get("rank_vol_ratio",   0.5))
+            feats["rank_foreign_net"] = float(_rk.get("rank_foreign_net", 0.5))
+            feats["rank_rsi14"]       = float(_rk.get("rank_rsi14",       0.5))
+    except Exception:
+        pass
+
     try:
         import numpy as np
         import pandas as pd
         X = pd.DataFrame([feats])[_FEATURE_COLS].fillna(0.0)
-        raw_prob = float(np.clip(_entry_model.predict(X)[0], 0.0, 1.0))
-        prob = float(np.clip(_entry_cal.predict([raw_prob])[0], 0.0, 1.0)) if _entry_cal else raw_prob
-        return round(prob, 4), True
+
+        raw_lgbm = float(np.clip(_entry_model.predict(X)[0], 0.0, 1.0))
+        lgbm_prob = float(np.clip(_entry_cal.predict([raw_lgbm])[0], 0.0, 1.0)) if _entry_cal else raw_lgbm
+
+        if _xgb_model is not None:
+            raw_xgb = float(np.clip(_xgb_model.predict_proba(X)[:, 1][0], 0.0, 1.0))
+            xgb_prob = float(np.clip(_xgb_cal.predict([raw_xgb])[0], 0.0, 1.0)) if _xgb_cal else raw_xgb
+            prob = round(lgbm_prob * 0.6 + xgb_prob * 0.4, 4)
+        else:
+            prob = round(lgbm_prob, 4)
+
+        return prob, True
     except Exception as e:
         logger.warning(f"[ml-scorer] 추론 실패 {code}: {e}")
         return None, False

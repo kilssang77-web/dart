@@ -37,7 +37,7 @@ jobs:
 
       - name: ML 의존성 설치
         run: |
-          pip install lightgbm scikit-learn pandas numpy asyncpg \
+          pip install lightgbm xgboost scikit-learn pandas numpy asyncpg \
                       imbalanced-learn optuna shap joblib orjson \
                       python-dotenv
 
@@ -55,11 +55,12 @@ jobs:
             --train-start 2018-01-01 --train-end 2023-12-31 \
             --val-start   2024-01-01 --val-end   2024-12-31 \
             --test-start  2025-01-01 --test-end  2025-12-31 \
-            --label-mode relative \
+            --label-mode market_alpha \
             --smote \
             --max-codes 600 \
             --model-dir services/api/lgbm_export \
-            --optuna-trials 20
+            --optuna-trials 30 \
+            --event-only
 
       - name: 새 모델 git commit → Docker 이미지 자동 갱신 트리거
         run: |

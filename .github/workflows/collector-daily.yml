@@ -43,6 +43,16 @@ jobs:
           cd kospi-feature-stock
           python services/collector/entrypoints/daily_bar_worker.py
 
+      - name: 단면 랭크 피처 계산 → Redis 저장 (ML 추론 분포 정렬)
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          POSTGRES_DSN: ${{ secrets.POSTGRES_DSN }}
+          REDIS_URL:    ${{ secrets.REDIS_URL }}
+        run: |
+          cd kospi-feature-stock
+          python services/collector/entrypoints/compute_daily_ranks.py
+
       - name: govdata 수집 (시가총액·상장주식수 갱신)
         continue-on-error: true
         env:
