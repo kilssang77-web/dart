@@ -55,6 +55,7 @@ FEATURE_COLUMNS: list[str] = [
     "news_sentiment_7d", "news_count_7d",
     "per", "pbr", "roe", "debt_ratio",
     "log_market_cap",
+    "rank_return_5d", "rank_vol_ratio", "rank_foreign_net", "rank_rsi14",
 ]
 
 
