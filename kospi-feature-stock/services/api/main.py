@@ -51,9 +51,11 @@ async def lifespan(app: FastAPI):
     app.state.db = None
     for _retry in range(3):
         try:
+            _ssl = os.getenv("POSTGRES_SSL", "disable")
             app.state.db = await asyncpg.create_pool(
                 dsn=dsn, min_size=2, max_size=20,
-                command_timeout=20, ssl="require",
+                command_timeout=20,
+                ssl=None if _ssl == "disable" else _ssl,
                 statement_cache_size=0,
             )
             break
