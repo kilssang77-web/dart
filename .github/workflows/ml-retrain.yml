@@ -71,7 +71,7 @@ jobs:
             echo "모델 파일 변경 없음 — commit 생략"
           else
             git commit -m "chore(ml): 자동 재학습 모델 갱신 $(date +'%Y-%m-%d')"
-            git push origin master
+            git push origin HEAD
             echo "모델 commit 완료 → deploy-api.yml 자동 트리거"
           fi
 
@@ -83,7 +83,7 @@ jobs:
           git checkout ${{ steps.save_model_ref.outputs.model_sha }} -- kospi-feature-stock/services/api/lgbm_export/ 2>/dev/null || true
           if ! git diff --cached --quiet; then
             git commit -m "hotfix(ml): 재학습 실패 — $(date +'%Y-%m-%d') 이전 모델로 복구"
-            git push origin master
+            git push origin HEAD
             echo "이전 모델 복구 완료"
           else
             echo "복구할 모델 변경 없음 (첫 학습 실패 또는 동일 모델)"

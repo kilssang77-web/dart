@@ -165,8 +165,24 @@ async def load_news_sentiment(pool: asyncpg.Pool, start, end) -> pd.DataFrame:
 
 
 async def load_feature_events(pool: asyncpg.Pool, start, end) -> set:
-    """feature_events 테이블에서 이벤트 탐지된 (code, date) 집합 반환."""
+    """feature_events 테이블에서 이벤트 탐지된 (code, date) 집합 반환.
+
+    메모리 안전: 최대 500,000 행 캡. 초과 시 경고 후 시뮬레이션 경로로 fallback.
+    """
+    _MAX_ROWS = 500_000
     try:
+        count_row = await pool.fetchrow(
+            "SELECT COUNT(*) AS cnt FROM feature_events WHERE detected_at BETWEEN $1::date AND $2::date",
+            start, end,
+        )
+        cnt = count_row["cnt"] if count_row else 0
+        if cnt > _MAX_ROWS:
+            logger.warning(
+                f"[event-only] feature_events {cnt:,}행 > 상한 {_MAX_ROWS:,} — "
+                "메모리 초과 방지를 위해 시뮬레이션 경로 사용 (set 반환 생략)"
+            )
+            return set()
+
         rows = await pool.fetch(
             """
             SELECT DISTINCT code, detected_at::date AS date
