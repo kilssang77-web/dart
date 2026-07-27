@@ -215,6 +215,8 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
     daily_bars DataFrame → 특징 행렬 (FEATURE_COLUMNS 기준).
     종목별 순서 정렬 후 롤링 계산.
     """
+    if df.empty or "code" not in df.columns:
+        return pd.DataFrame(columns=["__code", "__date"] + FEATURE_COLUMNS)
     df = df.sort_values(["code", "date"]).reset_index(drop=True)
 
     # Pre-group disclosures by code for O(log N) per-row lookup (avoid O(N²) full scan)
@@ -654,6 +656,16 @@ async def main(args):
     logger.info(f"Selecting top {args.max_codes} liquid codes by train-period avg amount...")
     codes = await get_liquid_codes(pool, train_start, train_end, args.max_codes)
     logger.info(f"Selected {len(codes)} codes")
+
+    _MIN_CODES = int(os.environ.get("ML_MIN_CODES", "50"))
+    if len(codes) < _MIN_CODES:
+        logger.error(
+            f"[abort] 학습 가능 종목 {len(codes)}개 < 최소 {_MIN_CODES}개 — "
+            f"daily_bars에 {train_start}~{train_end} 구간 데이터가 부족합니다. "
+            f"collector-backfill 워크플로로 과거 데이터를 먼저 수집하세요."
+        )
+        await pool.close()
+        sys.exit(0)  # 기존 모델 보존 (exit 1 → rollback 스텝 방지)
 
     # 데이터 로드
     logger.info("Loading data...")

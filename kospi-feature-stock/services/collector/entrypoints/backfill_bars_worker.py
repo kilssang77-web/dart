@@ -27,12 +27,16 @@ _REDIS_KEY_FAIL   = "bars_backfill:fail_count:{code}" # 연속 조회 불가 카
 _MIN_BARS_1Y      = 250      # 최근 365일 기준 최소 봉 수
 _MAX_FAIL_COUNT   = 3        # N회 연속 0행 → stocks.is_active = FALSE
 _BACKFILL_DAYS    = int(os.environ.get("BARS_BACKFILL_DAYS", "1825"))  # 5년 (기본)
+_MAX_CODES        = int(os.environ.get("BARS_MAX_CODES", "0"))         # 0 = 전체
 _REQ_DELAY        = 0.5      # 초 / 종목
 _BATCH_LOG_EVERY  = 200
 
 
 async def _get_sparse_codes(db, all_codes: list[str]) -> list[str]:
-    """최근 365일 일봉이 250개 미만인 활성 종목 코드 반환 (데이터 없는 종목 포함)."""
+    """최근 365일 일봉이 250개 미만인 활성 종목 코드 반환 (데이터 없는 종목 포함).
+
+    BARS_MAX_CODES > 0: 거래대금 상위 N개로 제한 (GitHub Actions 시간 예산 관리).
+    """
     rows = await db.fetch(
         """
         SELECT s.code
@@ -43,14 +47,25 @@ async def _get_sparse_codes(db, all_codes: list[str]) -> list[str]:
             WHERE date >= NOW() - INTERVAL '400 days'
             GROUP BY code
         ) b ON s.code = b.code
+        LEFT JOIN (
+            SELECT code, AVG(amount) AS avg_amt
+            FROM daily_bars
+            WHERE date >= NOW() - INTERVAL '90 days'
+            GROUP BY code
+        ) amt ON amt.code = s.code
         WHERE s.is_active = TRUE
           AND s.code = ANY($1::varchar[])
+          AND s.code NOT IN ('0001', '1001')
           AND (b.cnt IS NULL OR b.cnt < $2)
-        ORDER BY COALESCE(b.cnt, 0) ASC
+        ORDER BY COALESCE(amt.avg_amt, 0) DESC
         """,
         all_codes, _MIN_BARS_1Y,
     )
-    return [r["code"] for r in rows]
+    codes = [r["code"] for r in rows]
+    if _MAX_CODES > 0:
+        codes = codes[:_MAX_CODES]
+        logger.info(f"[bars-backfill] BARS_MAX_CODES={_MAX_CODES} 적용 → {len(codes)}개로 제한")
+    return codes
 
 
 def _date_chunks(start_str: str, end_str: str, chunk_days: int = 90):
@@ -160,6 +175,13 @@ async def run():
     await svc.setup()
     all_codes = await load_all_stocks(svc.db)
     logger.info(f"[bars-backfill] 활성 종목 {len(all_codes)}개 로드 완료")
+
+    # BARS_BACKFILL_ONCE=1 → GitHub Actions 배치 모드 (1회 실행 후 즉시 종료)
+    if os.environ.get("BARS_BACKFILL_ONCE", "0") == "1":
+        logger.info("[bars-backfill] 배치 모드 (BARS_BACKFILL_ONCE=1) — 1회 실행 후 종료")
+        await run_backfill(svc, all_codes)
+        await svc.db.close()
+        return
 
     while True:
         now_kst = datetime.now(_KST)
