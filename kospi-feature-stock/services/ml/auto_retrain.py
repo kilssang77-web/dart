@@ -116,7 +116,7 @@ async def run_retrain() -> bool:
         "--smote",
         "--max-codes",   "800",
         "--model-dir",   _TMP_DIR,
-        "--label-mode",  "relative",   # 상대 레이블 사용 (walk_forward_train에 --label-mode 추가 필요)
+        "--label-mode",  "market_alpha",  # KOSPI 초과수익 기준 — 시간 편향 방지
     ]
     logger.info(f"학습 명령: {' '.join(cmd)}")
 

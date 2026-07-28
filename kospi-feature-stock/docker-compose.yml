@@ -429,7 +429,7 @@ services:
     environment:
       SERVICE_NAME: ml
       ML_API_PORT: "${ML_API_PORT:-8001}"
-      ML_RETRAIN_MAX_CODES: "500"
+      ML_RETRAIN_MAX_CODES: "400"
     ports:
       - "${ML_API_PORT:-8001}:8001"
     volumes:
@@ -451,7 +451,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 3072m
+          memory: 5120m
           cpus: '2.0'
 
   recommender:
@@ -612,6 +612,7 @@ services:
       ML_RETRAIN_TRAIN_YEARS: "8"
       ML_RETRAIN_DAYS: "14,28"
       ML_RETRAIN_HOUR: "0"
+      ML_LABEL_MODE: "market_alpha"
     volumes:
       - ./services/ml:/app
       - model_cache:/models
@@ -627,7 +628,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2048m
+          memory: 5120m
           cpus: '2.0'
 
   # ── 모니터링 (선택 실행: docker compose --profile monitoring up -d) ──────────

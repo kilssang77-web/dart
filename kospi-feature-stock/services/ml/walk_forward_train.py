@@ -80,7 +80,8 @@ async def load_daily_bars(pool: asyncpg.Pool, start, end, codes: list[str] | Non
             d.market_cap,
             COALESCE(sd.foreign_net, d.foreign_net_buy) AS foreign_net,
             COALESCE(sd.inst_net,    d.inst_net_buy)    AS inst_net,
-            CASE WHEN s.market = 'KOSDAQ' THEN 1 ELSE 0 END AS is_kosdaq
+            CASE WHEN s.market = 'KOSDAQ' THEN 1 ELSE 0 END AS is_kosdaq,
+            COALESCE(s.sector, '기타') AS sector
         FROM daily_bars d
         LEFT JOIN supply_demand sd ON sd.code=d.code AND sd.date=d.date
         LEFT JOIN stocks s ON s.code=d.code
@@ -257,6 +258,7 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
         f_nets     = grp["foreign_net"].astype(float).fillna(0).values
         i_nets     = grp["inst_net"].astype(float).fillna(0).values
         is_kosdaq  = float(grp["is_kosdaq"].iloc[0]) if "is_kosdaq" in grp.columns else 0.0
+        _sector    = grp["sector"].iloc[0] if "sector" in grp.columns else "기타"
 
         # Pre-extract disclosure data for this code (O(log N) per row via searchsorted)
         disc_code_df = disc_by_code.get(code)
@@ -526,7 +528,8 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
                 "per": per_v, "pbr": pbr_v, "roe": roe_v, "debt_ratio": debt_r,
                 "log_market_cap": log_market_cap,
                 "is_kosdaq": is_kosdaq,
-                "__code": code, "__date": date_val, "__close": c,
+                "sector_encoded": 0.0,  # cross-sectional 인코딩은 아래서 계산
+                "__code": code, "__date": date_val, "__close": c, "__sector": _sector,
             }
             rows_feat.append(feat)
 
@@ -556,6 +559,21 @@ def build_features(df: pd.DataFrame, kospi_df: pd.DataFrame, disc_df: pd.DataFra
                 )
             else:
                 out[_rank_col] = np.float32(0.5)
+
+    # Sector target encoding: 섹터별 평균 순위를 0~1로 정규화
+    if not out.empty and "__sector" in out.columns:
+        _sector_map = (
+            out.groupby("__sector")["rank_return_5d"].mean()
+            if "rank_return_5d" in out.columns
+            else None
+        )
+        if _sector_map is not None:
+            _smin, _smax = _sector_map.min(), _sector_map.max()
+            _denom = (_smax - _smin) if (_smax - _smin) > 0 else 1.0
+            out["sector_encoded"] = (
+                out["__sector"].map(_sector_map).fillna(_sector_map.mean()) - _smin
+            ) / _denom
+            out["sector_encoded"] = out["sector_encoded"].astype("float32")
 
     return out
 
@@ -911,7 +929,7 @@ if __name__ == "__main__":
                         help="SMOTE 오버샘플링 적용")
     parser.add_argument("--max-codes",   type=int, default=600,
                         help="거래대금 상위 N개 종목만 사용 (메모리 절감, 기본 600)")
-    parser.add_argument("--label-mode",  default="relative", choices=["absolute", "relative", "target_hit", "market_alpha"],
+    parser.add_argument("--label-mode",  default="market_alpha", choices=["absolute", "relative", "target_hit", "market_alpha"],
                         help="레이블 생성 방식: absolute=절대 수익률 임계, relative=날짜별 상위 20%% 랭크, target_hit=실제 고가/저가 기반 목표도달 여부, market_alpha=KOSPI 초과수익 기반")
     parser.add_argument("--optuna-trials", type=int, default=0,
                         help="Optuna HPO 시도 횟수 (0=비활성화, 권장 30~50)")
