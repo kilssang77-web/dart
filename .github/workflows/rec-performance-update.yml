@@ -24,7 +24,7 @@ jobs:
 
       - name: 추천 성과 업데이트 실행
         env:
-          SUPABASE_DSN: ${{ secrets.SUPABASE_DSN }}
+          POSTGRES_DSN: ${{ secrets.POSTGRES_DSN }}
         run: python kospi-feature-stock/scripts/update_rec_performance.py
 
       - name: 완료 알림

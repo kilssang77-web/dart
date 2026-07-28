@@ -737,8 +737,8 @@ class RecommenderService:
         )
 
     async def _sync_to_supabase(self, rec: dict, rec_id: int):
-        """추천 생성 즉시 Supabase에 미러링 — SUPABASE_DSN 없으면 무시."""
-        dsn = os.environ.get("SUPABASE_DSN", "").replace("+asyncpg", "")
+        """추천 생성 즉시 Supabase에 미러링 — POSTGRES_DSN 없으면 무시."""
+        dsn = os.environ.get("POSTGRES_DSN", "").replace("+asyncpg", "")
         if not dsn or not rec_id:
             return
         try:

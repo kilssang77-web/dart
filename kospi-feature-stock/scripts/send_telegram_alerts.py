@@ -88,12 +88,12 @@ def _format_message(r: dict) -> str:
 
 
 async def main():
-    dsn = os.environ.get("SUPABASE_DSN", "").replace("+asyncpg", "")
+    dsn = os.environ.get("POSTGRES_DSN", "").replace("+asyncpg", "")
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
 
     if not dsn or not token or not chat_id:
-        log.error("SUPABASE_DSN / TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 환경변수 누락")
+        log.error("POSTGRES_DSN / TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 환경변수 누락")
         return
 
     since = datetime.now(timezone.utc) - timedelta(minutes=_WINDOW_MIN)

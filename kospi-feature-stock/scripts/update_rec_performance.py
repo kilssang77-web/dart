@@ -19,7 +19,7 @@ log = logging.getLogger("rec_perf")
 
 
 async def main():
-    dsn = os.environ["SUPABASE_DSN"].replace("+asyncpg", "")
+    dsn = os.environ["POSTGRES_DSN"].replace("+asyncpg", "")
     conn = await asyncpg.connect(dsn)
     try:
         since = date.today() - timedelta(days=10)

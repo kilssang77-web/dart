@@ -30,7 +30,7 @@ jobs:
       - name: 증분 동기화 실행
         env:
           SRC_POSTGRES_DSN:  ${{ secrets.POSTGRES_DSN }}
-          DST_POSTGRES_DSN:  ${{ secrets.SUPABASE_DSN }}
+          DST_POSTGRES_DSN:  ${{ secrets.POSTGRES_DSN }}
           SYNC_DAYS:         ${{ github.event.inputs.days || '90' }}
         run: python kospi-feature-stock/scripts/sync_to_supabase.py
 
