@@ -1,8 +1,8 @@
-name: 로컬 DB → Supabase 증분 동기화
+name: 로컬 DB → Supabase 증분 동기화 (수동 트리거 전용)
+# GitHub Actions는 로컬 Postgres에 접근 불가 — 이 워크플로는 로컬에서 직접 실행 전용
+# 일상적 동기화는 daily_bar_worker.py의 SUPABASE_DSN dual-write 로직이 담당
 
 on:
-  schedule:
-    - cron: '0 17 * * 1-5'   # 평일 02:00 KST (UTC 17:00 전일)
   workflow_dispatch:
     inputs:
       days:

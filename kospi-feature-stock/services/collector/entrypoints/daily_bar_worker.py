@@ -6,6 +6,7 @@ GitHub Actions 배치 전용: 일봉 수집 + Redis 통계 갱신 + 배치 탐�
   - DAILY_CONCURRENT(기본 10) 종목 동시 수집 → 순차 대비 10× 속도
     (2721종목 × 2.8s/call → 순차 127분 → 동시 ~13분)
   - KIS 레이트 리밋: 10종목 동시 × (1/2.8s) ≈ 3.6 TPS << 20 TPS 한도
+  - SUPABASE_DSN 설정 시 Supabase dual-write (fire-and-forget)
 """
 import asyncio
 import logging
@@ -26,6 +27,52 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s - %(message)s",
 )
 logger = logging.getLogger("collector-daily")
+
+_SUPABASE_DSN = os.environ.get("SUPABASE_DSN", "").replace("+asyncpg", "")
+
+
+async def _supabase_upsert_bars(bars: list[dict]) -> None:
+    """로컬 수집 후 Supabase에 fire-and-forget 동기화. SUPABASE_DSN 없으면 무시."""
+    if not _SUPABASE_DSN or not bars:
+        return
+    try:
+        import asyncpg as _pg
+        conn = await _pg.connect(_SUPABASE_DSN)
+        try:
+            from db.writer import _safe_float
+            from datetime import datetime as _dt, date as _date_t
+            def _to_date(d):
+                if isinstance(d, _date_t):
+                    return d
+                return _dt.strptime(str(d).replace("-", ""), "%Y%m%d").date()
+            rows = [
+                (
+                    _to_date(b["date"]), b["code"],
+                    int(b.get("open", 0)), int(b.get("high", 0)),
+                    int(b.get("low", 0)), int(b.get("close", 0)),
+                    int(b.get("volume", 0)), int(b.get("amount", 0)),
+                    _safe_float(b.get("change_rate")) or 0.0,
+                )
+                for b in bars if b.get("close") and b.get("date") and b.get("code")
+            ]
+            if rows:
+                await conn.executemany(
+                    """
+                    INSERT INTO daily_bars
+                        (date, code, open, high, low, close, volume, amount, change_rate)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                    ON CONFLICT (date, code) DO UPDATE SET
+                        open=EXCLUDED.open, high=EXCLUDED.high,
+                        low=EXCLUDED.low,   close=EXCLUDED.close,
+                        volume=EXCLUDED.volume, amount=EXCLUDED.amount,
+                        change_rate=EXCLUDED.change_rate
+                    """,
+                    rows,
+                )
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.debug(f"[supabase] daily_bars 동기화 실패 (무시): {e}")
 
 _KST             = timezone(timedelta(hours=9))
 BACKFILL_DAYS    = int(os.environ.get("DAILY_BACKFILL_DAYS", "5"))
@@ -51,6 +98,8 @@ async def _collect_one(
             if bars:
                 n = await write_daily_bars(svc.db, bars)
                 counters["total"] += n
+                if n > 0 and _SUPABASE_DSN:
+                    asyncio.ensure_future(_supabase_upsert_bars(bars))
         except Exception as e:
             logger.error(f"[daily] {code}: {e}")
         finally:
@@ -111,6 +160,8 @@ async def run():
             if idx_bars:
                 n = await write_daily_bars(svc.db, idx_bars)
                 logger.info(f"[daily] 지수 {mkt_code}: {n}행")
+                if n > 0 and _SUPABASE_DSN:
+                    asyncio.ensure_future(_supabase_upsert_bars(idx_bars))
         except Exception as e:
             logger.error(f"[daily] 지수 {mkt_code}: {e}")
 
