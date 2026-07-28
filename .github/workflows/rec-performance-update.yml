@@ -1,0 +1,36 @@
+name: 추천 성과 자동 업데이트 (Supabase 기반)
+
+on:
+  schedule:
+    - cron: '30 7 * * 1-5'   # 평일 16:30 KST (UTC 07:30) — 장 마감 후
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: kospi-feature-stock/requirements-cloud.txt
+
+      - name: 의존성 설치
+        run: pip install asyncpg
+
+      - name: 추천 성과 업데이트 실행
+        env:
+          SUPABASE_DSN: ${{ secrets.SUPABASE_DSN }}
+        run: python kospi-feature-stock/scripts/update_rec_performance.py
+
+      - name: 완료 알림
+        if: failure()
+        run: |
+          [ -z "${{ secrets.DISCORD_WEBHOOK }}" ] && exit 0
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d '{"content": "❌ rec-performance 업데이트 실패 — ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' || true

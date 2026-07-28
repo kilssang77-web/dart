@@ -726,12 +726,47 @@ class RecommenderService:
                         f"risk={rec.get('risk_score',0):.3f} rr={rec.get('risk_reward_ratio',0):.2f} "
                         f"(thresholds: prob>={perf_min_prob} risk<={perf_max_risk} rr>={perf_min_rr})"
                     )
+            # Supabase 즉시 미러링 (fire-and-forget, 실패해도 로컬 저장엔 영향 없음)
+            if rec_id:
+                asyncio.ensure_future(self._sync_to_supabase(rec, rec_id))
 
     async def _publish_redis(self, rec: dict):
         await self._redis.publish(
             "channel:recommendations",
             orjson.dumps(rec).decode(),
         )
+
+    async def _sync_to_supabase(self, rec: dict, rec_id: int):
+        """추천 생성 즉시 Supabase에 미러링 — SUPABASE_DSN 없으면 무시."""
+        dsn = os.environ.get("SUPABASE_DSN", "").replace("+asyncpg", "")
+        if not dsn or not rec_id:
+            return
+        try:
+            conn = await asyncpg.connect(dsn)
+            try:
+                await conn.execute(
+                    """
+                    INSERT INTO recommendations (
+                        id, code, created_at, action,
+                        entry_price, entry_price_low, entry_price_high,
+                        target_price, stop_loss_price, expected_hold_days,
+                        success_prob, expected_return, risk_score,
+                        risk_reward_ratio, rationale, rec_score, confidence_grade
+                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    rec_id, rec["code"], rec["created_at"], rec["action"],
+                    rec["entry_price"], rec["entry_price_low"], rec["entry_price_high"],
+                    rec["target_price"], rec["stop_loss_price"], float(rec["expected_hold_days"]),
+                    rec["success_prob"], rec["expected_return"], rec["risk_score"],
+                    rec["risk_reward_ratio"],
+                    orjson.dumps(rec["rationale"]).decode(),
+                    rec.get("rec_score"), rec.get("confidence_grade"),
+                )
+            finally:
+                await conn.close()
+        except Exception as e:
+            logger.warning(f"[supabase-sync] 추천 미러링 실패 (비치명적): {e}")
 
 
 if __name__ == "__main__":
