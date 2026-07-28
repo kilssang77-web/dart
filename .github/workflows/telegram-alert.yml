@@ -26,6 +26,6 @@ jobs:
       - name: Telegram 알림 전송
         env:
           POSTGRES_DSN:      ${{ secrets.POSTGRES_DSN }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_TOKEN:     ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python kospi-feature-stock/scripts/send_telegram_alerts.py

@@ -86,10 +86,10 @@ async def retry_log(log_id: int, request: Request):
     if not row:
         raise HTTPException(status_code=404, detail="Log not found")
 
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    bot_token = os.getenv("TELEGRAM_TOKEN")
     chat_id   = os.getenv("TELEGRAM_CHAT_ID")
     if not bot_token or not chat_id:
-        raise HTTPException(status_code=503, detail="Telegram not configured (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 미설정)")
+        raise HTTPException(status_code=503, detail="Telegram not configured (TELEGRAM_TOKEN / TELEGRAM_CHAT_ID 미설정)")
 
     url     = f"{TELEGRAM_API}/bot{bot_token}/sendMessage"
     payload = {"chat_id": chat_id, "text": row["message"], "parse_mode": "HTML"}

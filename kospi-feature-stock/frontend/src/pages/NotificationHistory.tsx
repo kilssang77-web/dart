@@ -28,7 +28,7 @@ function friendlyError(msg: string | null | undefined): string {
     return '연결 시간 초과 — Telegram 서버에 응답이 없었습니다. 네트워크 상태를 확인하세요.'
   }
   if (msg.includes('401') || msg.toLowerCase().includes('unauthorized')) {
-    return '인증 실패 (401) — 봇 토큰(TELEGRAM_BOT_TOKEN)이 잘못되었거나 만료되었습니다.'
+    return '인증 실패 (401) — 봇 토큰(TELEGRAM_TOKEN)이 잘못되었거나 만료되었습니다.'
   }
   if (msg.toLowerCase().includes('chat not found') || msg.includes('400')) {
     return '채팅 ID 오류 (400) — TELEGRAM_CHAT_ID가 잘못되었습니다. 올바른 채팅 ID를 설정하세요.'
@@ -43,7 +43,7 @@ function friendlyError(msg: string | null | undefined): string {
     return '네트워크 연결 오류 — Telegram 서버와의 연결이 끊어졌습니다. 인터넷 연결을 확인하세요.'
   }
   if (msg.toLowerCase().includes('not configured') || msg.includes('BOT_TOKEN') || msg.includes('CHAT_ID')) {
-    return 'Telegram 설정 누락 — .env 파일에 TELEGRAM_BOT_TOKEN과 TELEGRAM_CHAT_ID를 설정하세요.'
+    return 'Telegram 설정 누락 — .env 파일에 TELEGRAM_TOKEN과 TELEGRAM_CHAT_ID를 설정하세요.'
   }
   return msg
 }

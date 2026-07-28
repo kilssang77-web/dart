@@ -11,11 +11,11 @@ TELEGRAM_API = "https://api.telegram.org"
 class TelegramSender:
 
     def __init__(self, db_pool=None):
-        token   = os.getenv("TELEGRAM_BOT_TOKEN")
+        token   = os.getenv("TELEGRAM_TOKEN")
         chat_id = os.getenv("TELEGRAM_CHAT_ID")
         if not token or not chat_id:
             raise RuntimeError(
-                "TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set in environment"
+                "TELEGRAM_TOKEN and TELEGRAM_CHAT_ID must be set in environment"
             )
         self._token   = token
         self._chat_id = chat_id
