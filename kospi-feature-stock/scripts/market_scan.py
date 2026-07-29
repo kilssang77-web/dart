@@ -93,7 +93,7 @@ def fetch_market_data() -> dict:
 
     for market in ["KOSPI", "KOSDAQ"]:
         try:
-            df = krx.get_market_ohlcv(TODAY, TODAY, market)
+            df = krx.get_market_ohlcv_by_ticker(TODAY, market=market)
             if df is not None and not df.empty:
                 df.index = df.index.astype(str).str.zfill(6)
                 df["_market"] = market
@@ -105,7 +105,7 @@ def fetch_market_data() -> dict:
 
     for market in ["KOSPI", "KOSDAQ"]:
         try:
-            df = krx.get_market_fundamental(TODAY, TODAY, market)
+            df = krx.get_market_fundamental_by_ticker(TODAY, market=market)
             if df is not None and not df.empty:
                 df.index = df.index.astype(str).str.zfill(6)
                 for code, r in df.iterrows():
@@ -119,7 +119,7 @@ def fetch_market_data() -> dict:
 
     for market in ["KOSPI", "KOSDAQ"]:
         try:
-            df = krx.get_market_cap(TODAY, TODAY, market)
+            df = krx.get_market_cap_by_ticker(TODAY, market=market)
             if df is not None and not df.empty:
                 df.index = df.index.astype(str).str.zfill(6)
                 col = "시가총액" if "시가총액" in df.columns else df.columns[0]
