@@ -39,6 +39,16 @@ RISK_THRESHOLD    = float(os.environ.get("RISK_THRESHOLD", "0.55"))
 COOLDOWN_DAYS     = int(os.environ.get("COOLDOWN_DAYS", "2"))
 HISTORY_DAYS      = 75  # MA60 + 여유
 
+# 동적 임계값 — result_tracker.py가 갱신, 초기값은 env/기본값
+_DYN_CFG = Path(os.path.expanduser("~/quant/dynamic_config.json"))
+if _DYN_CFG.exists():
+    try:
+        _d = json.loads(_DYN_CFG.read_text())
+        if "score_threshold" in _d:
+            SCORE_THRESHOLD = float(_d["score_threshold"])
+    except Exception:
+        pass
+
 
 # ── 모델 로딩 ──────────────────────────────────────────────────────────
 

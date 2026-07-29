@@ -49,6 +49,16 @@ CHANGE_MIN      = float(os.environ.get("SIGNAL_CHANGE_MIN", "3.0"))
 COOLDOWN_MINS   = int(os.environ.get("COOLDOWN_MINS", "60"))
 COOLDOWN_FILE   = Path(os.path.expanduser("~/quant/intraday_cooldown.json"))
 
+# 동적 임계값 — result_tracker.py가 갱신
+_DYN_CFG = Path(os.path.expanduser("~/quant/dynamic_config.json"))
+if _DYN_CFG.exists():
+    try:
+        _d = json.loads(_DYN_CFG.read_text())
+        if "score_threshold" in _d:
+            SCORE_THRESHOLD = float(_d["score_threshold"])
+    except Exception:
+        pass
+
 _TOKEN_CACHE: dict = {}
 
 
