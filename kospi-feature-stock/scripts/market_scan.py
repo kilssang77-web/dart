@@ -54,22 +54,36 @@ def load_models():
     models["risk_lgbm"]  = lgb.Booster(model_file=str(MODEL_DIR / "risk_model.lgb"))
     log.info("LightGBM 모델 로드 완료")
 
+    # calibrator 로딩 (XGBoost와 독립적으로 처리)
     try:
         import joblib, warnings
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore")
-            for key, fname in [
-                ("entry_cal",     "entry_calibrator.pkl"),
-                ("risk_cal",      "risk_calibrator.pkl"),
-                ("xgb_entry",     "xgb_entry_model.pkl"),
-                ("xgb_entry_cal", "xgb_entry_calibrator.pkl"),
-            ]:
+            for key, fname in [("entry_cal", "entry_calibrator.pkl"),
+                                ("risk_cal",  "risk_calibrator.pkl")]:
                 p = MODEL_DIR / fname
                 if p.exists():
                     models[key] = joblib.load(str(p))
-        log.info("캘리브레이터/XGB 로드 완료")
+        log.info("calibrator 로드 완료")
     except Exception as e:
-        log.warning(f"캘리브레이터/XGB 로드 실패: {e}")
+        log.warning(f"calibrator 로드 실패: {e}")
+
+    # XGBoost 앙상블 (선택적)
+    try:
+        import xgboost  # noqa: F401
+        import joblib as _jl, warnings as _w
+        with _w.catch_warnings():
+            _w.filterwarnings("ignore")
+            for key, fname in [("xgb_entry",     "xgb_entry_model.pkl"),
+                                ("xgb_entry_cal", "xgb_entry_calibrator.pkl")]:
+                p = MODEL_DIR / fname
+                if p.exists():
+                    models[key] = _jl.load(str(p))
+        log.info("XGBoost 앙상블 로드 완료")
+    except ImportError:
+        log.info("xgboost 미설치 — LGBM 단독 사용")
+    except Exception as e:
+        log.warning(f"XGBoost 로드 실패: {e}")
 
     return models, feature_cols
 
@@ -529,6 +543,9 @@ async def main():
 
     feats_df        = pd.DataFrame(feats_list)
     probs, risks    = ml_score(feats_df, models, feature_cols)
+
+    log.info(f"점수 분포 — prob: min={probs.min():.3f} mean={probs.mean():.3f} max={probs.max():.3f}"
+             f" | risk: min={risks.min():.3f} mean={risks.mean():.3f} max={risks.max():.3f}")
 
     # 추천 필터링
     new_recs = []
