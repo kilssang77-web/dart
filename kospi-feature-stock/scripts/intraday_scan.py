@@ -1,8 +1,9 @@
 """
 장 중 실시간 스캐너 — KIS 거래량 급등 순위 → Supabase 이력 → ML → Telegram
-크론: */30 0-6 * * 1-5  (UTC 00:00~06:30 = KST 09:00~15:30, 30분 간격)
+크론: */10 0-6 * * 1-5  (UTC 00:00~06:30 = KST 09:00~15:30, 10분 간격)
 
-KIS REST /volume-rank 로 KOSPI+KOSDAQ 거래량 급등 종목을 한 번에 수신.
+KIS REST /volume-rank 로 KOSPI 거래량 급등 종목 수신.
+후보 종목별 /inquire-price 로 시가·고가·저가 실값 보완.
 Supabase daily_bars 이력으로 75개 피처 계산 후 ML 스코어링.
 """
 import asyncio
@@ -86,6 +87,37 @@ def _kis_get(path: str, tr_id: str, params: dict) -> dict:
     )
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.loads(r.read())
+
+
+def fetch_current_price(code: str, mkt_div: str = "J") -> dict | None:
+    """KIS 개별 종목 현재가·시가·고가·저가 실값 조회"""
+    try:
+        d = _kis_get(
+            "/uapi/domestic-stock/v1/quotations/inquire-price",
+            "FHKST01010100",
+            {"FID_COND_MRKT_DIV_CODE": mkt_div, "FID_INPUT_ISCD": code},
+        )
+        if d.get("rt_cd") != "0":
+            return None
+        out = d.get("output", {})
+        o = int(_s(out.get("stck_oprc")))
+        h = int(_s(out.get("stck_hgpr")))
+        l = int(_s(out.get("stck_lwpr")))
+        c = int(_s(out.get("stck_prpr")))
+        if c <= 0:
+            return None
+        return {
+            "open":        o if o > 0 else c,
+            "high":        h if h > 0 else c,
+            "low":         l if l > 0 else c,
+            "close":       c,
+            "volume":      int(_s(out.get("acml_vol"))),
+            "amount":      int(_s(out.get("acml_tr_pbmn"))),
+            "change_rate": _s(out.get("prdy_ctrt")),
+        }
+    except Exception as e:
+        log.debug(f"개별가 조회 실패({code}): {e}")
+        return None
 
 
 def fetch_volume_rank(market_div: str) -> list[dict]:
@@ -223,6 +255,15 @@ async def main():
     if not candidates:
         save_cooldown(cooldown)
         return
+
+    # 개별 종목 OHLCV 실값 보완 (시가·고가·저가 volume-rank 미제공)
+    log.info(f"개별 OHLCV 조회: {len(candidates)}종목")
+    for code in candidates:
+        mkt_div   = "J" if valid_codes_db.get(code) == "KOSPI" else "Q"
+        price_dat = fetch_current_price(code, mkt_div)
+        if price_dat:
+            today_rows[code].update(price_dat)
+        time.sleep(0.05)   # KIS 레이트 리밋 (20 TPS 한도)
 
     # Supabase 이력 로드 (오늘치는 아직 없으므로 어제까지 이력)
     conn = await asyncpg.connect(DSN, statement_cache_size=0)
