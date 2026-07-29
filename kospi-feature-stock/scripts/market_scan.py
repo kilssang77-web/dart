@@ -101,7 +101,8 @@ async def fetch_latest_ohlcv(conn, target_date: date) -> dict[str, dict]:
     rows = await conn.fetch("""
         SELECT d.code, d.open, d.high, d.low, d.close,
                d.volume, d.amount, d.change_rate,
-               COALESCE(s.market, 'KOSPI') AS market
+               COALESCE(s.market, 'KOSPI') AS market,
+               COALESCE(s.name, d.code) AS name
         FROM daily_bars d
         LEFT JOIN stocks s ON s.code = d.code
         WHERE d.date = $1 AND d.close > 0
@@ -590,6 +591,7 @@ async def main():
             r = today_data[code]
             new_recs.append({
                 "code":            code,
+                "name":            r.get("name", code),
                 "success_prob":    round(prob, 4),
                 "risk_score":      round(risk, 4),
                 "expected_return": round((prob - 0.5) * 20.0, 2),
@@ -616,7 +618,8 @@ async def main():
     for r in top:
         chg_str = f"+{r['change_rate']:.1f}%" if r['change_rate'] >= 0 else f"{r['change_rate']:.1f}%"
         lines.append(
-            f"• <b>{r['code']}</b>  확률 {r['success_prob']:.0%}"
+            f"• <b>{r.get('name', r['code'])}</b> ({r['code']})"
+            f"  확률 {r['success_prob']:.0%}"
             f"  리스크 {r['risk_score']:.0%}"
             f"  {chg_str}"
             f"  거래량 {r['vol_ratio']:.1f}x"
