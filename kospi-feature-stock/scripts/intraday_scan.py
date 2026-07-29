@@ -174,7 +174,8 @@ async def main():
     today_rows:  dict       = {}
 
     for item in raw_items:
-        code = item.get("stck_shrn_iscd", "").strip()
+        # volume-rank 응답 종목코드 필드명: mksc_shrn_iscd
+        code = item.get("mksc_shrn_iscd", "").strip()
         if not code or len(code) != 6:
             continue
         if in_cooldown(code, cooldown):
@@ -195,9 +196,9 @@ async def main():
             "code":        code,
             "name":        item.get("hts_kor_isnm", code),
             "close":       int(price),
-            "open":        int(_s(item.get("stck_oprc"))),
-            "high":        int(_s(item.get("stck_hgpr"))),
-            "low":         int(_s(item.get("stck_lwpr"))),
+            "open":        int(price),   # volume-rank 미제공 → 현재가로 대체
+            "high":        int(price),
+            "low":         int(price),
             "volume":      int(_s(item.get("acml_vol"))),
             "amount":      int(_s(item.get("acml_tr_pbmn", 0))),
             "change_rate": prdy_ctrt,
