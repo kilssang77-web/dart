@@ -34,7 +34,7 @@ MODEL_DIR = Path(os.environ.get(
 
 SIGNAL_VOL_RATIO  = float(os.environ.get("SIGNAL_VOL_RATIO", "2.0"))
 SIGNAL_CHANGE_MIN = float(os.environ.get("SIGNAL_CHANGE_MIN", "3.0"))
-SCORE_THRESHOLD   = float(os.environ.get("SCORE_THRESHOLD", "0.55"))
+SCORE_THRESHOLD   = float(os.environ.get("SCORE_THRESHOLD", "0.27"))
 RISK_THRESHOLD    = float(os.environ.get("RISK_THRESHOLD", "0.55"))
 COOLDOWN_DAYS     = int(os.environ.get("COOLDOWN_DAYS", "2"))
 HISTORY_DAYS      = 75  # MA60 + 여유
@@ -144,6 +144,28 @@ async def fetch_kospi_index(conn) -> list:
     return [{"close": r["close"]} for r in rows]
 
 
+async def fetch_financials(conn, codes: list[str]) -> dict[str, dict]:
+    """종목별 최신 재무데이터 (EPS/BPS/debt_ratio → PER/PBR/ROE 계산용)"""
+    try:
+        rows = await conn.fetch("""
+            SELECT DISTINCT ON (code) code, eps, bps, debt_ratio
+            FROM financials
+            WHERE code = ANY($1::varchar[])
+            ORDER BY code, year DESC, quarter DESC NULLS LAST
+        """, codes)
+        return {
+            r["code"]: {
+                "eps":        float(r["eps"]        or 0),
+                "bps":        float(r["bps"]        or 0),
+                "debt_ratio": float(r["debt_ratio"] or 0),
+            }
+            for r in rows
+        }
+    except Exception as e:
+        log.warning(f"재무 데이터 로드 실패: {e}")
+        return {}
+
+
 async def get_recent_recs(conn) -> set[str]:
     since = TODAY_D - timedelta(days=COOLDOWN_DAYS)
     try:
@@ -213,6 +235,7 @@ def compute_features(
     is_kosdaq: float,
     kospi_hist: list,
     feature_cols: list,
+    fin: dict | None = None,
 ) -> dict:
     rows    = [today_row] + hist_rows
     closes  = [_s(r.get("close"))  for r in rows]
@@ -363,7 +386,15 @@ def compute_features(
     month_sin = math.sin(2 * math.pi * (month - 1) / 12)
     month_cos = math.cos(2 * math.pi * (month - 1) / 12)
 
-    per = pbr = roe = debt_ratio = 0.0
+    if fin:
+        eps_v       = fin.get("eps", 0.0)
+        bps_v       = fin.get("bps", 0.0)
+        debt_ratio  = fin.get("debt_ratio", 0.0)
+        per         = round(c / eps_v,  2) if eps_v  > 0 else 0.0
+        pbr         = round(c / bps_v,  2) if bps_v  > 0 else 0.0
+        roe         = round(eps_v / bps_v * 100, 2) if bps_v > 0 else 0.0
+    else:
+        per = pbr = roe = debt_ratio = 0.0
     log_market_cap = 0.0
     rank_return_5d = rank_vol_ratio = rank_foreign_net = rank_rsi14 = 0.5
 
@@ -474,7 +505,7 @@ async def main():
 
     models, feature_cols = load_models()
 
-    conn = await asyncpg.connect(DSN)
+    conn = await asyncpg.connect(DSN, statement_cache_size=0)
     try:
         # 최신 영업일 확인
         target_date = await fetch_latest_date(conn)
@@ -516,6 +547,8 @@ async def main():
         since      = target_date - timedelta(days=HISTORY_DAYS + 10)
         hist_data  = await fetch_history(conn, candidates, since)
         kospi_hist = await fetch_kospi_index(conn)
+        fin_data   = await fetch_financials(conn, candidates)
+        log.info(f"재무 데이터: {len(fin_data)}개 종목")
 
     finally:
         await conn.close()
@@ -531,7 +564,8 @@ async def main():
         hist_rows = hist_data.get(code, [])
         is_kosdaq = 1.0 if today_r.get("market") == "KOSDAQ" else 0.0
 
-        feats = compute_features(today_r, hist_rows, is_kosdaq, kospi_hist, feature_cols)
+        feats = compute_features(today_r, hist_rows, is_kosdaq, kospi_hist, feature_cols,
+                                 fin=fin_data.get(code))
         feats_list.append(feats)
         valid_codes.append(code)
 
@@ -569,7 +603,7 @@ async def main():
     if not new_recs:
         return
 
-    conn = await asyncpg.connect(DSN)
+    conn = await asyncpg.connect(DSN, statement_cache_size=0)
     try:
         n = await save_recommendations(conn, new_recs)
     finally:
