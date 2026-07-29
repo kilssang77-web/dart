@@ -104,7 +104,7 @@ def fetch_volume_rank(market_div: str) -> list[dict]:
                 "FID_TRGT_EXLS_CLS_CODE":  "000000",
                 "FID_INPUT_PRICE_1":       "",
                 "FID_INPUT_PRICE_2":       "",
-                "FID_VOL_CNT":             "100000",
+                "FID_VOL_CNT":             "10000",
                 "FID_INPUT_DATE_1":        "",
             },
         )
@@ -157,9 +157,20 @@ async def main():
     models, feature_cols = load_models()
     cooldown = load_cooldown()
 
-    # KIS 거래량 급등 순위 수신 (KOSPI + KOSDAQ)
+    # Supabase 유효 종목 코드 사전 로드 (ETF·미수집 종목 제외용)
+    conn = await asyncpg.connect(DSN, statement_cache_size=0)
+    try:
+        rows = await conn.fetch(
+            "SELECT code, market FROM stocks WHERE is_active = true"
+        )
+        valid_codes_db = {r["code"]: r["market"] for r in rows}
+    finally:
+        await conn.close()
+    log.info(f"Supabase 유효 종목: {len(valid_codes_db)}개")
+
+    # KIS 거래량 급등 순위 수신 (KOSPI only — KOSDAQ TR 별도)
     raw_items: list[dict] = []
-    for mkt_div, mkt_name in [("J", "KOSPI"), ("Q", "KOSDAQ")]:
+    for mkt_div, mkt_name in [("J", "KOSPI")]:
         items = fetch_volume_rank(mkt_div)
         for item in items:
             item["_market"] = mkt_name
@@ -177,6 +188,8 @@ async def main():
         # volume-rank 응답 종목코드 필드명: mksc_shrn_iscd
         code = item.get("mksc_shrn_iscd", "").strip()
         if not code or len(code) != 6:
+            continue
+        if code not in valid_codes_db:   # Supabase에 없으면 이력·피처 계산 불가
             continue
         if in_cooldown(code, cooldown):
             continue
