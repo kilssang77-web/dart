@@ -1,7 +1,7 @@
 """
-GCP e2-micro 장중 스캐너 (pykrx → Supabase 이력 → ML → Telegram)
-크론: */10 0-6 * * 1-5  (UTC 00:00-07:00 = KST 09:00-16:00, 평일)
-사전 실행: backfill_supabase.py (90일 일봉 적재)
+GCP e2-micro 장 마감 후 스캐너 (Supabase daily_bars → ML → Telegram)
+pykrx/KRX API 의존성 없음 — Supabase 데이터만 사용
+크론: 30 7 * * 1-5  (UTC 07:30 = KST 16:30, 평일 장 마감 후)
 """
 import asyncio
 import asyncpg
@@ -9,14 +9,12 @@ import json
 import logging
 import math
 import os
-import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
-from pykrx import stock as krx
 
 load_dotenv(os.path.expanduser("~/.env"))
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -24,7 +22,6 @@ log = logging.getLogger("scanner")
 
 KST     = timezone(timedelta(hours=9))
 NOW     = datetime.now(KST)
-TODAY   = NOW.strftime("%Y%m%d")
 TODAY_D = NOW.date()
 
 DSN       = os.environ["POSTGRES_DSN"]
@@ -41,15 +38,6 @@ SCORE_THRESHOLD   = float(os.environ.get("SCORE_THRESHOLD", "0.55"))
 RISK_THRESHOLD    = float(os.environ.get("RISK_THRESHOLD", "0.55"))
 COOLDOWN_DAYS     = int(os.environ.get("COOLDOWN_DAYS", "2"))
 HISTORY_DAYS      = 75  # MA60 + 여유
-
-
-# ── 시장 시간 확인 ─────────────────────────────────────────────────────
-
-def is_market_open() -> bool:
-    if NOW.weekday() >= 5:
-        return False
-    from datetime import time as _t
-    return _t(9, 5) <= NOW.time() <= _t(15, 35)
 
 
 # ── 모델 로딩 ──────────────────────────────────────────────────────────
@@ -86,89 +74,40 @@ def load_models():
     return models, feature_cols
 
 
-# ── pykrx 데이터 수집 ──────────────────────────────────────────────────
+# ── Supabase 데이터 로드 ───────────────────────────────────────────────
 
-def fetch_market_data() -> dict:
-    ohlcv, fund, mcap = {}, {}, {}
-
-    for market in ["KOSPI", "KOSDAQ"]:
-        try:
-            df = krx.get_market_ohlcv_by_ticker(TODAY, market=market)
-            if df is not None and not df.empty:
-                df.index = df.index.astype(str).str.zfill(6)
-                df["_market"] = market
-                ohlcv[market] = df
-                log.info(f"{market}: {len(df)}종목 OHLCV")
-        except Exception as e:
-            log.warning(f"{market} OHLCV 실패: {e}")
-        time.sleep(0.5)
-
-    for market in ["KOSPI", "KOSDAQ"]:
-        try:
-            df = krx.get_market_fundamental_by_ticker(TODAY, market=market)
-            if df is not None and not df.empty:
-                df.index = df.index.astype(str).str.zfill(6)
-                for code, r in df.iterrows():
-                    fund[code] = {
-                        "per": float(r.get("PER", 0) or 0),
-                        "pbr": float(r.get("PBR", 0) or 0),
-                    }
-        except Exception as e:
-            log.warning(f"{market} 기초 데이터 실패: {e}")
-        time.sleep(0.5)
-
-    for market in ["KOSPI", "KOSDAQ"]:
-        try:
-            df = krx.get_market_cap_by_ticker(TODAY, market=market)
-            if df is not None and not df.empty:
-                df.index = df.index.astype(str).str.zfill(6)
-                col = "시가총액" if "시가총액" in df.columns else df.columns[0]
-                for code, r in df.iterrows():
-                    v = r.get(col, 0)
-                    mcap[code] = float(v or 0)
-        except Exception as e:
-            log.warning(f"{market} 시가총액 실패: {e}")
-        time.sleep(0.5)
-
-    return {"ohlcv": ohlcv, "fund": fund, "mcap": mcap}
+async def fetch_latest_date(conn) -> date:
+    """Supabase에 있는 가장 최근 영업일 반환"""
+    d = await conn.fetchval("SELECT MAX(date) FROM daily_bars")
+    return d
 
 
-# ── 신호 탐지 ──────────────────────────────────────────────────────────
-
-async def get_signal_candidates(conn, market_data: dict) -> list[str]:
-    try:
-        rows = await conn.fetch("""
-            SELECT code, AVG(volume)::BIGINT AS avg_vol
-            FROM daily_bars
-            WHERE date >= $1 AND date < $2
-            GROUP BY code
-        """, TODAY_D - timedelta(days=30), TODAY_D)
-        avg_vols = {r["code"]: int(r["avg_vol"]) for r in rows if r["avg_vol"]}
-    except Exception as e:
-        log.warning(f"평균 거래량 조회 실패: {e}")
-        avg_vols = {}
-
-    candidates = []
-    for market, df in market_data["ohlcv"].items():
-        for code, r in df.iterrows():
-            vol   = int(r.get("거래량", 0) or 0)
-            chg   = float(r.get("등락률", 0.0) or 0.0)
-            close = int(r.get("종가", 0) or 0)
-            if close <= 0:
-                continue
-            avg_vol   = avg_vols.get(code, 0)
-            vol_ratio = vol / avg_vol if avg_vol > 0 else 1.0
-            if vol_ratio >= SIGNAL_VOL_RATIO or chg >= SIGNAL_CHANGE_MIN:
-                candidates.append(code)
-
-    log.info(f"신호 종목: {len(candidates)}개")
-    return candidates
+async def fetch_latest_ohlcv(conn, target_date: date) -> dict[str, dict]:
+    """target_date 전 종목 OHLCV + market 반환"""
+    rows = await conn.fetch("""
+        SELECT d.code, d.open, d.high, d.low, d.close,
+               d.volume, d.amount, d.change_rate,
+               COALESCE(s.market, 'KOSPI') AS market
+        FROM daily_bars d
+        LEFT JOIN stocks s ON s.code = d.code
+        WHERE d.date = $1 AND d.close > 0
+    """, target_date)
+    return {r["code"]: dict(r) for r in rows}
 
 
-# ── Supabase 이력 로드 ─────────────────────────────────────────────────
+async def fetch_avg_volumes(conn, target_date: date) -> dict[str, float]:
+    """최근 20영업일 평균 거래량"""
+    rows = await conn.fetch("""
+        SELECT code, AVG(volume)::FLOAT AS avg_vol
+        FROM daily_bars
+        WHERE date >= $1 AND date < $2
+        GROUP BY code
+    """, target_date - timedelta(days=30), target_date)
+    return {r["code"]: float(r["avg_vol"]) for r in rows if r["avg_vol"]}
 
-async def load_history(conn, codes: list[str]) -> dict[str, list]:
-    since = TODAY_D - timedelta(days=HISTORY_DAYS + 10)
+
+async def fetch_history(conn, codes: list[str], since: date) -> dict[str, list]:
+    """코드별 최근 이력 일봉 (최신→과거 순)"""
     rows = await conn.fetch("""
         SELECT code, date, open, high, low, close, volume, amount, change_rate
         FROM daily_bars
@@ -182,7 +121,7 @@ async def load_history(conn, codes: list[str]) -> dict[str, list]:
     return hist
 
 
-async def load_kospi_index(conn) -> list:
+async def fetch_kospi_index(conn) -> list:
     rows = await conn.fetch("""
         SELECT close FROM daily_bars
         WHERE code = '0001'
@@ -191,15 +130,26 @@ async def load_kospi_index(conn) -> list:
     return [{"close": r["close"]} for r in rows]
 
 
+async def get_recent_recs(conn) -> set[str]:
+    since = TODAY_D - timedelta(days=COOLDOWN_DAYS)
+    try:
+        rows = await conn.fetch(
+            "SELECT DISTINCT code FROM recommendations WHERE created_at >= $1 AND action='BUY'",
+            since,
+        )
+        return {r["code"] for r in rows}
+    except Exception as e:
+        log.warning(f"쿨다운 조회 실패: {e}")
+        return set()
+
+
 # ── 기술적 지표 ────────────────────────────────────────────────────────
 
 def _compute_macd_bb(closes_new_to_old: list):
-    """최신→과거 순 closes에서 (macd_hist, bb_upper, bb_lower) 반환"""
-    prices = list(reversed(closes_new_to_old))  # 오래된→최신
+    prices = list(reversed(closes_new_to_old))
     c_last = prices[-1] if prices else 100.0
     if len(prices) < 26:
         return 0.0, c_last * 1.05, c_last * 0.95
-
     k12, k26, k9 = 2/13, 2/27, 2/10
     ema12 = ema26 = prices[0]
     macd_vals = []
@@ -207,12 +157,10 @@ def _compute_macd_bb(closes_new_to_old: list):
         ema12 = p * k12 + ema12 * (1 - k12)
         ema26 = p * k26 + ema26 * (1 - k26)
         macd_vals.append(ema12 - ema26)
-
     signal = macd_vals[0]
     for m in macd_vals[1:]:
         signal = m * k9 + signal * (1 - k9)
     macd_hist = macd_vals[-1] - signal
-
     recent20 = prices[-min(20, len(prices)):]
     mean = sum(recent20) / len(recent20)
     std  = (sum((x - mean) ** 2 for x in recent20) / len(recent20)) ** 0.5
@@ -248,13 +196,11 @@ def _s(v, d=0.0) -> float:
 def compute_features(
     today_row: dict,
     hist_rows: list,
-    fund: dict,
-    mcap: float,
     is_kosdaq: float,
     kospi_hist: list,
     feature_cols: list,
 ) -> dict:
-    rows   = [today_row] + hist_rows  # 최신→과거
+    rows    = [today_row] + hist_rows
     closes  = [_s(r.get("close"))  for r in rows]
     volumes = [_s(r.get("volume")) for r in rows]
     amounts = [_s(r.get("amount")) for r in rows]
@@ -276,14 +222,13 @@ def compute_features(
     return_20d = ret(20)
 
     def ma(n):
-        v = closes[:n]
-        return sum(v) / len(v) if v else c
+        v = closes[:n]; return sum(v) / len(v) if v else c
 
     def ma_prev(n, offset=1):
         v = closes[offset:offset + n]
         return sum(v) / len(v) if v else (closes[offset] if len(closes) > offset else c)
 
-    ma5   = ma(5);  ma20 = ma(20); ma60 = ma(60)
+    ma5  = ma(5);  ma20 = ma(20); ma60 = ma(60)
     ma5_ratio   = c / ma5  if ma5  else 1.0
     ma20_ratio  = c / ma20 if ma20 else 1.0
     ma60_ratio  = c / ma60 if ma60 else 1.0
@@ -329,8 +274,8 @@ def compute_features(
     atr       = sum(atrs) / len(atrs) if atrs else c * 0.02
     atr_ratio = atr / c if c else 0.0
 
-    rsi14         = _rsi(closes, 14)
-    rsi_oversold  = 1.0 if rsi14 < 30 else 0.0
+    rsi14          = _rsi(closes, 14)
+    rsi_oversold   = 1.0 if rsi14 < 30 else 0.0
     rsi_overbought = 1.0 if rsi14 > 70 else 0.0
 
     macd_hist, bb_upper, bb_lower = _compute_macd_bb(closes)
@@ -358,24 +303,14 @@ def compute_features(
     low52   = min(closes[1:131]) if len(closes) > 131 else c
     pos_52w = (c - low52) / (high52 - low52) if high52 != low52 else 0.5
 
-    # 수급 — Supabase에 supply_demand 없으므로 중립값 사용
-    foreign_cumnet_5d    = 0.0
-    foreign_cumnet_20d   = 0.0
-    foreign_cumnet_streak = 0.0
-    inst_cumnet_5d       = 0.0
-    inst_cumnet_20d      = 0.0
-    dual_buy             = 0.0
-    dual_buy_3d          = 0.0
-    short_ratio          = 0.0
-    short_increasing     = 0.0
-    foreign_net_ratio    = 0.0
-    inst_net_ratio       = 0.0
-
-    # 공시/뉴스 — 없으므로 중립값
-    disclosure_sentiment     = 0.0
-    has_favorable_disclosure = 0.0
-    news_sentiment_7d        = 0.0
-    news_count_7d            = 0.0
+    # 수급/공시/뉴스 — Supabase supply_demand/disclosures 없으므로 중립값
+    foreign_cumnet_5d    = foreign_cumnet_20d = foreign_cumnet_streak = 0.0
+    inst_cumnet_5d       = inst_cumnet_20d    = 0.0
+    dual_buy             = dual_buy_3d        = 0.0
+    short_ratio          = short_increasing   = 0.0
+    foreign_net_ratio    = inst_net_ratio     = 0.0
+    disclosure_sentiment = has_favorable_disclosure = 0.0
+    news_sentiment_7d    = news_count_7d      = 0.0
 
     # KOSPI 상대강도
     kc = [_s(r.get("close")) for r in kospi_hist if r.get("close")]
@@ -402,12 +337,8 @@ def compute_features(
         kma20 = float(np.mean(kc[:20]))
         kma60 = float(np.mean(kc[:60]))
         kc0   = kc[0]
-        if kc0 > kma60 and kma20 > kma60:
-            market_phase = 1.0
-        elif kc0 < kma60 and kma20 < kma60:
-            market_phase = -1.0
-        else:
-            market_phase = 0.0
+        market_phase = 1.0 if kc0 > kma60 and kma20 > kma60 else (
+            -1.0 if kc0 < kma60 and kma20 < kma60 else 0.0)
     else:
         market_phase = 0.0
 
@@ -418,28 +349,20 @@ def compute_features(
     month_sin = math.sin(2 * math.pi * (month - 1) / 12)
     month_cos = math.cos(2 * math.pi * (month - 1) / 12)
 
-    per        = _s(fund.get("per"), 0.0)
-    pbr        = _s(fund.get("pbr"), 0.0)
-    roe        = 0.0
-    debt_ratio = 0.0
-    log_market_cap = math.log(mcap) if mcap > 0 else 0.0
-
-    # 단면 랭크 — add_rank_features()에서 덮어씌움
-    rank_return_5d   = 0.5
-    rank_vol_ratio   = 0.5
-    rank_foreign_net = 0.5
-    rank_rsi14       = 0.5
+    per = pbr = roe = debt_ratio = 0.0
+    log_market_cap = 0.0
+    rank_return_5d = rank_vol_ratio = rank_foreign_net = rank_rsi14 = 0.5
 
     return {k: locals().get(k, 0.0) for k in feature_cols}
 
 
-# ── 단면 랭크 업데이트 ────────────────────────────────────────────────
+# ── 단면 랭크 ─────────────────────────────────────────────────────────
 
 def add_rank_features(feats_list: list[dict]) -> list[dict]:
     if len(feats_list) <= 1:
         return feats_list
 
-    def pct_rank(values: list) -> list:
+    def pct_rank(values):
         n = len(values)
         order = sorted(range(n), key=lambda i: values[i])
         ranks = [0.0] * n
@@ -447,16 +370,15 @@ def add_rank_features(feats_list: list[dict]) -> list[dict]:
             ranks[idx] = rank / (n - 1)
         return ranks
 
-    r5d_ranks  = pct_rank([f.get("return_5d", 0.0)      for f in feats_list])
-    vol_ranks  = pct_rank([f.get("vol_ratio_20d", 1.0)   for f in feats_list])
-    fnet_ranks = pct_rank([f.get("foreign_net_ratio", 0.0) for f in feats_list])
-    rsi_ranks  = pct_rank([f.get("rsi14", 50.0)          for f in feats_list])
-
-    for i, f in enumerate(feats_list):
-        f["rank_return_5d"]   = r5d_ranks[i]
-        f["rank_vol_ratio"]   = vol_ranks[i]
-        f["rank_foreign_net"] = fnet_ranks[i]
-        f["rank_rsi14"]       = rsi_ranks[i]
+    for feat_key, rank_key in [
+        ("return_5d",      "rank_return_5d"),
+        ("vol_ratio_20d",  "rank_vol_ratio"),
+        ("foreign_net_ratio", "rank_foreign_net"),
+        ("rsi14",          "rank_rsi14"),
+    ]:
+        ranks = pct_rank([f.get(feat_key, 0.0) for f in feats_list])
+        for i, f in enumerate(feats_list):
+            f[rank_key] = ranks[i]
 
     return feats_list
 
@@ -479,42 +401,10 @@ def ml_score(feats_df: pd.DataFrame, models: dict, feature_cols: list):
     else:
         prob = lgbm_prob
 
-    raw_risk  = np.clip(models["risk_lgbm"].predict(X), 0.0, 1.0)
-    risk_cal  = models.get("risk_cal")
-    risk = np.clip(risk_cal.predict(raw_risk), 0.0, 1.0) if risk_cal else raw_risk
-
+    raw_risk = np.clip(models["risk_lgbm"].predict(X), 0.0, 1.0)
+    risk_cal = models.get("risk_cal")
+    risk     = np.clip(risk_cal.predict(raw_risk), 0.0, 1.0) if risk_cal else raw_risk
     return prob, risk
-
-
-# ── Telegram ──────────────────────────────────────────────────────────
-
-async def send_telegram(msg: str) -> None:
-    if not TG_TOKEN or not TG_CHAT:
-        return
-    import urllib.request
-    url  = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
-    data = json.dumps({"chat_id": TG_CHAT, "text": msg, "parse_mode": "HTML"}).encode()
-    req  = urllib.request.Request(url, data=data,
-                                  headers={"Content-Type": "application/json"})
-    try:
-        urllib.request.urlopen(req, timeout=10)
-    except Exception as e:
-        log.warning(f"Telegram 전송 실패: {e}")
-
-
-# ── 쿨다운 확인 ───────────────────────────────────────────────────────
-
-async def get_recent_recs(conn) -> set[str]:
-    since = TODAY_D - timedelta(days=COOLDOWN_DAYS)
-    try:
-        rows = await conn.fetch(
-            "SELECT DISTINCT code FROM recommendations WHERE created_at >= $1 AND action='BUY'",
-            since,
-        )
-        return {r["code"] for r in rows}
-    except Exception as e:
-        log.warning(f"쿨다운 조회 실패: {e}")
-        return set()
 
 
 # ── 추천 저장 ─────────────────────────────────────────────────────────
@@ -524,18 +414,12 @@ async def save_recommendations(conn, recs: list[dict]) -> int:
         return 0
     rows = [
         (
-            r["code"],
-            "BUY",
-            r.get("close_price", 0),
-            r["success_prob"],
-            r["risk_score"],
-            r["expected_return"],
+            r["code"], "BUY", r.get("close_price", 0),
+            r["success_prob"], r["risk_score"], r["expected_return"],
             r["hold_days"],
-            json.dumps({
-                "signal_type": r.get("signal_type", "SCAN_SIGNAL"),
-                "vol_ratio":   r.get("vol_ratio", 1.0),
-                "source":      "market_scan",
-            }),
+            json.dumps({"vol_ratio": r.get("vol_ratio", 1.0),
+                        "change_rate": r.get("change_rate", 0.0),
+                        "source": "market_scan"}),
         )
         for r in recs
     ]
@@ -552,66 +436,88 @@ async def save_recommendations(conn, recs: list[dict]) -> int:
     return len(rows)
 
 
+# ── Telegram ──────────────────────────────────────────────────────────
+
+async def send_telegram(msg: str) -> None:
+    if not TG_TOKEN or not TG_CHAT:
+        return
+    import urllib.request
+    url  = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
+    data = json.dumps({"chat_id": TG_CHAT, "text": msg, "parse_mode": "HTML"}).encode()
+    req  = urllib.request.Request(url, data=data,
+                                  headers={"Content-Type": "application/json"})
+    try:
+        urllib.request.urlopen(req, timeout=10)
+        log.info("Telegram 전송 완료")
+    except Exception as e:
+        log.warning(f"Telegram 전송 실패: {e}")
+
+
 # ── 메인 ─────────────────────────────────────────────────────────────
 
 async def main():
-    if not is_market_open():
-        log.info(f"장 외 시간 — 종료 ({NOW.strftime('%H:%M KST')})")
-        return
-
     log.info(f"스캔 시작 {NOW.strftime('%Y-%m-%d %H:%M KST')}")
 
     models, feature_cols = load_models()
-    market_data = fetch_market_data()
-    if not market_data["ohlcv"]:
-        log.warning("OHLCV 없음 — 종료")
-        return
 
     conn = await asyncpg.connect(DSN)
     try:
-        candidates  = await get_signal_candidates(conn, market_data)
+        # 최신 영업일 확인
+        target_date = await fetch_latest_date(conn)
+        if not target_date:
+            log.error("daily_bars 데이터 없음")
+            return
+        log.info(f"기준일: {target_date}")
+
+        # 전 종목 당일 OHLCV
+        today_data = await fetch_latest_ohlcv(conn, target_date)
+        if not today_data:
+            log.warning("당일 OHLCV 없음")
+            return
+        log.info(f"종목 수: {len(today_data)}개")
+
+        # 20일 평균 거래량 (신호 탐지용)
+        avg_vols = await fetch_avg_volumes(conn, target_date)
+
+        # 신호 탐지: 거래량 급등 OR 상승률 조건
+        candidates = []
+        for code, r in today_data.items():
+            vol   = _s(r.get("volume"))
+            chg   = _s(r.get("change_rate"))
+            avg_v = avg_vols.get(code, 0.0)
+            vol_ratio = vol / avg_v if avg_v > 0 else 1.0
+            if vol_ratio >= SIGNAL_VOL_RATIO or chg >= SIGNAL_CHANGE_MIN:
+                candidates.append(code)
+        log.info(f"신호 종목: {len(candidates)}개")
+
+        # 쿨다운 필터
         recent_recs = await get_recent_recs(conn)
         candidates  = [c for c in candidates if c not in recent_recs]
         log.info(f"쿨다운 후 후보: {len(candidates)}개")
         if not candidates:
+            log.info("추천 대상 없음 — 종료")
             return
 
-        hist_data  = await load_history(conn, candidates)
-        kospi_hist = await load_kospi_index(conn)
+        # 이력 데이터 로드
+        since      = target_date - timedelta(days=HISTORY_DAYS + 10)
+        hist_data  = await fetch_history(conn, candidates, since)
+        kospi_hist = await fetch_kospi_index(conn)
+
     finally:
         await conn.close()
-
-    # 오늘 OHLCV 딕셔너리화 (pykrx 한글 컬럼 → 영문)
-    all_today: dict[str, dict] = {}
-    for market, df in market_data["ohlcv"].items():
-        for code, r in df.iterrows():
-            all_today[code] = {
-                "open":        int(r.get("시가",   0) or 0),
-                "high":        int(r.get("고가",   0) or 0),
-                "low":         int(r.get("저가",   0) or 0),
-                "close":       int(r.get("종가",   0) or 0),
-                "volume":      int(r.get("거래량", 0) or 0),
-                "amount":      int(r.get("거래대금", 0) or 0),
-                "change_rate": float(r.get("등락률", 0.0) or 0.0),
-                "_market":     market,
-            }
 
     # 피처 계산
     feats_list:  list[dict] = []
     valid_codes: list[str]  = []
 
     for code in candidates:
-        today_r   = all_today.get(code)
-        if not today_r or today_r["close"] <= 0:
+        today_r   = today_data.get(code)
+        if not today_r or _s(today_r.get("close")) <= 0:
             continue
         hist_rows = hist_data.get(code, [])
-        fund      = market_data["fund"].get(code, {})
-        mcap      = market_data["mcap"].get(code, 0.0)
-        is_kosdaq = 1.0 if today_r["_market"] == "KOSDAQ" else 0.0
+        is_kosdaq = 1.0 if today_r.get("market") == "KOSDAQ" else 0.0
 
-        feats = compute_features(
-            today_r, hist_rows, fund, mcap, is_kosdaq, kospi_hist, feature_cols
-        )
+        feats = compute_features(today_r, hist_rows, is_kosdaq, kospi_hist, feature_cols)
         feats_list.append(feats)
         valid_codes.append(code)
 
@@ -621,9 +527,8 @@ async def main():
 
     feats_list = add_rank_features(feats_list)
 
-    # ML 배치 추론
-    feats_df = pd.DataFrame(feats_list)
-    probs, risks = ml_score(feats_df, models, feature_cols)
+    feats_df        = pd.DataFrame(feats_list)
+    probs, risks    = ml_score(feats_df, models, feature_cols)
 
     # 추천 필터링
     new_recs = []
@@ -631,20 +536,19 @@ async def main():
         prob = float(probs[i])
         risk = float(risks[i])
         if prob >= SCORE_THRESHOLD and risk <= RISK_THRESHOLD:
-            td   = all_today[code]
+            r = today_data[code]
             new_recs.append({
                 "code":            code,
                 "success_prob":    round(prob, 4),
                 "risk_score":      round(risk, 4),
                 "expected_return": round((prob - 0.5) * 20.0, 2),
                 "hold_days":       5,
-                "signal_type":     "SCAN_SIGNAL",
-                "close_price":     td["close"],
+                "close_price":     int(_s(r.get("close"))),
+                "change_rate":     round(_s(r.get("change_rate")), 2),
                 "vol_ratio":       round(feats_list[i].get("vol_ratio_20d", 1.0), 2),
             })
 
-    log.info(f"추천 종목: {len(new_recs)}개 (후보 {len(valid_codes)}개)")
-
+    log.info(f"추천 종목: {len(new_recs)}개 / 후보 {len(valid_codes)}개")
     if not new_recs:
         return
 
@@ -653,16 +557,17 @@ async def main():
         n = await save_recommendations(conn, new_recs)
     finally:
         await conn.close()
-
     log.info(f"저장 완료: {n}건")
 
     # Telegram 알림 (최대 10종목)
-    top = sorted(new_recs, key=lambda x: -x["success_prob"])[:10]
-    lines = [f"<b>매수 추천 {len(new_recs)}종목</b> ({NOW.strftime('%H:%M')} KST)\n"]
+    top   = sorted(new_recs, key=lambda x: -x["success_prob"])[:10]
+    lines = [f"<b>매수 추천 {len(new_recs)}종목</b> ({target_date} 종가 기준)\n"]
     for r in top:
+        chg_str = f"+{r['change_rate']:.1f}%" if r['change_rate'] >= 0 else f"{r['change_rate']:.1f}%"
         lines.append(
             f"• <b>{r['code']}</b>  확률 {r['success_prob']:.0%}"
             f"  리스크 {r['risk_score']:.0%}"
+            f"  {chg_str}"
             f"  거래량 {r['vol_ratio']:.1f}x"
             f"  ₩{r['close_price']:,}"
         )
