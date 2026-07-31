@@ -1,0 +1,24 @@
+[Unit]
+Description=KOSPI Realtime Buy Recommendation Pipeline
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kilsnag0910
+WorkingDirectory=/home/kilsnag0910/quant/repo/kospi-feature-stock/scripts
+ExecStart=/home/kilsnag0910/quant/venv/bin/python realtime_pipeline.py
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=realtime-pipeline
+
+# OOM 킬 방지 (e2-micro 1GB RAM)
+OOMScoreAdjust=-100
+
+# 환경변수 파일
+EnvironmentFile=/home/kilsnag0910/.env
+
+[Install]
+WantedBy=multi-user.target

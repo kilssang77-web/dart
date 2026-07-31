@@ -498,15 +498,23 @@ async def send_telegram(msg: str) -> None:
     if not TG_TOKEN or not TG_CHAT:
         return
     import urllib.request
-    url  = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
-    data = json.dumps({"chat_id": TG_CHAT, "text": msg, "parse_mode": "HTML"}).encode()
-    req  = urllib.request.Request(url, data=data,
-                                  headers={"Content-Type": "application/json"})
-    try:
-        urllib.request.urlopen(req, timeout=10)
-        log.info("Telegram 전송 완료")
-    except Exception as e:
-        log.warning(f"Telegram 전송 실패: {e}")
+    url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
+    for chat_id in TG_CHAT.split(","):
+        chat_id = chat_id.strip()
+        if not chat_id:
+            continue
+        data = json.dumps({
+            "chat_id": chat_id, "text": msg,
+            "parse_mode": "HTML", "disable_web_page_preview": True,
+        }).encode()
+        req = urllib.request.Request(
+            url, data=data, headers={"Content-Type": "application/json"}
+        )
+        try:
+            urllib.request.urlopen(req, timeout=10)
+            log.info(f"Telegram 전송 완료 ({chat_id})")
+        except Exception as e:
+            log.warning(f"Telegram 전송 실패 ({chat_id}): {e}")
 
 
 # ── 메인 ─────────────────────────────────────────────────────────────
