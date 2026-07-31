@@ -248,7 +248,19 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"MV refresh failed: {_e}")
             await _asyncio.sleep(3600)
 
-    # ML 모델은 /score 첫 요청 시 lazy load (startup 메모리 절약 → 256MB 운영)
+    # ML 모델 상태 확인 (lazy load — 256MB 운영, 파일 없으면 명시적 경고)
+    try:
+        from ml_predictor import check_models, get_predictor
+        if check_models():
+            get_predictor().load()
+            logger.info("ML 모델 로드 완료 (entry+risk)")
+        else:
+            logger.warning(
+                "ML 모델 파일 없음 — /score 엔드포인트가 null 반환합니다. "
+                "LGBM_MODEL_DIR 확인 또는 ml-retrain 워크플로 실행 필요"
+            )
+    except Exception as _ml_e:
+        logger.warning(f"ML 모델 초기화 실패: {_ml_e}")
 
     # 성과 추적 워커 시작
     _tracker_task  = asyncio.create_task(tracker_loop(app.state.db, app.state.redis))

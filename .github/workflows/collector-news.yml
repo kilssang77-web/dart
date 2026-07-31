@@ -39,6 +39,16 @@ jobs:
           cd kospi-feature-stock
           timeout 480 python services/collector/entrypoints/news_worker.py || true
 
+      - name: 공시 키워드 Telegram 알림 (is_flagged 신규 공시)
+        continue-on-error: true
+        env:
+          POSTGRES_DSN:     ${{ secrets.POSTGRES_DSN }}
+          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          pip install -q asyncpg python-dotenv
+          python kospi-feature-stock/scripts/disclosure_alert.py
+
       - name: 실패 시 Discord 알림
         if: failure()
         run: |
