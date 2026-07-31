@@ -14,13 +14,13 @@ class RecommendationResponse(BaseModel):
     market: str
     action: str
     entry_price: int
-    target_price: int
-    stop_loss_price: int
-    expected_hold_days: int
+    target_price: Optional[int] = None
+    stop_loss_price: Optional[int] = None
+    expected_hold_days: Optional[int] = None
     success_prob: float
     expected_return: float
     risk_score: float
-    risk_reward_ratio: float
+    risk_reward_ratio: Optional[float] = None
     rationale: dict[str, Any] = {}
     similar_cases: list[dict[str, Any]] = []
     rec_count: int = 1

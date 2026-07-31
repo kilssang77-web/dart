@@ -742,7 +742,7 @@ class RecommenderService:
         if not dsn or not rec_id:
             return
         try:
-            conn = await asyncpg.connect(dsn)
+            conn = await asyncpg.connect(dsn, statement_cache_size=0)
             try:
                 await conn.execute(
                     """
@@ -751,8 +751,8 @@ class RecommenderService:
                         entry_price, entry_price_low, entry_price_high,
                         target_price, stop_loss_price, expected_hold_days,
                         success_prob, expected_return, risk_score,
-                        risk_reward_ratio, rationale, rec_score, confidence_grade
-                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+                        risk_reward_ratio, rationale
+                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
                     ON CONFLICT (id) DO NOTHING
                     """,
                     rec_id, rec["code"], rec["created_at"], rec["action"],
@@ -761,7 +761,6 @@ class RecommenderService:
                     rec["success_prob"], rec["expected_return"], rec["risk_score"],
                     rec["risk_reward_ratio"],
                     orjson.dumps(rec["rationale"]).decode(),
-                    rec.get("rec_score"), rec.get("confidence_grade"),
                 )
             finally:
                 await conn.close()
