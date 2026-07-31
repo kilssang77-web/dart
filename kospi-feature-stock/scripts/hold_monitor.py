@@ -162,8 +162,7 @@ async def close_position(
         """
         UPDATE recommendations
         SET actual_return = $1,
-            is_success    = $2,
-            updated_at    = NOW()
+            is_success    = $2
         WHERE id = $3
         """,
         round(ret, 4), is_success, rec_id,
