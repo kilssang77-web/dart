@@ -242,6 +242,69 @@ python deploy/r2/export_to_r2.py --years 5
 
 ---
 
+## GCP e2-micro 스크립트 배포 (무료 운영)
+
+> `scripts/` 디렉토리 스크립트 전용. Fly.io 미사용.
+
+### 크론 등록 (`crontab -e`)
+
+```cron
+# 장 중 WebSocket 스캐너 (5분 간격)
+*/5 0-6 * * 1-5  cd ~/quant/repo/kospi-feature-stock/scripts && ~/quant/venv/bin/python websocket_scanner.py >> ~/quant/logs/ws_scanner.log 2>&1
+
+# 장 중 거래량 급등 스캐너 (10분 간격)
+*/10 0-6 * * 1-5  cd ~/quant/repo/kospi-feature-stock/scripts && ~/quant/venv/bin/python intraday_scan.py >> ~/quant/logs/intraday.log 2>&1
+
+# 장 마감 후 일봉 스캐너 (KST 16:30)
+30 7 * * 1-5  cd ~/quant/repo/kospi-feature-stock/scripts && ~/quant/venv/bin/python market_scan.py >> ~/quant/logs/market_scan.log 2>&1
+
+# 성과 추적 (KST 18:00)
+0 9 * * 1-5  cd ~/quant/repo/kospi-feature-stock/scripts && ~/quant/venv/bin/python result_tracker.py >> ~/quant/logs/result_tracker.log 2>&1
+
+# Telegram 봇 폴링 (5분 간격)
+*/5 * * * *  cd ~/quant/repo/kospi-feature-stock/scripts && ~/quant/venv/bin/python telegram_bot.py >> ~/quant/logs/tg_bot.log 2>&1
+
+# 보유 종목 손절/목표가 모니터링 (30분 간격)
+*/30 0-7 * * 1-5  cd ~/quant/repo/kospi-feature-stock/scripts && ~/quant/venv/bin/python hold_monitor.py >> ~/quant/logs/hold_monitor.log 2>&1
+```
+
+### 대시보드 서비스 등록
+
+```bash
+# 서비스 파일 복사
+sudo cp deploy/dashboard.service /etc/systemd/system/
+# ExecStart/WorkingDirectory 경로를 실제 경로로 수정
+sudo nano /etc/systemd/system/dashboard.service
+
+# 서비스 시작
+sudo systemctl daemon-reload
+sudo systemctl enable dashboard
+sudo systemctl start dashboard
+
+# 상태 확인
+sudo systemctl status dashboard
+
+# 접속: http://<GCP-외부IP>:8080
+# (GCP 방화벽: VPC → 방화벽 → tcp:8080 허용 필요)
+# DASHBOARD_SECRET 설정 시: http://<IP>:8080?key=<secret>
+```
+
+### 환경변수 (~/.env)
+
+```env
+POSTGRES_DSN=postgresql://postgres.[PROJECT-REF]:[PW]@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres
+KIS_APP_KEY=...
+KIS_APP_SECRET=...
+TELEGRAM_TOKEN=...
+TELEGRAM_CHAT_ID=...
+STOP_LOSS=-5.0
+TAKE_PROFIT=10.0
+WS_MAX_STOCKS=20
+DASHBOARD_SECRET=your_secret_here
+```
+
+---
+
 ## Fly.io VM 배정 현황
 
 | VM | 앱 이름 | 역할 | 메모리 |

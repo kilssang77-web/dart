@@ -12,6 +12,7 @@ KIS WebSocket 실시간 스캐너 — H0STCNT0 (체결가) 구독
 
 설치 추가 패키지: pip install websockets
 환경변수: POSTGRES_DSN, KIS_APP_KEY, KIS_APP_SECRET, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
+          WS_MAX_STOCKS (기본 20), WS_RUN_SECONDS (기본 270)
 """
 import asyncio
 import asyncpg
@@ -59,8 +60,8 @@ VOL_RATIO_MIN   = float(os.environ.get("SIGNAL_VOL_RATIO", "2.0"))
 CHANGE_MIN      = float(os.environ.get("SIGNAL_CHANGE_MIN", "3.0"))
 COOLDOWN_FILE   = Path(os.path.expanduser("~/quant/ws_cooldown.json"))
 COOLDOWN_MINS   = int(os.environ.get("COOLDOWN_MINS", "60"))
-MAX_STOCKS      = 20    # KIS 현재 동시 구독 한도
-RUN_SECONDS     = 270   # 4분 30초 후 자동 종료
+MAX_STOCKS      = int(os.environ.get("WS_MAX_STOCKS", "20"))  # KIS 동시 구독 한도
+RUN_SECONDS     = int(os.environ.get("WS_RUN_SECONDS", "270"))  # 기본 4분 30초
 
 # 동적 임계값 반영
 _DYN_CFG = Path(os.path.expanduser("~/quant/dynamic_config.json"))

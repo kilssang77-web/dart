@@ -1,0 +1,17 @@
+[Unit]
+Description=KOSPI Quant Dashboard (FastAPI)
+After=network.target
+
+[Service]
+Type=simple
+User=kil
+WorkingDirectory=/home/kil/quant/repo/kospi-feature-stock/scripts
+EnvironmentFile=/home/kil/.env
+ExecStart=/home/kil/quant/venv/bin/python dashboard.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

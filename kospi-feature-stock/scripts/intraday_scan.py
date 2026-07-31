@@ -210,13 +210,15 @@ async def main():
         await conn.close()
     log.info(f"Supabase 유효 종목: {len(valid_codes_db)}개")
 
-    # KIS 거래량 급등 순위 수신 (KOSPI only — KOSDAQ TR 별도)
+    # KIS 거래량 급등 순위 수신 (KOSPI J + KOSDAQ Q; Q 실패 시 graceful skip)
     raw_items: list[dict] = []
-    for mkt_div, mkt_name in [("J", "KOSPI")]:
+    for mkt_div, mkt_name in [("J", "KOSPI"), ("Q", "KOSDAQ")]:
         items = fetch_volume_rank(mkt_div)
         for item in items:
             item["_market"] = mkt_name
         raw_items.extend(items)
+        if mkt_div == "Q" and not items:
+            log.info("KOSDAQ volume-rank 미지원 또는 장외 — KOSPI 결과만 사용")
 
     if not raw_items:
         log.warning("거래량 순위 데이터 없음")
