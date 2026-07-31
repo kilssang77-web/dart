@@ -2,10 +2,10 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { clsx } from 'clsx'
 import {
-  LayoutDashboard, Search, Activity, Settings2,
+  LayoutDashboard, Activity, Settings2,
   FlaskConical, BarChart2, ServerCog, History,
   ChevronLeft, ChevronRight, X, TrendingUp, Newspaper, Bell,
-  Radio, Star, BookOpen, Trophy, Filter, Zap, Users,
+  Radio, Star, BookOpen, Trophy, Users, LineChart,
 } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { featuresApi } from '@/api/features'
@@ -24,8 +24,9 @@ interface NavGroup {
   items: NavItem[]
 }
 
-// ── 메뉴 정의: 3그룹 15항목 (중복 제거 리팩터)
-// 제거: "포지션 관리"(/positions → 성과추적에서 접근), "종목 분석"(/analysis → /search로 통합)
+// ── 메뉴 정의: 3그룹 14항목
+// /trader(자동매매) → /positions(포지션 추적)으로 교체 (자동매매 제외 방침)
+// /screener 제거 (데이터 미구축)
 function buildNavGroups(badge?: string): NavGroup[] {
   return [
     {
@@ -33,8 +34,8 @@ function buildNavGroups(badge?: string): NavGroup[] {
       items: [
         { to: '/',              icon: <LayoutDashboard size={15} />, label: '대시보드',   badge },
         { to: '/recommendations', icon: <TrendingUp size={15} />,   label: '매매 추천' },
-        { to: '/trader',        icon: <Zap size={15} />,            label: '자동 매매' },
-        { to: '/rec-journey',   icon: <Activity size={15} />,       label: '성과 추적' },
+        { to: '/positions',     icon: <LineChart size={15} />,      label: '포지션 추적' },
+        { to: '/rec-journey',   icon: <Activity size={15} />,       label: '성과 여정' },
         { to: '/watchlist',     icon: <Star size={15} />,           label: '관심종목' },
         { to: '/notifications', icon: <Bell size={15} />,           label: '알림 이력' },
       ],
@@ -46,7 +47,6 @@ function buildNavGroups(badge?: string): NavGroup[] {
         { to: '/intel',         icon: <Newspaper size={15} />,      label: '공시/뉴스/테마' },
         { to: '/search',        icon: <BookOpen size={15} />,       label: '종목 분석' },
         { to: '/ranking',       icon: <Trophy size={15} />,         label: '종합 랭킹' },
-        { to: '/screener',      icon: <Filter size={15} />,         label: '스크리너' },
       ],
     },
     {

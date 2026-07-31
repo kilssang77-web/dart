@@ -121,10 +121,10 @@ function AuthenticatedApp() {
               <Route path="/rec-journey"     element={<RecJourney />} />
               <Route path="/similar-cases"          element={<SimilarCases />} />
               <Route path="/similar-cases/:eventId" element={<SimilarCases />} />
-              <Route path="/positions"              element={<Navigate to="/trader" replace />} />
+              <Route path="/positions"       element={<PositionManagement />} />
               <Route path="/ranking"         element={<RankingPage />} />
               <Route path="/screener"        element={<ScreenerPage />} />
-              <Route path="/trader"          element={<TraderPage />} />
+              <Route path="/trader"          element={<Navigate to="/positions" replace />} />
               <Route path="/account"         element={<AccountPage />} />
               {/* 통합·제거된 라우트 → 리다이렉트 */}
               <Route path="/disclosures"     element={<Navigate to="/intel" replace />} />
