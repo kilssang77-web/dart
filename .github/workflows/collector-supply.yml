@@ -1,9 +1,11 @@
-name: 수급 데이터 수집 (장중 30분 주기)
+name: 수급 데이터 수집 (하루 3회)
 
 on:
   schedule:
-    # 09:30~15:30 KST = 00:30~06:30 UTC, 평일, 30분 간격
-    - cron: '30 0-6 * * 1-5'
+    # KST 09:30 / 12:00 / 15:00 = UTC 00:30 / 03:00 / 06:00, 평일
+    - cron: '30 0 * * 1-5'
+    - cron: '0 3 * * 1-5'
+    - cron: '0 6 * * 1-5'
   workflow_dispatch:
 
 jobs:
@@ -38,16 +40,10 @@ jobs:
           cd kospi-feature-stock
           timeout 300 python services/collector/entrypoints/supply_worker.py || true
 
-      - name: 장중 신호 추천 생성 + Telegram 알림
-        continue-on-error: true
-        timeout-minutes: 2
-        env:
-          POSTGRES_DSN:          ${{ secrets.POSTGRES_DSN }}
-          TELEGRAM_TOKEN:        ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID:      ${{ secrets.TELEGRAM_CHAT_ID }}
-          INTRADAY_MIN_SCORE:    "0.55"
-          INTRADAY_LOOKBACK_MIN: "60"
-          INTRADAY_MAX_RECS:     "5"
+      - name: 실패 시 Discord 알림
+        if: failure()
         run: |
-          cd kospi-feature-stock
-          python services/collector/entrypoints/intraday_notify.py
+          [ -z "${{ secrets.DISCORD_WEBHOOK }}" ] && exit 0
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d '{"content": "⚠️ **수급 수집 실패** (${{ github.run_id }})"}' || true
