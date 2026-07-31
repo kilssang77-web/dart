@@ -97,14 +97,14 @@ async def main():
         return
 
     since = datetime.now(timezone.utc) - timedelta(minutes=_WINDOW_MIN)
-    conn = await asyncpg.connect(dsn)
+    conn = await asyncpg.connect(dsn, statement_cache_size=0)
     try:
         rows = await conn.fetch(
             """
             SELECT id, code, action, created_at,
                    entry_price, target_price, stop_loss_price,
                    success_prob, risk_score, risk_reward_ratio,
-                   rationale, rec_score, confidence_grade
+                   rationale
             FROM recommendations
             WHERE action = 'BUY'
               AND created_at >= $1
