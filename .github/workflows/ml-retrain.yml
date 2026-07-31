@@ -1,9 +1,9 @@
-name: ML 자동 재학습 (매월 1일·15일)
+name: ML 자동 재학습 (매주 일요일)
 
 on:
   schedule:
-    # 매월 1일, 15일 09:00 KST = 00:00 UTC
-    - cron: '0 0 1,15 * *'
+    # 매주 일요일 09:00 KST = 00:00 UTC
+    - cron: '0 0 * * 0'
   workflow_dispatch:
     inputs:
       force_retrain:
@@ -52,14 +52,16 @@ jobs:
           mkdir -p kospi-feature-stock/services/api/lgbm_export
           cd kospi-feature-stock
           python services/ml/walk_forward_train.py \
-            --train-start 2018-01-01 --train-end 2023-12-31 \
-            --val-start   2024-01-01 --val-end   2024-12-31 \
-            --test-start  2025-01-01 --test-end  2025-12-31 \
-            --label-mode market_alpha \
+            --train-start 2018-01-01 --train-end 2024-06-30 \
+            --val-start   2024-07-01 --val-end   2025-06-30 \
+            --test-start  2025-07-01 --test-end  2026-12-31 \
+            --label-mode target_hit \
+            --entry-pct 10.0 \
+            --risk-pct  5.0  \
             --smote \
             --max-codes 600 \
             --model-dir services/api/lgbm_export \
-            --optuna-trials 30 \
+            --optuna-trials 50 \
             --event-only
 
       - name: 새 모델 git commit → Docker 이미지 자동 갱신 트리거

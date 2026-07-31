@@ -919,7 +919,7 @@ if __name__ == "__main__":
     parser.add_argument("--val-start",   default="2024-01-01")
     parser.add_argument("--val-end",     default="2024-12-31")
     parser.add_argument("--test-start",  default="2025-01-01")
-    parser.add_argument("--test-end",    default="2026-06-06")
+    parser.add_argument("--test-end",    default="2026-12-31")
     parser.add_argument("--model-dir",   default="/models/lgbm")
     parser.add_argument("--entry-pct",   type=float, default=3.0,
                         help="진입 레이블 임계 수익률 %% (기본 3.0 → 양성 비율 ~6-8%%)")
