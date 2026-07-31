@@ -236,7 +236,7 @@ async def page_recs(request: Request):
           <td>{t}</td>
           <td><b>{r['name']}</b></td>
           <td style="color:#94a3b8">{r['code']}</td>
-          <td><span class="badge {_prob_class(prob)}">{prob:.0%}</span></td>
+          <td><span class="badge {_prob_class(prob)}">{prob:.1%}</span></td>
           <td style="color:#fbbf24">{risk:.0%}</td>
           <td>₩{price:,}</td>
           <td>{ret_html}</td>
