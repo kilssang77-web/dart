@@ -260,6 +260,7 @@ class FeatureService:
                     for r in ranked
                 ]
 
+        # pattern_vector 없음 → 같은 event_type의 타 종목 최근 이벤트로 fallback
         rows = await self.db.fetch(
             """
             SELECT
@@ -269,11 +270,13 @@ class FeatureService:
                 COALESCE(s.name, fe.code) AS name
             FROM feature_events fe
             LEFT JOIN stocks s ON s.code = fe.code
-            WHERE fe.code = $1 AND fe.id != $2
-            ORDER BY fe.detected_at DESC
-            LIMIT $3
+            WHERE fe.event_type = $1
+              AND fe.code != $2
+              AND fe.id != $3
+            ORDER BY fe.signal_score DESC, fe.detected_at DESC
+            LIMIT $4
             """,
-            event["code"], event_id, top_k,
+            event["event_type"], event["code"], event_id, top_k,
         )
         return [dict(r) for r in rows]
 

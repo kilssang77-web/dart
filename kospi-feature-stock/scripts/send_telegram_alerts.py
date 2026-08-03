@@ -96,15 +96,16 @@ async def main():
         log.error("POSTGRES_DSN / TELEGRAM_TOKEN / TELEGRAM_CHAT_ID 환경변수 누락")
         return
 
+    ssl = "require" if "supabase" in dsn else False
     since = datetime.now(timezone.utc) - timedelta(minutes=_WINDOW_MIN)
-    conn = await asyncpg.connect(dsn, statement_cache_size=0)
+    conn = await asyncpg.connect(dsn, statement_cache_size=0, ssl=ssl)
     try:
         rows = await conn.fetch(
             """
             SELECT id, code, action, created_at,
                    entry_price, target_price, stop_loss_price,
                    success_prob, risk_score, risk_reward_ratio,
-                   rationale
+                   confidence_grade, rationale
             FROM recommendations
             WHERE action = 'BUY'
               AND created_at >= $1
@@ -113,18 +114,40 @@ async def main():
             """,
             since,
         )
+
+        if not rows:
+            log.info(f"최근 {_WINDOW_MIN}분 내 신규 추천 없음")
+            return
+
+        log.info(f"신규 추천 {len(rows)}건 발송")
+        for row in rows:
+            r = dict(row)
+            msg = _format_message(r)
+            ok = _send_telegram(token, chat_id, msg)
+            log.info(f"{'✅' if ok else '❌'} {r['code']} ({r['action']})")
+            try:
+                rationale = r.get("rationale") or {}
+                if isinstance(rationale, str):
+                    import json as _json
+                    try:
+                        rationale = _json.loads(rationale)
+                    except Exception:
+                        rationale = {}
+                event_type = rationale.get("event_type", "BUY")
+                title = f"[매수신호] {r['code']} {event_type}"
+                await conn.execute(
+                    """
+                    INSERT INTO telegram_logs
+                        (msg_type, code, name, title, message, success)
+                    VALUES ('signal', $1, $1, $2, $3, $4)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    r["code"], title, msg, ok,
+                )
+            except Exception as e:
+                log.warning(f"telegram_logs 기록 실패: {e}")
     finally:
         await conn.close()
-
-    if not rows:
-        log.info(f"최근 {_WINDOW_MIN}분 내 신규 추천 없음")
-        return
-
-    log.info(f"신규 추천 {len(rows)}건 발송")
-    for row in rows:
-        msg = _format_message(dict(row))
-        ok = _send_telegram(token, chat_id, msg)
-        log.info(f"{'✅' if ok else '❌'} {row['code']} ({row['action']})")
 
 
 if __name__ == "__main__":

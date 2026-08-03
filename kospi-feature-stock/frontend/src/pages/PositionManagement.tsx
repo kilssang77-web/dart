@@ -4,8 +4,10 @@ import { trackingApi, TrackingItem } from '@/api/tracking'
 
 function pct(v?: number | null) {
   if (v == null) return '—'
-  const sign = v >= 0 ? '+' : ''
-  return `${sign}${v.toFixed(2)}%`
+  const n = Number(v)
+  if (isNaN(n)) return '—'
+  const sign = n >= 0 ? '+' : ''
+  return `${sign}${n.toFixed(2)}%`
 }
 
 function statusColor(v?: number | null) {
@@ -30,7 +32,7 @@ function PositionRow({ item }: { item: TrackingItem }) {
         <div className="text-xs text-[var(--muted)]">{item.event_type ?? '—'}</div>
       </td>
       <td className="px-4 py-3 text-right text-sm">
-        {item.entry_price.toLocaleString()}원
+        {Number(item.entry_price).toLocaleString()}원
       </td>
       <td className="px-4 py-3 text-right text-sm">
         <div className={statusColor(item.r_1d)}>{pct(item.r_1d)}</div>
