@@ -85,7 +85,7 @@ async def main():
                  AND b.date = (
                      SELECT MIN(date) FROM daily_bars
                      WHERE code = r.code
-                       AND date >= (r.created_at::date + $1)
+                       AND date >= (r.created_at + ($1::int * INTERVAL '1 day'))::date
                  )
                 WHERE rp.rec_id = r.id
                   AND r.entry_price > 0
@@ -102,7 +102,7 @@ async def main():
                 SELECT TRUE FROM daily_bars b2
                  JOIN recommendations r2 ON r2.id = rp.rec_id
                 WHERE b2.code = r2.code
-                  AND b2.date BETWEEN r2.created_at::date AND r2.created_at::date + 5
+                  AND b2.date BETWEEN r2.created_at::date AND (r2.created_at + INTERVAL '5 days')::date
                   AND r2.target_price IS NOT NULL
                   AND b2.high >= r2.target_price
                 LIMIT 1
@@ -111,7 +111,7 @@ async def main():
                 SELECT TRUE FROM daily_bars b3
                  JOIN recommendations r3 ON r3.id = rp.rec_id
                 WHERE b3.code = r3.code
-                  AND b3.date BETWEEN r3.created_at::date AND r3.created_at::date + 5
+                  AND b3.date BETWEEN r3.created_at::date AND (r3.created_at + INTERVAL '5 days')::date
                   AND r3.stop_loss_price IS NOT NULL
                   AND b3.low <= r3.stop_loss_price
                 LIMIT 1
