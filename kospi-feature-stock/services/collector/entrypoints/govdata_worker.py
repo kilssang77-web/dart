@@ -94,7 +94,11 @@ async def _sync_holidays_if_needed(svc: StockCollector) -> None:
     years_to_check = [now_year, now_year + 1]
     missing = []
     for year in years_to_check:
-        cached = await svc.redis.get(f"krx:holidays:{year}")
+        try:
+            cached = await svc.redis.get(f"krx:holidays:{year}")
+        except Exception as e:
+            logger.warning(f"[govdata] Redis 공휴일 조회 실패 ({year}), 스킵: {e}")
+            return
         if not cached:
             missing.append(year)
 

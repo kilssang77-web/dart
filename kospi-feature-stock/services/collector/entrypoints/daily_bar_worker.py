@@ -217,8 +217,11 @@ async def run():
         logger.error(f"[daily] 카운터 캐시 갱신 실패: {e}")
 
     # ── 완료 신호 ──────────────────────────────────────────────
-    await svc.redis.set(f"daily_bars:ready:{today}", "1", ex=86400)
-    logger.info(f"[daily] 완료 → daily_bars:ready:{today} 설정")
+    try:
+        await svc.redis.set(f"daily_bars:ready:{today}", "1", ex=86400)
+        logger.info(f"[daily] 완료 → daily_bars:ready:{today} 설정")
+    except Exception as e:
+        logger.warning(f"[daily] 완료 신호 Redis 저장 실패 (비치명적): {e}")
 
 
 if __name__ == "__main__":
