@@ -55,8 +55,16 @@ ON CONFLICT (rec_id) DO NOTHING
 
 
 async def main():
-    dsn = os.environ["POSTGRES_DSN"].replace("+asyncpg", "")
+    raw_dsn = os.environ.get("POSTGRES_DSN", "")
+    dsn = raw_dsn.replace("+asyncpg", "")
     ssl = "require" if "supabase" in dsn else False
+    # DSN 진단 로그 (비밀번호 마스킹)
+    try:
+        from urllib.parse import urlparse
+        _p = urlparse(dsn)
+        log.info(f"DB 연결 시도: {_p.scheme}://{_p.hostname}:{_p.port}{_p.path} ssl={ssl}")
+    except Exception:
+        log.info(f"DB 연결 시도: DSN 길이={len(dsn)} ssl={ssl}")
     conn = await asyncpg.connect(dsn, statement_cache_size=0, ssl=ssl)
     try:
         # 0. 테이블 자동 생성 + 백필 (Supabase 최초 실행 시)
@@ -135,4 +143,9 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import sys
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        log.error(f"[FATAL] {type(e).__name__}: {e}", exc_info=True)
+        sys.exit(1)
