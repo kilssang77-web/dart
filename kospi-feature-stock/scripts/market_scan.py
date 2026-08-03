@@ -34,10 +34,62 @@ MODEL_DIR = Path(os.environ.get(
 
 SIGNAL_VOL_RATIO  = float(os.environ.get("SIGNAL_VOL_RATIO", "2.0"))
 SIGNAL_CHANGE_MIN = float(os.environ.get("SIGNAL_CHANGE_MIN", "3.0"))
-SCORE_THRESHOLD   = float(os.environ.get("SCORE_THRESHOLD", "0.27"))
-RISK_THRESHOLD    = float(os.environ.get("RISK_THRESHOLD", "0.55"))
+SCORE_THRESHOLD   = float(os.environ.get("SCORE_THRESHOLD", "0.27"))  # 추천 저장 기준 (DB)
+RISK_THRESHOLD    = float(os.environ.get("RISK_THRESHOLD", "0.55"))   # 추천 저장 기준 (DB)
 COOLDOWN_DAYS     = int(os.environ.get("COOLDOWN_DAYS", "2"))
 HISTORY_DAYS      = 75  # MA60 + 여유
+
+
+# ── 텔레그램 설정 (Redis telegram:config 연동) ─────────────────
+
+def _load_tg_config() -> dict:
+    """Redis에서 설정 UI 값을 조회. REDIS_URL 없거나 실패 시 env 기본값."""
+    default = {
+        "enabled":         os.environ.get("TELEGRAM_ENABLED", "1") == "1",
+        "min_prob":        float(os.environ.get("REC_MIN_PROB",        "0.22")),
+        "max_risk":        float(os.environ.get("REC_MAX_RISK",        "0.60")),
+        "min_risk_reward": float(os.environ.get("REC_MIN_RISK_REWARD", "2.0")),
+    }
+    redis_url = os.environ.get("REDIS_URL", "")
+    if not redis_url:
+        return default
+    try:
+        import redis as _r
+        rc = _r.from_url(redis_url, decode_responses=True, socket_timeout=3)
+        raw = rc.get("telegram:config")
+        rc.close()
+        if raw:
+            cfg = json.loads(raw)
+            log.info(
+                f"Redis 설정 로드: enabled={cfg.get('enabled')} "
+                f"min_prob={cfg.get('min_prob'):.3f} max_risk={cfg.get('max_risk'):.3f}"
+            )
+            return cfg
+    except Exception as e:
+        log.warning(f"Redis 설정 로드 실패, env 기본값 사용: {e}")
+    return default
+
+
+async def _log_telegram(
+    conn,
+    *,
+    msg_type: str,
+    title: str,
+    message: str,
+    success: bool,
+    code: str = "",
+    name: str = "",
+) -> None:
+    try:
+        await conn.execute(
+            """
+            INSERT INTO telegram_logs (msg_type, code, name, title, message, success)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            """,
+            msg_type, code or None, name or None, title, message, success,
+        )
+    except Exception as e:
+        log.warning(f"telegram_logs 기록 실패: {e}")
 
 # 동적 임계값 — result_tracker.py가 갱신, 초기값은 env/기본값
 _DYN_CFG = Path(os.path.expanduser("~/quant/dynamic_config.json"))
@@ -494,11 +546,12 @@ async def save_recommendations(conn, recs: list[dict]) -> int:
 
 # ── Telegram ──────────────────────────────────────────────────────────
 
-async def send_telegram(msg: str) -> None:
+async def send_telegram(msg: str) -> bool:
     if not TG_TOKEN or not TG_CHAT:
-        return
+        return False
     import urllib.request
-    url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
+    url     = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
+    success = True
     for chat_id in TG_CHAT.split(","):
         chat_id = chat_id.strip()
         if not chat_id:
@@ -515,12 +568,15 @@ async def send_telegram(msg: str) -> None:
             log.info(f"Telegram 전송 완료 ({chat_id})")
         except Exception as e:
             log.warning(f"Telegram 전송 실패 ({chat_id}): {e}")
+            success = False
+    return success
 
 
 # ── 메인 ─────────────────────────────────────────────────────────────
 
 async def main():
     log.info(f"스캔 시작 {NOW.strftime('%Y-%m-%d %H:%M KST')}")
+    cfg = _load_tg_config()
 
     models, feature_cols = load_models()
 
@@ -626,24 +682,45 @@ async def main():
     conn = await asyncpg.connect(DSN, statement_cache_size=0)
     try:
         n = await save_recommendations(conn, new_recs)
+        log.info(f"저장 완료: {n}건")
+
+        # ── Telegram 발송 — 설정 UI 기준(min_prob/max_risk) 필터 적용 ──
+        tg_min_prob = float(cfg.get("min_prob", SCORE_THRESHOLD))
+        tg_max_risk = float(cfg.get("max_risk", RISK_THRESHOLD))
+        tg_enabled  = cfg.get("enabled", True)
+
+        tg_recs = [
+            r for r in new_recs
+            if r["success_prob"] >= tg_min_prob and r["risk_score"] <= tg_max_risk
+        ]
+        log.info(
+            f"텔레그램 발송 대상: {len(tg_recs)}종목 "
+            f"(min_prob={tg_min_prob:.3f}, max_risk={tg_max_risk:.3f})"
+        )
+
+        if tg_enabled and tg_recs:
+            top   = sorted(tg_recs, key=lambda x: -x["success_prob"])[:10]
+            lines = [f"<b>매수 추천 {len(tg_recs)}종목</b> ({target_date} 종가 기준)\n"]
+            for r in top:
+                chg_str = f"+{r['change_rate']:.1f}%" if r["change_rate"] >= 0 else f"{r['change_rate']:.1f}%"
+                lines.append(
+                    f"• <b>{r.get('name', r['code'])}</b> ({r['code']})"
+                    f"  확률 {r['success_prob']:.0%}"
+                    f"  리스크 {r['risk_score']:.0%}"
+                    f"  {chg_str}"
+                    f"  거래량 {r['vol_ratio']:.1f}x"
+                    f"  ₩{r['close_price']:,}"
+                )
+            msg   = "\n".join(lines)
+            title = f"매수 추천 {len(tg_recs)}종목 ({target_date} 종가 기준)"
+            ok    = await send_telegram(msg)
+            await _log_telegram(conn, msg_type="scan_daily", title=title, message=msg, success=ok)
+        elif not tg_enabled:
+            log.info("텔레그램 알림 비활성화 — 발송 스킵")
+        else:
+            log.info("텔레그램 발송 기준 충족 종목 없음 — 발송 스킵")
     finally:
         await conn.close()
-    log.info(f"저장 완료: {n}건")
-
-    # Telegram 알림 (최대 10종목)
-    top   = sorted(new_recs, key=lambda x: -x["success_prob"])[:10]
-    lines = [f"<b>매수 추천 {len(new_recs)}종목</b> ({target_date} 종가 기준)\n"]
-    for r in top:
-        chg_str = f"+{r['change_rate']:.1f}%" if r['change_rate'] >= 0 else f"{r['change_rate']:.1f}%"
-        lines.append(
-            f"• <b>{r.get('name', r['code'])}</b> ({r['code']})"
-            f"  확률 {r['success_prob']:.0%}"
-            f"  리스크 {r['risk_score']:.0%}"
-            f"  {chg_str}"
-            f"  거래량 {r['vol_ratio']:.1f}x"
-            f"  ₩{r['close_price']:,}"
-        )
-    await send_telegram("\n".join(lines))
 
 
 if __name__ == "__main__":

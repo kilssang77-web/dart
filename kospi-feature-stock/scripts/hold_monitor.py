@@ -44,6 +44,58 @@ MAX_HOLD_DAYS = int(os.environ.get("MAX_HOLD_DAYS", "5"))     # 최대 보유 �
 _TOKEN_CACHE: dict = {}
 
 
+# ── 텔레그램 설정 (Redis telegram:config 연동) ─────────────────
+
+def _load_tg_config() -> dict:
+    """Redis에서 설정 UI 값을 조회. REDIS_URL 없거나 실패 시 env 기본값."""
+    default = {
+        "enabled":         os.environ.get("TELEGRAM_ENABLED", "1") == "1",
+        "min_prob":        float(os.environ.get("REC_MIN_PROB",        "0.22")),
+        "max_risk":        float(os.environ.get("REC_MAX_RISK",        "0.60")),
+        "min_risk_reward": float(os.environ.get("REC_MIN_RISK_REWARD", "2.0")),
+    }
+    redis_url = os.environ.get("REDIS_URL", "")
+    if not redis_url:
+        return default
+    try:
+        import redis as _r
+        rc = _r.from_url(redis_url, decode_responses=True, socket_timeout=3)
+        raw = rc.get("telegram:config")
+        rc.close()
+        if raw:
+            cfg = json.loads(raw)
+            log.info(
+                f"Redis 설정 로드: enabled={cfg.get('enabled')} "
+                f"min_prob={cfg.get('min_prob'):.3f}"
+            )
+            return cfg
+    except Exception as e:
+        log.warning(f"Redis 설정 로드 실패, env 기본값 사용: {e}")
+    return default
+
+
+async def _log_telegram(
+    conn: asyncpg.Connection,
+    *,
+    msg_type: str,
+    code: str,
+    name: str,
+    title: str,
+    message: str,
+    success: bool,
+) -> None:
+    try:
+        await conn.execute(
+            """
+            INSERT INTO telegram_logs (msg_type, code, name, title, message, success)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            """,
+            msg_type, code or None, name or None, title, message, success,
+        )
+    except Exception as e:
+        log.warning(f"telegram_logs 기록 실패: {e}")
+
+
 # ── KIS REST ──────────────────────────────────────────────────
 
 def _kis_token() -> str:
@@ -101,9 +153,10 @@ def fetch_current_price(code: str, mkt_div: str = "J") -> float | None:
 
 # ── Telegram ──────────────────────────────────────────────────
 
-def send_telegram(text: str) -> None:
+def send_telegram(text: str) -> bool:
     if not TG_TOKEN or not TG_CHAT:
-        return
+        return False
+    success = True
     for chat_id in TG_CHAT.split(","):
         chat_id = chat_id.strip()
         if not chat_id:
@@ -124,6 +177,8 @@ def send_telegram(text: str) -> None:
                 pass
         except Exception as e:
             log.warning(f"Telegram 전송 실패({chat_id}): {e}")
+            success = False
+    return success
 
 
 # ── DB ────────────────────────────────────────────────────────
@@ -181,6 +236,7 @@ async def main() -> None:
         log.info(f"장 외 시간 ({now_kst.strftime('%H:%M KST')}) — 스킵")
         return
 
+    cfg = _load_tg_config()
     log.info(f"보유 모니터링 시작 {now_kst.strftime('%Y-%m-%d %H:%M KST')}")
 
     pool = await asyncpg.create_pool(DSN, min_size=1, max_size=3, statement_cache_size=0)
@@ -195,6 +251,7 @@ async def main() -> None:
         log.info(f"모니터링 대상: {len(positions)}건")
 
         sell_msgs: list[str] = []
+        sell_meta: list[dict] = []
 
         for pos in positions:
             rec_id      = pos["id"]
@@ -225,17 +282,39 @@ async def main() -> None:
                 async with pool.acquire() as conn:
                     ret = await close_position(conn, rec_id, entry_price, current, reason)
                 icon = "🛑" if chg_pct <= STOP_LOSS else "🎯"
-                sell_msgs.append(
+                body = (
                     f"{icon} <b>{name}</b> ({code}) — <b>SELL</b>\n"
                     f"   사유: {reason}\n"
                     f"   매수가 ₩{int(entry_price):,} → 현재 ₩{int(current):,}\n"
                     f"   수익률: {ret:+.2f}%"
                 )
+                sell_msgs.append(body)
+                sell_meta.append({"code": code, "name": name, "reason": reason, "body": body})
 
         if sell_msgs:
-            header = f"<b>📢 SELL 알림 {len(sell_msgs)}건</b> ({now_kst.strftime('%H:%M')} KST)\n"
-            send_telegram(header + "\n\n".join(sell_msgs))
-            log.info(f"SELL 알림 전송: {len(sell_msgs)}건")
+            header   = f"<b>📢 SELL 알림 {len(sell_msgs)}건</b> ({now_kst.strftime('%H:%M')} KST)\n"
+            full_msg = header + "\n\n".join(sell_msgs)
+
+            if cfg.get("enabled", True):
+                ok = send_telegram(full_msg)
+                log.info(f"SELL 알림 {'전송 완료' if ok else '전송 실패'}: {len(sell_msgs)}건")
+            else:
+                ok = False
+                log.info(f"텔레그램 알림 비활성화 — SELL 발송 스킵 ({len(sell_msgs)}건)")
+
+            # 알림이력 기록 (발송 시도분만)
+            if cfg.get("enabled", True):
+                async with pool.acquire() as conn:
+                    for m in sell_meta:
+                        await _log_telegram(
+                            conn,
+                            msg_type="sell_alert",
+                            code=m["code"],
+                            name=m["name"],
+                            title=f"{m['name']} SELL ({m['reason']})",
+                            message=m["body"],
+                            success=ok,
+                        )
         else:
             log.info(f"손절/목표가 도달 없음 (모니터링 {len(positions)}건)")
     finally:
