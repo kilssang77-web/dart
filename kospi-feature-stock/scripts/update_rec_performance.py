@@ -56,7 +56,8 @@ ON CONFLICT (rec_id) DO NOTHING
 
 async def main():
     dsn = os.environ["POSTGRES_DSN"].replace("+asyncpg", "")
-    conn = await asyncpg.connect(dsn, statement_cache_size=0)
+    ssl = "require" if "supabase" in dsn else False
+    conn = await asyncpg.connect(dsn, statement_cache_size=0, ssl=ssl)
     try:
         # 0. 테이블 자동 생성 + 백필 (Supabase 최초 실행 시)
         await conn.execute(_CREATE_TABLE)
