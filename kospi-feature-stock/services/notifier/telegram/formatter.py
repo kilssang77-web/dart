@@ -30,42 +30,40 @@ def _fmt_dt(iso: str) -> str:
 
 
 def format_buy_signal(msg: dict) -> str:
-    code        = msg.get("code", "")
-    name        = msg.get("name", "") or code
-    entry       = msg.get("entry_price", 0)
-    target      = msg.get("target_price", 0)
-    stop        = msg.get("stop_loss_price", 0)
-    prob        = msg.get("success_prob", 0)
-    risk        = msg.get("risk_score", 0)
-    created_at  = _fmt_dt(msg.get("created_at", ""))
+    code       = msg.get("code", "")
+    name       = msg.get("name", "") or code
+    entry      = msg.get("entry_price", 0)
+    target     = msg.get("target_price", 0)
+    stop       = msg.get("stop_loss_price", 0)
+    prob       = msg.get("success_prob", 0)
+    created_at = _fmt_dt(msg.get("created_at", ""))
 
-    # rationale JSON에서 rec_score 추출 (없으면 success_prob 기반 표시)
-    rationale   = msg.get("rationale") or {}
-    rec_score   = rationale.get("rec_score") if isinstance(rationale, dict) else None
+    rationale  = msg.get("rationale") or {}
+    rec_score  = rationale.get("rec_score") if isinstance(rationale, dict) else None
 
     upside   = _fmt_pct(entry, target)
     downside = _fmt_pct(entry, stop)
 
-    name_line = f"&#128204; 종목: <b>{name}</b>  (<code>{code}</code>)\n" if name != code else f"&#128204; 종목: <b>{code}</b>\n"
-
-    if rec_score is not None:
-        score_line = f"&#127919; 추천점수: <b>{int(rec_score)}점</b>  (<code>성공확률 {prob * 100:.0f}%</code>)\n"
-    else:
-        score_line = f"&#127919; 성공확률: <b>{prob * 100:.0f}%</b>\n"
-
-    return (
-        f"<b>&#128640; 매수 추천 알림</b>\n"
-        f"\n"
-        f"{name_line}"
-        f"{score_line}"
-        f"\n"
-        f"&#128176; 매수가(진입): <b>{_fmt_price(entry)}원</b>\n"
-        f"&#127937; 목표가(매도): <b>{_fmt_price(target)}원</b>  (<code>{upside}</code>)\n"
-        f"&#128721; 손절가: <b>{_fmt_price(stop)}원</b>  (<code>{downside}</code>)\n"
-        f"&#9888;&#65039; 리스크: <b>{risk * 100:.0f}%</b>\n"
-        f"\n"
-        f"&#128336; {created_at}"
+    name_line  = (
+        f"📌 종목: <b>{name}</b>  (<code>{code}</code>)"
+        if name != code else
+        f"📌 종목: <b>{code}</b>"
     )
+    score_line = (
+        f"🎯 추천점수: <b>{int(rec_score)}점</b>  (성공확률 {prob * 100:.0f}%)"
+        if rec_score is not None else
+        f"🎯 성공확률: <b>{prob * 100:.0f}%</b>"
+    )
+    price_line = (
+        f"💰 매수가: <b>{_fmt_price(entry)}원</b>"
+        f" / 🏆 목표가: {_fmt_price(target)}원 (<code>{upside}</code>)"
+        f" / 🚫 손절가: {_fmt_price(stop)}원 (<code>{downside}</code>)"
+    )
+
+    lines = ["<b>🚀 매수 추천 알림</b>", name_line, score_line, price_line]
+    if created_at:
+        lines.append(f"🕐 탐지 일시: {created_at} KST")
+    return "\n".join(lines)
 
 
 def format_price_alert(msg: dict) -> str:
@@ -78,7 +76,7 @@ def format_price_alert(msg: dict) -> str:
     target      = msg.get("target_price", 0)
     stop        = msg.get("stop_loss_price", 0)
     hold_days   = msg.get("hold_days", 0)
-    now_str     = datetime.now(_KST).strftime("%m/%d %H:%M")
+    now_str     = datetime.now(_KST).strftime("%Y-%m-%d %H:%M")
 
     pnl_pct = ""
     if entry and current:
@@ -133,7 +131,11 @@ def format_price_alert(msg: dict) -> str:
         if name != code else
         f"&#128204; 종목: <b>{code}</b>\n"
     )
-    hold_line = f"&#128336; 보유 <b>{hold_days}일</b>차 · {now_str}" if hold_days else f"&#128336; {now_str}"
+    hold_line = (
+        f"🕐 탐지 일시: {now_str} KST  (보유 <b>{hold_days}일</b>차)"
+        if hold_days else
+        f"🕐 탐지 일시: {now_str} KST"
+    )
 
     return (
         f"<b>{icon} {title}</b>\n"

@@ -523,6 +523,7 @@ async def save_recommendations(conn, recs: list[dict]) -> int:
     rows = [
         (
             r["code"], "BUY", r.get("close_price", 0),
+            r.get("target_price", 0), r.get("stop_loss_price", 0),
             r["success_prob"], r["risk_score"], r["expected_return"],
             r["hold_days"],
             json.dumps({"vol_ratio": r.get("vol_ratio", 1.0),
@@ -534,9 +535,10 @@ async def save_recommendations(conn, recs: list[dict]) -> int:
     try:
         await conn.executemany("""
             INSERT INTO recommendations
-                (code, action, entry_price, success_prob, risk_score,
+                (code, action, entry_price, target_price, stop_loss_price,
+                 success_prob, risk_score,
                  expected_return, expected_hold_days, rationale)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8::JSONB)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::JSONB)
         """, rows)
     except Exception as e:
         log.error(f"추천 저장 실패: {e}")
@@ -663,6 +665,7 @@ async def main():
         risk = float(risks[i])
         if prob >= SCORE_THRESHOLD and risk <= RISK_THRESHOLD:
             r = today_data[code]
+            close = int(_s(r.get("close")))
             new_recs.append({
                 "code":            code,
                 "name":            r.get("name", code),
@@ -670,7 +673,9 @@ async def main():
                 "risk_score":      round(risk, 4),
                 "expected_return": round((prob - 0.5) * 20.0, 2),
                 "hold_days":       5,
-                "close_price":     int(_s(r.get("close"))),
+                "close_price":     close,
+                "target_price":    int(close * 1.10),   # +10%
+                "stop_loss_price": int(close * 0.95),   # -5%
                 "change_rate":     round(_s(r.get("change_rate")), 2),
                 "vol_ratio":       round(feats_list[i].get("vol_ratio_20d", 1.0), 2),
             })
@@ -699,22 +704,61 @@ async def main():
         )
 
         if tg_enabled and tg_recs:
-            top   = sorted(tg_recs, key=lambda x: -x["success_prob"])[:10]
-            lines = [f"<b>매수 추천 {len(tg_recs)}종목</b> ({target_date} 종가 기준)\n"]
+            scan_dt = NOW.strftime("%Y-%m-%d %H:%M")
+            top     = sorted(tg_recs, key=lambda x: -x["success_prob"])[:5]
+
+            def _pct(a, b):
+                try:
+                    v = (float(b) - float(a)) / float(a) * 100
+                    return f"+{v:.1f}%" if v >= 0 else f"{v:.1f}%"
+                except Exception:
+                    return "N/A"
+
+            all_msgs = []
             for r in top:
-                chg_str = f"+{r['change_rate']:.1f}%" if r["change_rate"] >= 0 else f"{r['change_rate']:.1f}%"
-                lines.append(
-                    f"• <b>{r.get('name', r['code'])}</b> ({r['code']})"
-                    f"  확률 {r['success_prob']:.0%}"
-                    f"  리스크 {r['risk_score']:.0%}"
-                    f"  {chg_str}"
-                    f"  거래량 {r['vol_ratio']:.1f}x"
-                    f"  ₩{r['close_price']:,}"
+                name  = r.get("name", r["code"])
+                code  = r["code"]
+                price = r["close_price"]
+                tgt   = r["target_price"]
+                stp   = r["stop_loss_price"]
+                prob  = r["success_prob"]
+                name_line  = (
+                    f"📌 종목: <b>{name}</b>  (<code>{code}</code>)"
+                    if name != code else f"📌 종목: <b>{code}</b>"
                 )
-            msg   = "\n".join(lines)
-            title = f"매수 추천 {len(tg_recs)}종목 ({target_date} 종가 기준)"
-            ok    = await send_telegram(msg)
-            await _log_telegram(conn, msg_type="scan_daily", title=title, message=msg, success=ok)
+                score_line = f"🎯 성공확률: <b>{prob * 100:.0f}%</b>"
+                price_line = (
+                    f"💰 매수가: <b>{price:,}원</b>"
+                    f" / 🏆 목표가: {tgt:,}원 (<code>{_pct(price, tgt)}</code>)"
+                    f" / 🚫 손절가: {stp:,}원 (<code>{_pct(price, stp)}</code>)"
+                )
+                msg = "\n".join([
+                    "<b>🚀 매수 추천 알림</b>",
+                    name_line, score_line, price_line,
+                    f"🕐 탐지 일시: {scan_dt} KST",
+                ])
+                all_msgs.append((code, name, msg))
+
+            ok = True
+            for code, name, msg in all_msgs:
+                ok = await send_telegram(msg)
+                await _log_telegram(
+                    conn,
+                    msg_type="scan_daily",
+                    title=f"{name} 매수 추천 (장 마감 스캔)",
+                    message=msg,
+                    success=ok,
+                    code=code,
+                    name=name,
+                )
+
+            if len(tg_recs) > 5:
+                summary = (
+                    f"<b>📊 장 마감 스캔 완료</b>\n"
+                    f"기준 충족 종목: <b>{len(tg_recs)}개</b> (상위 5건 개별 발송)\n"
+                    f"🕐 {scan_dt} KST"
+                )
+                await send_telegram(summary)
         elif not tg_enabled:
             log.info("텔레그램 알림 비활성화 — 발송 스킵")
         else:

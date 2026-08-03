@@ -7,6 +7,7 @@ supply_worker 완료 후 실행. 최근 60분 feature_events 중 미처리된 �
 의존성: asyncpg, orjson (collector requirements에 포함) + stdlib
 """
 import asyncio
+import json
 import logging
 import os
 import ssl
@@ -22,16 +23,96 @@ logging.basicConfig(
 )
 logger = logging.getLogger("intraday-notify")
 
+_KST       = timezone(timedelta(hours=9))
 _TG_TOKEN  = os.environ.get("TELEGRAM_TOKEN", "")
 _TG_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
-# 추천 생성 기준
+# 추천 생성 기준 (DB 저장 기준 — Telegram 발송은 설정 UI min_prob 사용)
 MIN_SCORE    = float(os.environ.get("INTRADAY_MIN_SCORE",  "0.55"))
 LOOKBACK_MIN = int(os.environ.get("INTRADAY_LOOKBACK_MIN", "60"))
-MAX_RECS     = int(os.environ.get("INTRADAY_MAX_RECS",     "5"))
+MAX_TG_RECS  = int(os.environ.get("INTRADAY_MAX_RECS",     "5"))
 
 
-def _send_telegram(token: str, chat_id: str, text: str) -> None:
+# ── 텔레그램 설정 (Redis telegram:config 연동) ─────────────────
+
+def _load_tg_config() -> dict:
+    """Redis에서 설정 UI 값 조회. REDIS_URL 없거나 실패 시 env 기본값."""
+    default = {
+        "enabled":  os.environ.get("TELEGRAM_ENABLED", "1") == "1",
+        "min_prob": float(os.environ.get("REC_MIN_PROB", "0.22")),
+        "max_risk": float(os.environ.get("REC_MAX_RISK", "0.60")),
+    }
+    redis_url = os.environ.get("REDIS_URL", "")
+    if not redis_url:
+        return default
+    try:
+        import redis as _r
+        rc = _r.from_url(redis_url, decode_responses=True, socket_timeout=3)
+        raw = rc.get("telegram:config")
+        rc.close()
+        if raw:
+            cfg = json.loads(raw)
+            logger.info(
+                f"Redis 설정 로드: enabled={cfg.get('enabled')} "
+                f"min_prob={cfg.get('min_prob'):.3f}"
+            )
+            return cfg
+    except Exception as e:
+        logger.warning(f"Redis 설정 로드 실패, env 기본값 사용: {e}")
+    return default
+
+
+# ── 포맷 ───────────────────────────────────────────────────────
+
+def _fmt_pct(a, b) -> str:
+    try:
+        v = (float(b) - float(a)) / float(a) * 100
+        return f"+{v:.1f}%" if v >= 0 else f"{v:.1f}%"
+    except Exception:
+        return "N/A"
+
+
+def _format_signal(r: dict) -> str:
+    code       = r.get("code", "")
+    name       = r.get("name", code)
+    price      = r.get("price", 0)
+    target     = r.get("target", 0)
+    stop       = r.get("stop", 0)
+    score      = r.get("score", 0)
+    event_type = r.get("event_type", "")
+    detected   = r.get("detected_at")
+
+    name_line  = (
+        f"📌 종목: <b>{name}</b>  (<code>{code}</code>)"
+        if name != code else
+        f"📌 종목: <b>{code}</b>"
+    )
+    score_line = f"🎯 신호강도: <b>{score * 100:.0f}%</b>  [{event_type}]"
+    price_line = (
+        f"💰 현재가: <b>{int(price):,}원</b>"
+        f" / 🏆 목표가: {int(target):,}원 (<code>{_fmt_pct(price, target)}</code>)"
+        f" / 🚫 손절가: {int(stop):,}원 (<code>{_fmt_pct(price, stop)}</code>)"
+    )
+
+    dt_str = ""
+    if detected:
+        try:
+            dt = detected if hasattr(detected, "astimezone") else datetime.fromisoformat(str(detected))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            dt_str = dt.astimezone(_KST).strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            dt_str = str(detected)[:16]
+
+    lines = ["<b>🚀 매수 추천 알림</b>", name_line, score_line, price_line]
+    if dt_str:
+        lines.append(f"🕐 탐지 일시: {dt_str} KST")
+    return "\n".join(lines)
+
+
+# ── Telegram 발송 ──────────────────────────────────────────────
+
+def _send_telegram(token: str, chat_id: str, text: str) -> bool:
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = orjson.dumps({"chat_id": chat_id, "text": text, "parse_mode": "HTML"})
     ctx = ssl.create_default_context()
@@ -41,19 +122,50 @@ def _send_telegram(token: str, chat_id: str, text: str) -> None:
     try:
         with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
             resp.read()
+        return True
     except Exception as e:
         logger.warning(f"Telegram 전송 실패: {e}")
+        return False
 
+
+async def _log_telegram(
+    db: asyncpg.Pool,
+    *,
+    msg_type: str,
+    code: str,
+    name: str,
+    title: str,
+    message: str,
+    success: bool,
+) -> None:
+    try:
+        await db.execute(
+            """
+            INSERT INTO telegram_logs (msg_type, code, name, title, message, success)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            """,
+            msg_type, code or None, name or None, title, message, success,
+        )
+    except Exception as e:
+        logger.warning(f"telegram_logs 기록 실패: {e}")
+
+
+# ── 메인 로직 ──────────────────────────────────────────────────
 
 async def run(db: asyncpg.Pool) -> None:
-    since = datetime.now(timezone.utc) - timedelta(minutes=LOOKBACK_MIN)
+    cfg      = _load_tg_config()
+    since    = datetime.now(timezone.utc) - timedelta(minutes=LOOKBACK_MIN)
+    tg_min   = float(cfg.get("min_prob", MIN_SCORE))
+    tg_enabled = cfg.get("enabled", True)
 
-    # 최근 LOOKBACK_MIN분 내 탐지된 이벤트 중 추천이 없는 것
+    # 최근 LOOKBACK_MIN분 내 탐지된 이벤트 중 추천이 없는 것 (종목명 JOIN 포함)
     events = await db.fetch(
         """
-        SELECT fe.id, fe.code, fe.event_type, fe.price, fe.signal_score,
+        SELECT fe.id, fe.code, COALESCE(s.name, fe.code) AS name,
+               fe.event_type, fe.price, fe.signal_score,
                fe.change_rate, fe.detected_at
         FROM   feature_events fe
+        LEFT JOIN stocks s ON s.code = fe.code
         LEFT JOIN recommendations r ON r.feature_event_id = fe.id
         WHERE  fe.detected_at >= $1
           AND  fe.signal_score >= $2
@@ -72,16 +184,15 @@ async def run(db: asyncpg.Pool) -> None:
 
     inserted = []
     for ev in events:
-        price = ev["price"] or 0
-        score = float(ev["signal_score"] or 0)
+        price  = ev["price"] or 0
+        score  = float(ev["signal_score"] or 0)
         action = "BUY" if score >= 0.60 else "WAIT"
 
-        # 간단 가격 목표 산출 (ML 없이)
-        target      = int(price * 1.05) if price else None
-        stop        = int(price * 0.97) if price else None
-        entry_low   = int(price * 0.99) if price else None
-        entry_high  = int(price * 1.01) if price else None
-        expired_at  = datetime.now(timezone.utc) + timedelta(days=1)
+        target     = int(price * 1.05) if price else None   # +5%
+        stop       = int(price * 0.97) if price else None   # -3%
+        entry_low  = int(price * 0.99) if price else None
+        entry_high = int(price * 1.01) if price else None
+        expired_at = datetime.now(timezone.utc) + timedelta(days=1)
 
         rationale = orjson.dumps({
             "source":       "INTRADAY",
@@ -111,11 +222,15 @@ async def run(db: asyncpg.Pool) -> None:
             )
             if row:
                 inserted.append({
-                    "code":       ev["code"],
-                    "event_type": ev["event_type"],
-                    "price":      price,
-                    "score":      score,
-                    "action":     action,
+                    "code":        ev["code"],
+                    "name":        ev["name"],
+                    "event_type":  ev["event_type"],
+                    "price":       price,
+                    "target":      target or 0,
+                    "stop":        stop or 0,
+                    "score":       score,
+                    "action":      action,
+                    "detected_at": ev["detected_at"],
                 })
                 logger.info(f"  추천 저장: {ev['code']} {ev['event_type']} score={score:.3f} → {action}")
         except Exception as e:
@@ -124,24 +239,44 @@ async def run(db: asyncpg.Pool) -> None:
     if not inserted:
         return
 
-    # Telegram 알림 (상위 MAX_RECS개)
+    # ── Telegram 발송 (설정 UI 기준 필터) ──────────────────────
     if not _TG_TOKEN or not _TG_CHAT_ID:
         logger.info("TELEGRAM_TOKEN 미설정 — 알림 스킵")
         return
 
-    top = sorted(inserted, key=lambda x: x["score"], reverse=True)[:MAX_RECS]
-    now_kst = datetime.now(timezone.utc) + timedelta(hours=9)
-    lines = [f"📊 <b>[장중 신호] {now_kst.strftime('%H:%M')} KST</b>", ""]
-    for i, r in enumerate(top, 1):
-        mark = "🟢" if r["action"] == "BUY" else "🟡"
-        lines.append(
-            f"{mark} {i}. <b>{r['code']}</b> | {r['event_type']}"
-            f"\n   현재가 {r['price']:,}원 | 강도 {r['score']:.2f}"
+    # BUY 액션 + min_prob 이상인 신호만 발송
+    tg_targets = [
+        r for r in inserted
+        if r["action"] == "BUY" and r["score"] >= tg_min
+    ]
+
+    if not tg_enabled:
+        logger.info(f"텔레그램 알림 비활성화 — 발송 스킵 ({len(tg_targets)}건)")
+        return
+
+    if not tg_targets:
+        logger.info(
+            f"발송 기준 미충족 — 스킵 "
+            f"(min_prob={tg_min:.3f}, BUY 신호 {sum(1 for r in inserted if r['action']=='BUY')}건)"
         )
-    lines.append(f"\n총 {len(inserted)}건 신호 탐지")
-    text = "\n".join(lines)
-    _send_telegram(_TG_TOKEN, _TG_CHAT_ID, text)
-    logger.info(f"Telegram 알림 발송 완료 ({len(top)}건)")
+        return
+
+    top = sorted(tg_targets, key=lambda x: -x["score"])[:MAX_TG_RECS]
+    logger.info(f"Telegram 알림 발송: {len(top)}건 / 후보 {len(tg_targets)}건")
+
+    for r in top:
+        msg = _format_signal(r)
+        ok  = _send_telegram(_TG_TOKEN, _TG_CHAT_ID, msg)
+        logger.info(f"  {'✅' if ok else '❌'} {r['code']} ({r['event_type']})")
+        await _log_telegram(
+            db,
+            msg_type="intraday_signal",
+            code=r["code"],
+            name=r["name"],
+            title=f"{r['name']} 장중 신호 ({r['event_type']})",
+            message=msg,
+            success=ok,
+        )
 
 
 async def main() -> None:

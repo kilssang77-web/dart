@@ -286,7 +286,8 @@ async def main() -> None:
                     f"{icon} <b>{name}</b> ({code}) — <b>SELL</b>\n"
                     f"   사유: {reason}\n"
                     f"   매수가 ₩{int(entry_price):,} → 현재 ₩{int(current):,}\n"
-                    f"   수익률: {ret:+.2f}%"
+                    f"   수익률: {ret:+.2f}%\n"
+                    f"   🕐 탐지 일시: {now_kst.strftime('%Y-%m-%d %H:%M')} KST"
                 )
                 sell_msgs.append(body)
                 sell_meta.append({"code": code, "name": name, "reason": reason, "body": body})
