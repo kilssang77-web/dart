@@ -26,8 +26,49 @@ _REDIS_KEY_SKIP     = "financials:skip:{code}"       # KIS 조회 불가 종목 
 _REDIS_KEY_FAIL     = "financials:fail_count:{code}" # 연속 조회 불가 카운터 (90일 TTL)
 _RUN_INTERVAL_DAYS  = 6
 _MAX_FAIL_COUNT     = 3  # N회 연속 0건 → stocks.is_active = FALSE
-_REQ_DELAY          = 1.0   # 초 / 종목 (2회 API 호출 포함, KIS 초당 20회 제한 준수)
+_REQ_DELAY          = 0.15  # 초 / 종목 (KIS 20 req/s 제한 내, 2호출×~0.05s 여유)
 _BATCH_LOG_EVERY    = 100
+
+# 분기 마감 후 45일 = 실적 발표 시즌 (한국 공시 기준)
+_EARNINGS_WINDOW_DAYS = 45
+# 증분 수집 스킵 기준: 실적시즌 14일, 비실적시즌 35일 이내 수집 종목은 스킵
+_FRESHNESS_EARNINGS   = 14
+_FRESHNESS_NORMAL     = 35
+
+
+def _in_earnings_window() -> bool:
+    """분기 마감일(3/31, 6/30, 9/30, 12/31) 후 45일 이내이면 True."""
+    now = datetime.now(_KST)
+    for month, day in [(3, 31), (6, 30), (9, 30), (12, 31)]:
+        qe = datetime(now.year, month, day, tzinfo=_KST)
+        if 0 <= (now - qe).days <= _EARNINGS_WINDOW_DAYS:
+            return True
+    return False
+
+
+async def _get_stale_skip_set(db) -> frozenset[str]:
+    """DB에서 최근 수집된 종목 코드를 일괄 조회해 스킵 집합으로 반환.
+
+    실적시즌: 14일 이내 수집 → 스킵 (이번 분기 데이터 이미 있음)
+    비실적시즌: 35일 이내 수집 → 스킵 (재무데이터 분기 불변)
+    """
+    in_season  = _in_earnings_window()
+    cutoff     = _FRESHNESS_EARNINGS if in_season else _FRESHNESS_NORMAL
+    season_str = "실적시즌" if in_season else "비실적시즌"
+
+    rows = await db.fetch(
+        """
+        SELECT DISTINCT code FROM financials
+        WHERE updated_at >= NOW() - ($1::int * INTERVAL '1 day')
+        """,
+        cutoff,
+    )
+    skip_set = frozenset(r["code"] for r in rows)
+    logger.info(
+        f"[financials] 증분 체크 ({season_str}, {cutoff}일 기준): "
+        f"{len(skip_set)}종목 DB 스킵 대상"
+    )
+    return skip_set
 
 
 async def _collect_one(svc: StockCollector, code: str) -> list[dict]:
@@ -64,12 +105,21 @@ async def _should_run(redis) -> bool:
 
 async def run_collection(svc: StockCollector, codes: list[str]) -> None:
     logger.info(f"[financials] 수집 시작 — {len(codes)}개 종목")
+
+    # 증분 수집: DB에서 최근 수집 종목 일괄 조회 (API 호출 없이 스킵)
+    db_skip_set = await _get_stale_skip_set(svc.db)
+
     total_records = 0
     skip_count    = 0
     error_count   = 0
 
     for i, code in enumerate(codes):
-        # KIS 조회 불가 종목 스킵 (이전 수집에서 0행 반환된 종목, 24h TTL)
+        # 1) DB 증분 스킵 — 최근 수집된 종목 (데이터 미변경)
+        if code in db_skip_set:
+            skip_count += 1
+            continue
+
+        # 2) KIS 조회 불가 종목 스킵 (이전 수집에서 0행 반환된 종목, 24h TTL)
         if await svc.redis.exists(_REDIS_KEY_SKIP.format(code=code)):
             skip_count += 1
             continue
