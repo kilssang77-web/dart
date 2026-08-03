@@ -1,5 +1,6 @@
 ﻿import asyncio
 import logging
+import time
 from fastapi import Request, HTTPException
 import asyncpg
 import orjson
@@ -74,10 +75,27 @@ async def db_fetchrow(db: asyncpg.Pool, query: str, *params, retries: int = 1):
                 raise
 
 
-# ── Redis 캐시 + Stale fallback ────────────────────────────────────────────────
+# ── 인메모리 캐시 (Redis 요청 제거) ──────────────────────────────────────────────
+# Redis 500k/월 한도 절감을 위해 process-level TTL 캐시로 대체.
+# 단일 프로세스 API 서버이므로 메모리 일관성 문제 없음.
 
-def _serialize(rows: list) -> bytes:
-    """asyncpg Record/dict 리스트를 JSON bytes로 변환 (date/datetime 포함)."""
+_mem_cache: dict[str, tuple[float, list]] = {}   # key → (expires_at, data)
+_stale_cache: dict[str, tuple[float, list]] = {}  # key → (expires_at, data)
+
+
+def _cache_get(store: dict, key: str) -> list | None:
+    entry = store.get(key)
+    if entry and time.monotonic() < entry[0]:
+        return entry[1]
+    return None
+
+
+def _cache_set(store: dict, key: str, data: list, ttl: int) -> None:
+    store[key] = (time.monotonic() + ttl, data)
+
+
+def _serialize(rows: list) -> list[dict]:
+    """asyncpg Record 리스트를 dict 리스트로 변환 (date/datetime → isoformat)."""
     def _conv(v):
         if v is None:
             return None
@@ -88,9 +106,7 @@ def _serialize(rows: list) -> bytes:
         except Exception:
             return v
 
-    return orjson.dumps(
-        [{k: _conv(v) for k, v in (dict(r) if not isinstance(r, dict) else r).items()} for r in rows]
-    )
+    return [{k: _conv(v) for k, v in (dict(r) if not isinstance(r, dict) else r).items()} for r in rows]
 
 
 async def cached_fetch(
@@ -103,39 +119,25 @@ async def cached_fetch(
     stale_multiplier: int = 10,
 ) -> list:
     """
-    Cache-aside 패턴. DB 장애 시 최대 ttl × stale_multiplier 초 동안 stale 캐시 반환.
+    인메모리 Cache-aside 패턴. DB 장애 시 stale 캐시 반환.
+    redis 파라미터는 시그니처 호환을 위해 유지하나 캐시 저장엔 사용하지 않음.
     """
-    fresh_k = f"apicache:{cache_key}"
-    stale_k = f"stalecache:{cache_key}"
-
-    try:
-        raw = await redis.get(fresh_k)
-        if raw:
-            return orjson.loads(raw)
-    except Exception:
-        pass
+    cached = _cache_get(_mem_cache, cache_key)
+    if cached is not None:
+        return cached
 
     try:
         rows = await db_fetch(db, query, *params)
-        result_list = [dict(r) for r in rows]
-        try:
-            payload = _serialize(result_list)
-            await redis.set(fresh_k, payload, ex=ttl)
-            await redis.set(stale_k, payload, ex=ttl * stale_multiplier)
-        except Exception:
-            pass
+        result_list = _serialize(rows)
+        _cache_set(_mem_cache,   cache_key, result_list, ttl)
+        _cache_set(_stale_cache, cache_key, result_list, ttl * stale_multiplier)
         return result_list
     except Exception as exc:
         logger.warning(f"DB unavailable ({type(exc).__name__}): {exc}")
-        logger.debug(f"DB unavailable cache_key={cache_key}")
 
-    try:
-        stale = await redis.get(stale_k)
-        if stale:
-            logger.info("Serving stale cache")
-            logger.debug(f"Serving stale cache for: {cache_key}")
-            return orjson.loads(stale)
-    except Exception:
-        pass
+    stale = _cache_get(_stale_cache, cache_key)
+    if stale is not None:
+        logger.info(f"Serving stale cache for: {cache_key}")
+        return stale
 
     raise HTTPException(status_code=503, detail="Database temporarily unavailable")

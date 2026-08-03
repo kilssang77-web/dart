@@ -4,7 +4,7 @@
 흐름:
   1. 오늘 일봉(OHLCV + 수급) 전체 조회 — 단일 쿼리
   2. 이전 N일 고가(신고가 기준) 전체 조회 — 단일 쿼리
-  3. Redis 파이프라인으로 거래량/수급 평균 일괄 조회
+  3. DB 윈도우 쿼리로 거래량/수급 20일 평균 계산 (Redis 불필요)
   4. 종목별 시그널 판정 (거래량급증 / 신고가 / 캔들 / 수급이상)
   5. feature_events 저장 + Kafka 발행
   6. 상위 N개 종목을 stocks:active_codes 에 갱신 → 다음날 실시간 모니터링 자동 편입
@@ -127,8 +127,8 @@ class BatchScanner:
         # 3. 신고가 기준 이전 고가 (DB 단일 쿼리)
         highs_map = await self._fetch_breakout_highs(live_codes, today)
 
-        # 4. 거래량·수급 평균 (Redis 파이프라인)
-        avgs_map = await self._fetch_redis_avgs(live_codes)
+        # 4. 거래량·수급 평균 (DB 직접 계산 — Redis 불필요)
+        avgs_map = await self._fetch_db_avgs(live_codes, today)
 
         # 5. 모닝스타 탐지용 최근 3일 일봉
         recent_bars_map = await self._fetch_recent_bars(live_codes, today)
@@ -242,35 +242,46 @@ class BatchScanner:
         return {r["code"]: dict(r) for r in rows}
 
     # ─────────────────────────────────────────────────────────────
-    # Redis 조회 (파이프라인)
+    # DB 조회 — 20일 평균 통계 (Redis 불필요)
     # ─────────────────────────────────────────────────────────────
 
-    async def _fetch_redis_avgs(self, codes: list[str]) -> dict[str, dict]:
-        """거래량·거래대금·수급 20일 평균을 Redis 파이프라인으로 일괄 조회 (100개 청크)."""
-        fields = ["avg_vol_20d", "avg_amount_20d", "avg_foreign_20d", "avg_inst_20d", "avg_short_20d"]
-        result: dict[str, dict] = {}
+    async def _fetch_db_avgs(self, codes: list[str], today: date) -> dict[str, dict]:
+        """거래량·거래대금·수급 20일 평균을 DB 단일 윈도우 쿼리로 계산.
 
-        for chunk_start in range(0, len(codes), 100):
-            chunk = codes[chunk_start:chunk_start + 100]
-            pipe = self.redis.pipeline()
-            for code in chunk:
-                for f in fields:
-                    pipe.get(f"stats:{code}:{f}")
-            raw = await pipe.execute()
-
-            for i, code in enumerate(chunk):
-                base = i * len(fields)
-                vals = {}
-                for j, f in enumerate(fields):
-                    v = raw[base + j]
-                    if v is not None:
-                        try:
-                            vals[f] = float(v)
-                        except (ValueError, TypeError):
-                            pass
-                result[code] = vals
-
-        return result
+        기존 Redis pipeline GET(종목 × 5필드 = 5,300 req) → DB 쿼리 1회로 대체.
+        """
+        rows = await self.db.fetch(
+            """
+            SELECT
+                code,
+                AVG(volume)  AS avg_vol_20d,
+                AVG(amount)  AS avg_amount_20d,
+                AVG(foreign_net_buy) FILTER (WHERE foreign_net_buy > 0) AS avg_foreign_20d,
+                AVG(inst_net_buy)    FILTER (WHERE inst_net_buy    > 0) AS avg_inst_20d,
+                AVG(short_balance)   FILTER (WHERE short_balance   > 0) AS avg_short_20d
+            FROM (
+                SELECT code, volume, amount, foreign_net_buy, inst_net_buy, short_balance,
+                       ROW_NUMBER() OVER (PARTITION BY code ORDER BY date DESC) AS rn
+                FROM daily_bars
+                WHERE code = ANY($1::varchar[])
+                  AND date < $2
+                  AND close > 0
+            ) sub
+            WHERE rn <= 20
+            GROUP BY code
+            """,
+            codes, today,
+        )
+        return {
+            r["code"]: {
+                "avg_vol_20d":     float(r["avg_vol_20d"]     or 0),
+                "avg_amount_20d":  float(r["avg_amount_20d"]  or 0),
+                "avg_foreign_20d": float(r["avg_foreign_20d"] or 0),
+                "avg_inst_20d":    float(r["avg_inst_20d"]    or 0),
+                "avg_short_20d":   float(r["avg_short_20d"]   or 0),
+            }
+            for r in rows
+        }
 
     # ─────────────────────────────────────────────────────────────
     # 시그널 판정

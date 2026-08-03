@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from main import StockCollector, load_all_stocks
+from main import StockCollector, load_all_stocks, load_active_stocks
 from db.writer import write_daily_bars
 from redis_stats import refresh_all_stats, refresh_market_returns
 from batch_scanner import BatchScanner
@@ -170,11 +170,14 @@ async def run():
         + (f", pykrx fallback {pykrx_fallback}개" if pykrx_fallback else "") + ")"
     )
 
-    # ── Redis 탐지 통계 갱신 ──────────────────────────────────
+    # ── Redis 탐지 통계 갱신 (active_codes ~100개로 한정) ──────
+    # BatchScanner가 DB 직접 계산으로 전환 → Redis 통계는 intraday_poller용 ~100개면 충분
     logger.info("[daily] Redis 통계 갱신 시작")
     try:
-        refreshed = await refresh_all_stats(svc.db, svc.redis, all_codes)
-        logger.info(f"[daily] Redis 통계 갱신 완료: {refreshed}/{len(all_codes)}개")
+        active_codes = await load_active_stocks(svc.redis)
+        stats_codes  = active_codes if active_codes else all_codes[:100]
+        refreshed = await refresh_all_stats(svc.db, svc.redis, stats_codes)
+        logger.info(f"[daily] Redis 통계 갱신 완료: {refreshed}/{len(stats_codes)}개 (active only)")
     except Exception as e:
         logger.error(f"[daily] Redis 통계 갱신 실패: {e}")
 
