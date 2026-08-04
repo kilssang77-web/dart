@@ -130,15 +130,15 @@ async def _handle(ev: dict, redis: redis_lib.Redis) -> None:
         logger.debug(f"[{etype}] {code} — 알림 비활성화(UI 설정), 스킵")
         return
 
-    # 신호점수 필터 (VI_TRIGGERED는 제외 — 발동 자체가 이벤트)
-    # signal_score = 0.50 + (배율-기준)/  (기준×4), 배율이 클수록 높음
-    if etype != "VI_TRIGGERED":
-        min_prob = float(cfg.get("min_prob", _DEFAULT_MIN_PROB))
-        if score < min_prob:
-            logger.debug(
-                f"[{etype}] {code} score={score:.2f} < min_prob={min_prob:.2f} — 스킵"
-            )
-            return
+    # 신호점수 필터 (모든 이벤트 동일 적용)
+    # AMOUNT/VOLUME_SURGE: score = 0.50 + (배율-기준)/(기준×4)
+    # VI_TRIGGERED: score = 0.70 (고정)
+    min_prob = float(cfg.get("min_prob", _DEFAULT_MIN_PROB))
+    if score < min_prob:
+        logger.debug(
+            f"[{etype}] {code} score={score:.2f} < min_prob={min_prob:.2f} — 스킵"
+        )
+        return
 
     text = _format(ev)
     ok   = _send_telegram(text)
