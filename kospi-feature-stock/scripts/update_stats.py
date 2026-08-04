@@ -13,8 +13,11 @@ logger = logging.getLogger("update_stats")
 
 
 async def main():
-    dsn = os.environ["POSTGRES_DSN"].replace("+asyncpg", "")
-    db  = await asyncpg.create_pool(dsn=dsn, min_size=3, max_size=10)
+    from dotenv import load_dotenv
+    load_dotenv(os.path.expanduser("~/.env"))
+    dsn     = os.environ["POSTGRES_DSN"].replace("+asyncpg", "")
+    ssl_val = "require" if "supabase" in dsn else False
+    db  = await asyncpg.create_pool(dsn=dsn, min_size=3, max_size=10, ssl=ssl_val, statement_cache_size=0)
     red = redis_lib.from_url(os.environ["REDIS_URL"])
 
     async with db.acquire() as conn:
