@@ -41,6 +41,21 @@ jobs:
                       imbalanced-learn optuna shap joblib orjson \
                       python-dotenv
 
+      - name: 실전 승률 피드백 확인 (model_metrics.json 기반)
+        run: |
+          METRICS=kospi-feature-stock/services/api/lgbm_export/model_metrics.json
+          if [ -f "$METRICS" ]; then
+            WIN=$(python3 -c "import json,sys; m=json.load(open('$METRICS')); print(m.get('win_rate_30d','N/A'))")
+            TOTAL=$(python3 -c "import json,sys; m=json.load(open('$METRICS')); print(m.get('win_total_30d','N/A'))")
+            echo "📊 실전 승률(30일): $WIN  (샘플 $TOTAL건)"
+            echo "REAL_WIN_RATE=$WIN" >> $GITHUB_ENV
+            echo "REAL_WIN_TOTAL=$TOTAL" >> $GITHUB_ENV
+          else
+            echo "model_metrics.json 없음 — 첫 학습 실행"
+            echo "REAL_WIN_RATE=N/A" >> $GITHUB_ENV
+            echo "REAL_WIN_TOTAL=0" >> $GITHUB_ENV
+          fi
+
       - name: ML 재학습 실행
         env:
           POSTGRES_DSN:           ${{ secrets.POSTGRES_DSN }}
@@ -96,10 +111,12 @@ jobs:
         run: |
           [ -z "${{ secrets.DISCORD_WEBHOOK }}" ] && exit 0
           STATUS="${{ job.status }}"
+          WIN="${REAL_WIN_RATE:-N/A}"
+          TOTAL="${REAL_WIN_TOTAL:-0}"
           if [ "$STATUS" = "success" ]; then
-            MSG="✅ **ML 재학습 완료** — 새 모델이 Docker 이미지에 반영됩니다."
+            MSG="✅ **ML 재학습 완료** — 새 모델이 Docker 이미지에 반영됩니다.\n📊 실전 승률(30일): ${WIN} (${TOTAL}건)"
           else
-            MSG="❌ **ML 재학습 실패** — 로그: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            MSG="❌ **ML 재학습 실패** — 로그: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\n📊 실전 승률(30일): ${WIN} (${TOTAL}건)"
           fi
           curl -s -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
             -H "Content-Type: application/json" \

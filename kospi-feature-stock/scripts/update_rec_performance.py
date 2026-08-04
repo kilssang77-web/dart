@@ -9,6 +9,7 @@ Supabase 기반 추천 성과 자동 업데이트 (GitHub Actions daily cron).
   4. tracking_complete = TRUE (5영업일치 모두 확보 시)
 """
 import asyncio
+import json
 import logging
 import os
 from datetime import date, timedelta
@@ -17,6 +18,32 @@ import asyncpg
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("rec_perf")
+
+
+def _publish_performance_summary(total: int, wins: int, rate: float, avg_r5d: float) -> None:
+    """최근 30일 실전 승률을 ch:tg-outbox로 발행 (샘플 충분 시에만)."""
+    redis_url = os.environ.get("REDIS_URL", "")
+    if not redis_url or total < 5:
+        return
+    try:
+        import redis as _r
+        from datetime import datetime, timezone, timedelta
+        kst = timezone(timedelta(hours=9))
+        today = datetime.now(kst).date()
+        text = (
+            f"<b>📈 추천 성과 업데이트 ({today})</b>\n"
+            f"최근 30일: 총{total}건  ✅{wins}건  승률 <b>{rate:.0%}</b>  "
+            f"평균5일수익 {avg_r5d:+.2f}%"
+        )
+        rc = _r.from_url(redis_url, decode_responses=True, socket_timeout=5)
+        rc.publish("ch:tg-outbox", json.dumps({
+            "text": text, "msg_type": "performance_summary",
+            "title": f"추천 성과 업데이트 {today}",
+        }, ensure_ascii=False))
+        rc.close()
+        log.info("성과 요약 Redis 발행 완료 (ch:tg-outbox)")
+    except Exception as e:
+        log.warning(f"Redis publish 실패: {e}")
 
 _CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS recommendation_performance (
@@ -137,6 +164,24 @@ async def main():
         """)
         log.info(f"is_success/tracking_complete 완료: {n}")
 
+        # 4. 최근 30일 실전 승률 집계 → Redis 발행
+        stats = await conn.fetchrow("""
+            SELECT
+                COUNT(*)                                          AS total,
+                SUM(CASE WHEN is_success THEN 1 ELSE 0 END)     AS wins,
+                AVG(r_5d)                                         AS avg_r5d
+            FROM recommendation_performance rp
+            JOIN recommendations r ON r.id = rp.rec_id
+            WHERE tracking_complete = TRUE
+              AND r.created_at >= NOW() - INTERVAL '30 days'
+        """)
+        total  = int(stats["total"] or 0)
+        wins   = int(stats["wins"]  or 0)
+        avg_r5 = float(stats["avg_r5d"] or 0.0)
+        rate   = wins / total if total > 0 else 0.0
+        log.info(f"최근 30일 성과: 총{total}건 성공{wins}건 승률{rate:.1%} 평균5일수익{avg_r5:+.2f}%")
+
+        _publish_performance_summary(total, wins, rate, avg_r5)
         log.info("추천 성과 업데이트 완료")
     finally:
         await conn.close()
