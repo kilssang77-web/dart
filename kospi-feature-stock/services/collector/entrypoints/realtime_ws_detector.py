@@ -85,6 +85,21 @@ async def _get_active_codes(redis) -> list[str]:
     return []
 
 
+async def _load_stock_names(db, codes: list[str]) -> dict[str, str]:
+    if not codes:
+        return {}
+    try:
+        async with db.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT code, name FROM stocks WHERE code = ANY($1::varchar[])",
+                codes,
+            )
+        return {r["code"]: r["name"] for r in rows}
+    except Exception as e:
+        logger.warning(f"[ws-detector] 종목명 로드 실패: {e}")
+        return {}
+
+
 async def _check_dedup(redis, code: str, event_type: str) -> bool:
     today = datetime.now(_KST).strftime("%Y-%m-%d")
     return bool(await redis.exists(f"intraday_dedup:{code}:{event_type}:{today}"))
@@ -135,6 +150,7 @@ class RealtimeDetector:
         self._redis = redis
         self._db    = db
         self._codes: list[str] = []
+        self._names: dict[str, str] = {}
         self._codes_updated_at = 0.0
 
     async def _refresh_codes(self) -> None:
@@ -144,6 +160,7 @@ class RealtimeDetector:
         codes = await _get_active_codes(self._redis)
         if codes:
             self._codes = codes
+            self._names = await _load_stock_names(self._db, codes)
             self._codes_updated_at = now
             logger.info(f"[ws-detector] active_codes 갱신: {len(self._codes)}종목")
         elif not self._codes:
@@ -180,7 +197,8 @@ class RealtimeDetector:
             if not await _check_dedup(self._redis, code, "AMOUNT_SURGE"):
                 score = min(0.95, 0.50 + (ratio - AMOUNT_SURGE_RATIO) / (AMOUNT_SURGE_RATIO * 4))
                 ok = await _save_and_publish(self._db, self._redis, {
-                    "code": code, "detected_at": now_kst,
+                    "code": code, "name": self._names.get(code, code),
+                    "detected_at": now_kst,
                     "event_type": "AMOUNT_SURGE", "price": price,
                     "change_rate": None, "volume": cum_volume, "amount": cum_amount,
                     "signal_score": round(score, 3),
@@ -201,7 +219,8 @@ class RealtimeDetector:
                 if not await _check_dedup(self._redis, code, "VOLUME_SURGE"):
                     score = min(0.95, 0.50 + (ratio - VOL_SURGE_RATIO) / (VOL_SURGE_RATIO * 4))
                     ok = await _save_and_publish(self._db, self._redis, {
-                        "code": code, "detected_at": now_kst,
+                        "code": code, "name": self._names.get(code, code),
+                        "detected_at": now_kst,
                         "event_type": "VOLUME_SURGE", "price": price,
                         "change_rate": None, "volume": cum_volume, "amount": cum_amount,
                         "signal_score": round(score, 3),
@@ -227,7 +246,8 @@ class RealtimeDetector:
 
         now_kst = datetime.now(_KST)
         ok = await _save_and_publish(self._db, self._redis, {
-            "code": code, "detected_at": now_kst,
+            "code": code, "name": self._names.get(code, code),
+            "detected_at": now_kst,
             "event_type": "VI_TRIGGERED", "price": price,
             "change_rate": None, "volume": 0, "amount": 0,
             "signal_score": 0.70,

@@ -82,19 +82,21 @@ def _send_telegram(text: str) -> bool:
 
 def _format(ev: dict) -> str:
     code   = ev.get("code", "")
+    name   = ev.get("name") or code
     etype  = ev.get("event_type", "")
     price  = ev.get("price", 0)
     score  = ev.get("signal_score", 0.0)
     sig    = ev.get("signal_data", {})
     emoji  = _EMOJI.get(etype, "🔔")
     ts     = str(ev.get("detected_at", ""))[:16]
+    stock  = f"{name}({code})" if name != code else code
 
     if etype == "AMOUNT_SURGE":
         ratio = sig.get("ratio", 0)
         avg   = int(sig.get("avg_amount_20d", 0))
         avg_b = f"{avg // 100_000_000:.0f}억" if avg >= 100_000_000 else f"{avg:,}"
         return (
-            f"{emoji} <b>거래대금 급등 [{code}]</b>\n"
+            f"{emoji} <b>거래대금 급등 {stock}</b>\n"
             f"현재가: {price:,}원\n"
             f"거래대금: 20일 평균 대비 <b>{ratio:.1f}배</b> (평균 {avg_b})\n"
             f"신호점수: {score:.2f}  |  탐지: {ts}"
@@ -102,7 +104,7 @@ def _format(ev: dict) -> str:
     if etype == "VOLUME_SURGE":
         ratio = sig.get("ratio", 0)
         return (
-            f"{emoji} <b>거래량 급등 [{code}]</b>\n"
+            f"{emoji} <b>거래량 급등 {stock}</b>\n"
             f"현재가: {price:,}원\n"
             f"거래량: 20일 평균 대비 <b>{ratio:.1f}배</b>\n"
             f"신호점수: {score:.2f}  |  탐지: {ts}"
@@ -110,11 +112,11 @@ def _format(ev: dict) -> str:
     if etype == "VI_TRIGGERED":
         vi_kind = sig.get("vi_kind", "")
         return (
-            f"{emoji} <b>VI 발동 [{code}]</b>\n"
+            f"{emoji} <b>VI 발동 {stock}</b>\n"
             f"현재가: {price:,}원  |  유형: {vi_kind}\n"
             f"탐지: {ts}"
         )
-    return f"🔔 <b>{etype} [{code}]</b>\n현재가: {price:,}원  |  탐지: {ts}"
+    return f"🔔 <b>{etype} {stock}</b>\n현재가: {price:,}원  |  탐지: {ts}"
 
 
 async def _handle(ev: dict, redis: redis_lib.Redis) -> None:

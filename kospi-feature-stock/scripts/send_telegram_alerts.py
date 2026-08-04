@@ -87,8 +87,9 @@ def _format_message(r: dict) -> str:
         else:
             time_str = str(created_kst)[:16]
 
+    stock = f"{r['name']}({r['code']})" if r.get("name") and r["name"] != r["code"] else r["code"]
     return (
-        f"{action_emoji} <b>[매수신호] {r['code']}</b>  {time_str}\n"
+        f"{action_emoji} <b>[매수신호] {stock}</b>  {time_str}\n"
         f"진입가:  <b>{entry:,.0f}원</b>\n"
         f"목표가:  {target:,.0f}원  (<b>+{target_pct:.1f}%</b>)\n"
         f"손절가:  {stop:,.0f}원  ({stop_pct:.1f}%)\n"
@@ -109,14 +110,16 @@ async def main():
     try:
         rows = await conn.fetch(
             """
-            SELECT id, code, action, created_at,
-                   entry_price, target_price, stop_loss_price,
-                   success_prob, risk_score, risk_reward_ratio,
-                   confidence_grade, rationale
-            FROM recommendations
-            WHERE action = 'BUY'
-              AND created_at >= $1
-            ORDER BY created_at DESC
+            SELECT r.id, r.code, COALESCE(s.name, r.code) AS name,
+                   r.action, r.created_at,
+                   r.entry_price, r.target_price, r.stop_loss_price,
+                   r.success_prob, r.risk_score, r.risk_reward_ratio,
+                   r.confidence_grade, r.rationale
+            FROM recommendations r
+            LEFT JOIN stocks s ON s.code = r.code
+            WHERE r.action = 'BUY'
+              AND r.created_at >= $1
+            ORDER BY r.created_at DESC
             LIMIT 20
             """,
             since,
@@ -137,7 +140,7 @@ async def main():
                     rationale = {}
             ok = _publish_signal(
                 code     = r["code"],
-                name     = r.get("code", ""),
+                name     = r.get("name", r["code"]),
                 prob     = float(r.get("success_prob") or 0),
                 risk     = float(r.get("risk_score") or 0),
                 rr       = float(r.get("risk_reward_ratio") or 0),
