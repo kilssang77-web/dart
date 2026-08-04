@@ -107,6 +107,7 @@ class LGBMTrainer:
         model_dir: str = "/models/lgbm",
         use_smote: bool = False,
         params_override: dict | None = None,
+        real_win_rate: float = 0.5,
     ) -> lgb.LGBMClassifier:
         pos_count = int(y_train.sum())
         neg_count = int((y_train == 0).sum())
@@ -117,6 +118,7 @@ class LGBMTrainer:
         )
 
         X_tr, y_tr = X_train, y_train
+        smote_applied = False
 
         if use_smote and pos_count >= 10:
             try:
@@ -124,11 +126,29 @@ class LGBMTrainer:
                 sm = SMOTE(random_state=42, k_neighbors=min(5, pos_count - 1))
                 X_tr, y_tr = sm.fit_resample(X_train, y_train)
                 scale_pos  = 1.0
+                smote_applied = True
                 logger.info(f"[Trainer] SMOTE applied: {X_train.shape} → {X_tr.shape}")
             except ImportError:
                 logger.warning("[Trainer] imbalanced-learn not installed, skipping SMOTE")
             except Exception as e:
                 logger.warning(f"[Trainer] SMOTE failed: {e}")
+
+        # 실전 승률 피드백으로 scale_pos_weight 미세 조정 (SMOTE 미적용 시에만)
+        # 저승률(≤0.35): 보수적 → 가중치 감소 → 더 적지만 정밀한 예측
+        # 고승률(≥0.60): 공격적 → 가중치 증가 → 더 많은 신호 허용
+        if not smote_applied and real_win_rate != 0.5:
+            if real_win_rate <= 0.35:
+                adj = 0.80
+                scale_pos = max(1.0, scale_pos * adj)
+                logger.info(
+                    f"[Trainer] 저승률({real_win_rate:.1%}) → scale_pos_weight×{adj} = {scale_pos:.2f} (보수적)"
+                )
+            elif real_win_rate >= 0.60:
+                adj = 1.15
+                scale_pos = scale_pos * adj
+                logger.info(
+                    f"[Trainer] 고승률({real_win_rate:.1%}) → scale_pos_weight×{adj} = {scale_pos:.2f} (공격적)"
+                )
 
         params = dict(params_override if params_override else _BASE_PARAMS)
         params["objective"] = "binary"

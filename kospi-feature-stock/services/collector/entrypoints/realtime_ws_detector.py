@@ -17,11 +17,12 @@ intraday_poller(REST 5분)를 대체: KIS WebSocket으로 체결 틱 수신 → 
 import asyncio
 import logging
 import os
+import signal
 import sys
 import orjson
 import asyncpg
 import redis.asyncio as redis_lib
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -53,6 +54,17 @@ def _is_market_open() -> bool:
         return False
     minutes = now.hour * 60 + now.minute
     return MARKET_OPEN_MIN <= minutes <= MARKET_CLOSE_MIN
+
+
+def _next_market_open() -> datetime:
+    """다음 영업일 09:00 KST datetime 반환."""
+    now = datetime.now(_KST)
+    candidate = now.replace(hour=9, minute=0, second=0, microsecond=0)
+    if now >= candidate:
+        candidate += timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate += timedelta(days=1)
+    return candidate
 
 
 def _elapsed_ratio() -> float:
@@ -255,16 +267,18 @@ class RealtimeDetector:
 
 
 async def main():
+    # ── KIS 키 검증 ───────────────────────────────────────────────────────────
+    app_key    = os.environ.get("KIS_APP_KEY", "")
+    app_secret = os.environ.get("KIS_APP_SECRET", "")
+    if not app_key or not app_secret:
+        logger.error(
+            "KIS_APP_KEY / KIS_APP_SECRET 미설정 — WebSocket 연결 불가.\n"
+            "실전 계좌 승인 전에는 intraday_poller.py(REST) 를 사용하세요."
+        )
+        sys.exit(0)   # exit 0 → Docker restart 무한 루프 방지
+
+    # ── 연결 초기화 ───────────────────────────────────────────────────────────
     redis = redis_lib.from_url(os.environ["REDIS_URL"])
-
-    config = KISConfig(
-        app_key=os.environ["KIS_APP_KEY"],
-        app_secret=os.environ["KIS_APP_SECRET"],
-        account_no=os.environ.get("KIS_ACCOUNT_NO", ""),
-    )
-    auth = KISAuthManager(config, redis)
-    ws   = KISWebSocketClient(config, auth)
-
     dsn     = os.environ["POSTGRES_DSN"].replace("+asyncpg", "")
     ssl_val = "require" if "supabase" in dsn else False
     db = await asyncpg.create_pool(
@@ -272,8 +286,70 @@ async def main():
         ssl=ssl_val, statement_cache_size=0,
     )
 
-    detector = RealtimeDetector(redis, db)
-    await detector.run(ws)
+    config = KISConfig(
+        app_key=app_key,
+        app_secret=app_secret,
+        account_no=os.environ.get("KIS_ACCOUNT_NO", ""),
+    )
+    auth      = KISAuthManager(config, redis)
+    ws_client = KISWebSocketClient(config, auth)
+    detector  = RealtimeDetector(redis, db)
+
+    # ── Graceful Shutdown ─────────────────────────────────────────────────────
+    loop       = asyncio.get_running_loop()
+    stop_event = asyncio.Event()
+
+    def _on_signal():
+        logger.info("[ws-detector] 종료 신호 수신 — 정리 중...")
+        stop_event.set()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, _on_signal)
+
+    logger.info("[ws-detector] 시작 — AMOUNT_SURGE / VOLUME_SURGE / VI_TRIGGERED")
+
+    # ── 메인 루프 (장 외 시간 대기 → 장 중 구독) ─────────────────────────────
+    while not stop_event.is_set():
+        if not _is_market_open():
+            next_open = _next_market_open()
+            wait_secs = max(10.0, (next_open - datetime.now(_KST)).total_seconds())
+            logger.info(
+                f"[ws-detector] 장 외 시간 — 다음 개장 "
+                f"{next_open.strftime('%m/%d %H:%M KST')}까지 "
+                f"{wait_secs/60:.0f}분 대기"
+            )
+            try:
+                # 최대 5분마다 깨어나 장 개장 여부 재확인
+                await asyncio.wait_for(stop_event.wait(), timeout=min(wait_secs, 300))
+            except asyncio.TimeoutError:
+                continue
+            break   # stop_event 세팅됨
+
+        # 장 중: WebSocket 구독 실행 (stop_event 발생 시 즉시 중단)
+        logger.info("[ws-detector] 장 중 — WebSocket 구독 시작")
+        detect_task = asyncio.create_task(detector.run(ws_client))
+        stop_task   = asyncio.create_task(stop_event.wait())
+        done, pending = await asyncio.wait(
+            {detect_task, stop_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for t in pending:
+            t.cancel()
+            try:
+                await t
+            except asyncio.CancelledError:
+                pass
+
+        if stop_event.is_set():
+            break
+        if detect_task in done and detect_task.exception():
+            logger.error(f"[ws-detector] 루프 오류: {detect_task.exception()} — 30초 후 재시작")
+            await asyncio.sleep(30)
+
+    # ── 정리 ─────────────────────────────────────────────────────────────────
+    await db.close()
+    await redis.aclose()
+    logger.info("[ws-detector] 종료 완료")
 
 
 if __name__ == "__main__":

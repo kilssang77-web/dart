@@ -20,6 +20,7 @@ Test 세트: 완전 홀드아웃, 학습에 절대 사용 안 함
 """
 import argparse
 import asyncio
+import json
 import logging
 import math
 import os
@@ -43,6 +44,30 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s - %(message)s",
 )
 logger = logging.getLogger("walk_forward")
+
+
+def _load_real_win_rate(model_dir: Path) -> float:
+    """model_metrics.json에서 30일 실전 승률 로드. 샘플 20건 미만이면 0.5(중립) 반환."""
+    p = model_dir / "model_metrics.json"
+    if not p.exists():
+        return 0.5
+    try:
+        m = json.loads(p.read_text())
+        total = int(m.get("win_total_30d", 0))
+        if total < 20:
+            logger.info(f"[feedback] 실전 샘플 {total}건 < 20 — 승률 피드백 미적용 (중립 0.5)")
+            return 0.5
+        wr = float(m.get("win_rate_30d", 0.5))
+        avg_r = float(m.get("avg_return_30d", 0.0))
+        logger.info(
+            f"[feedback] 실전 승률 {wr:.1%} ({total}건, 평균 {avg_r:+.2f}%) "
+            f"→ scale_pos_weight 조정 반영"
+        )
+        return wr
+    except Exception as e:
+        logger.warning(f"[feedback] model_metrics.json 로드 실패: {e}")
+        return 0.5
+
 
 # ── 데이터 로딩 ──────────────────────────────────────────────────────────────
 
@@ -777,6 +802,9 @@ async def main(args):
     Path(args.model_dir).mkdir(parents=True, exist_ok=True)
     trainer = LGBMTrainer()
 
+    # 실전 승률 피드백 로드 (20건+ 데이터 있을 때 scale_pos_weight 조정)
+    real_win_rate = _load_real_win_rate(Path(args.model_dir))
+
     # Optuna 하이퍼파라미터 최적화 (선택적)
     best_params = None
     optuna_trials = getattr(args, "optuna_trials", 0)
@@ -786,8 +814,11 @@ async def main(args):
                                                     n_trials=optuna_trials)
 
     logger.info("Training entry model...")
-    entry_model = trainer.train_entry(Xtr_e, ytr_e, Xva_e, yva_e, args.model_dir,
-                                       use_smote=args.smote, params_override=best_params)
+    entry_model = trainer.train_entry(
+        Xtr_e, ytr_e, Xva_e, yva_e, args.model_dir,
+        use_smote=args.smote, params_override=best_params,
+        real_win_rate=real_win_rate,
+    )
     logger.info("Training risk model...")
     risk_model  = trainer.train_risk(Xtr_r, ytr_r, Xva_r, yva_r, args.model_dir)
 

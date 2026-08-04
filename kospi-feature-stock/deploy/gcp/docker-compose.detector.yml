@@ -30,7 +30,9 @@ version: '3.9'
 
 services:
 
-  # ── 장중 실시간 탐지 (WebSocket) ────────────────────────────────
+  # ── 장중 실시간 탐지 (WebSocket) ─────────────────────────────────
+  # 전환 조건: KIS 실전 계좌 승인 후 .env에 KIS_APP_KEY/KIS_APP_SECRET 설정
+  # 키 미설정 시 exit 0으로 자동 종료 (restart: on-failure 로 무한 루프 방지)
   realtime-ws-detector:
     build:
       context: ../../services/collector
@@ -43,7 +45,7 @@ services:
       AMOUNT_SURGE_RATIO:  "5.0"
       VOL_SURGE_RATIO:     "5.0"
       MIN_AMOUNT:          "500000000"   # 5억
-    restart: unless-stopped
+    restart: on-failure   # KIS 키 미설정(exit 0)은 재시작 안 함, 오류 시에만 재시작
     logging:
       driver: json-file
       options:

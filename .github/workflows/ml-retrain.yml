@@ -41,20 +41,54 @@ jobs:
                       imbalanced-learn optuna shap joblib orjson \
                       python-dotenv
 
-      - name: 실전 승률 피드백 확인 (model_metrics.json 기반)
+      - name: 실전 승률 기반 학습 파라미터 결정
         run: |
           METRICS=kospi-feature-stock/services/api/lgbm_export/model_metrics.json
-          if [ -f "$METRICS" ]; then
-            WIN=$(python3 -c "import json,sys; m=json.load(open('$METRICS')); print(m.get('win_rate_30d','N/A'))")
-            TOTAL=$(python3 -c "import json,sys; m=json.load(open('$METRICS')); print(m.get('win_total_30d','N/A'))")
-            echo "📊 실전 승률(30일): $WIN  (샘플 $TOTAL건)"
-            echo "REAL_WIN_RATE=$WIN" >> $GITHUB_ENV
-            echo "REAL_WIN_TOTAL=$TOTAL" >> $GITHUB_ENV
-          else
-            echo "model_metrics.json 없음 — 첫 학습 실행"
-            echo "REAL_WIN_RATE=N/A" >> $GITHUB_ENV
-            echo "REAL_WIN_TOTAL=0" >> $GITHUB_ENV
-          fi
+          python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+
+          p = Path("kospi-feature-stock/services/api/lgbm_export/model_metrics.json")
+          env_file = os.environ.get("GITHUB_ENV", "/dev/null")
+
+          if p.exists():
+              try:
+                  m = json.loads(p.read_text())
+                  wr    = float(m.get("win_rate_30d", 0.45))
+                  total = int(m.get("win_total_30d", 0))
+                  avg_r = float(m.get("avg_return_30d", 0.0))
+                  print(f"📊 실전 승률(30일): {wr:.1%}  (샘플 {total}건  평균수익 {avg_r:+.2f}%)")
+
+                  # 샘플 20건 이상일 때만 승률 기반 파라미터 조정
+                  if total >= 20:
+                      if wr >= 0.60:          # 고승률 → 목표가 높게, 여유 손절
+                          entry_pct, risk_pct = 12.0, 6.0
+                          reason = f"고승률({wr:.0%}) → 공격적"
+                      elif wr <= 0.35:         # 저승률 → 보수적 레이블
+                          entry_pct, risk_pct = 8.0, 4.0
+                          reason = f"저승률({wr:.0%}) → 보수적"
+                      else:                    # 35~60% → 기본값
+                          entry_pct, risk_pct = 10.0, 5.0
+                          reason = f"정상승률({wr:.0%}) → 기본"
+                  else:
+                      entry_pct, risk_pct = 10.0, 5.0
+                      reason = f"샘플 부족({total}건 < 20) → 기본값"
+
+                  print(f"→ entry_pct={entry_pct}%  risk_pct={risk_pct}%  ({reason})")
+                  with open(env_file, "a") as f:
+                      f.write(f"ML_ENTRY_PCT={entry_pct}\n")
+                      f.write(f"ML_RISK_PCT={risk_pct}\n")
+                      f.write(f"REAL_WIN_RATE={wr}\n")
+                      f.write(f"REAL_WIN_TOTAL={total}\n")
+              except Exception as e:
+                  print(f"⚠️  model_metrics.json 읽기 실패: {e} → 기본값 사용")
+                  with open(env_file, "a") as f:
+                      f.write("ML_ENTRY_PCT=10.0\nML_RISK_PCT=5.0\nREAL_WIN_RATE=N/A\nREAL_WIN_TOTAL=0\n")
+          else:
+              print("model_metrics.json 없음 — 첫 학습, 기본값 사용")
+              with open(env_file, "a") as f:
+                  f.write("ML_ENTRY_PCT=10.0\nML_RISK_PCT=5.0\nREAL_WIN_RATE=N/A\nREAL_WIN_TOTAL=0\n")
+          PY
 
       - name: ML 재학습 실행
         env:
@@ -64,6 +98,9 @@ jobs:
           ML_RETRAIN_TRAIN_YEARS: "8"
           DISCORD_WEBHOOK:        ${{ secrets.DISCORD_WEBHOOK }}
         run: |
+          ENTRY="${ML_ENTRY_PCT:-10.0}"
+          RISK="${ML_RISK_PCT:-5.0}"
+          echo "학습 파라미터: entry_pct=${ENTRY}%  risk_pct=${RISK}%"
           mkdir -p kospi-feature-stock/services/api/lgbm_export
           cd kospi-feature-stock
           python services/ml/walk_forward_train.py \
@@ -71,8 +108,8 @@ jobs:
             --val-start   2024-07-01 --val-end   2025-06-30 \
             --test-start  2025-07-01 --test-end  2026-12-31 \
             --label-mode target_hit \
-            --entry-pct 10.0 \
-            --risk-pct  5.0  \
+            --entry-pct "${ENTRY}" \
+            --risk-pct  "${RISK}"  \
             --smote \
             --max-codes 600 \
             --model-dir services/api/lgbm_export \
