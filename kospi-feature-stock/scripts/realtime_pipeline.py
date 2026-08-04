@@ -125,6 +125,28 @@ def _load_dynamic_threshold():
             pass
 
 
+def _load_tg_config() -> dict:
+    """Redis telegram:config 조회. 실패 시 env 기본값."""
+    default = {
+        "enabled":  os.environ.get("TELEGRAM_ENABLED", "1") == "1",
+        "min_prob": float(os.environ.get("REC_MIN_PROB", str(SCORE_THRESHOLD))),
+        "max_risk": float(os.environ.get("REC_MAX_RISK", str(RISK_THRESHOLD))),
+    }
+    redis_url = os.environ.get("REDIS_URL", "")
+    if not redis_url:
+        return default
+    try:
+        import redis as _r
+        rc = _r.from_url(redis_url, decode_responses=True, socket_timeout=3)
+        raw = rc.get("telegram:config")
+        rc.close()
+        if raw:
+            return json.loads(raw)
+    except Exception as e:
+        log.warning(f"Redis 설정 로드 실패: {e}")
+    return default
+
+
 # ── KIS 인증 ─────────────────────────────────────────────────────────────
 
 _token_cache: dict = {}
@@ -314,6 +336,20 @@ async def _save_rec_full(conn: asyncpg.Connection, rec: dict) -> None:
         log.error(f"추천 저장 실패 [{rec['code']}]: {e}")
 
 
+async def _log_telegram_db(
+    pool: asyncpg.Pool, *, msg_type: str, code: str, name: str,
+    title: str, message: str, success: bool,
+) -> None:
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO telegram_logs (msg_type, code, name, title, message, success) VALUES ($1,$2,$3,$4,$5,$6)",
+                msg_type, code or None, name or None, title, message, success,
+            )
+    except Exception as e:
+        log.warning(f"telegram_logs 기록 실패: {e}")
+
+
 # ── ML 스코어링 + 저장 + 알림 ────────────────────────────────────────────
 
 async def _score_and_alert(
@@ -366,10 +402,11 @@ async def _score_and_alert(
     grade = "A" if prob >= 0.40 else ("B" if prob >= 0.32 else "C")
     chg   = today_row.get("change_rate", 0.0)
     vr    = today_row.get("vol_ratio", 1.0)
+    name  = today_row.get("name", code)
 
     rec = {
         "code":            code,
-        "name":            today_row.get("name", code),
+        "name":            name,
         "success_prob":    round(prob, 4),
         "risk_score":      round(risk, 4),
         "expected_return": round((prob - 0.5) * 20.0, 2),
@@ -394,19 +431,44 @@ async def _score_and_alert(
     cooldown[code] = now.isoformat()
     _save_cooldown(cooldown)
 
-    chg_str = f"+{chg:.1f}%" if chg >= 0 else f"{chg:.1f}%"
+    # ── Telegram 발송 (Redis 설정 기준) ──────────────────────────
+    cfg        = _load_tg_config()
+    tg_min     = float(cfg.get("min_prob", SCORE_THRESHOLD))
+    tg_enabled = cfg.get("enabled", True)
+
+    if not tg_enabled:
+        log.info(f"텔레그램 비활성화 — 발송 스킵 ({code})")
+        return True
+
+    if prob < tg_min:
+        log.info(f"min_prob 미충족 — 스킵 ({code} prob={prob:.3f} < {tg_min:.3f})")
+        return True
+
     target_pct = (target / entry - 1) * 100 if entry > 0 else 0
     stop_pct   = (stop_loss / entry - 1) * 100 if entry > 0 else 0
-    msg = (
-        f"🚨 <b>[실시간 매수 추천]</b> {today_row.get('name', code)} ({code})"
-        f"  {now.strftime('%H:%M')}\n"
-        f"진입가:  <b>₩{entry:,}</b>  ({chg_str} | 거래량 {vr:.1f}x)\n"
-        f"목표가:  ₩{target:,}  (<b>+{target_pct:.1f}%</b>)\n"
-        f"손절가:  ₩{stop_loss:,}  ({stop_pct:.1f}%)\n"
-        f"R:R {rr:.2f}  |  신뢰도: <b>{grade}</b>  |  확률: {prob:.1%}"
+    name_line  = (
+        f"📌 종목: <b>{name}</b>  (<code>{code}</code>)"
+        if name != code else f"📌 종목: <b>{code}</b>"
     )
-    await send_telegram(msg)
-    log.info(f"추천 발송: {code} {today_row.get('name', '')} prob={prob:.3f}")
+    score_line = f"🎯 성공확률: <b>{prob * 100:.0f}%</b>"
+    price_line = (
+        f"💰 매수가: <b>₩{entry:,}</b>"
+        f" / 🏆 목표가: ₩{target:,} (<code>+{target_pct:.1f}%</code>)"
+        f" / 🚫 손절가: ₩{stop_loss:,} (<code>{stop_pct:.1f}%</code>)"
+    )
+    msg = "\n".join([
+        "<b>🚀 매수 추천 알림</b>",
+        name_line, score_line, price_line,
+        f"🕐 탐지 일시: {now.strftime('%Y-%m-%d %H:%M')} KST",
+    ])
+    ok = await send_telegram(msg)
+    log.info(f"추천 발송: {code} {name} prob={prob:.3f} {'✅' if ok else '❌'}")
+    await _log_telegram_db(
+        pool, msg_type="realtime_signal",
+        code=code, name=name,
+        title=f"{name} 실시간 추천 ({code})",
+        message=msg, success=ok,
+    )
     return True
 
 

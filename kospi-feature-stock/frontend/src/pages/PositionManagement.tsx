@@ -117,7 +117,7 @@ export function PositionManagement() {
         />
         <SummaryCard
           label="30일 성공률"
-          value={summary ? `${summary.success_rate?.toFixed(1) ?? '—'}%` : '—'}
+          value={summary ? `${summary.success_rate != null ? Number(summary.success_rate).toFixed(1) : '—'}%` : '—'}
           sub={`완료 ${summary?.completed ?? 0}건`}
           positive={(summary?.success_rate ?? 0) >= 50}
         />

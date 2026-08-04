@@ -102,7 +102,8 @@ async def performance_summary(
         "by_event": [dict(r) for r in ev_rows],
     }
     try:
-        await redis.set(cache_key, json.dumps(result, default=str), ex=300)
+        import decimal
+        await redis.set(cache_key, json.dumps(result, default=lambda x: float(x) if isinstance(x, decimal.Decimal) else str(x)), ex=300)
     except Exception:
         pass
     return result
