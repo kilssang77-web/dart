@@ -133,13 +133,14 @@ class LGBMTrainer:
             except Exception as e:
                 logger.warning(f"[Trainer] SMOTE failed: {e}")
 
-        # 실전 승률 피드백으로 scale_pos_weight 미세 조정 (SMOTE 미적용 시에만)
-        # 저승률(≤0.35): 보수적 → 가중치 감소 → 더 적지만 정밀한 예측
-        # 고승률(≥0.60): 공격적 → 가중치 증가 → 더 많은 신호 허용
-        if not smote_applied and real_win_rate != 0.5:
+        # 실전 승률 피드백으로 scale_pos_weight 미세 조정
+        # SMOTE 적용 시 scale_pos=1.0(균형)에서 출발하므로 조정폭 제한 (-20%~+15%)
+        # 저승률(≤0.35): 보수적 → 양성 가중 감소 → 더 적지만 정밀한 예측
+        # 고승률(≥0.60): 공격적 → 양성 가중 증가 → 더 많은 신호 허용
+        if real_win_rate != 0.5:
             if real_win_rate <= 0.35:
                 adj = 0.80
-                scale_pos = max(1.0, scale_pos * adj)
+                scale_pos = max(0.5, scale_pos * adj)
                 logger.info(
                     f"[Trainer] 저승률({real_win_rate:.1%}) → scale_pos_weight×{adj} = {scale_pos:.2f} (보수적)"
                 )
@@ -149,6 +150,7 @@ class LGBMTrainer:
                 logger.info(
                     f"[Trainer] 고승률({real_win_rate:.1%}) → scale_pos_weight×{adj} = {scale_pos:.2f} (공격적)"
                 )
+            # else: 35~60% 정상 승률 → 조정 없음
 
         params = dict(params_override if params_override else _BASE_PARAMS)
         params["objective"] = "binary"

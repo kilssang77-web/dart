@@ -41,53 +41,84 @@ jobs:
                       imbalanced-learn optuna shap joblib orjson \
                       python-dotenv
 
-      - name: 실전 승률 기반 학습 파라미터 결정
+      - name: 실전 승률 DB 조회 + 학습 파라미터 결정
+        env:
+          POSTGRES_DSN: ${{ secrets.POSTGRES_DSN }}
         run: |
-          METRICS=kospi-feature-stock/services/api/lgbm_export/model_metrics.json
           python3 - <<'PY'
-          import json, os, sys
+          import asyncio, json, os, sys
           from pathlib import Path
 
-          p = Path("kospi-feature-stock/services/api/lgbm_export/model_metrics.json")
           env_file = os.environ.get("GITHUB_ENV", "/dev/null")
 
-          if p.exists():
+          async def fetch_win_rate():
+              dsn = os.environ.get("POSTGRES_DSN", "").replace("+asyncpg", "")
+              if not dsn:
+                  return None, 0, 0.0
               try:
-                  m = json.loads(p.read_text())
-                  wr    = float(m.get("win_rate_30d", 0.45))
-                  total = int(m.get("win_total_30d", 0))
-                  avg_r = float(m.get("avg_return_30d", 0.0))
-                  print(f"📊 실전 승률(30일): {wr:.1%}  (샘플 {total}건  평균수익 {avg_r:+.2f}%)")
-
-                  # 샘플 20건 이상일 때만 승률 기반 파라미터 조정
-                  if total >= 20:
-                      if wr >= 0.60:          # 고승률 → 목표가 높게, 여유 손절
-                          entry_pct, risk_pct = 12.0, 6.0
-                          reason = f"고승률({wr:.0%}) → 공격적"
-                      elif wr <= 0.35:         # 저승률 → 보수적 레이블
-                          entry_pct, risk_pct = 8.0, 4.0
-                          reason = f"저승률({wr:.0%}) → 보수적"
-                      else:                    # 35~60% → 기본값
-                          entry_pct, risk_pct = 10.0, 5.0
-                          reason = f"정상승률({wr:.0%}) → 기본"
-                  else:
-                      entry_pct, risk_pct = 10.0, 5.0
-                      reason = f"샘플 부족({total}건 < 20) → 기본값"
-
-                  print(f"→ entry_pct={entry_pct}%  risk_pct={risk_pct}%  ({reason})")
-                  with open(env_file, "a") as f:
-                      f.write(f"ML_ENTRY_PCT={entry_pct}\n")
-                      f.write(f"ML_RISK_PCT={risk_pct}\n")
-                      f.write(f"REAL_WIN_RATE={wr}\n")
-                      f.write(f"REAL_WIN_TOTAL={total}\n")
+                  import asyncpg
+                  ssl = "require" if "supabase" in dsn else False
+                  conn = await asyncpg.connect(dsn, statement_cache_size=0, ssl=ssl)
+                  try:
+                      row = await conn.fetchrow("""
+                          SELECT
+                              COUNT(*)                                      AS total,
+                              SUM(CASE WHEN is_success THEN 1 ELSE 0 END)  AS wins,
+                              AVG(r_5d)                                      AS avg_r5d
+                          FROM recommendation_performance rp
+                          JOIN recommendations r ON r.id = rp.rec_id
+                          WHERE tracking_complete = TRUE
+                            AND r.created_at >= NOW() - INTERVAL '30 days'
+                      """)
+                      total  = int(row["total"] or 0)
+                      wins   = int(row["wins"]  or 0)
+                      avg_r5 = float(row["avg_r5d"] or 0.0)
+                      wr = wins / total if total > 0 else None
+                      return wr, total, avg_r5
+                  finally:
+                      await conn.close()
               except Exception as e:
-                  print(f"⚠️  model_metrics.json 읽기 실패: {e} → 기본값 사용")
-                  with open(env_file, "a") as f:
-                      f.write("ML_ENTRY_PCT=10.0\nML_RISK_PCT=5.0\nREAL_WIN_RATE=N/A\nREAL_WIN_TOTAL=0\n")
+                  print(f"DB 조회 실패: {e}")
+                  return None, 0, 0.0
+
+          wr, total, avg_r5 = asyncio.run(fetch_win_rate())
+
+          # DB에서 못 가져오면 git 내 model_metrics.json fallback
+          if wr is None:
+              p = Path("kospi-feature-stock/services/api/lgbm_export/model_metrics.json")
+              if p.exists():
+                  try:
+                      m = json.loads(p.read_text())
+                      wr    = float(m.get("win_rate_30d", 0.45)) if m.get("win_total_30d", 0) >= 20 else None
+                      total = int(m.get("win_total_30d", 0))
+                      avg_r5 = float(m.get("avg_return_30d", 0.0))
+                      print(f"[fallback] model_metrics.json 사용: win_rate={wr}  total={total}")
+                  except Exception:
+                      pass
+
+          if wr is not None and total >= 20:
+              print(f"실전 승률(30일): {wr:.1%}  (샘플 {total}건  평균5일수익 {avg_r5:+.2f}%)")
+              if wr >= 0.60:
+                  entry_pct, risk_pct = 12.0, 6.0
+                  reason = f"고승률({wr:.0%}) -> 공격적"
+              elif wr <= 0.35:
+                  entry_pct, risk_pct = 8.0, 4.0
+                  reason = f"저승률({wr:.0%}) -> 보수적"
+              else:
+                  entry_pct, risk_pct = 10.0, 5.0
+                  reason = f"정상승률({wr:.0%}) -> 기본"
+              print(f"-> entry_pct={entry_pct}%  risk_pct={risk_pct}%  ({reason})")
           else:
-              print("model_metrics.json 없음 — 첫 학습, 기본값 사용")
-              with open(env_file, "a") as f:
-                  f.write("ML_ENTRY_PCT=10.0\nML_RISK_PCT=5.0\nREAL_WIN_RATE=N/A\nREAL_WIN_TOTAL=0\n")
+              entry_pct, risk_pct = 10.0, 5.0
+              wr_str = f"{wr:.4f}" if wr else "N/A"
+              print(f"샘플 부족({total}건 < 20) 또는 데이터 없음 -> 기본값 (win_rate={wr_str})")
+
+          wr_str = f"{wr:.4f}" if wr is not None else "N/A"
+          with open(env_file, "a") as f:
+              f.write(f"ML_ENTRY_PCT={entry_pct}\n")
+              f.write(f"ML_RISK_PCT={risk_pct}\n")
+              f.write(f"REAL_WIN_RATE={wr_str}\n")
+              f.write(f"REAL_WIN_TOTAL={total}\n")
           PY
 
       - name: ML 재학습 실행
