@@ -3,9 +3,10 @@ ch:feature Redis Pub/Sub → Telegram 알림 데몬.
 realtime_ws_detector.py와 함께 실행 (systemd ws-notifier.service).
 
 UI 설정(telegram:config Redis 키) 연동:
-  enabled       — 전체 알림 ON/OFF
-  min_prob      — 최소 신호점수 (signal_score 기준, 기본 0.55)
-  min_surge_ratio — 최소 급등 배율 (AMOUNT/VOLUME_SURGE, 기본 5.0)
+  enabled   — 전체 알림 ON/OFF
+  min_prob  — 최소 신호점수 (signal_score 기준)
+             signal_score = 0.50 + (배율 - 기준배율) / (기준배율 × 4)
+             5배→0.50, 10배→0.625, 25배→0.95(상한)
 
 탐지 이벤트별 Telegram 포맷:
   AMOUNT_SURGE  — 💰 거래대금 급등
@@ -35,9 +36,8 @@ TG_CHAT   = os.environ.get("TELEGRAM_CHAT_ID", "")
 REDIS_URL = os.environ.get("REDIS_URL", "")
 
 # UI 설정이 없을 때 적용되는 기본값
-_DEFAULT_MIN_PROB        = float(os.environ.get("WS_MIN_SCORE",     "0.55"))
-_DEFAULT_MIN_SURGE_RATIO = float(os.environ.get("WS_MIN_SURGE",      "5.0"))
-_CONFIG_KEY              = "telegram:config"
+_DEFAULT_MIN_PROB = float(os.environ.get("WS_MIN_SCORE", "0.55"))
+_CONFIG_KEY       = "telegram:config"
 
 _EMOJI = {
     "AMOUNT_SURGE": "💰",
@@ -55,9 +55,8 @@ async def _load_config(redis: redis_lib.Redis) -> dict:
     except Exception:
         pass
     return {
-        "enabled":          True,
-        "min_prob":         _DEFAULT_MIN_PROB,
-        "min_surge_ratio":  _DEFAULT_MIN_SURGE_RATIO,
+        "enabled":  True,
+        "min_prob": _DEFAULT_MIN_PROB,
     }
 
 
@@ -131,21 +130,13 @@ async def _handle(ev: dict, redis: redis_lib.Redis) -> None:
         logger.debug(f"[{etype}] {code} — 알림 비활성화(UI 설정), 스킵")
         return
 
-    # 신호점수 필터 (VI_TRIGGERED는 점수 필터 제외 — 발동 자체가 이벤트)
+    # 신호점수 필터 (VI_TRIGGERED는 제외 — 발동 자체가 이벤트)
+    # signal_score = 0.50 + (배율-기준)/  (기준×4), 배율이 클수록 높음
     if etype != "VI_TRIGGERED":
         min_prob = float(cfg.get("min_prob", _DEFAULT_MIN_PROB))
         if score < min_prob:
             logger.debug(
                 f"[{etype}] {code} score={score:.2f} < min_prob={min_prob:.2f} — 스킵"
-            )
-            return
-
-        # 급등 배율 필터
-        ratio     = float(sig.get("ratio", 0))
-        min_surge = float(cfg.get("min_surge_ratio", _DEFAULT_MIN_SURGE_RATIO))
-        if ratio < min_surge:
-            logger.debug(
-                f"[{etype}] {code} ratio={ratio:.1f} < min_surge={min_surge:.1f} — 스킵"
             )
             return
 
@@ -173,8 +164,7 @@ async def main():
     logger.info(
         f"ws-notifier 시작 — ch:feature 구독 중 "
         f"(enabled={cfg.get('enabled')}, "
-        f"min_prob={cfg.get('min_prob', _DEFAULT_MIN_PROB)}, "
-        f"min_surge={cfg.get('min_surge_ratio', _DEFAULT_MIN_SURGE_RATIO)})"
+        f"min_prob={cfg.get('min_prob', _DEFAULT_MIN_PROB)})"
     )
 
     try:
