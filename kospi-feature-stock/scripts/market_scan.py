@@ -25,8 +25,6 @@ NOW     = datetime.now(KST)
 TODAY_D = NOW.date()
 
 DSN       = os.environ["POSTGRES_DSN"]
-TG_TOKEN  = os.environ.get("TELEGRAM_TOKEN", "")
-TG_CHAT   = os.environ.get("TELEGRAM_CHAT_ID", "")
 MODEL_DIR = Path(os.environ.get(
     "LGBM_MODEL_DIR",
     os.path.expanduser("~/quant/repo/kospi-feature-stock/services/api/lgbm_export"),
@@ -586,34 +584,6 @@ async def save_recommendations(conn, recs: list[dict]) -> int:
         log.error(f"추천 저장 실패: {e}")
         return 0
     return len(rows)
-
-
-# ── Telegram ──────────────────────────────────────────────────────────
-
-async def send_telegram(msg: str) -> bool:
-    if not TG_TOKEN or not TG_CHAT:
-        return False
-    import urllib.request
-    url     = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
-    success = True
-    for chat_id in TG_CHAT.split(","):
-        chat_id = chat_id.strip()
-        if not chat_id:
-            continue
-        data = json.dumps({
-            "chat_id": chat_id, "text": msg,
-            "parse_mode": "HTML", "disable_web_page_preview": True,
-        }).encode()
-        req = urllib.request.Request(
-            url, data=data, headers={"Content-Type": "application/json"}
-        )
-        try:
-            urllib.request.urlopen(req, timeout=10)
-            log.info(f"Telegram 전송 완료 ({chat_id})")
-        except Exception as e:
-            log.warning(f"Telegram 전송 실패 ({chat_id}): {e}")
-            success = False
-    return success
 
 
 # ── 메인 ─────────────────────────────────────────────────────────────
