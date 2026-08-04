@@ -390,7 +390,11 @@ async def _score_and_alert(
     risk = float(risks[0])
     log.info(f"ML [{code}] prob={prob:.3f} risk={risk:.3f}")
 
-    if prob < SCORE_THRESHOLD or risk > RISK_THRESHOLD:
+    cfg        = _load_tg_config()
+    tg_min     = float(cfg.get("min_prob", SCORE_THRESHOLD))
+    tg_enabled = cfg.get("enabled", True)
+
+    if prob < tg_min or risk > RISK_THRESHOLD:
         return False
 
     price      = today_row["close"]
@@ -431,18 +435,11 @@ async def _score_and_alert(
     cooldown[code] = now.isoformat()
     _save_cooldown(cooldown)
 
-    # ── Telegram 발송 (Redis 설정 기준) ──────────────────────────
-    cfg        = _load_tg_config()
-    tg_min     = float(cfg.get("min_prob", SCORE_THRESHOLD))
-    tg_enabled = cfg.get("enabled", True)
-
+    # ── Telegram 발송 (DB 저장과 동일 기준, enabled 여부만 추가 확인) ──
     if not tg_enabled:
         log.info(f"텔레그램 비활성화 — 발송 스킵 ({code})")
         return True
 
-    if prob < tg_min:
-        log.info(f"min_prob 미충족 — 스킵 ({code} prob={prob:.3f} < {tg_min:.3f})")
-        return True
 
     target_pct = (target / entry - 1) * 100 if entry > 0 else 0
     stop_pct   = (stop_loss / entry - 1) * 100 if entry > 0 else 0

@@ -183,8 +183,8 @@ def send_telegram(text: str) -> bool:
 
 # ── DB ────────────────────────────────────────────────────────
 
-async def load_open_positions(conn: asyncpg.Connection) -> list[dict]:
-    """actual_return이 없고 MAX_HOLD_DAYS 이내인 BUY 추천 로드."""
+async def load_open_positions(conn: asyncpg.Connection, min_prob: float = 0.0) -> list[dict]:
+    """actual_return이 없고 MAX_HOLD_DAYS 이내인 BUY 추천 로드 (min_prob 이상만)."""
     cutoff = datetime.now(KST) - timedelta(days=MAX_HOLD_DAYS * 2)  # 영업일 여유
     rows = await conn.fetch(
         """
@@ -196,9 +196,10 @@ async def load_open_positions(conn: asyncpg.Connection) -> list[dict]:
         WHERE r.action = 'BUY'
           AND r.actual_return IS NULL
           AND r.created_at >= $1
+          AND COALESCE(r.success_prob, 0) >= $2
         ORDER BY r.created_at DESC
         """,
-        cutoff,
+        cutoff, min_prob,
     )
     return [dict(r) for r in rows]
 
@@ -241,8 +242,9 @@ async def main() -> None:
 
     pool = await asyncpg.create_pool(DSN, min_size=1, max_size=3, statement_cache_size=0)
     try:
+        min_prob = float(cfg.get("min_prob", 0.0))
         async with pool.acquire() as conn:
-            positions = await load_open_positions(conn)
+            positions = await load_open_positions(conn, min_prob)
 
         if not positions:
             log.info("모니터링 대상 포지션 없음")

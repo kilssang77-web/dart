@@ -173,7 +173,7 @@ async def run(db: asyncpg.Pool) -> None:
         ORDER BY fe.signal_score DESC
         LIMIT  50
         """,
-        since, MIN_SCORE,
+        since, tg_min,
     )
 
     if not events:

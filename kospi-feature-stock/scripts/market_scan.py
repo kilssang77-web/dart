@@ -658,12 +658,14 @@ async def main():
     log.info(f"점수 분포 — prob: min={probs.min():.3f} mean={probs.mean():.3f} max={probs.max():.3f}"
              f" | risk: min={risks.min():.3f} mean={risks.mean():.3f} max={risks.max():.3f}")
 
-    # 추천 필터링
+    # 추천 필터링 (설정 UI min_prob 기준)
+    tg_min_prob = float(cfg.get("min_prob", SCORE_THRESHOLD))
+    tg_max_risk = float(cfg.get("max_risk", RISK_THRESHOLD))
     new_recs = []
     for i, code in enumerate(valid_codes):
         prob = float(probs[i])
         risk = float(risks[i])
-        if prob >= SCORE_THRESHOLD and risk <= RISK_THRESHOLD:
+        if prob >= tg_min_prob and risk <= tg_max_risk:
             r = today_data[code]
             close = int(_s(r.get("close")))
             new_recs.append({
@@ -689,15 +691,9 @@ async def main():
         n = await save_recommendations(conn, new_recs)
         log.info(f"저장 완료: {n}건")
 
-        # ── Telegram 발송 — 설정 UI 기준(min_prob/max_risk) 필터 적용 ──
-        tg_min_prob = float(cfg.get("min_prob", SCORE_THRESHOLD))
-        tg_max_risk = float(cfg.get("max_risk", RISK_THRESHOLD))
-        tg_enabled  = cfg.get("enabled", True)
-
-        tg_recs = [
-            r for r in new_recs
-            if r["success_prob"] >= tg_min_prob and r["risk_score"] <= tg_max_risk
-        ]
+        # ── Telegram 발송 — DB 저장과 동일 기준(이미 필터됨) ──
+        tg_enabled = cfg.get("enabled", True)
+        tg_recs    = new_recs  # DB 저장 기준과 동일하므로 별도 필터 불필요
         log.info(
             f"텔레그램 발송 대상: {len(tg_recs)}종목 "
             f"(min_prob={tg_min_prob:.3f}, max_risk={tg_max_risk:.3f})"
