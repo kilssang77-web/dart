@@ -283,12 +283,14 @@ function TelegramSection() {
         </button>
       </div>
 
-      {/* 최소 성공 점수 슬라이더 (1~100점) */}
+      {/* 최소 신호 강도 슬라이더 (1~100점) */}
       <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg)]">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <div className="text-sm font-semibold text-[var(--fg)]">매수 신호 최소 성공 점수</div>
-            <div className="text-xs text-[var(--muted)] mt-0.5">이 점수 이상인 신호만 텔레그램 발송</div>
+            <div className="text-sm font-semibold text-[var(--fg)]">최소 신호 강도 점수</div>
+            <div className="text-xs text-[var(--muted)] mt-0.5">
+              매수추천: ML 성공확률 기준 · 실시간탐지: 급등강도 기준 (5배→50점, 10배→75점, VI발동→70점)
+            </div>
           </div>
           <div className="text-right">
             <code className={clsx('text-2xl font-extrabold tabular', textColor)}>{score}점</code>
