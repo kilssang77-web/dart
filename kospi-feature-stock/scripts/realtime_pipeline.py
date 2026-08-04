@@ -51,7 +51,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from market_scan import (  # noqa: E402
     load_models, compute_features, add_rank_features, ml_score,
     fetch_history, fetch_kospi_index, fetch_financials, save_recommendations,
-    send_telegram, _s, HISTORY_DAYS, DSN,
+    _s, HISTORY_DAYS, DSN,
 )
 
 logging.basicConfig(
@@ -74,8 +74,26 @@ APP_SECRET = os.environ["KIS_APP_SECRET"]
 KIS_REST   = "https://openapi.koreainvestment.com:9443"
 WS_URL     = "ws://ops.koreainvestment.com:21000"
 
-SCORE_THRESHOLD  = float(os.environ.get("SCORE_THRESHOLD", "0.27"))
 RISK_THRESHOLD   = float(os.environ.get("RISK_THRESHOLD", "0.55"))
+
+
+def _load_optimal_threshold_rt(default: float = 0.27) -> float:
+    for p in [
+        Path(os.path.expanduser("~/quant/repo/kospi-feature-stock/services/api/lgbm_export/model_metrics.json")),
+        Path(os.path.expanduser("~/quant/model_metrics.json")),
+    ]:
+        try:
+            if p.exists():
+                m = json.loads(p.read_text())
+                val = float(m.get("optimal_threshold", default))
+                log.info(f"model_metrics.json 임계값: {val:.4f}")
+                return val
+        except Exception:
+            pass
+    return default
+
+
+SCORE_THRESHOLD = _load_optimal_threshold_rt(float(os.environ.get("SCORE_THRESHOLD", "0.27")))
 VOL_RATIO_MIN    = float(os.environ.get("SIGNAL_VOL_RATIO", "2.0"))
 CHANGE_MIN       = float(os.environ.get("SIGNAL_CHANGE_MIN", "3.0"))
 MAX_STOCKS       = int(os.environ.get("WS_MAX_STOCKS", "20"))
@@ -336,19 +354,6 @@ async def _save_rec_full(conn: asyncpg.Connection, rec: dict) -> None:
         log.error(f"추천 저장 실패 [{rec['code']}]: {e}")
 
 
-async def _log_telegram_db(
-    pool: asyncpg.Pool, *, msg_type: str, code: str, name: str,
-    title: str, message: str, success: bool,
-) -> None:
-    try:
-        async with pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO telegram_logs (msg_type, code, name, title, message, success) VALUES ($1,$2,$3,$4,$5,$6)",
-                msg_type, code or None, name or None, title, message, success,
-            )
-    except Exception as e:
-        log.warning(f"telegram_logs 기록 실패: {e}")
-
 
 # ── ML 스코어링 + 저장 + 알림 ────────────────────────────────────────────
 
@@ -435,37 +440,34 @@ async def _score_and_alert(
     cooldown[code] = now.isoformat()
     _save_cooldown(cooldown)
 
-    # ── Telegram 발송 (DB 저장과 동일 기준, enabled 여부만 추가 확인) ──
-    if not tg_enabled:
-        log.info(f"텔레그램 비활성화 — 발송 스킵 ({code})")
-        return True
-
-
-    target_pct = (target / entry - 1) * 100 if entry > 0 else 0
-    stop_pct   = (stop_loss / entry - 1) * 100 if entry > 0 else 0
-    name_line  = (
-        f"📌 종목: <b>{name}</b>  (<code>{code}</code>)"
-        if name != code else f"📌 종목: <b>{code}</b>"
-    )
-    score_line = f"🎯 성공확률: <b>{prob * 100:.0f}%</b>"
-    price_line = (
-        f"💰 매수가: <b>₩{entry:,}</b>"
-        f" / 🏆 목표가: ₩{target:,} (<code>+{target_pct:.1f}%</code>)"
-        f" / 🚫 손절가: ₩{stop_loss:,} (<code>{stop_pct:.1f}%</code>)"
-    )
-    msg = "\n".join([
-        "<b>🚀 매수 추천 알림</b>",
-        name_line, score_line, price_line,
-        f"🕐 탐지 일시: {now.strftime('%Y-%m-%d %H:%M')} KST",
-    ])
-    ok = await send_telegram(msg)
-    log.info(f"추천 발송: {code} {name} prob={prob:.3f} {'✅' if ok else '❌'}")
-    await _log_telegram_db(
-        pool, msg_type="realtime_signal",
-        code=code, name=name,
-        title=f"{name} 실시간 추천 ({code})",
-        message=msg, success=ok,
-    )
+    # ── ch:signal-generated 발행 → notifier 단일 채널 처리 ──
+    redis_url = os.environ.get("REDIS_URL", "")
+    if redis_url:
+        try:
+            import redis as _r
+            rc = _r.from_url(redis_url, decode_responses=True, socket_timeout=5)
+            payload = json.dumps({
+                "code":              code,
+                "name":              name,
+                "success_prob":      round(prob, 4),
+                "risk_score":        round(risk, 4),
+                "risk_reward_ratio": rr,
+                "entry_price":       entry,
+                "target_price":      target,
+                "stop_loss_price":   stop_loss,
+                "created_at":        now.isoformat(),
+                "rationale": {
+                    "event_type": "realtime_ws" if today_row.get("_source") == "ws" else "volume_rank",
+                    "vol_ratio":  round(vr, 2),
+                },
+            }, ensure_ascii=False)
+            rc.publish("ch:signal-generated", payload)
+            rc.close()
+            log.info(f"추천 발행: {code} {name} prob={prob:.3f} → ch:signal-generated ✅")
+        except Exception as e:
+            log.warning(f"Redis publish 실패: {e}")
+    else:
+        log.warning(f"REDIS_URL 미설정 — Telegram 발행 스킵 ({code})")
     return True
 
 

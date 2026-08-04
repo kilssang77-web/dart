@@ -151,34 +151,26 @@ def fetch_current_price(code: str, mkt_div: str = "J") -> float | None:
     return None
 
 
-# ── Telegram ──────────────────────────────────────────────────
+# ── Telegram (notifier 단일 채널로 발행) ───────────────────────
 
-def send_telegram(text: str) -> bool:
-    if not TG_TOKEN or not TG_CHAT:
-        return False
-    success = True
-    for chat_id in TG_CHAT.split(","):
-        chat_id = chat_id.strip()
-        if not chat_id:
-            continue
-        try:
-            payload = json.dumps({
-                "chat_id":    chat_id,
-                "text":       text,
-                "parse_mode": "HTML",
-            }).encode()
-            req = urllib.request.Request(
-                f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=10) as r:
-                pass
-        except Exception as e:
-            log.warning(f"Telegram 전송 실패({chat_id}): {e}")
-            success = False
-    return success
+def _publish_tg_outbox(text: str, msg_type: str,
+                        code: str = "", name: str = "", title: str = "") -> None:
+    """ch:tg-outbox → notifier 컨테이너가 수신하여 Telegram 발송."""
+    redis_url = os.environ.get("REDIS_URL", "")
+    if not redis_url:
+        log.warning("REDIS_URL 미설정 — Telegram 발행 스킵")
+        return
+    try:
+        import redis as _r
+        rc = _r.from_url(redis_url, decode_responses=True, socket_timeout=5)
+        rc.publish("ch:tg-outbox", json.dumps({
+            "text": text, "msg_type": msg_type,
+            "code": code, "name": name, "title": title,
+        }, ensure_ascii=False))
+        rc.close()
+        log.info(f"Telegram 발행 완료 (ch:tg-outbox) — {msg_type}")
+    except Exception as e:
+        log.warning(f"Redis publish 실패: {e}")
 
 
 # ── DB ────────────────────────────────────────────────────────
@@ -297,27 +289,12 @@ async def main() -> None:
         if sell_msgs:
             header   = f"<b>📢 SELL 알림 {len(sell_msgs)}건</b> ({now_kst.strftime('%H:%M')} KST)\n"
             full_msg = header + "\n\n".join(sell_msgs)
-
-            if cfg.get("enabled", True):
-                ok = send_telegram(full_msg)
-                log.info(f"SELL 알림 {'전송 완료' if ok else '전송 실패'}: {len(sell_msgs)}건")
-            else:
-                ok = False
-                log.info(f"텔레그램 알림 비활성화 — SELL 발송 스킵 ({len(sell_msgs)}건)")
-
-            # 알림이력 기록 (발송 시도분만)
-            if cfg.get("enabled", True):
-                async with pool.acquire() as conn:
-                    for m in sell_meta:
-                        await _log_telegram(
-                            conn,
-                            msg_type="sell_alert",
-                            code=m["code"],
-                            name=m["name"],
-                            title=f"{m['name']} SELL ({m['reason']})",
-                            message=m["body"],
-                            success=ok,
-                        )
+            _publish_tg_outbox(
+                full_msg,
+                msg_type="sell_alert",
+                title=f"SELL 알림 {len(sell_msgs)}건",
+            )
+            log.info(f"SELL 알림 Redis 발행: {len(sell_msgs)}건")
         else:
             log.info(f"손절/목표가 도달 없음 (모니터링 {len(positions)}건)")
     finally:

@@ -68,8 +68,8 @@ class NotifierConsumer:
     async def run(self):
         self._redis = redis_lib.from_url(os.environ["REDIS_URL"])
         pubsub = self._redis.pubsub()
-        await pubsub.subscribe("ch:signal-generated", "ch:disclosure-analyzed")
-        logger.info("Notifier consumer started — listening on ch:signal-generated, ch:disclosure-analyzed")
+        await pubsub.subscribe("ch:signal-generated", "ch:disclosure-analyzed", "ch:tg-outbox")
+        logger.info("Notifier consumer started — listening on ch:signal-generated, ch:disclosure-analyzed, ch:tg-outbox")
         try:
             async for msg in pubsub.listen():
                 if msg["type"] != "message":
@@ -84,6 +84,8 @@ class NotifierConsumer:
                         await self._on_signal(data)
                     elif topic == "disclosure-analyzed":
                         await self._on_disclosure(data)
+                    elif topic == "tg-outbox":
+                        await self._on_outbox(data)
                 except Exception as e:
                     logger.error(f"Handler error [{topic}]: {e}")
         finally:
@@ -143,6 +145,25 @@ class NotifierConsumer:
             await _mark_sent(self._redis, dedup_key, _DEDUP_TTL_SIGNAL)
         else:
             logger.warning(f"[SIGNAL] send failed — dedup key NOT set, retry allowed: code={code}")
+
+    async def _on_outbox(self, data: dict):
+        """ch:tg-outbox — 사전 포맷된 메시지 (SELL알림·일일요약 등). enabled 확인만."""
+        cfg = await _load_config(self._redis)
+        if not cfg.get("enabled", True):
+            logger.debug("[OUTBOX] 알림 비활성화 — 스킵")
+            return
+        text     = data.get("text", "")
+        msg_type = data.get("msg_type", "outbox")
+        code     = data.get("code", "")
+        name     = data.get("name", "") or code
+        title    = data.get("title", "")
+        if not text:
+            logger.warning("[OUTBOX] text 필드 없음 — 스킵")
+            return
+        logger.info(f"[OUTBOX] {msg_type} code={code or '-'} — sending Telegram")
+        await self._sender.send_message(
+            text, msg_type=msg_type, code=code, name=name, title=title
+        )
 
     async def _on_disclosure(self, data: dict):
         import hashlib

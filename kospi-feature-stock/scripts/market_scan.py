@@ -34,10 +34,52 @@ MODEL_DIR = Path(os.environ.get(
 
 SIGNAL_VOL_RATIO  = float(os.environ.get("SIGNAL_VOL_RATIO", "2.0"))
 SIGNAL_CHANGE_MIN = float(os.environ.get("SIGNAL_CHANGE_MIN", "3.0"))
-SCORE_THRESHOLD   = float(os.environ.get("SCORE_THRESHOLD", "0.27"))  # 추천 저장 기준 (DB)
 RISK_THRESHOLD    = float(os.environ.get("RISK_THRESHOLD", "0.55"))   # 추천 저장 기준 (DB)
 COOLDOWN_DAYS     = int(os.environ.get("COOLDOWN_DAYS", "2"))
 HISTORY_DAYS      = 75  # MA60 + 여유
+
+
+def _load_optimal_threshold(default: float = 0.27) -> float:
+    """model_metrics.json 에서 최적 임계값 로드. 없으면 env/default 사용."""
+    for p in [
+        MODEL_DIR / "model_metrics.json",
+        Path(os.path.expanduser("~/quant/model_metrics.json")),
+    ]:
+        try:
+            if p.exists():
+                import json as _json
+                m = _json.loads(p.read_text())
+                val = float(m.get("optimal_threshold", default))
+                log.info(f"model_metrics.json 임계값 로드: {val:.4f} ({p})")
+                return val
+        except Exception:
+            pass
+    return default
+
+
+SCORE_THRESHOLD = _load_optimal_threshold(
+    float(os.environ.get("SCORE_THRESHOLD", "0.27"))
+)
+
+
+def _calc_target_stop(price: float, hist_rows: list, vol_ratio: float) -> tuple[int, int]:
+    """ATR 기반 동적 목표가/손절가. 최근 5일 고저 범위 기반."""
+    tp_pct, sl_pct = 0.10, 0.05  # 기본값
+    if len(hist_rows) >= 5:
+        ranges = []
+        for h in hist_rows[-5:]:
+            hi = _s(h.get("high", 0)) or _s(h.get("close", 0))
+            lo = _s(h.get("low", 0)) or _s(h.get("close", 0))
+            if hi > 0 and lo > 0 and hi >= lo:
+                ranges.append(hi - lo)
+        if ranges:
+            atr = sum(ranges) / len(ranges)
+            atr_pct = atr / price if price > 0 else 0.05
+            tp_pct = max(0.06, min(0.20, atr_pct * 2.5))
+            sl_pct = max(0.03, min(0.08, atr_pct * 1.2))
+            if vol_ratio >= 3.0:
+                tp_pct = min(0.20, tp_pct * 1.2)
+    return int(price * (1 + tp_pct)), int(price * (1 - sl_pct))
 
 
 # ── 텔레그램 설정 (Redis telegram:config 연동) ─────────────────
@@ -668,18 +710,23 @@ async def main():
         if prob >= tg_min_prob and risk <= tg_max_risk:
             r = today_data[code]
             close = int(_s(r.get("close")))
+            vol_ratio  = round(feats_list[i].get("vol_ratio_20d", 1.0), 2)
+            hist_rows  = hist_data.get(code, [])
+            target_p, stop_p = _calc_target_stop(close, hist_rows, vol_ratio)
+            rr = round((target_p - close) / (close - stop_p), 2) if close != stop_p else 2.0
             new_recs.append({
-                "code":            code,
-                "name":            r.get("name", code),
-                "success_prob":    round(prob, 4),
-                "risk_score":      round(risk, 4),
-                "expected_return": round((prob - 0.5) * 20.0, 2),
-                "hold_days":       5,
-                "close_price":     close,
-                "target_price":    int(close * 1.10),   # +10%
-                "stop_loss_price": int(close * 0.95),   # -5%
-                "change_rate":     round(_s(r.get("change_rate")), 2),
-                "vol_ratio":       round(feats_list[i].get("vol_ratio_20d", 1.0), 2),
+                "code":              code,
+                "name":              r.get("name", code),
+                "success_prob":      round(prob, 4),
+                "risk_score":        round(risk, 4),
+                "risk_reward_ratio": rr,
+                "expected_return":   round((prob - 0.5) * 20.0, 2),
+                "hold_days":         5,
+                "close_price":       close,
+                "target_price":      target_p,
+                "stop_loss_price":   stop_p,
+                "change_rate":       round(_s(r.get("change_rate")), 2),
+                "vol_ratio":         vol_ratio,
             })
 
     log.info(f"추천 종목: {len(new_recs)}개 / 후보 {len(valid_codes)}개")
@@ -691,74 +738,36 @@ async def main():
         n = await save_recommendations(conn, new_recs)
         log.info(f"저장 완료: {n}건")
 
-        # ── Telegram 발송 — DB 저장과 동일 기준(이미 필터됨) ──
-        tg_enabled = cfg.get("enabled", True)
-        tg_recs    = new_recs  # DB 저장 기준과 동일하므로 별도 필터 불필요
-        log.info(
-            f"텔레그램 발송 대상: {len(tg_recs)}종목 "
-            f"(min_prob={tg_min_prob:.3f}, max_risk={tg_max_risk:.3f})"
-        )
-
-        if tg_enabled and tg_recs:
-            scan_dt = NOW.strftime("%Y-%m-%d %H:%M")
-            top     = sorted(tg_recs, key=lambda x: -x["success_prob"])[:5]
-
-            def _pct(a, b):
-                try:
-                    v = (float(b) - float(a)) / float(a) * 100
-                    return f"+{v:.1f}%" if v >= 0 else f"{v:.1f}%"
-                except Exception:
-                    return "N/A"
-
-            all_msgs = []
-            for r in top:
-                name  = r.get("name", r["code"])
-                code  = r["code"]
-                price = r["close_price"]
-                tgt   = r["target_price"]
-                stp   = r["stop_loss_price"]
-                prob  = r["success_prob"]
-                name_line  = (
-                    f"📌 종목: <b>{name}</b>  (<code>{code}</code>)"
-                    if name != code else f"📌 종목: <b>{code}</b>"
-                )
-                score_line = f"🎯 성공확률: <b>{prob * 100:.0f}%</b>"
-                price_line = (
-                    f"💰 매수가: <b>{price:,}원</b>"
-                    f" / 🏆 목표가: {tgt:,}원 (<code>{_pct(price, tgt)}</code>)"
-                    f" / 🚫 손절가: {stp:,}원 (<code>{_pct(price, stp)}</code>)"
-                )
-                msg = "\n".join([
-                    "<b>🚀 매수 추천 알림</b>",
-                    name_line, score_line, price_line,
-                    f"🕐 탐지 일시: {scan_dt} KST",
-                ])
-                all_msgs.append((code, name, msg))
-
-            ok = True
-            for code, name, msg in all_msgs:
-                ok = await send_telegram(msg)
-                await _log_telegram(
-                    conn,
-                    msg_type="scan_daily",
-                    title=f"{name} 매수 추천 (장 마감 스캔)",
-                    message=msg,
-                    success=ok,
-                    code=code,
-                    name=name,
-                )
-
-            if len(tg_recs) > 5:
-                summary = (
-                    f"<b>📊 장 마감 스캔 완료</b>\n"
-                    f"기준 충족 종목: <b>{len(tg_recs)}개</b> (상위 5건 개별 발송)\n"
-                    f"🕐 {scan_dt} KST"
-                )
-                await send_telegram(summary)
-        elif not tg_enabled:
-            log.info("텔레그램 알림 비활성화 — 발송 스킵")
+        # ── ch:signal-generated 발행 → notifier 단일 채널 처리 ──
+        log.info(f"ch:signal-generated 발행: {len(new_recs)}종목")
+        redis_url = os.environ.get("REDIS_URL", "")
+        if redis_url:
+            import redis as _r
+            rc = _r.from_url(redis_url, decode_responses=True, socket_timeout=5)
+            scan_dt = NOW.isoformat()
+            for r in new_recs:
+                rr_val = r.get("risk_reward_ratio", 2.0)
+                payload = json.dumps({
+                    "code":              r["code"],
+                    "name":              r.get("name", r["code"]),
+                    "success_prob":      r["success_prob"],
+                    "risk_score":        r["risk_score"],
+                    "risk_reward_ratio": rr_val,
+                    "entry_price":       r["close_price"],
+                    "target_price":      r["target_price"],
+                    "stop_loss_price":   r["stop_loss_price"],
+                    "created_at":        scan_dt,
+                    "rationale": {
+                        "event_type": "market_scan",
+                        "vol_ratio":  r.get("vol_ratio", 1.0),
+                        "change_rate": r.get("change_rate", 0.0),
+                    },
+                }, ensure_ascii=False)
+                rc.publish("ch:signal-generated", payload)
+            rc.close()
+            log.info(f"Redis 발행 완료: {len(new_recs)}건")
         else:
-            log.info("텔레그램 발송 기준 충족 종목 없음 — 발송 스킵")
+            log.warning("REDIS_URL 미설정 — Telegram 발행 스킵")
     finally:
         await conn.close()
 

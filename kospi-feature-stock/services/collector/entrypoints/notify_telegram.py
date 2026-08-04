@@ -1,13 +1,11 @@
 """
 당일 추천 결과 텔레그램 알림 — GitHub Actions에서 실행.
-stdlib(urllib) + asyncpg만 사용하므로 추가 패키지 불필요.
+직접 Telegram 발송 대신 Redis ch:tg-outbox 발행 → notifier 컨테이너가 처리.
 """
 import asyncio
 import json
 import logging
 import os
-import ssl
-import urllib.request
 from datetime import date
 
 import asyncpg
@@ -18,28 +16,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger("notify-telegram")
 
-_TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
-_TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
-
-def _send_telegram(text: str) -> None:
-    if not _TELEGRAM_TOKEN or not _TELEGRAM_CHAT_ID:
-        logger.info("TELEGRAM_TOKEN/CHAT_ID 미설정 — 알림 스킵")
+def _publish_tg_outbox(text: str) -> None:
+    """Redis ch:tg-outbox 발행 → notifier가 Telegram 발송."""
+    redis_url = os.environ.get("REDIS_URL", "")
+    if not redis_url:
+        logger.warning("REDIS_URL 미설정 — 알림 발행 스킵")
         return
-    url = f"https://api.telegram.org/bot{_TELEGRAM_TOKEN}/sendMessage"
-    payload = json.dumps({
-        "chat_id": _TELEGRAM_CHAT_ID,
-        "text": text,
-        "parse_mode": "HTML",
-    }).encode()
-    ctx = ssl.create_default_context()
-    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
-            resp.read()
-        logger.info("텔레그램 알림 전송 완료")
+        import redis as _r
+        rc = _r.from_url(redis_url, decode_responses=True, socket_timeout=5)
+        rc.publish("ch:tg-outbox", json.dumps({
+            "text": text, "msg_type": "daily_summary",
+            "title": "오늘의 추천 종목 요약",
+        }, ensure_ascii=False))
+        rc.close()
+        logger.info("일일 요약 Redis 발행 완료 (ch:tg-outbox)")
     except Exception as e:
-        logger.warning(f"텔레그램 전송 실패: {e}")
+        logger.warning(f"Redis publish 실패: {e}")
 
 
 async def run():
@@ -95,7 +89,7 @@ async def run():
     if len(rows) > top_n:
         lines.append(f"\n… 외 {len(rows) - top_n}건")
 
-    _send_telegram("\n".join(lines))
+    _publish_tg_outbox("\n".join(lines))
 
 
 if __name__ == "__main__":

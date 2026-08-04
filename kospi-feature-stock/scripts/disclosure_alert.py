@@ -15,7 +15,6 @@ import asyncpg
 import json
 import logging
 import os
-import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -27,8 +26,6 @@ log = logging.getLogger("disclosure_alert")
 
 KST          = timezone(timedelta(hours=9))
 DSN          = os.environ["POSTGRES_DSN"]
-TG_TOKEN     = os.environ.get("TELEGRAM_TOKEN", "")
-TG_CHAT      = os.environ.get("TELEGRAM_CHAT_ID", "")
 OFFSET_FILE  = Path(os.path.expanduser("~/quant/disclosure_offset.json"))
 LOOKBACK_HRS = int(os.environ.get("DISCLOSURE_LOOKBACK_HRS", "24"))  # 첫 실행 시 소급 시간
 
@@ -50,35 +47,25 @@ def save_offset(last_at: datetime) -> None:
     OFFSET_FILE.write_text(json.dumps({"last_at": last_at.isoformat()}))
 
 
-# ── Telegram ─────────────────────────────────────────────────
+# ── Telegram (notifier 단일 채널) ─────────────────────────────
 
-def send_telegram(text: str) -> bool:
-    if not TG_TOKEN or not TG_CHAT:
-        log.warning("TELEGRAM_TOKEN 또는 TELEGRAM_CHAT_ID 미설정")
+def _publish_tg_outbox(text: str, code: str = "", name: str = "", title: str = "") -> bool:
+    redis_url = os.environ.get("REDIS_URL", "")
+    if not redis_url:
+        log.warning("REDIS_URL 미설정 — 공시 알림 발행 스킵")
         return False
-    success = True
-    for chat_id in TG_CHAT.split(","):
-        chat_id = chat_id.strip()
-        if not chat_id:
-            continue
-        try:
-            payload = json.dumps({
-                "chat_id":    chat_id,
-                "text":       text,
-                "parse_mode": "HTML",
-            }).encode()
-            req = urllib.request.Request(
-                f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=10) as r:
-                pass
-        except Exception as e:
-            log.warning(f"Telegram 전송 실패({chat_id}): {e}")
-            success = False
-    return success
+    try:
+        import redis as _r
+        rc = _r.from_url(redis_url, decode_responses=True, socket_timeout=5)
+        rc.publish("ch:tg-outbox", json.dumps({
+            "text": text, "msg_type": "disclosure",
+            "code": code, "name": name, "title": title,
+        }, ensure_ascii=False))
+        rc.close()
+        return True
+    except Exception as e:
+        log.warning(f"Redis publish 실패: {e}")
+        return False
 
 
 # ── 포맷 ─────────────────────────────────────────────────────
@@ -148,26 +135,14 @@ async def main() -> None:
                 except Exception:
                     row["keywords"] = []
 
-            msg  = format_disclosure(row)
-            ok   = send_telegram(msg)
-            err  = None if ok else "Telegram 전송 실패"
-
-            # telegram_logs 기록
-            async with pool.acquire() as conn:
-                await conn.execute(
-                    """
-                    INSERT INTO telegram_logs
-                        (msg_type, code, name, title, message, success, error_msg)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
-                    """,
-                    "disclosure",
-                    row.get("code"),
-                    row.get("corp_name"),
-                    row.get("rcept_no", ""),
-                    msg,
-                    ok,
-                    err,
-                )
+            msg = format_disclosure(row)
+            ok  = _publish_tg_outbox(
+                msg,
+                code  = row.get("code", ""),
+                name  = row.get("corp_name", ""),
+                title = row.get("title", "")[:80],
+            )
+            log.info(f"공시 발행: {row.get('corp_name')} — {'✅' if ok else '❌'}")
 
             dt = row.get("disclosed_at")
             if dt and dt > max_at:

@@ -1,0 +1,44 @@
+name: 장중 시장 스캔 (09:00·11:00·13:00·15:00 KST)
+
+on:
+  schedule:
+    # 09:00 KST = 00:00 UTC
+    - cron: '0 0 * * 1-5'
+    # 11:00 KST = 02:00 UTC
+    - cron: '0 2 * * 1-5'
+    # 13:00 KST = 04:00 UTC
+    - cron: '0 4 * * 1-5'
+    # 15:00 KST = 06:00 UTC
+    - cron: '0 6 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  intraday-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: 의존성 설치
+        run: |
+          pip install asyncpg redis lightgbm xgboost scikit-learn numpy pandas python-dotenv
+
+      - name: 장중 시장 스캔 실행
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          POSTGRES_DSN:    ${{ secrets.POSTGRES_DSN }}
+          REDIS_URL:       ${{ secrets.REDIS_URL }}
+          LGBM_MODEL_DIR:  ${{ github.workspace }}/kospi-feature-stock/services/api/lgbm_export
+          SCORE_THRESHOLD: "0.27"
+          RISK_THRESHOLD:  "0.55"
+          COOLDOWN_DAYS:   "1"
+        run: |
+          cd kospi-feature-stock
+          python scripts/market_scan.py

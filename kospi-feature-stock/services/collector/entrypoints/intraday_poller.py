@@ -11,9 +11,7 @@
 import asyncio
 import logging
 import os
-import ssl
 import sys
-import urllib.request
 import orjson
 import asyncpg
 import redis.asyncio as redis_lib
@@ -41,8 +39,6 @@ SC_MIN_CHANGE       = float(os.environ.get("SESSION_CANDLE_MIN_CHANGE", "3.0"))
 SC_BODY_RATIO       = float(os.environ.get("SESSION_CANDLE_BODY_RATIO", "0.6"))
 SC_HOUR_AFTER       = int(os.environ.get("SESSION_CANDLE_HOUR_AFTER",   "13"))
 BREAKOUT_HOUR_AFTER = 10  # 장 시작 초반 갭 오류 방지
-_TG_TOKEN           = os.environ.get("TELEGRAM_TOKEN", "")
-_TG_CHAT_ID         = os.environ.get("TELEGRAM_CHAT_ID", "")
 DEDUP_TTL           = 90_000   # 25시간 TTL (당일 + 다음날 장 전까지)
 ML_MIN_PROB         = float(os.environ.get("ML_MIN_PROB", "0.35"))  # ML 필터 임계값
 
@@ -90,36 +86,25 @@ async def _mark_dedup(redis, code: str, event_type: str) -> None:
     await redis.set(f"intraday_dedup:{code}:{event_type}:{today}", "1", ex=DEDUP_TTL)
 
 
-def _send_telegram_sync(token: str, chat_id: str, text: str) -> None:
-    """urllib.request로 텔레그램 메시지 발송 (동기, 추가 의존성 없음)."""
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = orjson.dumps({"chat_id": chat_id, "text": text, "parse_mode": "HTML"})
-    ctx = ssl.create_default_context()
-    req = urllib.request.Request(
-        url, data=payload, headers={"Content-Type": "application/json"}
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=8, context=ctx) as resp:
-            resp.read()
-    except Exception as e:
-        logger.warning(f"[telegram] 전송 실패: {e}")
-
-
-async def _notify_signal(event_type: str, code: str, price: int,
-                          score: float, detail: str = "") -> None:
-    """이벤트 발생 즉시 Telegram 알림 (비동기 래퍼, 실패 무시)."""
-    if not _TG_TOKEN or not _TG_CHAT_ID:
-        return
+async def _publish_tg_outbox(redis, event_type: str, code: str, price: int,
+                              score: float, detail: str = "") -> None:
+    """탐지 알림 → ch:tg-outbox → notifier 컨테이너가 Telegram 발송."""
     lines = [
         f"🔍 <b>[장중탐지] {event_type}</b>",
-        f"종목: {code} | 현재가: {price:,}원",
+        f"종목: <code>{code}</code> | 현재가: <b>{price:,}원</b>",
         f"신호강도: {score:.2f}",
     ]
     if detail:
         lines.append(detail)
-    text = "\n".join(lines)
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, _send_telegram_sync, _TG_TOKEN, _TG_CHAT_ID, text)
+    try:
+        await redis.publish("ch:tg-outbox", orjson.dumps({
+            "text":     "\n".join(lines),
+            "msg_type": "intraday_detection",
+            "code":     code,
+            "title":    f"{code} 장중탐지 ({event_type})",
+        }).decode())
+    except Exception as e:
+        logger.warning(f"[telegram] Redis publish 실패: {e}")
 
 
 async def _save_and_publish(db, redis, event: dict) -> bool:
@@ -203,7 +188,7 @@ async def _emit_event(
             f"{detail} | ML:{final_score:.2f}" if (detail and model_used)
             else (f"ML:{final_score:.2f}" if model_used else detail)
         )
-        await _notify_signal(event_type, code, price, final_score, notify_detail)
+        await _publish_tg_outbox(redis, event_type, code, price, final_score, notify_detail)
     return ok
 
 

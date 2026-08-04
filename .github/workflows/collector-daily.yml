@@ -110,10 +110,10 @@ jobs:
         if: success()
         continue-on-error: true
         env:
-          POSTGRES_DSN:     ${{ secrets.POSTGRES_DSN }}
-          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          POSTGRES_DSN: ${{ secrets.POSTGRES_DSN }}
+          REDIS_URL:    ${{ secrets.REDIS_URL }}
         run: |
+          pip install redis
           cd kospi-feature-stock
           python services/collector/entrypoints/notify_telegram.py
 

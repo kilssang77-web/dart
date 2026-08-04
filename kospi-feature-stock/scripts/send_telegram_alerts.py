@@ -21,21 +21,31 @@ _KST = timezone(timedelta(hours=9))
 _WINDOW_MIN = 35   # 35분 이내 신규 추천 조회 (30분 간격 + 여유 5분)
 
 
-def _send_telegram(token: str, chat_id: str, text: str) -> bool:
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = json.dumps({
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True,
-    }).encode()
+def _publish_signal(code: str, name: str, prob: float, risk: float, rr: float,
+                     entry: float, target: float, stop: float, rationale: dict) -> bool:
+    """ch:signal-generated 발행 → notifier가 필터링 후 Telegram 발송."""
+    redis_url = os.environ.get("REDIS_URL", "")
+    if not redis_url:
+        log.warning("REDIS_URL 미설정 — Telegram 발행 스킵")
+        return False
     try:
-        req = urllib.request.Request(url, data=payload,
-                                     headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return resp.status == 200
+        import redis as _r
+        rc = _r.from_url(redis_url, decode_responses=True, socket_timeout=5)
+        rc.publish("ch:signal-generated", json.dumps({
+            "code":              code,
+            "name":              name,
+            "success_prob":      prob,
+            "risk_score":        risk,
+            "risk_reward_ratio": rr,
+            "entry_price":       entry,
+            "target_price":      target,
+            "stop_loss_price":   stop,
+            "rationale":         rationale,
+        }, ensure_ascii=False))
+        rc.close()
+        return True
     except Exception as e:
-        log.warning(f"Telegram 전송 실패: {e}")
+        log.warning(f"Redis publish 실패: {e}")
         return False
 
 
@@ -89,11 +99,8 @@ def _format_message(r: dict) -> str:
 
 async def main():
     dsn = os.environ.get("POSTGRES_DSN", "").replace("+asyncpg", "")
-    token = os.environ.get("TELEGRAM_TOKEN", "")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
-
-    if not dsn or not token or not chat_id:
-        log.error("POSTGRES_DSN / TELEGRAM_TOKEN / TELEGRAM_CHAT_ID 환경변수 누락")
+    if not dsn:
+        log.error("POSTGRES_DSN 환경변수 누락")
         return
 
     ssl = "require" if "supabase" in dsn else False
@@ -119,33 +126,27 @@ async def main():
             log.info(f"최근 {_WINDOW_MIN}분 내 신규 추천 없음")
             return
 
-        log.info(f"신규 추천 {len(rows)}건 발송")
+        log.info(f"신규 추천 {len(rows)}건 → ch:signal-generated 발행")
         for row in rows:
             r = dict(row)
-            msg = _format_message(r)
-            ok = _send_telegram(token, chat_id, msg)
-            log.info(f"{'✅' if ok else '❌'} {r['code']} ({r['action']})")
-            try:
-                rationale = r.get("rationale") or {}
-                if isinstance(rationale, str):
-                    import json as _json
-                    try:
-                        rationale = _json.loads(rationale)
-                    except Exception:
-                        rationale = {}
-                event_type = rationale.get("event_type", "BUY")
-                title = f"[매수신호] {r['code']} {event_type}"
-                await conn.execute(
-                    """
-                    INSERT INTO telegram_logs
-                        (msg_type, code, name, title, message, success)
-                    VALUES ('signal', $1, $1, $2, $3, $4)
-                    ON CONFLICT DO NOTHING
-                    """,
-                    r["code"], title, msg, ok,
-                )
-            except Exception as e:
-                log.warning(f"telegram_logs 기록 실패: {e}")
+            rationale = r.get("rationale") or {}
+            if isinstance(rationale, str):
+                try:
+                    rationale = json.loads(rationale)
+                except Exception:
+                    rationale = {}
+            ok = _publish_signal(
+                code     = r["code"],
+                name     = r.get("code", ""),
+                prob     = float(r.get("success_prob") or 0),
+                risk     = float(r.get("risk_score") or 0),
+                rr       = float(r.get("risk_reward_ratio") or 0),
+                entry    = float(r.get("entry_price") or 0),
+                target   = float(r.get("target_price") or 0),
+                stop     = float(r.get("stop_loss_price") or 0),
+                rationale = rationale,
+            )
+            log.info(f"{'✅' if ok else '❌'} {r['code']} 발행")
     finally:
         await conn.close()
 
