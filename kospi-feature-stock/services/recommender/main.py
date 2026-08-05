@@ -242,6 +242,22 @@ class RecommenderService:
             return
 
         logger.info(f"Recovery: processing {len(rows)} missed events")
+
+        # 장세 판단을 루프 전 1회만 수행 (500건×개별 조회 방지)
+        regime = await self._get_market_regime()
+        bear_suppress = (
+            regime is not None
+            and regime.get("phase") == "bear"
+            and _REGIME_BEAR_SUPPRESS
+        )
+        if bear_suppress:
+            pct = regime.get("pct_from_ma20", 0.0)
+            logger.info(
+                f"[Recovery] Bear regime 활성 (KOSPI {pct:.1f}% vs MA20) "
+                f"— ML 추론 스킵, {len(rows)}건 추천 생성 없음"
+            )
+            return
+
         processed = 0
         for row in rows:
             try:
@@ -270,7 +286,7 @@ class RecommenderService:
                 if rec:
                     await self._emit(rec, event, feature_event_id=row["id"])
                     processed += 1
-                await update_pattern_vector(self._db, row["id"], row["code"])
+                # pattern_vector는 별도 backfill_vectors.py 스텝에서 처리 (여기서 중복 호출 불필요)
             except Exception as e:
                 logger.error(f"Recovery error {row['code']}: {e}\n{traceback.format_exc()}")
 
