@@ -7,12 +7,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  healthcheck:
+  # ── quant-eye-server: API Docker 컨테이너 복구 ──────────────
+  check-api-server:
+    name: quant-eye-server — API Docker
     runs-on: ubuntu-latest
     timeout-minutes: 5
-
     steps:
-      - name: API 헬스체크 + systemd 서비스 복구 (SSH)
+      - name: API 컨테이너 확인 및 복구
         uses: appleboy/ssh-action@v1.0.3
         with:
           host:     ${{ secrets.GCP_VM_HOST }}
@@ -20,17 +21,29 @@ jobs:
           key:      ${{ secrets.GCP_SSH_PRIVATE_KEY }}
           timeout:  30s
           script: |
-            echo "=== $(date '+%Y-%m-%d %H:%M:%S KST') 헬스체크 시작 ==="
-
-            # 1. Docker API 컨테이너 상태 확인
+            echo "=== $(date '+%Y-%m-%d %H:%M:%S') [quant-eye-server] ==="
             if docker ps --filter "name=quant-eye-api" --filter "status=running" | grep -q quant-eye-api; then
               echo "[API] quant-eye-api 컨테이너 정상"
             else
-              echo "[API] quant-eye-api 컨테이너 비정상 — 재시작 시도"
+              echo "[API] quant-eye-api 비정상 — 재시작"
               docker start quant-eye-api || true
             fi
 
-            # 2. systemd 서비스 상태 확인 및 복구
+  # ── quant-scanner: ws-detector/ws-notifier systemd 복구 ─────
+  check-scanner:
+    name: quant-scanner — systemd 서비스
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: systemd 서비스 확인 및 복구
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ secrets.GCP_SCANNER_HOST }}
+          username: ${{ secrets.GCP_SCANNER_USER }}
+          key:      ${{ secrets.GCP_SCANNER_SSH_KEY }}
+          timeout:  30s
+          script: |
+            echo "=== $(date '+%Y-%m-%d %H:%M:%S') [quant-scanner] ==="
             for svc in ws-detector ws-notifier; do
               if systemctl is-active --quiet "$svc"; then
                 echo "[systemd] $svc 정상"
@@ -39,10 +52,6 @@ jobs:
                 sudo systemctl start "$svc" || true
               fi
             done
-
-            # 3. rec-worker.timer 상태 (있으면 확인)
             if systemctl list-timers rec-worker.timer --no-pager 2>/dev/null | grep -q rec-worker; then
               echo "[timer] rec-worker.timer 등록됨"
             fi
-
-            echo "=== 헬스체크 완료 ==="
