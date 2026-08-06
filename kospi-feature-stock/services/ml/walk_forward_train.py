@@ -47,15 +47,15 @@ logger = logging.getLogger("walk_forward")
 
 
 def _load_real_win_rate(model_dir: Path) -> float:
-    """model_metrics.json에서 30일 실전 승률 로드. 샘플 20건 미만이면 0.5(중립) 반환."""
+    """model_metrics.json에서 30일 실전 승률 로드. 샘플 10건 미만이면 0.5(중립) 반환."""
     p = model_dir / "model_metrics.json"
     if not p.exists():
         return 0.5
     try:
         m = json.loads(p.read_text())
         total = int(m.get("win_total_30d", 0))
-        if total < 20:
-            logger.info(f"[feedback] 실전 샘플 {total}건 < 20 — 승률 피드백 미적용 (중립 0.5)")
+        if total < 10:
+            logger.info(f"[feedback] 실전 샘플 {total}건 < 10 — 승률 피드백 미적용 (중립 0.5)")
             return 0.5
         wr = float(m.get("win_rate_30d", 0.5))
         avg_r = float(m.get("avg_return_30d", 0.0))

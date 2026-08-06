@@ -89,14 +89,14 @@ jobs:
               if p.exists():
                   try:
                       m = json.loads(p.read_text())
-                      wr    = float(m.get("win_rate_30d", 0.45)) if m.get("win_total_30d", 0) >= 20 else None
+                      wr    = float(m.get("win_rate_30d", 0.45)) if m.get("win_total_30d", 0) >= 10 else None
                       total = int(m.get("win_total_30d", 0))
                       avg_r5 = float(m.get("avg_return_30d", 0.0))
                       print(f"[fallback] model_metrics.json 사용: win_rate={wr}  total={total}")
                   except Exception:
                       pass
 
-          if wr is not None and total >= 20:
+          if wr is not None and total >= 10:
               print(f"실전 승률(30일): {wr:.1%}  (샘플 {total}건  평균5일수익 {avg_r5:+.2f}%)")
               if wr >= 0.60:
                   entry_pct, risk_pct = 12.0, 6.0
@@ -111,7 +111,7 @@ jobs:
           else:
               entry_pct, risk_pct = 10.0, 5.0
               wr_str = f"{wr:.4f}" if wr else "N/A"
-              print(f"샘플 부족({total}건 < 20) 또는 데이터 없음 -> 기본값 (win_rate={wr_str})")
+              print(f"샘플 부족({total}건 < 10) 또는 데이터 없음 -> 기본값 (win_rate={wr_str})")
 
           wr_str = f"{wr:.4f}" if wr is not None else "N/A"
           with open(env_file, "a") as f:
