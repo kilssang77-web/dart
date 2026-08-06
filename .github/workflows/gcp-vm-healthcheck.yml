@@ -1,4 +1,4 @@
-name: GCP VM 헬스체크 + 자동 재시작
+name: GCP VM 헬스체크 + 서비스 자동 복구
 
 on:
   schedule:
@@ -9,72 +9,40 @@ on:
 jobs:
   healthcheck:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
 
     steps:
-      - name: GCP 인증
-        uses: google-github-actions/auth@v2
+      - name: API 헬스체크 + systemd 서비스 복구 (SSH)
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          host:     ${{ secrets.GCP_VM_HOST }}
+          username: ${{ secrets.GCP_VM_USER }}
+          key:      ${{ secrets.GCP_SSH_PRIVATE_KEY }}
+          timeout:  30s
+          script: |
+            echo "=== $(date '+%Y-%m-%d %H:%M:%S KST') 헬스체크 시작 ==="
 
-      - name: gcloud CLI 설정
-        uses: google-github-actions/setup-gcloud@v2
+            # 1. Docker API 컨테이너 상태 확인
+            if docker ps --filter "name=quant-eye-api" --filter "status=running" | grep -q quant-eye-api; then
+              echo "[API] quant-eye-api 컨테이너 정상"
+            else
+              echo "[API] quant-eye-api 컨테이너 비정상 — 재시작 시도"
+              docker start quant-eye-api || true
+            fi
 
-      - name: VM 상태 확인 및 재시작
-        env:
-          GCP_PROJECT:  ${{ secrets.GCP_PROJECT_ID }}
-          GCP_ZONE:     ${{ secrets.GCP_ZONE }}
-          GCP_INSTANCE: ${{ secrets.GCP_INSTANCE }}
-        run: |
-          STATUS=$(gcloud compute instances describe "$GCP_INSTANCE" \
-            --project="$GCP_PROJECT" \
-            --zone="$GCP_ZONE" \
-            --format="value(status)")
+            # 2. systemd 서비스 상태 확인 및 복구
+            for svc in ws-detector ws-notifier; do
+              if systemctl is-active --quiet "$svc"; then
+                echo "[systemd] $svc 정상"
+              else
+                echo "[systemd] $svc 비활성 — 재시작"
+                sudo systemctl start "$svc" || true
+              fi
+            done
 
-          echo "VM 상태: $STATUS"
+            # 3. rec-worker.timer 상태 (있으면 확인)
+            if systemctl list-timers rec-worker.timer --no-pager 2>/dev/null | grep -q rec-worker; then
+              echo "[timer] rec-worker.timer 등록됨"
+            fi
 
-          if [ "$STATUS" = "TERMINATED" ] || [ "$STATUS" = "STOPPED" ]; then
-            echo "VM이 중지됨 — 시작 중..."
-            gcloud compute instances start "$GCP_INSTANCE" \
-              --project="$GCP_PROJECT" \
-              --zone="$GCP_ZONE"
-            echo "VM 시작 명령 전송 완료"
-          elif [ "$STATUS" = "RUNNING" ]; then
-            echo "VM 정상 실행 중"
-          else
-            echo "알 수 없는 상태: $STATUS"
-          fi
-
-      - name: systemd 서비스 확인 및 재기동 (SSH)
-        if: always()
-        env:
-          GCP_PROJECT:  ${{ secrets.GCP_PROJECT_ID }}
-          GCP_ZONE:     ${{ secrets.GCP_ZONE }}
-          GCP_INSTANCE: ${{ secrets.GCP_INSTANCE }}
-          GCP_USER:     ${{ secrets.GCP_SSH_USER }}
-        run: |
-          # VM이 RUNNING 상태가 될 때까지 최대 60초 대기
-          for i in $(seq 1 12); do
-            STATUS=$(gcloud compute instances describe "$GCP_INSTANCE" \
-              --project="$GCP_PROJECT" --zone="$GCP_ZONE" \
-              --format="value(status)")
-            [ "$STATUS" = "RUNNING" ] && break
-            echo "VM 기동 대기... ($i/12)"
-            sleep 5
-          done
-
-          # IAP 터널을 통한 SSH: ws-detector/ws-notifier 서비스 상태 점검 + 자동 재시작
-          gcloud compute ssh "${GCP_USER}@${GCP_INSTANCE}" \
-            --project="$GCP_PROJECT" \
-            --zone="$GCP_ZONE" \
-            --tunnel-through-iap \
-            --command='
-              for svc in ws-detector ws-notifier; do
-                if ! systemctl is-active --quiet "$svc"; then
-                  echo "$svc 비활성 — 재시작"
-                  sudo systemctl start "$svc"
-                else
-                  echo "$svc 정상"
-                fi
-              done
-            ' || echo "SSH 점검 실패 (IAP 권한 또는 서비스 계정 설정 확인 필요)"
+            echo "=== 헬스체크 완료 ==="
