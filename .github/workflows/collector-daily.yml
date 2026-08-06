@@ -106,14 +106,24 @@ jobs:
           cd kospi-feature-stock
           python services/collector/entrypoints/disclosure_surge_scanner.py
 
-      - name: 텔레그램 추천 알림
-        if: success()
+      - name: 텔레그램 개별 매수신호 알림
         continue-on-error: true
         env:
-          POSTGRES_DSN: ${{ secrets.POSTGRES_DSN }}
-          REDIS_URL:    ${{ secrets.REDIS_URL }}
+          POSTGRES_DSN:     ${{ secrets.POSTGRES_DSN }}
+          REDIS_URL:        ${{ secrets.REDIS_URL }}
+          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          pip install redis
+          cd kospi-feature-stock
+          python scripts/send_telegram_alerts.py
+
+      - name: 텔레그램 일일 추천 요약
+        continue-on-error: true
+        env:
+          POSTGRES_DSN:     ${{ secrets.POSTGRES_DSN }}
+          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
           cd kospi-feature-stock
           python services/collector/entrypoints/notify_telegram.py
 
