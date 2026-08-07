@@ -40,9 +40,23 @@ _DEFAULT_MIN_PROB = float(os.environ.get("WS_MIN_SCORE", "0.55"))
 _CONFIG_KEY       = "telegram:config"
 
 _EMOJI = {
-    "AMOUNT_SURGE": "💰",
-    "VOLUME_SURGE": "📊",
-    "VI_TRIGGERED": "⚡",
+    "AMOUNT_SURGE":          "💰",
+    "VOLUME_SURGE":          "📊",
+    "VI_TRIGGERED":          "⚡",
+    "BREAKOUT_20D":          "🔔",
+    "BREAKOUT_52W":          "🚀",
+    "SESSION_CANDLE_WHITE":  "📈",
+    "POST_DISCLOSURE_SURGE": "📢",
+}
+
+_LABEL = {
+    "AMOUNT_SURGE":          "거래대금 급등",
+    "VOLUME_SURGE":          "거래량 급등",
+    "VI_TRIGGERED":          "VI 발동",
+    "BREAKOUT_20D":          "20일 신고가 돌파",
+    "BREAKOUT_52W":          "52주 신고가 돌파",
+    "SESSION_CANDLE_WHITE":  "장대양봉",
+    "POST_DISCLOSURE_SURGE": "공시 후 급등",
 }
 
 
@@ -115,7 +129,8 @@ def _format(ev: dict) -> str:
             f"현재가: {price:,}원  |  유형: {vi_kind}\n"
             f"탐지: {ts}"
         )
-    return f"🔔 <b>{etype} {stock}</b>\n현재가: {price:,}원  |  탐지: {ts}"
+    label = _LABEL.get(etype, etype)
+    return f"{emoji} <b>{label} {stock}</b>\n현재가: {price:,}원  |  탐지: {ts}"
 
 
 async def _handle(ev: dict, redis: redis_lib.Redis) -> None:

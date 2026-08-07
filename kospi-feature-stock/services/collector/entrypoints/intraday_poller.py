@@ -154,6 +154,7 @@ async def _emit_event(
     price: int, volume: int, amount: int,
     rule_score: float, signal_data: dict,
     detail: str = "", change_rate: float | None = None,
+    name: str = "",
 ) -> bool:
     """dedup 확인 → ML 스코어링 → 저장/발행/알림 공통 처리."""
     if await _check_dedup(redis, code, event_type):
@@ -173,6 +174,7 @@ async def _emit_event(
 
     ok = await _save_and_publish(db, redis, {
         "code":         code,
+        "name":         name or code,
         "detected_at":  now_kst,
         "event_type":   event_type,
         "price":        price,
@@ -273,6 +275,7 @@ async def _scan_code(
     db,
     code: str,
     elapsed_ratio: float,
+    name: str = "",
 ) -> int:
     """단일 종목 스캔. 저장된 이벤트 수 반환."""
     try:
@@ -316,6 +319,7 @@ async def _scan_code(
             rule_score,
             {"avg_amt_20d": round(avg_amt), "ratio": ratio, "elapsed_ratio": round(er, 2)},
             f"거래대금 {ratio}배 (20일 평균 대비)",
+            name=name,
         )
         if ok:
             saved += 1
@@ -332,6 +336,7 @@ async def _scan_code(
                 rule_score,
                 {"avg_vol_20d": round(avg_vol), "ratio": ratio, "elapsed_ratio": round(er, 2)},
                 f"거래량 {ratio}배 (20일 평균 대비)",
+                name=name,
             )
             if ok:
                 saved += 1
@@ -342,6 +347,7 @@ async def _scan_code(
             db, redis, code, bo["event_type"], now_kst,
             close_price, total_volume, acml_amount,
             bo["signal_score"], bo["signal_data"], bo["detail"],
+            name=name,
         )
         if ok:
             saved += 1
@@ -354,6 +360,7 @@ async def _scan_code(
             close_price, total_volume, acml_amount,
             sc["signal_score"], sc["signal_data"], sc["detail"],
             change_rate=sc["signal_data"]["change_rate"],
+            name=name,
         )
         if ok:
             saved += 1
@@ -367,12 +374,20 @@ async def run_scan(rest: KISRestClient, redis, db) -> int:
         logger.warning("[intraday-poller] 활성 종목 없음 — 스캔 스킵")
         return 0
 
+    try:
+        name_rows = await db.fetch(
+            "SELECT code, name FROM stocks WHERE code = ANY($1::varchar[])", codes
+        )
+        names = {r["code"]: r["name"] for r in name_rows}
+    except Exception:
+        names = {}
+
     er  = _elapsed_ratio()
     sem = asyncio.Semaphore(CONCURRENT)
 
     async def _one(code):
         async with sem:
-            return await _scan_code(rest, redis, db, code, er)
+            return await _scan_code(rest, redis, db, code, er, names.get(code, code))
 
     try:
         results = await asyncio.wait_for(

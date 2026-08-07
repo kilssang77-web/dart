@@ -192,6 +192,15 @@ async def run():
 
         codes = list(code_map.keys())
 
+        # 종목명 로드
+        try:
+            name_rows = await db.fetch(
+                "SELECT code, name FROM stocks WHERE code = ANY($1::varchar[])", codes
+            )
+            name_map = {r["code"]: r["name"] for r in name_rows}
+        except Exception:
+            name_map = {}
+
         # 2. 당일 일봉 조회
         bars_map = await _fetch_today_bars(db, codes, today)
         if not bars_map:
@@ -224,6 +233,7 @@ async def run():
 
             events.append({
                 "code":         code,
+                "name":         name_map.get(code, code),
                 "price":        bar.get("close", 0),
                 "change_rate":  change_rate,
                 "volume":       volume,
