@@ -2,13 +2,14 @@ name: API 배포 (GCP VM)
 
 on:
   push:
-    branches: [master]
+    branches: [main]
     paths:
       - 'kospi-feature-stock/services/api/**'
       - 'kospi-feature-stock/frontend/src/**'
       - 'kospi-feature-stock/frontend/package*.json'
       - 'kospi-feature-stock/frontend/vite.config.*'
       - '.github/workflows/deploy-api.yml'
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
@@ -42,7 +43,7 @@ jobs:
             echo "static 파일 변경 없음 — skip"
           else
             git commit -m "chore(frontend): 빌드 산출물 동기화 $(date +'%Y-%m-%d')"
-            git push origin HEAD:master
+            git push origin HEAD:main
           fi
 
       - name: GHCR 로그인
