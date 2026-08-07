@@ -100,7 +100,7 @@ def _date_chunks(start_str: str, end_str: str, chunk_days: int = 90):
         cur = nxt + timedelta(days=1)
 
 
-async def run_backfill(svc: StockCollector, all_codes: list[str]) -> None:
+async def run_backfill(svc: _MinimalSvc, all_codes: list[str]) -> None:
     sparse = await _get_sparse_codes(svc.db, all_codes)
     if not sparse:
         logger.info("[bars-backfill] 모든 종목이 충분한 데이터 보유 — 스킵")
