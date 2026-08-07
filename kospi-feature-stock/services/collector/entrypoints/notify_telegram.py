@@ -65,8 +65,7 @@ async def run():
                r.rationale->>'event_type'    AS event_type,
                r.success_prob,
                r.target_price,
-               r.stop_loss_price,
-               r.confidence_grade
+               r.stop_loss_price
         FROM recommendations r
         LEFT JOIN stocks s ON s.code = r.code
         WHERE DATE(r.created_at AT TIME ZONE 'Asia/Seoul') = $1
@@ -93,13 +92,12 @@ async def run():
         target = f"{int(r['target_price']):,}원"    if r["target_price"]    else "-"
         stop   = f"{int(r['stop_loss_price']):,}원" if r["stop_loss_price"] else "-"
         etype  = r["event_type"] or "UNKNOWN"
-        grade  = r["confidence_grade"] or "-"
         name   = r["name"]
         code   = r["code"]
         stock  = f"{name}({code})" if name != code else code
         lines.append(
             f"• <b>{stock}</b> [{etype}] "
-            f"확률={prob} 목표={target} 손절={stop} [{grade}]"
+            f"확률={prob} 목표={target} 손절={stop}"
         )
 
     if len(rows) > top_n:

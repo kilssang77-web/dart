@@ -172,7 +172,7 @@ async def main():
                    r.action, r.created_at,
                    r.entry_price, r.target_price, r.stop_loss_price,
                    r.success_prob, r.risk_score, r.risk_reward_ratio,
-                   r.confidence_grade, r.rationale
+                   r.rationale
             FROM recommendations r
             LEFT JOIN stocks s ON s.code = r.code
             WHERE r.action = 'BUY'
