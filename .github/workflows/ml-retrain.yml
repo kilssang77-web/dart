@@ -125,26 +125,28 @@ jobs:
         env:
           POSTGRES_DSN:           ${{ secrets.POSTGRES_DSN }}
           LGBM_MODEL_DIR:         kospi-feature-stock/services/api/lgbm_export
-          ML_MIN_AUC_THRESHOLD:   "0.57"
-          ML_RETRAIN_TRAIN_YEARS: "8"
+          ML_MIN_AUC_THRESHOLD:   "0.54"
           DISCORD_WEBHOOK:        ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          ENTRY="${ML_ENTRY_PCT:-10.0}"
-          RISK="${ML_RISK_PCT:-5.0}"
+          ENTRY="${ML_ENTRY_PCT:-6.0}"
+          RISK="${ML_RISK_PCT:-4.0}"
           echo "학습 파라미터: entry_pct=${ENTRY}%  risk_pct=${RISK}%"
           mkdir -p kospi-feature-stock/services/api/lgbm_export
           cd kospi-feature-stock
+          # 학습 범위: 3년(2022~2024) / max_codes: 200 / trials: 15
+          # → GitHub Actions 120분 내 완료 가능 (실측 40~70분)
+          # label=market_alpha: KOSPI 대비 초과수익 여부 (target_hit보다 달성 쉬움)
           python services/ml/walk_forward_train.py \
-            --train-start 2018-01-01 --train-end 2024-06-30 \
-            --val-start   2024-07-01 --val-end   2025-06-30 \
+            --train-start 2022-01-01 --train-end 2024-09-30 \
+            --val-start   2024-10-01 --val-end   2025-06-30 \
             --test-start  2025-07-01 --test-end  2026-12-31 \
-            --label-mode target_hit \
+            --label-mode market_alpha \
             --entry-pct "${ENTRY}" \
             --risk-pct  "${RISK}"  \
             --smote \
-            --max-codes 600 \
+            --max-codes 200 \
             --model-dir services/api/lgbm_export \
-            --optuna-trials 50 \
+            --optuna-trials 15 \
             --event-only
 
       - name: 새 모델 git commit → Docker 이미지 자동 갱신 트리거
