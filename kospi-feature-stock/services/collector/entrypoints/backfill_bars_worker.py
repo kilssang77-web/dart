@@ -11,7 +11,10 @@ from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from main import StockCollector, load_all_stocks
+import asyncpg
+import redis.asyncio as redis_lib
+from kis.auth import KISConfig, KISAuthManager
+from kis.rest_client import KISRestClient
 from db.writer import write_daily_bars
 
 logging.basicConfig(
@@ -19,6 +22,23 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s - %(message)s",
 )
 logger = logging.getLogger("collector-bars-backfill")
+
+
+async def load_all_stocks(db: asyncpg.Pool) -> list[str]:
+    try:
+        rows = await db.fetch("SELECT code FROM stocks WHERE is_active = TRUE ORDER BY code")
+        return [r["code"] for r in rows]
+    except Exception as e:
+        logger.warning(f"[AllStocks] DB load failed: {e}")
+        return []
+
+
+class _MinimalSvc:
+    """backfill에 필요한 db/redis/rest만 갖춘 경량 서비스 객체."""
+    def __init__(self, db, redis, rest):
+        self.db    = db
+        self.redis = redis
+        self.rest  = rest
 
 _KST              = timezone(timedelta(hours=9))
 _REDIS_KEY_LAST   = "bars_backfill:last_run"
@@ -171,8 +191,22 @@ async def run_backfill(svc: StockCollector, all_codes: list[str]) -> None:
 
 
 async def run():
-    svc = StockCollector()
-    await svc.setup()
+    dsn = os.environ["POSTGRES_DSN"].replace("+asyncpg", "")
+    ssl_val = "require" if "supabase" in dsn else False
+    db = await asyncpg.create_pool(dsn=dsn, min_size=2, max_size=5, ssl=ssl_val, statement_cache_size=0)
+
+    redis = redis_lib.from_url(os.environ["REDIS_URL"])
+
+    config = KISConfig(
+        app_key=os.environ["KIS_APP_KEY"],
+        app_secret=os.environ["KIS_APP_SECRET"],
+        account_no=os.environ.get("KIS_ACCOUNT_NO", ""),
+    )
+    auth = KISAuthManager(config, redis)
+    rest = KISRestClient(config, auth)
+
+    svc = _MinimalSvc(db, redis, rest)
+
     all_codes = await load_all_stocks(svc.db)
     logger.info(f"[bars-backfill] 활성 종목 {len(all_codes)}개 로드 완료")
 
