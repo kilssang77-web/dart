@@ -340,8 +340,13 @@ async def root():
     return FileResponse("static/index.html", headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health(request: Request):
+    # HEAD 요청(UptimeRobot 등 모니터링 도구)은 빠르게 200 반환
+    if request.method == "HEAD":
+        from fastapi.responses import Response
+        return Response(status_code=200)
+
     results = {}
     try:
         async with request.app.state.db.acquire() as c:
