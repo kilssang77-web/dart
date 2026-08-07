@@ -62,12 +62,12 @@ jobs:
                   try:
                       row = await conn.fetchrow("""
                           SELECT
-                              COUNT(*)                                      AS total,
-                              SUM(CASE WHEN is_success THEN 1 ELSE 0 END)  AS wins,
-                              AVG(r_5d)                                      AS avg_r5d
+                              COUNT(*)                                          AS total,
+                              SUM(CASE WHEN rp.is_success THEN 1 ELSE 0 END)  AS wins,
+                              AVG(rp.r_5d)                                     AS avg_r5d
                           FROM recommendation_performance rp
                           JOIN recommendations r ON r.id = rp.rec_id
-                          WHERE tracking_complete = TRUE
+                          WHERE rp.tracking_complete = TRUE
                             AND r.created_at >= NOW() - INTERVAL '30 days'
                       """)
                       total  = int(row["total"] or 0)
