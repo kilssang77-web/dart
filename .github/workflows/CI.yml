@@ -22,4 +22,13 @@ jobs:
           python-version: "3.13.2"
 
       - name: Check Python version
-        run: python --version
+        run: python --versio
+
+      - name: Validate documentation
+        run: python .harness/scripts/validate_docs.py
+
+      - name: Run project checks
+        run: python .harness/scripts/run_checks.py
+
+      - name: Run tests
+        run: python -m pytest
