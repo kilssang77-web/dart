@@ -1,5 +1,5 @@
 <p align="center" style="font-size: 3rem;">
-  <strong>atom-harness-base</strong>
+  <strong>harness-base</strong>
 </p>
 
 <p align="center"  style="font-size: 1.2rem;">
@@ -43,7 +43,7 @@ Claude Code 같은 AI 에이전트가 실제 개발 도구로 자리 잡으면�
 
 목표와 전제가 대화 안에만 남아 새 세션마다 다시 설명해야 하고, 스택·규칙 가정이 세션마다 조금씩 흔들리며, 코드는 계속 쌓이는데 "지금 기준이 무엇인지"를 파일로 갖고 있는 사람이 없는 상태가 됩니다. 에이전트에게 큰 작업을 넘길수록, 처음에 무엇을 어떻게 만들기로 했는지가 **레포 어딘가에 고정되어 있어야** 한다는 필요가 뚜렷해집니다.
 
-**atom-harness-base는 그 필요에서 출발했습니다.** Claude Code를 대체하는 것이 아니라, 그 위에 얹을 수 있는 **명세·실행·검증 흐름**을 파일과 스크립트로 미리 잡아 둔 개발 하네스입니다. "무엇을 만들고, 어떤 제약 안에서 어떻게 만들지"를 `.harness/docs/`에 문서로 두고, 단계마다 그 문서를 가드레일로 조립해 에이전트에 주입합니다. 이 약속이 파일로 살아 있는 한, 에이전트는 세션이 바뀌어도 매번 같은 전제에서 출발합니다.
+**harness-base는 그 필요에서 출발했습니다.** Claude Code를 대체하는 것이 아니라, 그 위에 얹을 수 있는 **명세·실행·검증 흐름**을 파일과 스크립트로 미리 잡아 둔 개발 하네스입니다. "무엇을 만들고, 어떤 제약 안에서 어떻게 만들지"를 `.harness/docs/`에 문서로 두고, 단계마다 그 문서를 가드레일로 조립해 에이전트에 주입합니다. 이 약속이 파일로 살아 있는 한, 에이전트는 세션이 바뀌어도 매번 같은 전제에서 출발합니다.
 
 이 방식은 실무에서 흔히 **Spec-Driven**에 가깝게 불립니다. 차이가 있다면, 여기서는 명세가 긴 문서를 혼자 작성하는 것이 아니라 **AI와의 질문·답변으로 자연스럽게 채워지는** 흐름이라는 점입니다.
 
@@ -339,7 +339,7 @@ python .harness/scripts/references.py list
 <summary>폴더 구조 보기</summary>
 
 ```
-atom-harness-base/
+harness-base/
 ├── .claude/           슬래시 명령, 에디터 훅
 ├── .global-rule/      Claude Code 전역에 한 번 복사하는 규칙 파일
 ├── .mcp.json          MCP 서버 목록
@@ -359,5 +359,5 @@ atom-harness-base/
 
 <p align="center">
   문의는 팀 내부 채널을 이용해 주세요.<br/>
-  <sub>atom-harness-base</sub>
+  <sub>harness-base</sub>
 </p>
