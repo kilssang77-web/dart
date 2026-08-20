@@ -1,7 +1,104 @@
 <p align="center" style="font-size: 3rem;">
   <strong>harness-base</strong>
 </p>
+<p>
+  # atom-harness-base
 
+## Open-source Agentic Coding Harness
+
+> Turn AI coding agents into a reproducible  
+> **Specification → Execute → Verify → Release** workflow.
+
+atom-harness-base is an open-source development harness
+designed to make AI coding agents more reliable,
+repeatable, and maintainable in real-world software projects.
+
+It does not replace AI coding agents such as Claude Code.
+Instead, it provides a workflow layer for:
+
+- Specification management
+- Task decomposition
+- Context and guardrail injection
+- Step-by-step agent execution
+- Document validation
+- Code review
+- Testing
+- Change history
+- Release management
+
+### Why?
+
+AI coding agents make software development dramatically faster,
+but large agentic coding tasks introduce new problems:
+
+- Requirements remain inside conversations
+- Context is lost between sessions
+- Coding rules are inconsistently applied
+- Large tasks become difficult to verify
+- Changes become difficult to trace
+- Testing and review can be skipped
+
+atom-harness-base moves these agreements from conversations
+into version-controlled project artifacts.
+
+### Workflow
+
+AI Conversation
+↓
+Specification
+↓
+Specification Validation
+↓
+Task / Phase Planning
+↓
+Agent Execution
+↓
+Testing & Review
+↓
+Change History
+↓
+Release
+
+### Key Features
+
+| Feature | Description |
+|---|---|
+| Spec-Driven Development | Keep requirements and design decisions in the repository |
+| Agentic Execution | Execute development tasks step-by-step |
+| Guardrails | Inject project rules and relevant documents into each task |
+| Document Validation | Validate required documents and project constraints |
+| Code Review | Structured review workflow |
+| Testing | Automated lint/build/test checks |
+| Resume Support | Resume interrupted development runs |
+| Release Notes | Automatically maintain change summaries |
+| Security Guards | Detect risky paths, commands and configuration changes |
+
+### Status
+
+🚧 Active Development
+
+The project is currently being developed and validated
+through real software development projects.
+
+### Roadmap
+
+- [x] Specification-driven workflow
+- [x] Step-based agent execution
+- [x] Document validation
+- [x] Guardrail injection
+- [x] Change history
+- [x] Release note generation
+- [ ] Codex integration
+- [ ] Automated GitHub Issue analysis
+- [ ] Automated Pull Request review
+- [ ] Security review workflow
+- [ ] Automated release workflow
+- [ ] Multi-agent orchestration
+
+### License
+
+Apache-2.0
+</p>
 <p align="center"  style="font-size: 1.2rem;">
   harness-base<br/>
 Open-source Agentic Coding Harness<br/>
