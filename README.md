@@ -3,13 +3,13 @@
 </p>
 
 <p align="center"  style="font-size: 1.2rem;">
-  harness-base
-Open-source Agentic Coding Harness
+  harness-base<br/>
+Open-source Agentic Coding Harness<br/>
 
-Turn AI coding agents into a reproducible
-Spec → Execute → Verify → Release workflow.
+Turn AI coding agents into a reproducible<br/>
+Spec → Execute → Verify → Release workflow.<br/>
 
-[Architecture] [Quick Start] [Documentation]
+[Architecture] [Quick Start] [Documentation]<br/>
   에이전틱 코딩을 위한 명세·실행·검증 하네스<br/>
   <sub>Claude Code 위에 얹는 워크플로 레이어</sub>
 </p>
