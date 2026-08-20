@@ -22,7 +22,7 @@ jobs:
           python-version: "3.13.2"
 
       - name: Check Python version
-        run: python --versio
+        run: python --version
 
       - name: Validate documentation
         run: python .harness/scripts/validate_docs.py
