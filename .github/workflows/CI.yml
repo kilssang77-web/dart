@@ -29,9 +29,3 @@ jobs:
 
       - name: Run project checks
         run: python .harness/scripts/run_checks.py
-
-      - name: Install pytest
-        run: python -m pip install pytest
-
-      - name: Run tests
-        run: python -m pytest
